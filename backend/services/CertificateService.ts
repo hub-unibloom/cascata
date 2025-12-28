@@ -103,22 +103,29 @@ export class CertificateService {
         const certDomain = proj.ssl_certificate_source || proj.custom_domain;
         const certPath = path.join(this.basePath, certDomain);
         
-        if (fs.existsSync(path.join(certPath, 'fullchain.pem')) && fs.existsSync(path.join(certPath, 'privkey.pem'))) {
+        const fullchainPath = path.join(certPath, 'fullchain.pem');
+        const privkeyPath = path.join(certPath, 'privkey.pem');
+
+        // Check availability
+        if (fs.existsSync(fullchainPath) && fs.existsSync(privkeyPath)) {
           
           const configContent = `
 server {
     listen 443 ssl;
     server_name ${proj.custom_domain};
     server_tokens off;
-    ssl_certificate /etc/letsencrypt/live/${certDomain}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${certDomain}/privkey.pem;
+    
+    # SSL Config
+    ssl_certificate ${fullchainPath};
+    ssl_certificate_key ${privkeyPath};
+    
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
     add_header Strict-Transport-Security "max-age=31536000" always;
     add_header X-Content-Type-Options "nosniff" always;
     client_max_body_size 100M;
 
-    # CRITICAL: Allow Certbot challenges even via HTTPS (Fix for Cloudflare Redirects)
+    # Allow Certbot challenges (Fix for Cloudflare Redirects)
     location /.well-known/acme-challenge/ {
         root /var/www/html;
         allow all;
@@ -135,6 +142,9 @@ server {
     }
 }`;
           fs.writeFileSync(path.join(this.nginxDynamicRoot, `${proj.slug}.conf`), configContent.trim());
+          console.log(`[CertService] Generated config for ${proj.slug} (${proj.custom_domain})`);
+        } else {
+            console.warn(`[CertService] Missing certificates for ${proj.custom_domain} (Path: ${certPath}). Skipping Nginx config.`);
         }
       }
       
@@ -209,11 +219,16 @@ server {
     if (provider === 'manual' || provider === 'cloudflare_pem' as any) {
         if (!manualData?.cert || !manualData?.key) throw new Error("Cert/Key required.");
         if (!fs.existsSync(this.basePath)) fs.mkdirSync(this.basePath, { recursive: true });
-        if (!fs.existsSync(domainDir)) fs.mkdirSync(domainDir, { recursive: true });
         
+        // Force recreation of directory to clean up any old symlinks/data
+        if (fs.existsSync(domainDir)) fs.rmSync(domainDir, { recursive: true, force: true });
+        fs.mkdirSync(domainDir, { recursive: true });
+        
+        // Use trim() to avoid newline issues
         fs.writeFileSync(path.join(domainDir, 'fullchain.pem'), manualData.cert.trim());
         fs.writeFileSync(path.join(domainDir, 'privkey.pem'), manualData.key.trim());
         
+        console.log(`[CertService] Manual certificates saved for ${cleanDomain}`);
         await finishSetup();
         return { success: true, message: "Certificados manuais instalados." };
     }
