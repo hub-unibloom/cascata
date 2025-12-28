@@ -622,7 +622,7 @@ app.get('/api/data/:slug/realtime', (req, res) => RealtimeService.handleConnecti
 
 // --- DATA PLANE: TABLES ---
 
-app.get('/api/data/:slug/tables/:tableName/data', async (req: any, res: any) => {
+app.get('/api/data/:slug/tables/:tableName/data', async (req: any, res: any, next: NextFunction) => {
     const r = req as CascataRequest;
     try {
         const safeTable = quoteId(req.params.tableName);
@@ -633,11 +633,11 @@ app.get('/api/data/:slug/tables/:tableName/data', async (req: any, res: any) => 
             return await client.query(`SELECT * FROM public.${safeTable} LIMIT $1 OFFSET $2`, [limit, offset]);
         });
         res.json(result.rows);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { next(e); }
 });
 
 // Insert
-app.post('/api/data/:slug/tables/:tableName/rows', async (req: any, res: any) => {
+app.post('/api/data/:slug/tables/:tableName/rows', async (req: any, res: any, next: NextFunction) => {
     const r = req as CascataRequest;
     try {
         const safeTable = quoteId(req.params.tableName);
@@ -661,11 +661,11 @@ app.post('/api/data/:slug/tables/:tableName/rows', async (req: any, res: any) =>
             );
         });
         res.status(201).json(result.rows);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { next(e); }
 });
 
 // Update
-app.put('/api/data/:slug/tables/:tableName/rows', async (req: any, res: any) => {
+app.put('/api/data/:slug/tables/:tableName/rows', async (req: any, res: any, next: NextFunction) => {
     const r = req as CascataRequest;
     try {
         const safeTable = quoteId(req.params.tableName);
@@ -684,11 +684,11 @@ app.put('/api/data/:slug/tables/:tableName/rows', async (req: any, res: any) => 
             );
         });
         res.json(result.rows);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { next(e); }
 });
 
 // Delete
-app.delete('/api/data/:slug/tables/:tableName/rows', async (req: any, res: any) => {
+app.delete('/api/data/:slug/tables/:tableName/rows', async (req: any, res: any, next: NextFunction) => {
     const r = req as CascataRequest;
     try {
         const safeTable = quoteId(req.params.tableName);
@@ -703,12 +703,12 @@ app.delete('/api/data/:slug/tables/:tableName/rows', async (req: any, res: any) 
             );
         });
         res.json(result.rows);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { next(e); }
 });
 
 // --- DATA PLANE: TABLE MANAGEMENT & METADATA ---
 
-app.get('/api/data/:slug/tables', async (req: any, res: any) => {
+app.get('/api/data/:slug/tables', async (req: any, res: any, next: NextFunction) => {
     const r = req as CascataRequest;
     try {
         const result = await queryWithRLS(r, async (client) => {
@@ -720,10 +720,10 @@ app.get('/api/data/:slug/tables', async (req: any, res: any) => {
             `);
         });
         res.json(result.rows);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { next(e); }
 });
 
-app.get('/api/data/:slug/tables/:tableName/columns', async (req: any, res: any) => {
+app.get('/api/data/:slug/tables/:tableName/columns', async (req: any, res: any, next: NextFunction) => {
     const r = req as CascataRequest;
     try {
         const result = await queryWithRLS(r, async (client) => {
@@ -738,11 +738,11 @@ app.get('/api/data/:slug/tables/:tableName/columns', async (req: any, res: any) 
             `, [req.params.tableName]);
         });
         res.json(result.rows);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { next(e); }
 });
 
-// Create Table
-app.post('/api/data/:slug/tables', async (req: any, res: any) => {
+// Create Table (Enhanced with Validation)
+app.post('/api/data/:slug/tables', async (req: any, res: any, next: NextFunction) => {
     const r = req as CascataRequest;
     // Only dashboard/admin can create tables
     if (!r.isSystemRequest) { res.status(403).json({ error: 'Only Dashboard can create tables.' }); return; }
@@ -751,6 +751,11 @@ app.post('/api/data/:slug/tables', async (req: any, res: any) => {
     if (!name || !columns) { res.status(400).json({ error: 'Missing table def' }); return; }
 
     try {
+        // SECURITY CHECK: Validate Schema & Foreign Keys before executing DDL
+        if (r.projectPool) {
+            await DatabaseService.validateTableDefinition(r.projectPool, name, columns);
+        }
+
         const safeName = quoteId(name);
         const colDefs = columns.map((c: any) => {
             let def = `${quoteId(c.name)} ${c.type}`;
@@ -779,10 +784,10 @@ app.post('/api/data/:slug/tables', async (req: any, res: any) => {
         }
 
         res.json({ success: true });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { next(e); }
 });
 
-app.delete('/api/data/:slug/tables/:table', async (req: any, res: any) => {
+app.delete('/api/data/:slug/tables/:table', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   if (!r.isSystemRequest) { res.status(403).json({ error: 'Only Dashboard can delete tables.' }); return; }
   const { mode } = req.body;
@@ -795,10 +800,10 @@ app.delete('/api/data/:slug/tables/:table', async (req: any, res: any) => {
         await r.projectPool!.query(`ALTER TABLE public.${quoteId(req.params.table)} RENAME TO ${quoteId(deletedName)}`);
     }
     res.json({ success: true });
-  } catch (e: any) { res.status(400).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
-app.get('/api/data/:slug/recycle-bin', async (req: any, res: any) => {
+app.get('/api/data/:slug/recycle-bin', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   if (!r.isSystemRequest) { res.status(403).json({ error: 'Unauthorized' }); return; }
   try {
@@ -806,10 +811,10 @@ app.get('/api/data/:slug/recycle-bin', async (req: any, res: any) => {
       "SELECT table_name as name FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE '_deleted_%'"
     );
     res.json(result.rows);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
-app.post('/api/data/:slug/recycle-bin/:table/restore', async (req: any, res: any) => {
+app.post('/api/data/:slug/recycle-bin/:table/restore', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   if (!r.isSystemRequest) { res.status(403).json({ error: 'Unauthorized' }); return; }
   const tableName = req.params.table;
@@ -817,10 +822,10 @@ app.post('/api/data/:slug/recycle-bin/:table/restore', async (req: any, res: any
     const originalName = tableName.replace(/^_deleted_\d+_/, '');
     await r.projectPool!.query(`ALTER TABLE public.${quoteId(tableName)} RENAME TO ${quoteId(originalName)}`);
     res.json({ success: true, restoredName: originalName });
-  } catch (e: any) { res.status(400).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
-app.post('/api/data/:slug/query', async (req: any, res: any) => {
+app.post('/api/data/:slug/query', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   const { sql } = req.body;
   if (r.userRole !== 'service_role') { res.status(403).json({ error: 'Only Service Role can execute raw SQL' }); return; }
@@ -828,10 +833,10 @@ app.post('/api/data/:slug/query', async (req: any, res: any) => {
   try {
     const result = await r.projectPool!.query(sql);
     res.json({ rows: result.rows, rowCount: result.rowCount, command: result.command, duration: Date.now() - start });
-  } catch (e: any) { res.status(400).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
-app.get('/api/data/:slug/stats', async (req: any, res: any) => {
+app.get('/api/data/:slug/stats', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   if (!r.isSystemRequest) { res.status(403).json({ error: 'Unauthorized' }); return; }
   try {
@@ -845,20 +850,20 @@ app.get('/api/data/:slug/stats', async (req: any, res: any) => {
       users: parseInt(users.rows[0].count),
       size: size.rows[0].pg_size_pretty
     });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
 // --- DATA PLANE: RPC & ASSETS ---
 
-app.get('/api/data/:slug/assets', async (req: any, res: any) => {
+app.get('/api/data/:slug/assets', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   try {
     const result = await systemPool.query('SELECT * FROM system.assets WHERE project_slug = $1', [r.project.slug]);
     res.json(result.rows);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
-app.post('/api/data/:slug/assets', async (req: any, res: any) => {
+app.post('/api/data/:slug/assets', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   const { id, name, type, parent_id, metadata } = req.body;
   try {
@@ -869,15 +874,15 @@ app.post('/api/data/:slug/assets', async (req: any, res: any) => {
        const ins = await systemPool.query('INSERT INTO system.assets (project_slug, name, type, parent_id, metadata) VALUES ($1, $2, $3, $4, $5) RETURNING *', [r.project.slug, name, type, parent_id, metadata]);
        res.json(ins.rows[0]);
     }
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
-app.delete('/api/data/:slug/assets/:id', async (req: any, res: any) => {
+app.delete('/api/data/:slug/assets/:id', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
-  try { await systemPool.query('DELETE FROM system.assets WHERE id=$1', [req.params.id]); res.json({ success: true }); } catch (e: any) { res.status(500).json({ error: e.message }); }
+  try { await systemPool.query('DELETE FROM system.assets WHERE id=$1', [req.params.id]); res.json({ success: true }); } catch (e: any) { next(e); }
 });
 
-app.post('/api/data/:slug/rpc/:name', async (req: any, res: any) => {
+app.post('/api/data/:slug/rpc/:name', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   const params = req.body || {};
   const placeholders = Object.keys(params).map((_, i) => `$${i + 1}`).join(', ');
@@ -891,10 +896,10 @@ app.post('/api/data/:slug/rpc/:name', async (req: any, res: any) => {
         return result.rows;
     });
     res.json(rows);
-  } catch (e: any) { res.status(400).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
-app.get('/api/data/:slug/functions', async (req: any, res: any) => {
+app.get('/api/data/:slug/functions', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   try { const result = await r.projectPool!.query(`
     SELECT routine_name as name 
@@ -910,26 +915,26 @@ app.get('/api/data/:slug/functions', async (req: any, res: any) => {
     AND routine_name NOT LIKE 'gen_salt%'
     AND routine_name NOT LIKE 'encrypt%'
     AND routine_name NOT LIKE 'decrypt%'
-  `); res.json(result.rows); } catch (e: any) { res.status(500).json({ error: e.message }); }
+  `); res.json(result.rows); } catch (e: any) { next(e); }
 });
 
-app.get('/api/data/:slug/triggers', async (req: any, res: any) => {
+app.get('/api/data/:slug/triggers', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
-  try { const result = await r.projectPool!.query(`SELECT trigger_name as name FROM information_schema.triggers`); res.json(result.rows); } catch (e: any) { res.status(500).json({ error: e.message }); }
+  try { const result = await r.projectPool!.query(`SELECT trigger_name as name FROM information_schema.triggers`); res.json(result.rows); } catch (e: any) { next(e); }
 });
 
 // --- DATA PLANE: AUTH MANAGEMENT ---
 
-app.get('/api/data/:slug/auth/users', async (req: any, res: any) => {
+app.get('/api/data/:slug/auth/users', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   if (!r.isSystemRequest) { res.status(403).json({ error: 'Unauthorized' }); return; }
   try {
     const result = await r.projectPool!.query(`SELECT u.id, u.created_at, u.banned, u.last_sign_in_at, jsonb_agg(jsonb_build_object('id', i.id, 'provider', i.provider, 'identifier', i.identifier)) as identities FROM auth.users u LEFT JOIN auth.identities i ON u.id = i.user_id GROUP BY u.id ORDER BY u.created_at DESC`);
     res.json(result.rows);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
-app.post('/api/data/:slug/auth/users', async (req: any, res: any) => {
+app.post('/api/data/:slug/auth/users', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   const { strategies, profileData } = req.body; 
   try {
@@ -940,39 +945,75 @@ app.post('/api/data/:slug/auth/users', async (req: any, res: any) => {
         const userRes = await client.query('INSERT INTO auth.users (raw_user_meta_data) VALUES ($1) RETURNING id', [profileData || {}]);
         const userId = userRes.rows[0].id;
         if (strategies) {
-            for (const s of strategies) await client.query('INSERT INTO auth.identities (user_id, provider, identifier, password_hash) VALUES ($1, $2, $3, $4)', [userId, s.provider, s.identifier, s.password]);
+            for (const s of strategies) {
+                // SECURITY: Hash password before storing in auth.identities
+                let passwordHash = s.password;
+                if (s.password) {
+                    passwordHash = await bcrypt.hash(s.password, 10);
+                }
+                
+                await client.query(
+                    'INSERT INTO auth.identities (user_id, provider, identifier, password_hash) VALUES ($1, $2, $3, $4)', 
+                    [userId, s.provider, s.identifier, passwordHash]
+                );
+            }
         }
         await client.query('COMMIT');
         res.json({ success: true, id: userId });
     } finally { client.release(); }
-  } catch (e: any) { res.status(400).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
-app.patch('/api/data/:slug/auth/users/:id/status', async (req: any, res: any) => {
+app.patch('/api/data/:slug/auth/users/:id/status', async (req: any, res: any, next: NextFunction) => {
     const r = req as CascataRequest;
     if (!r.isSystemRequest) { res.status(403).json({ error: 'Unauthorized' }); return; }
-    try { await r.projectPool!.query('UPDATE auth.users SET banned = $1 WHERE id = $2', [req.body.banned, req.params.id]); res.json({ success: true }); } catch (e: any) { res.status(500).json({ error: e.message }); }
+    try { await r.projectPool!.query('UPDATE auth.users SET banned = $1 WHERE id = $2', [req.body.banned, req.params.id]); res.json({ success: true }); } catch (e: any) { next(e); }
 });
 
-app.delete('/api/data/:slug/auth/users/:id', async (req: any, res: any) => {
+app.delete('/api/data/:slug/auth/users/:id', async (req: any, res: any, next: NextFunction) => {
     const r = req as CascataRequest;
     if (!r.isSystemRequest) { res.status(403).json({ error: 'Unauthorized' }); return; }
-    try { await r.projectPool!.query('DELETE FROM auth.users WHERE id = $1', [req.params.id]); res.json({ success: true }); } catch (e: any) { res.status(500).json({ error: e.message }); }
+    try { await r.projectPool!.query('DELETE FROM auth.users WHERE id = $1', [req.params.id]); res.json({ success: true }); } catch (e: any) { next(e); }
 });
 
-app.post('/api/data/:slug/auth/token', async (req: any, res: any) => {
+app.post('/api/data/:slug/auth/token', async (req: any, res: any, next: NextFunction) => {
     const r = req as CascataRequest;
     const { provider, identifier, password } = req.body;
     try {
-        // Simple password auth flow for testing
+        // SECURITY: Verify password using bcrypt
         const idRes = await r.projectPool!.query('SELECT * FROM auth.identities WHERE provider = $1 AND identifier = $2', [provider, identifier]);
-        if (!idRes.rows[0] || idRes.rows[0].password_hash !== password) { res.status(401).json({ error: 'Invalid credentials' }); return; }
+        
+        if (!idRes.rows[0]) { 
+            return res.status(401).json({ error: 'Invalid credentials' }); 
+        }
+
+        const storedHash = idRes.rows[0].password_hash;
+        
+        // Handle Auto-Migration for Data Plane Users (Optional but consistent)
+        // If stored password is NOT a bcrypt hash, assume plain text from legacy import
+        let isValid = false;
+        
+        if (!storedHash.startsWith('$2')) {
+            if (storedHash === password) {
+                isValid = true;
+                // Upgrade to Hash
+                const newHash = await bcrypt.hash(password, 10);
+                await r.projectPool!.query('UPDATE auth.identities SET password_hash = $1 WHERE id = $2', [newHash, idRes.rows[0].id]);
+            }
+        } else {
+            isValid = await bcrypt.compare(password, storedHash);
+        }
+
+        if (!isValid) { 
+            return res.status(401).json({ error: 'Invalid credentials' }); 
+        }
+
         const session = await AuthService.createSession(idRes.rows[0].user_id, r.projectPool!, r.project.jwt_secret);
         res.json(session);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { next(e); }
 });
 
-app.post('/api/data/:slug/auth/link', async (req: any, res: any) => {
+app.post('/api/data/:slug/auth/link', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   const { linked_tables, authStrategies, authConfig } = req.body;
   try {
@@ -1005,12 +1046,12 @@ app.post('/api/data/:slug/auth/link', async (req: any, res: any) => {
         }
     }
     res.json({ success: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
 // --- DATA PLANE: STORAGE ---
 
-app.get('/api/data/:slug/storage/search', async (req: any, res: any) => {
+app.get('/api/data/:slug/storage/search', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   const { q, bucket } = req.query;
   const searchTerm = (q as string || '').toLowerCase();
@@ -1025,11 +1066,11 @@ app.get('/api/data/:slug/storage/search', async (req: any, res: any) => {
     }
     res.json({ items: allFiles });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    next(e);
   }
 });
 
-app.get('/api/data/:slug/storage/buckets', async (req: any, res: any) => {
+app.get('/api/data/:slug/storage/buckets', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   const p = path.join(STORAGE_ROOT, r.project.slug);
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
@@ -1037,14 +1078,14 @@ app.get('/api/data/:slug/storage/buckets', async (req: any, res: any) => {
   res.json(items.map(name => ({ name })));
 });
 
-app.post('/api/data/:slug/storage/buckets', async (req: any, res: any) => {
+app.post('/api/data/:slug/storage/buckets', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   const p = path.join(STORAGE_ROOT, r.project.slug, req.body.name);
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
   res.json({ success: true });
 });
 
-app.patch('/api/data/:slug/storage/buckets/:name', async (req: any, res: any) => {
+app.patch('/api/data/:slug/storage/buckets/:name', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   const oldPath = path.join(STORAGE_ROOT, r.project.slug, req.params.name);
   const newPath = path.join(STORAGE_ROOT, r.project.slug, req.body.newName);
@@ -1054,7 +1095,7 @@ app.patch('/api/data/:slug/storage/buckets/:name', async (req: any, res: any) =>
   res.json({ success: true });
 });
 
-app.delete('/api/data/:slug/storage/buckets/:name', async (req: any, res: any) => {
+app.delete('/api/data/:slug/storage/buckets/:name', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   const bucketPath = path.join(STORAGE_ROOT, r.project.slug, req.params.name);
   if (!fs.existsSync(bucketPath)) { res.status(404).json({ error: 'Bucket not found' }); return; }
@@ -1067,7 +1108,7 @@ app.delete('/api/data/:slug/storage/buckets/:name', async (req: any, res: any) =
   }
 });
 
-app.post('/api/data/:slug/storage/:bucket/folder', async (req: any, res: any) => {
+app.post('/api/data/:slug/storage/:bucket/folder', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   const { name, path: relativePath } = req.body;
   const bucketPath = path.join(STORAGE_ROOT, r.project.slug, req.params.bucket);
@@ -1081,7 +1122,7 @@ app.post('/api/data/:slug/storage/:bucket/folder', async (req: any, res: any) =>
   }
 });
 
-app.get('/api/data/:slug/storage/:bucket/list', async (req: any, res: any) => {
+app.get('/api/data/:slug/storage/:bucket/list', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   const { path: queryPath } = req.query;
   const bucketPath = path.join(STORAGE_ROOT, r.project.slug, req.params.bucket);
@@ -1102,10 +1143,10 @@ app.get('/api/data/:slug/storage/:bucket/list', async (req: any, res: any) => {
       };
     });
     res.json({ items });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
-app.get('/api/data/:slug/storage/:bucket/object/*', async (req: any, res: any) => {
+app.get('/api/data/:slug/storage/:bucket/object/*', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   const relativePath = req.params[0]; 
   const bucketPath = path.join(STORAGE_ROOT, r.project.slug, req.params.bucket);
@@ -1115,41 +1156,65 @@ app.get('/api/data/:slug/storage/:bucket/object/*', async (req: any, res: any) =
   res.sendFile(filePath);
 });
 
-app.post('/api/data/:slug/storage/:bucket/upload', upload.single('file') as any, async (req: any, res: any) => {
-  const r = req as CascataRequest;
-  if (!r.file) { res.status(400).json({ error: 'No file found in request' }); return; }
-  const governance = r.project.metadata?.storage_governance || {};
-  const ext = path.extname(r.file.originalname).replace('.', '').toLowerCase();
-  const sector = getSectorForExt(ext);
-  const rule = governance[sector] || governance['global'] || { max_size: '10MB', allowed_exts: [] };
-  
-  if (rule.allowed_exts && rule.allowed_exts.length > 0) {
-      if (!rule.allowed_exts.includes(ext)) {
-          fs.unlinkSync(r.file.path);
-          res.status(403).json({ error: `Policy Violation: Extension .${ext} is not allowed.` });
-          return;
-      }
-  }
-  
-  if (!validateMagicBytes(r.file.path, ext)) {
-      fs.unlinkSync(r.file.path);
-      res.status(400).json({ error: 'Security Alert: File signature mismatch.' });
-      return;
-  }
+// STEP 3.2: Secure Upload Route (Robust Error Handling)
+app.post('/api/data/:slug/storage/:bucket/upload', async (req: any, res: any, next: NextFunction) => {
+    // Manually invoking multer to catch specific upload errors before they bubble up
+    // and to ensure we are in control of the response format.
+    (upload.single('file') as any)(req, res, async (err: any) => {
+        if (err) {
+            // Multer specific errors (Limit exceeded, etc)
+            if (err instanceof multer.MulterError) {
+                return res.status(400).json({ error: `Upload Error: ${err.message}`, code: err.code });
+            }
+            return next(err); // Pass other errors to global handler
+        }
 
-  const maxBytes = parseBytes(rule.max_size);
-  if (r.file.size > maxBytes) {
-      fs.unlinkSync(r.file.path);
-      res.status(403).json({ error: `Policy Violation: File size exceeds limit of ${rule.max_size}.` });
-      return;
-  }
-  const dest = path.join(STORAGE_ROOT, r.project.slug, req.params.bucket, r.body.path || '', r.file.originalname);
-  if (!fs.existsSync(path.dirname(dest))) fs.mkdirSync(path.dirname(dest), { recursive: true });
-  fs.renameSync(r.file.path, dest);
-  res.json({ success: true });
+        const r = req as CascataRequest;
+        if (!r.file) { 
+            return res.status(400).json({ error: 'No file found in request body.' }); 
+        }
+
+        try {
+            const governance = r.project.metadata?.storage_governance || {};
+            const ext = path.extname(r.file.originalname).replace('.', '').toLowerCase();
+            const sector = getSectorForExt(ext);
+            const rule = governance[sector] || governance['global'] || { max_size: '10MB', allowed_exts: [] };
+            
+            // Security Checks
+            if (rule.allowed_exts && rule.allowed_exts.length > 0) {
+                if (!rule.allowed_exts.includes(ext)) {
+                    fs.unlinkSync(r.file.path);
+                    return res.status(403).json({ error: `Policy Violation: Extension .${ext} is not allowed.` });
+                }
+            }
+            
+            if (!validateMagicBytes(r.file.path, ext)) {
+                fs.unlinkSync(r.file.path);
+                return res.status(400).json({ error: 'Security Alert: File signature mismatch (Spoofing detected).' });
+            }
+
+            const maxBytes = parseBytes(rule.max_size);
+            if (r.file.size > maxBytes) {
+                fs.unlinkSync(r.file.path);
+                return res.status(403).json({ error: `Policy Violation: File size exceeds limit of ${rule.max_size}.` });
+            }
+
+            const dest = path.join(STORAGE_ROOT, r.project.slug, req.params.bucket, r.body.path || '', r.file.originalname);
+            if (!fs.existsSync(path.dirname(dest))) fs.mkdirSync(path.dirname(dest), { recursive: true });
+            
+            // Atomic move
+            fs.renameSync(r.file.path, dest);
+            res.json({ success: true, path: dest.replace(STORAGE_ROOT, '') });
+
+        } catch (e: any) {
+            // Ensure temp file is cleaned up on error
+            if (r.file && fs.existsSync(r.file.path)) fs.unlinkSync(r.file.path);
+            next(e);
+        }
+    });
 });
 
-app.post('/api/data/:slug/storage/move', async (req: any, res: any) => {
+app.post('/api/data/:slug/storage/move', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   const { bucket, paths, destination } = req.body; 
   const root = path.join(STORAGE_ROOT, r.project.slug);
@@ -1168,7 +1233,7 @@ app.post('/api/data/:slug/storage/move', async (req: any, res: any) => {
   res.json({ success: true, moved: movedCount });
 });
 
-app.delete('/api/data/:slug/storage/:bucket/object', async (req: any, res: any) => {
+app.delete('/api/data/:slug/storage/:bucket/object', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   const { path: queryPath } = req.query;
   const filePath = path.join(STORAGE_ROOT, r.project.slug, req.params.bucket, (queryPath as string));
@@ -1182,26 +1247,26 @@ app.delete('/api/data/:slug/storage/:bucket/object', async (req: any, res: any) 
 
 // --- DATA PLANE: DOCS & AI ---
 
-app.get('/api/data/:slug/docs/pages', async (req: any, res: any) => {
+app.get('/api/data/:slug/docs/pages', async (req: any, res: any, next: NextFunction) => {
     try {
         const result = await systemPool.query(
             `SELECT * FROM system.doc_pages WHERE project_slug = $1 ORDER BY title ASC`,
             [req.params.slug]
         );
         res.json(result.rows);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { next(e); }
 });
 
-app.get('/api/data/:slug/docs/openapi', async (req: any, res: any) => {
+app.get('/api/data/:slug/docs/openapi', async (req: any, res: any, next: NextFunction) => {
     const r = req as CascataRequest;
     try {
         const host = req.headers.host || 'localhost';
         const spec = await OpenApiService.generate(r.project.slug, r.project.db_name, r.projectPool!, host);
         res.json(spec);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { next(e); }
 });
 
-app.post('/api/data/:slug/ai/chat', async (req: any, res: any) => {
+app.post('/api/data/:slug/ai/chat', async (req: any, res: any, next: NextFunction) => {
     const r = req as CascataRequest;
     // Get System Settings to fetch API Key
     const settingsRes = await systemPool.query("SELECT settings FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'ai_config'");
@@ -1223,11 +1288,11 @@ app.post('/api/data/:slug/ai/chat', async (req: any, res: any) => {
         
         res.json(response);
     } catch (e: any) {
-        res.status(500).json({ error: e.message });
+        next(e);
     }
 });
 
-app.get('/api/data/:slug/ai/history/:session_id', async (req: any, res: any) => {
+app.get('/api/data/:slug/ai/history/:session_id', async (req: any, res: any, next: NextFunction) => {
     const r = req as CascataRequest;
     try {
         const result = await systemPool.query(
@@ -1237,10 +1302,10 @@ app.get('/api/data/:slug/ai/history/:session_id', async (req: any, res: any) => 
             [r.project.slug, req.params.session_id]
         );
         res.json(result.rows);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { next(e); }
 });
 
-app.post('/api/data/:slug/ai/draft-doc', async (req: any, res: any) => {
+app.post('/api/data/:slug/ai/draft-doc', async (req: any, res: any, next: NextFunction) => {
     const r = req as CascataRequest;
     const { tableName } = req.body;
     const settingsRes = await systemPool.query("SELECT settings FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'ai_config'");
@@ -1260,20 +1325,20 @@ app.post('/api/data/:slug/ai/draft-doc', async (req: any, res: any) => {
         );
         
         res.json(saveRes.rows[0]);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { next(e); }
 });
 
 // --- DATA PLANE: SECURITY & RATE LIMITS ---
 
-app.get('/api/data/:slug/security/status', async (req: any, res: any) => {
+app.get('/api/data/:slug/security/status', async (req: any, res: any, next: NextFunction) => {
     try {
         // Mock RPS for now until Stats service is fully implemented
         const panicMode = await RateLimitService.checkPanic(req.params.slug);
         res.json({ current_rps: 0, panic_mode: panicMode });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { next(e); }
 });
 
-app.post('/api/data/:slug/security/panic', async (req: any, res: any) => {
+app.post('/api/data/:slug/security/panic', async (req: any, res: any, next: NextFunction) => {
     const { enabled } = req.body;
     try {
         await RateLimitService.setPanic(req.params.slug, enabled);
@@ -1284,17 +1349,17 @@ app.post('/api/data/:slug/security/panic', async (req: any, res: any) => {
             [JSON.stringify(enabled), req.params.slug]
         );
         res.json({ success: true, panic_mode: enabled });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { next(e); }
 });
 
-app.get('/api/data/:slug/rate-limits', async (req: any, res: any) => {
+app.get('/api/data/:slug/rate-limits', async (req: any, res: any, next: NextFunction) => {
     try {
         const result = await systemPool.query('SELECT * FROM system.rate_limits WHERE project_slug = $1 ORDER BY created_at DESC', [req.params.slug]);
         res.json(result.rows);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { next(e); }
 });
 
-app.post('/api/data/:slug/rate-limits', async (req: any, res: any) => {
+app.post('/api/data/:slug/rate-limits', async (req: any, res: any, next: NextFunction) => {
     const { route_pattern, method, rate_limit, burst_limit, window_seconds, message_anon, message_auth } = req.body;
     try {
         const result = await systemPool.query(
@@ -1313,68 +1378,105 @@ app.post('/api/data/:slug/rate-limits', async (req: any, res: any) => {
         );
         RateLimitService.clearRules(req.params.slug);
         res.json(result.rows[0]);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { next(e); }
 });
 
-app.delete('/api/data/:slug/rate-limits/:id', async (req: any, res: any) => {
+app.delete('/api/data/:slug/rate-limits/:id', async (req: any, res: any, next: NextFunction) => {
     try {
         await systemPool.query('DELETE FROM system.rate_limits WHERE id = $1 AND project_slug = $2', [req.params.id, req.params.slug]);
         RateLimitService.clearRules(req.params.slug);
         res.json({ success: true });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { next(e); }
 });
 
-app.get('/api/data/:slug/policies', async (req: any, res: any) => {
+app.get('/api/data/:slug/policies', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
-  try { const result = await r.projectPool!.query("SELECT * FROM pg_policies"); res.json(result.rows); } catch (e: any) { res.status(500).json({ error: e.message }); }
+  try { const result = await r.projectPool!.query("SELECT * FROM pg_policies"); res.json(result.rows); } catch (e: any) { next(e); }
 });
 
-app.post('/api/data/:slug/policies', async (req: any, res: any) => {
+app.post('/api/data/:slug/policies', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   const { name, table, command, role, using, withCheck } = req.body;
   const sql = `CREATE POLICY ${quoteId(name)} ON public.${quoteId(table)} FOR ${command} TO ${role} USING (${using}) ${withCheck ? `WITH CHECK (${withCheck})` : ''}`;
-  try { await r.projectPool!.query(sql); res.json({ success: true }); } catch (e: any) { res.status(400).json({ error: e.message }); }
+  try { await r.projectPool!.query(sql); res.json({ success: true }); } catch (e: any) { next(e); }
 });
 
-app.delete('/api/data/:slug/policies/:table/:name', async (req: any, res: any) => {
+app.delete('/api/data/:slug/policies/:table/:name', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
-  try { await r.projectPool!.query(`DROP POLICY ${quoteId(req.params.name)} ON public.${quoteId(req.params.table)}`); res.json({ success: true }); } catch (e: any) { res.status(400).json({ error: e.message }); }
+  try { await r.projectPool!.query(`DROP POLICY ${quoteId(req.params.name)} ON public.${quoteId(req.params.table)}`); res.json({ success: true }); } catch (e: any) { next(e); }
 });
 
-app.get('/api/data/:slug/ui-settings/:table', async (req: any, res: any) => {
+app.get('/api/data/:slug/ui-settings/:table', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
-  try { const result = await systemPool.query('SELECT settings FROM system.ui_settings WHERE project_slug = $1 AND table_name = $2', [r.project.slug, req.params.table]); res.json(result.rows[0]?.settings || {}); } catch (e: any) { res.status(500).json({ error: e.message }); }
+  try { const result = await systemPool.query('SELECT settings FROM system.ui_settings WHERE project_slug = $1 AND table_name = $2', [r.project.slug, req.params.table]); res.json(result.rows[0]?.settings || {}); } catch (e: any) { next(e); }
 });
 
-app.post('/api/data/:slug/ui-settings/:table', async (req: any, res: any) => {
+app.post('/api/data/:slug/ui-settings/:table', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
-  try { await systemPool.query(`INSERT INTO system.ui_settings (project_slug, table_name, settings) VALUES ($1, $2, $3) ON CONFLICT (project_slug, table_name) DO UPDATE SET settings = $3`, [r.project.slug, req.params.table, req.body.settings]); res.json({ success: true }); } catch (e: any) { res.status(500).json({ error: e.message }); }
+  try { await systemPool.query(`INSERT INTO system.ui_settings (project_slug, table_name, settings) VALUES ($1, $2, $3) ON CONFLICT (project_slug, table_name) DO UPDATE SET settings = $3`, [r.project.slug, req.params.table, req.body.settings]); res.json({ success: true }); } catch (e: any) { next(e); }
 });
 
-app.get('/api/data/:slug/logs', async (req: any, res: any) => {
+app.get('/api/data/:slug/logs', async (req: any, res: any, next: NextFunction) => {
   const r = req as CascataRequest;
   try {
     const result = await systemPool.query('SELECT * FROM system.api_logs WHERE project_slug = $1 ORDER BY created_at DESC LIMIT 100', [r.project.slug]);
     res.json(result.rows);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
-// --- CONTROL PLANE: PROJECTS (With Encryption) ---
-app.get('/api/control/projects', async (req: any, res: any) => {
+// --- CONTROL PLANE: PROJECTS (With Security Upgrade - No Auto Decrypt) ---
+app.get('/api/control/projects', async (req: any, res: any, next: NextFunction) => {
   try {
     const result = await systemPool.query(`
         SELECT 
             id, name, slug, db_name, custom_domain, ssl_certificate_source, blocklist, metadata, status, created_at,
-            pgp_sym_decrypt(jwt_secret::bytea, $1) as jwt_secret,
-            pgp_sym_decrypt(anon_key::bytea, $1) as anon_key,
-            pgp_sym_decrypt(service_key::bytea, $1) as service_key
+            '******' as jwt_secret,
+            '******' as anon_key,
+            '******' as service_key
         FROM system.projects ORDER BY created_at DESC
-    `, [SYS_SECRET]);
+    `);
     res.json(result.rows);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
-app.post('/api/control/projects', async (req: any, res: any) => {
+// --- NEW SECURE ROUTE: REVEAL KEY (Sudo Mode) ---
+app.post('/api/control/projects/:slug/reveal-key', async (req: any, res: any, next: NextFunction) => {
+    const { password, keyType } = req.body;
+    const { slug } = req.params;
+
+    if (!password || !keyType) return res.status(400).json({ error: "Missing credentials" });
+    if (!['jwt_secret', 'anon_key', 'service_key'].includes(keyType)) return res.status(400).json({ error: "Invalid key type" });
+
+    try {
+        // 1. Verify Admin Password (Re-Auth)
+        const adminRes = await systemPool.query('SELECT * FROM system.admin_users LIMIT 1');
+        const admin = adminRes.rows[0];
+        
+        let isValid = false;
+        if (!admin.password_hash.startsWith('$2')) {
+            isValid = admin.password_hash === password;
+        } else {
+            isValid = await bcrypt.compare(password, admin.password_hash);
+        }
+
+        if (!isValid) return res.status(403).json({ error: "Invalid Sudo Password" });
+
+        // 2. Decrypt specific key
+        const keyRes = await systemPool.query(
+            `SELECT pgp_sym_decrypt(${keyType}::bytea, $2) as decrypted_key FROM system.projects WHERE slug = $1`,
+            [slug, SYS_SECRET]
+        );
+
+        if (keyRes.rows.length === 0) return res.status(404).json({ error: "Project not found" });
+
+        res.json({ key: keyRes.rows[0].decrypted_key });
+
+    } catch (e: any) {
+        next(e);
+    }
+});
+
+app.post('/api/control/projects', async (req: any, res: any, next: NextFunction) => {
   const { name, slug } = req.body;
   const safeSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '');
   const dbName = `cascata_db_${safeSlug.replace(/-/g, '_')}`;
@@ -1405,13 +1507,13 @@ app.post('/api/control/projects', async (req: any, res: any) => {
   } catch (e: any) {
     if (tempClient) await tempClient.end();
     await systemPool.query('DELETE FROM system.projects WHERE slug = $1', [safeSlug]).catch(() => {});
-    res.status(500).json({ error: e.message });
+    next(e);
   } finally {
     if (tempClient) await tempClient.end();
   }
 });
 
-app.delete('/api/control/projects/:slug', async (req: any, res: any) => {
+app.delete('/api/control/projects/:slug', async (req: any, res: any, next: NextFunction) => {
   const { slug } = req.params;
   try {
     const result = await systemPool.query('SELECT * FROM system.projects WHERE slug = $1', [slug]);
@@ -1448,10 +1550,10 @@ app.delete('/api/control/projects/:slug', async (req: any, res: any) => {
     await CertificateService.rebuildNginxConfigs(systemPool);
 
     res.json({ success: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
-app.patch('/api/control/projects/:slug', async (req: any, res: any) => {
+app.patch('/api/control/projects/:slug', async (req: any, res: any, next: NextFunction) => {
   const { custom_domain, log_retention_days, metadata, ssl_certificate_source } = req.body;
   try {
     let metadataQueryPart = 'metadata'; 
@@ -1479,11 +1581,11 @@ app.patch('/api/control/projects/:slug', async (req: any, res: any) => {
     
     await CertificateService.rebuildNginxConfigs(systemPool);
     res.json(result.rows[0]);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
 // Key Rotation (With Encryption)
-app.post('/api/control/projects/:slug/rotate-keys', async (req: any, res: any) => {
+app.post('/api/control/projects/:slug/rotate-keys', async (req: any, res: any, next: NextFunction) => {
   const { type } = req.body;
   const newKey = generateKey();
   let column = '';
@@ -1498,10 +1600,10 @@ app.post('/api/control/projects/:slug/rotate-keys', async (req: any, res: any) =
       [newKey, req.params.slug, SYS_SECRET]
     );
     res.json({ success: true, type, newKey: 'HIDDEN_IN_RESPONSE' });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
-app.post('/api/control/projects/:slug/block-ip', async (req: any, res: any) => {
+app.post('/api/control/projects/:slug/block-ip', async (req: any, res: any, next: NextFunction) => {
   const { ip } = req.body;
   try {
     await systemPool.query(
@@ -1509,10 +1611,10 @@ app.post('/api/control/projects/:slug/block-ip', async (req: any, res: any) => {
       [ip, req.params.slug]
     );
     res.json({ success: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
-app.delete('/api/control/projects/:slug/blocklist/:ip', async (req: any, res: any) => {
+app.delete('/api/control/projects/:slug/blocklist/:ip', async (req: any, res: any, next: NextFunction) => {
   const { ip } = req.params;
   try {
     await systemPool.query(
@@ -1520,7 +1622,7 @@ app.delete('/api/control/projects/:slug/blocklist/:ip', async (req: any, res: an
       [ip, req.params.slug]
     );
     res.json({ success: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
 app.get('/api/control/me/ip', (req: any, res: any) => {
@@ -1533,46 +1635,69 @@ app.get('/api/control/me/ip', (req: any, res: any) => {
 
 // --- CONTROL PLANE: SYSTEM & SETTINGS ---
 
-app.post('/api/control/auth/login', async (req: any, res: any) => {
+app.post('/api/control/auth/login', async (req: any, res: any, next: NextFunction) => {
   const { email, password } = req.body;
   try {
     const result = await systemPool.query('SELECT * FROM system.admin_users WHERE email = $1', [email]);
     const user = result.rows[0];
-    if (user && user.password_hash === password) {
-      const token = jwt.sign({ sub: user.id, role: 'superadmin' }, process.env.SYSTEM_JWT_SECRET!, { expiresIn: '12h' });
-      res.json({ token });
-    } else {
-      res.status(401).json({ error: 'Invalid credentials' });
+    
+    if (!user) {
+        return res.status(401).json({ error: 'Credenciais inválidas' });
     }
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+
+    // Auto-Migration for Plaintext Passwords
+    // If the stored password isn't a hash (bcrypt hashes start with $2b$ or $2a$), verify as plaintext and upgrade
+    if (!user.password_hash.startsWith('$2')) {
+        if (user.password_hash === password) {
+            const newHash = await bcrypt.hash(password, 10);
+            await systemPool.query('UPDATE system.admin_users SET password_hash = $1 WHERE id = $2', [newHash, user.id]);
+            // Allow login this time
+        } else {
+            return res.status(401).json({ error: 'Credenciais inválidas' });
+        }
+    } else {
+        // Standard bcrypt check
+        const match = await bcrypt.compare(password, user.password_hash);
+        if (!match) return res.status(401).json({ error: 'Credenciais inválidas' });
+    }
+
+    const token = jwt.sign({ sub: user.id, role: 'superadmin' }, process.env.SYSTEM_JWT_SECRET!, { expiresIn: '12h' });
+    res.json({ token });
+  } catch (e: any) { next(e); }
 });
 
-app.post('/api/control/auth/verify', async (req: any, res: any) => {
+app.post('/api/control/auth/verify', async (req: any, res: any, next: NextFunction) => {
   const { password } = req.body;
   try {
     const result = await systemPool.query('SELECT * FROM system.admin_users LIMIT 1');
     const user = result.rows[0];
-    if (user && user.password_hash === password) {
-      res.json({ success: true });
+    if (!user) return res.status(401).json({ error: 'System not initialized' });
+
+    if (!user.password_hash.startsWith('$2')) {
+        if (user.password_hash === password) return res.json({ success: true });
     } else {
-      res.status(401).json({ error: 'Invalid password' });
+        const match = await bcrypt.compare(password, user.password_hash);
+        if (match) return res.json({ success: true });
     }
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+    
+    res.status(401).json({ error: 'Senha incorreta' });
+  } catch (e: any) { next(e); }
 });
 
-app.put('/api/control/auth/profile', async (req: any, res: any) => {
+app.put('/api/control/auth/profile', async (req: any, res: any, next: NextFunction) => {
   const { email, password } = req.body;
   try {
     if (password) {
-      await systemPool.query('UPDATE system.admin_users SET email = $1, password_hash = $2', [email, password]);
+      const hash = await bcrypt.hash(password, 10);
+      await systemPool.query('UPDATE system.admin_users SET email = $1, password_hash = $2', [email, hash]);
     } else {
       await systemPool.query('UPDATE system.admin_users SET email = $1', [email]);
     }
     res.json({ success: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
-app.get('/api/control/system/settings', async (req: any, res: any) => {
+app.get('/api/control/system/settings', async (req: any, res: any, next: NextFunction) => {
   try {
     const result = await systemPool.query(
       "SELECT table_name, settings FROM system.ui_settings WHERE project_slug = '_system_root_'"
@@ -1583,10 +1708,10 @@ app.get('/api/control/system/settings', async (req: any, res: any) => {
         if(r.table_name === 'ai_config') output.ai = r.settings;
     });
     res.json(output);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
-app.post('/api/control/system/settings', async (req: any, res: any) => {
+app.post('/api/control/system/settings', async (req: any, res: any, next: NextFunction) => {
   const { domain, ai_config } = req.body;
   try {
     if (domain !== undefined) {
@@ -1607,10 +1732,10 @@ app.post('/api/control/system/settings', async (req: any, res: any) => {
         );
     }
     res.json({ success: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
-app.post('/api/control/system/ssl-check', async (req: any, res: any) => {
+app.post('/api/control/system/ssl-check', async (req: any, res: any, next: NextFunction) => {
   const { domain } = req.body;
   if (!domain) { res.status(400).json({ error: 'Domain required' }); return; }
   
@@ -1632,14 +1757,14 @@ app.post('/api/control/system/ssl-check', async (req: any, res: any) => {
   }
 });
 
-app.get('/api/control/system/certificates/status', async (req: any, res: any) => {
+app.get('/api/control/system/certificates/status', async (req: any, res: any, next: NextFunction) => {
   try {
     const status = await CertificateService.detectEnvironment();
     res.json(status);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
-app.post('/api/control/system/certificates', async (req: any, res: any) => {
+app.post('/api/control/system/certificates', async (req: any, res: any, next: NextFunction) => {
   const { domain, email, cert, key, provider, isSystem } = req.body;
   const safeDomain = domain.trim().toLowerCase();
   
@@ -1653,26 +1778,26 @@ app.post('/api/control/system/certificates', async (req: any, res: any) => {
         isSystem
     );
     res.json(result);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
-app.delete('/api/control/system/certificates/:domain', async (req: any, res: any) => {
+app.delete('/api/control/system/certificates/:domain', async (req: any, res: any, next: NextFunction) => {
     try {
         await CertificateService.deleteCertificate(req.params.domain, systemPool);
         res.json({ success: true });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) { next(e); }
 });
 
 // --- CONTROL PLANE: WEBHOOKS & LOGS ---
 
-app.get('/api/control/projects/:slug/webhooks', async (req: any, res: any) => {
+app.get('/api/control/projects/:slug/webhooks', async (req: any, res: any, next: NextFunction) => {
   try {
     const result = await systemPool.query('SELECT * FROM system.webhooks WHERE project_slug = $1', [req.params.slug]);
     res.json(result.rows);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
-app.post('/api/control/projects/:slug/webhooks', async (req: any, res: any) => {
+app.post('/api/control/projects/:slug/webhooks', async (req: any, res: any, next: NextFunction) => {
   const { target_url, event_type, table_name } = req.body;
   try {
     await systemPool.query(
@@ -1680,10 +1805,10 @@ app.post('/api/control/projects/:slug/webhooks', async (req: any, res: any) => {
       [req.params.slug, target_url, event_type, table_name]
     );
     res.json({ success: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
 });
 
-app.delete('/api/control/projects/:slug/logs', async (req: any, res: any) => {
+app.delete('/api/control/projects/:slug/logs', async (req: any, res: any, next: NextFunction) => {
   const { days } = req.query;
   try {
     await systemPool.query(
@@ -1691,7 +1816,111 @@ app.delete('/api/control/projects/:slug/logs', async (req: any, res: any) => {
       [req.params.slug]
     );
     res.json({ success: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { next(e); }
+});
+
+// --- DATA PLANE: EDGE FUNCTIONS (NEW) ---
+app.post('/api/data/:slug/edge/:name', async (req: any, res: any, next: NextFunction) => {
+    const r = req as CascataRequest;
+    try {
+        const assetRes = await systemPool.query(
+            'SELECT * FROM system.assets WHERE project_slug = $1 AND name = $2 AND type = \'edge_function\'', 
+            [r.project.slug, req.params.name]
+        );
+        
+        if (assetRes.rows.length === 0) throw new Error("Edge Function Not Found");
+        const asset = assetRes.rows[0];
+        
+        const context = {
+            method: req.method,
+            body: req.body,
+            query: req.query,
+            headers: req.headers,
+            user: r.user
+        };
+
+        const result = await EdgeService.execute(
+            asset.metadata.sql, // The JS Code
+            context,
+            asset.metadata.env_vars || {},
+            r.projectPool!,
+            (asset.metadata.timeout || 5) * 1000
+        );
+
+        res.status(result.status).json(result.body);
+    } catch (e: any) { next(e); }
+});
+
+// --- GLOBAL ERROR HANDLER (STEP 3.1: Enhanced Error Mapping) ---
+app.use((err: any, req: any, res: any, next: NextFunction) => {
+    // Only log actual errors, not user validation issues to keep logs clean
+    if (!err.code?.startsWith('2') && !err.code?.startsWith('4')) {
+        console.error(`[Global Error] ${req.method} ${req.path}:`, err);
+    }
+    
+    // 1. Multer & Upload Errors
+    if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+            return res.status(413).json({ error: 'File too large. Check storage limits.', code: err.code });
+        }
+        return res.status(400).json({ error: `Upload Error: ${err.message}`, code: err.code });
+    }
+
+    // 2. Postgres Error Mapping (Code to HTTP Status)
+    if (err.code) {
+        switch(err.code) {
+            case '23505': // unique_violation
+                return res.status(409).json({ 
+                    error: 'Conflict: Record already exists.', 
+                    hint: err.detail, 
+                    code: err.code 
+                });
+            case '23503': // foreign_key_violation
+                return res.status(400).json({ 
+                    error: 'Foreign Key Violation: Referenced record does not exist or has dependencies.', 
+                    hint: err.detail, 
+                    code: err.code 
+                });
+            case '42P01': // undefined_table
+                return res.status(404).json({ 
+                    error: 'Resource Not Found: Table does not exist.', 
+                    code: err.code 
+                });
+            case '42703': // undefined_column
+                return res.status(400).json({ 
+                    error: 'Bad Request: Invalid column reference.', 
+                    hint: err.hint, 
+                    code: err.code 
+                });
+            case '23502': // not_null_violation
+                return res.status(400).json({ 
+                    error: 'Validation Error: Missing required field.', 
+                    hint: `Column: ${err.column}`, 
+                    code: err.code 
+                });
+            case '22P02': // invalid_text_representation
+                return res.status(400).json({ 
+                    error: 'Invalid Input Syntax (Type Mismatch).', 
+                    code: err.code 
+                });
+        }
+    }
+
+    // 3. JSON Parse Errors
+    if (err instanceof SyntaxError && 'body' in err) {
+        return res.status(400).json({ error: 'Invalid JSON payload' });
+    }
+
+    // 4. Default Fallback
+    const statusCode = err.status || 500;
+    const message = err.message || 'Internal Server Error';
+    
+    // Sanitization: Don't leak stack traces in production responses
+    res.status(statusCode).json({
+        error: message,
+        code: err.code || 'INTERNAL_ERROR',
+        hint: process.env.NODE_ENV === 'development' ? 'Check backend logs for details' : undefined
+    });
 });
 
 // STARTUP SEQUENCE
