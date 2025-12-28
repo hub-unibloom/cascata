@@ -204,7 +204,11 @@ server {
         if (!email.includes('@')) throw new Error("Email inválido.");
         return new Promise((resolve, reject) => {
             console.log(`[CertService] Executing Certbot for ${cleanDomain}...`);
-            if (!fs.existsSync(this.webrootPath)) fs.mkdirSync(this.webrootPath, { recursive: true });
+            
+            // FIX: Ensure webroot exists recursively to prevent Code 1 errors
+            if (!fs.existsSync(this.webrootPath)) {
+                fs.mkdirSync(this.webrootPath, { recursive: true });
+            }
             
             const certbot = spawn('certbot', [
                 'certonly', '--webroot', '-w', this.webrootPath, '-d', cleanDomain,

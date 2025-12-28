@@ -19,7 +19,6 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [error, setError] = useState<string | null>(null);
   
   // Security State
-  // Keys now store their revealed values temporarily here.
   const [revealedKeyValues, setRevealedKeyValues] = useState<Record<string, string>>({});
 
   // Origins State
@@ -37,11 +36,59 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
   // Verification Modal State
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [verifyPassword, setVerifyPassword] = useState('');
-  const [pendingAction, setPendingAction] = useState<(() => Promise<void>) | null>(null);
+  
+  // CRITICAL FIX: Stale Closure Prevention
+  // Instead of storing a function closure (which captures old state), we store the INTENT.
+  // The execution logic reads the FRESH password state.
+  type SecurityIntent = 
+    | { type: 'REVEAL_KEY', keyType: string }
+    | { type: 'ROTATE_KEY', keyType: string }
+    | { type: 'DELETE_CERT' }
+    | { type: 'UPDATE_PROFILE' }; // Generic fallback
+
+  const [pendingIntent, setPendingIntent] = useState<SecurityIntent | null>(null);
   const [verifyLoading, setVerifyLoading] = useState(false);
 
   // Backup State
   const [exporting, setExporting] = useState(false);
+
+  // --- HTTP CLIPBOARD FALLBACK ---
+  const copyToClipboard = (text: string) => {
+    if (!text) return;
+    
+    // Modern HTTPS approach
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text)
+            .then(() => {
+                setSuccess("Copiado!");
+                setTimeout(() => setSuccess(null), 2000);
+            })
+            .catch(() => alert("Erro ao copiar (HTTPS)."));
+        return;
+    }
+
+    // Legacy/HTTP approach (Workaround for HTTP IP access)
+    try {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-9999px";
+        textArea.style.top = "0";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        if (successful) {
+            setSuccess("Copiado!");
+            setTimeout(() => setSuccess(null), 2000);
+        } else {
+            alert("Erro ao copiar (Browser bloqueou).");
+        }
+    } catch (err) {
+        alert("Erro ao copiar.");
+    }
+  };
 
   const fetchProject = async () => {
     try {
@@ -77,47 +124,147 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
 
   useEffect(() => { fetchProject(); }, [projectId]);
 
-  // --- SECURITY HELPERS ---
-
-  const triggerSecureAction = (action: () => Promise<void>) => {
-    setPendingAction(() => action);
-    setShowVerifyModal(true);
-  };
+  // --- SECURITY CORE ---
 
   const handleVerifyAndExecute = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (!verifyPassword) { alert("Digite a senha."); return; }
+    if (!pendingIntent) return;
+
     setVerifyLoading(true);
+    
+    // A. Special Logic for REVEAL (Server-Side Decryption with Password)
+    if (pendingIntent.type === 'REVEAL_KEY') {
+        try {
+            const keyType = pendingIntent.keyType === 'service' ? 'service_key' : pendingIntent.keyType === 'anon' ? 'anon_key' : 'jwt_secret';
+            
+            // Sends password directly to reveal endpoint
+            const res = await fetch(`/api/control/projects/${projectId}/reveal-key`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` 
+                },
+                body: JSON.stringify({ 
+                    password: verifyPassword, // Uses FRESH state
+                    keyType: keyType 
+                })
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                alert(data.error || "Senha incorreta.");
+            } else {
+                // Success: Update UI
+                setRevealedKeyValues(prev => ({ ...prev, [pendingIntent.keyType]: data.key }));
+                
+                // Auto-hide
+                setTimeout(() => {
+                    setRevealedKeyValues(prev => {
+                        const updated = { ...prev };
+                        delete updated[pendingIntent.keyType];
+                        return updated;
+                    });
+                }, 60000);
+                
+                setShowVerifyModal(false);
+                setVerifyPassword('');
+            }
+        } catch (e: any) {
+            alert("Erro de conexão.");
+        } finally {
+            setVerifyLoading(false);
+        }
+        return;
+    }
+
+    // B. Logic for Standard Actions (Verify First, Then Execute)
     try {
-      // Logic for "Reveal Key" is different; it fetches data from a specific secure route
-      // instead of just verifying password.
-      if (pendingAction) {
-          // Standard Actions (Rotate, Delete Domain, etc) that require auth verification first
-          const res = await fetch('/api/control/auth/verify', {
+        // 1. Verify Password against Admin Auth
+        const verifyRes = await fetch('/api/control/auth/verify', {
             method: 'POST',
             headers: { 
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` 
             },
             body: JSON.stringify({ password: verifyPassword })
-          });
-          
-          if (res.ok) {
-            setShowVerifyModal(false);
-            setVerifyPassword('');
-            await pendingAction();
-            setPendingAction(null);
-          } else {
+        });
+
+        if (!verifyRes.ok) {
             alert("Senha incorreta.");
-          }
-      } 
-    } catch (e) { 
-      alert("Erro na verificação de segurança."); 
+            setVerifyLoading(false);
+            return;
+        }
+
+        // 2. Execute Action based on Intent
+        setShowVerifyModal(false);
+        setVerifyPassword('');
+
+        if (pendingIntent.type === 'ROTATE_KEY') {
+            await executeRotateKey(pendingIntent.keyType);
+        } else if (pendingIntent.type === 'DELETE_CERT') {
+            await executeDeleteCert();
+        }
+
+    } catch (e) {
+        alert("Erro no processo de verificação.");
     } finally {
         setVerifyLoading(false);
     }
   };
 
-  const handleRevealKey = (keyType: string) => {
+  // --- ACTIONS IMPLEMENTATION ---
+
+  const executeRotateKey = async (type: string) => {
+    setRotating(type);
+    try {
+      await fetch(`/api/control/projects/${projectId}/rotate-keys`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('cascata_token')}`
+        },
+        body: JSON.stringify({ type })
+      });
+      await fetchProject();
+      setSuccess(`${type.toUpperCase()} rotacionada com sucesso.`);
+      // Clear revealed state if rotated
+      const next = { ...revealedKeyValues };
+      delete next[type.replace('_key', '').replace('_secret', '')];
+      setRevealedKeyValues(next);
+      
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (e) {
+      alert('Falha ao rotacionar chave.');
+    } finally {
+      setRotating(null);
+    }
+  };
+
+  const executeDeleteCert = async () => {
+      setSslLoading(true);
+      try {
+          const res = await fetch(`/api/control/system/certificates/${customDomain}`, {
+              method: 'DELETE',
+              headers: { 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` }
+          });
+          if (!res.ok) throw new Error("Erro ao deletar");
+          setSuccess("Certificado removido.");
+          setTimeout(() => {
+              fetchAvailableCerts();
+              setSuccess(null);
+          }, 2000);
+      } catch (e) {
+          alert("Erro ao remover certificado.");
+      } finally {
+          setSslLoading(false);
+      }
+  };
+
+  // --- UI HANDLERS ---
+
+  const handleRevealClick = (keyType: string) => {
       // Toggle Off
       if (revealedKeyValues[keyType]) {
           const next = { ...revealedKeyValues };
@@ -125,45 +272,20 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
           setRevealedKeyValues(next);
           return;
       }
-
-      // Toggle On (Requires Fetch)
-      // Custom Secure Action that passes password directly to the reveal endpoint
-      setPendingAction(() => async () => {
-          try {
-              const res = await fetch(`/api/control/projects/${projectId}/reveal-key`, {
-                  method: 'POST',
-                  headers: { 
-                      'Content-Type': 'application/json',
-                      'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` 
-                  },
-                  body: JSON.stringify({ password: verifyPassword, keyType: keyType === 'service' ? 'service_key' : keyType === 'anon' ? 'anon_key' : 'jwt_secret' })
-              });
-              
-              if (!res.ok) {
-                  throw new Error("Senha incorreta ou erro no servidor");
-              }
-              
-              const data = await res.json();
-              
-              setRevealedKeyValues(prev => ({ ...prev, [keyType]: data.key }));
-              
-              // Auto-hide after 60 seconds
-              setTimeout(() => {
-                  setRevealedKeyValues(prev => {
-                      const updated = { ...prev };
-                      delete updated[keyType];
-                      return updated;
-                  });
-              }, 60000);
-
-          } catch (e: any) {
-              alert(e.message);
-          }
-      });
+      // Toggle On -> Ask Password
+      setPendingIntent({ type: 'REVEAL_KEY', keyType });
       setShowVerifyModal(true);
   };
 
-  // --- SETTINGS ACTIONS ---
+  const handleRotateClick = (keyType: string) => {
+      setPendingIntent({ type: 'ROTATE_KEY', keyType });
+      setShowVerifyModal(true);
+  };
+
+  const handleDeleteCertClick = () => {
+      setPendingIntent({ type: 'DELETE_CERT' });
+      setShowVerifyModal(true);
+  };
 
   const isValidUrl = (str: string) => {
     try { new URL(str); return true; } catch { return false; }
@@ -213,32 +335,6 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
     handleUpdateSettings(updated);
   };
 
-  const rotateKey = async (type: string) => {
-    setRotating(type);
-    try {
-      await fetch(`/api/control/projects/${projectId}/rotate-keys`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('cascata_token')}`
-        },
-        body: JSON.stringify({ type })
-      });
-      await fetchProject();
-      setSuccess(`${type.toUpperCase()} rotacionada com sucesso.`);
-      // Clear revealed state if rotated
-      const next = { ...revealedKeyValues };
-      delete next[type.replace('_key', '').replace('_secret', '')];
-      setRevealedKeyValues(next);
-      
-      setTimeout(() => setSuccess(null), 3000);
-    } catch (e) {
-      alert('Falha ao rotacionar chave.');
-    } finally {
-      setRotating(null);
-    }
-  };
-
   const handleSaveCertificate = async () => {
     if (!customDomain) { alert("Salve o domínio do projeto primeiro."); return; }
     setSslLoading(true);
@@ -278,30 +374,9 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
     }
   };
 
-  const handleDeleteCertificate = async () => {
-      setSslLoading(true);
-      try {
-          const res = await fetch(`/api/control/system/certificates/${customDomain}`, {
-              method: 'DELETE',
-              headers: { 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` }
-          });
-          if (!res.ok) throw new Error("Erro ao deletar");
-          setSuccess("Certificado removido.");
-          setTimeout(() => {
-              fetchAvailableCerts();
-              setSuccess(null);
-          }, 2000);
-      } catch (e) {
-          alert("Erro ao remover certificado.");
-      } finally {
-          setSslLoading(false);
-      }
-  };
-
   const handleDownloadBackup = async () => {
       setExporting(true);
       try {
-          // Secure download via Blob to avoid token in URL bar
           const res = await fetch(`/api/control/projects/${projectId}/export`, {
               headers: { 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` }
           });
@@ -408,7 +483,7 @@ const { data } = await cascata.from('users').select();
                     className="flex-1 bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all" 
                     />
                     {customDomain && availableCerts.includes(customDomain) && (
-                        <button onClick={() => triggerSecureAction(handleDeleteCertificate)} className="bg-rose-50 text-rose-600 p-4 rounded-2xl hover:bg-rose-100 transition-all" title="Apagar Certificado">
+                        <button onClick={() => handleDeleteCertClick()} className="bg-rose-50 text-rose-600 p-4 rounded-2xl hover:bg-rose-100 transition-all" title="Apagar Certificado">
                             <Trash2 size={18} />
                         </button>
                     )}
@@ -498,27 +573,30 @@ const { data } = await cascata.from('users').select();
                 value={revealedKeyValues['anon'] || project?.anon_key || '******'} 
                 isSecret={false}
                 isRevealed={!!revealedKeyValues['anon']}
-                onToggleReveal={() => handleRevealKey('anon')}
-                onRotate={() => triggerSecureAction(() => rotateKey('anon'))} 
+                onToggleReveal={() => handleRevealClick('anon')}
+                onRotate={() => handleRotateClick('anon')} 
                 loading={rotating === 'anon'}
+                copyFn={copyToClipboard}
               />
               <KeyControl 
                 label="Service Key" 
                 value={revealedKeyValues['service'] || project?.service_key || '******'} 
                 isSecret={true} 
                 isRevealed={!!revealedKeyValues['service']}
-                onToggleReveal={() => handleRevealKey('service')}
-                onRotate={() => triggerSecureAction(() => rotateKey('service'))} 
+                onToggleReveal={() => handleRevealClick('service')}
+                onRotate={() => handleRotateClick('service')} 
                 loading={rotating === 'service'}
+                copyFn={copyToClipboard}
               />
               <KeyControl 
                 label="JWT Secret" 
                 value={revealedKeyValues['jwt'] || project?.jwt_secret || '******'} 
                 isSecret={true} 
                 isRevealed={!!revealedKeyValues['jwt']}
-                onToggleReveal={() => handleRevealKey('jwt')}
-                onRotate={() => triggerSecureAction(() => rotateKey('jwt'))} 
+                onToggleReveal={() => handleRevealClick('jwt')}
+                onRotate={() => handleRotateClick('jwt')} 
                 loading={rotating === 'jwt'}
+                copyFn={copyToClipboard}
               />
            </div>
         </div>
@@ -542,7 +620,7 @@ const { data } = await cascata.from('users').select();
                   {sdkCode}
                 </pre>
                 <button 
-                  onClick={() => navigator.clipboard.writeText(sdkCode)}
+                  onClick={() => copyToClipboard(sdkCode)}
                   className="absolute top-4 right-4 p-3 bg-white/5 hover:bg-white/10 text-white rounded-xl transition-all"
                 >
                   <Copy size={16} />
@@ -646,7 +724,7 @@ const { data } = await cascata.from('users').select();
                       {verifyLoading ? <Loader2 className="animate-spin"/> : 'Confirmar Acesso'}
                    </button>
                </form>
-               <button onClick={() => { setShowVerifyModal(false); setPendingAction(null); }} className="mt-4 text-xs font-bold text-slate-400 hover:text-slate-600">Cancelar</button>
+               <button onClick={() => { setShowVerifyModal(false); setPendingIntent(null); }} className="mt-4 text-xs font-bold text-slate-400 hover:text-slate-600">Cancelar</button>
             </div>
          </div>
       )}
@@ -654,7 +732,7 @@ const { data } = await cascata.from('users').select();
   );
 };
 
-const KeyControl = ({ label, value, isSecret, isRevealed, onToggleReveal, onRotate, loading }: any) => {
+const KeyControl = ({ label, value, isSecret, isRevealed, onToggleReveal, onRotate, loading, copyFn }: any) => {
   return (
     <div className="space-y-3">
       <div className="flex justify-between items-center px-1">
@@ -682,7 +760,7 @@ const KeyControl = ({ label, value, isSecret, isRevealed, onToggleReveal, onRota
                 if (isSecret && !isRevealed) {
                     alert("Desbloqueie a chave primeiro para copiar.");
                 } else {
-                    navigator.clipboard.writeText(value);
+                    copyFn(value);
                 }
             }} 
             className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 hover:text-indigo-600 p-2"
