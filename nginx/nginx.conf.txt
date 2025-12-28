@@ -1,3 +1,4 @@
+
 map $http_upgrade $connection_upgrade {
     default upgrade;
     '' close;
@@ -41,7 +42,7 @@ server {
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
 
-    # Rota de Desafio do Certbot (Let's Encrypt)
+    # Rota de Desafio do Certbot (Let's Encrypt) - Porta 80
     location /.well-known/acme-challenge/ {
         root /var/www/html;
         allow all;
@@ -128,6 +129,13 @@ server {
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-XSS-Protection "1; mode=block" always;
+
+    # CRITICAL FIX: Permitir validação do Certbot também via HTTPS
+    # Necessário se o Cloudflare estiver com "Always Use HTTPS" ligado.
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+        allow all;
+    }
 
     location / {
         limit_req zone=api_limit burst=20 nodelay;

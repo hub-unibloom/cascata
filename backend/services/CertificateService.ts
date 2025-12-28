@@ -118,6 +118,12 @@ server {
     add_header X-Content-Type-Options "nosniff" always;
     client_max_body_size 100M;
 
+    # CRITICAL: Allow Certbot challenges even via HTTPS (Fix for Cloudflare Redirects)
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+        allow all;
+    }
+
     location / {
         limit_req zone=api_limit burst=50 nodelay;
         limit_conn conn_limit 50;
