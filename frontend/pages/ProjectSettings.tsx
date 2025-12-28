@@ -19,7 +19,8 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [error, setError] = useState<string | null>(null);
   
   // Security State
-  const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set());
+  // Keys now store their revealed values temporarily here.
+  const [revealedKeyValues, setRevealedKeyValues] = useState<Record<string, string>>({});
 
   // Origins State
   const [origins, setOrigins] = useState<any[]>([]);
@@ -37,6 +38,7 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [verifyPassword, setVerifyPassword] = useState('');
   const [pendingAction, setPendingAction] = useState<(() => Promise<void>) | null>(null);
+  const [verifyLoading, setVerifyLoading] = useState(false);
 
   // Backup State
   const [exporting, setExporting] = useState(false);
@@ -82,51 +84,83 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
     setShowVerifyModal(true);
   };
 
-  const handleVerifyAndExecute = async () => {
+  const handleVerifyAndExecute = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setVerifyLoading(true);
     try {
-      const res = await fetch('/api/control/auth/verify', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` 
-        },
-        body: JSON.stringify({ password: verifyPassword })
-      });
-      
-      if (res.ok) {
-        setShowVerifyModal(false);
-        setVerifyPassword('');
-        if (pendingAction) await pendingAction();
-        setPendingAction(null);
-      } else {
-        alert("Senha incorreta.");
-      }
+      // Logic for "Reveal Key" is different; it fetches data from a specific secure route
+      // instead of just verifying password.
+      if (pendingAction) {
+          // Standard Actions (Rotate, Delete Domain, etc) that require auth verification first
+          const res = await fetch('/api/control/auth/verify', {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` 
+            },
+            body: JSON.stringify({ password: verifyPassword })
+          });
+          
+          if (res.ok) {
+            setShowVerifyModal(false);
+            setVerifyPassword('');
+            await pendingAction();
+            setPendingAction(null);
+          } else {
+            alert("Senha incorreta.");
+          }
+      } 
     } catch (e) { 
       alert("Erro na verificação de segurança."); 
+    } finally {
+        setVerifyLoading(false);
     }
   };
 
   const handleRevealKey = (keyType: string) => {
-      if (revealedKeys.has(keyType)) {
-          const next = new Set(revealedKeys);
-          next.delete(keyType);
-          setRevealedKeys(next);
+      // Toggle Off
+      if (revealedKeyValues[keyType]) {
+          const next = { ...revealedKeyValues };
+          delete next[keyType];
+          setRevealedKeyValues(next);
           return;
       }
 
-      triggerSecureAction(async () => {
-          const next = new Set(revealedKeys);
-          next.add(keyType);
-          setRevealedKeys(next);
-          // Auto-hide after 60 seconds
-          setTimeout(() => {
-              setRevealedKeys(prev => {
-                  const updated = new Set(prev);
-                  updated.delete(keyType);
-                  return updated;
+      // Toggle On (Requires Fetch)
+      // Custom Secure Action that passes password directly to the reveal endpoint
+      setPendingAction(() => async () => {
+          try {
+              const res = await fetch(`/api/control/projects/${projectId}/reveal-key`, {
+                  method: 'POST',
+                  headers: { 
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` 
+                  },
+                  body: JSON.stringify({ password: verifyPassword, keyType: keyType === 'service' ? 'service_key' : keyType === 'anon' ? 'anon_key' : 'jwt_secret' })
               });
-          }, 60000);
+              
+              if (!res.ok) {
+                  throw new Error("Senha incorreta ou erro no servidor");
+              }
+              
+              const data = await res.json();
+              
+              setRevealedKeyValues(prev => ({ ...prev, [keyType]: data.key }));
+              
+              // Auto-hide after 60 seconds
+              setTimeout(() => {
+                  setRevealedKeyValues(prev => {
+                      const updated = { ...prev };
+                      delete updated[keyType];
+                      return updated;
+                  });
+              }, 60000);
+
+          } catch (e: any) {
+              alert(e.message);
+          }
       });
+      setShowVerifyModal(true);
   };
 
   // --- SETTINGS ACTIONS ---
@@ -192,6 +226,11 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
       });
       await fetchProject();
       setSuccess(`${type.toUpperCase()} rotacionada com sucesso.`);
+      // Clear revealed state if rotated
+      const next = { ...revealedKeyValues };
+      delete next[type.replace('_key', '').replace('_secret', '')];
+      setRevealedKeyValues(next);
+      
       setTimeout(() => setSuccess(null), 3000);
     } catch (e) {
       alert('Falha ao rotacionar chave.');
@@ -443,32 +482,40 @@ const { data } = await cascata.from('users').select();
 
         {/* Segurança e Chaves */}
         <div className="bg-white border border-slate-200 rounded-[3.5rem] p-12 shadow-sm space-y-10">
-           <h3 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-4">
-              <div className="w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center shadow-lg"><Lock size={20} /></div>
-              Gerenciamento de Segredos
-           </h3>
+           <div className="space-y-2">
+               <h3 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-4">
+                  <div className="w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center shadow-lg"><Lock size={20} /></div>
+                  Gerenciamento de Segredos
+               </h3>
+               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest pl-16">
+                   Proteção de Nível Bancário: Chaves nunca trafegam em texto puro.
+               </p>
+           </div>
+           
            <div className="space-y-8">
               <KeyControl 
                 label="Anon Key" 
-                value={project?.anon_key} 
+                value={revealedKeyValues['anon'] || project?.anon_key || '******'} 
                 isSecret={false}
+                isRevealed={!!revealedKeyValues['anon']}
+                onToggleReveal={() => handleRevealKey('anon')}
                 onRotate={() => triggerSecureAction(() => rotateKey('anon'))} 
                 loading={rotating === 'anon'}
               />
               <KeyControl 
                 label="Service Key" 
-                value={project?.service_key} 
+                value={revealedKeyValues['service'] || project?.service_key || '******'} 
                 isSecret={true} 
-                isRevealed={revealedKeys.has('service')}
+                isRevealed={!!revealedKeyValues['service']}
                 onToggleReveal={() => handleRevealKey('service')}
                 onRotate={() => triggerSecureAction(() => rotateKey('service'))} 
                 loading={rotating === 'service'}
               />
               <KeyControl 
                 label="JWT Secret" 
-                value={project?.jwt_secret} 
+                value={revealedKeyValues['jwt'] || project?.jwt_secret || '******'} 
                 isSecret={true} 
-                isRevealed={revealedKeys.has('jwt')}
+                isRevealed={!!revealedKeyValues['jwt']}
                 onToggleReveal={() => handleRevealKey('jwt')}
                 onRotate={() => triggerSecureAction(() => rotateKey('jwt'))} 
                 loading={rotating === 'jwt'}
@@ -585,17 +632,20 @@ const { data } = await cascata.from('users').select();
                <Lock size={40} className="mx-auto text-slate-900 mb-6" />
                <h3 className="text-xl font-black text-slate-900 mb-2">Confirmação de Segurança</h3>
                <p className="text-xs text-slate-500 font-bold mb-8">Esta ação é restrita. Digite sua senha mestra para autorizar.</p>
-               <input 
-                 type="password" 
-                 autoFocus
-                 value={verifyPassword}
-                 onChange={e => setVerifyPassword(e.target.value)}
-                 className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 text-center font-bold text-slate-900 outline-none mb-6 focus:ring-4 focus:ring-indigo-500/10"
-                 placeholder="••••••••"
-               />
-               <button onClick={handleVerifyAndExecute} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-600 transition-all">
-                  Confirmar Acesso
-               </button>
+               
+               <form onSubmit={handleVerifyAndExecute}>
+                   <input 
+                     type="password" 
+                     autoFocus
+                     value={verifyPassword}
+                     onChange={e => setVerifyPassword(e.target.value)}
+                     className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 text-center font-bold text-slate-900 outline-none mb-6 focus:ring-4 focus:ring-indigo-500/10"
+                     placeholder="••••••••"
+                   />
+                   <button type="submit" disabled={verifyLoading} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-600 transition-all flex items-center justify-center">
+                      {verifyLoading ? <Loader2 className="animate-spin"/> : 'Confirmar Acesso'}
+                   </button>
+               </form>
                <button onClick={() => { setShowVerifyModal(false); setPendingAction(null); }} className="mt-4 text-xs font-bold text-slate-400 hover:text-slate-600">Cancelar</button>
             </div>
          </div>

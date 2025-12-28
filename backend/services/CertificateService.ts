@@ -1,3 +1,4 @@
+
 import fs from 'fs';
 import path from 'path';
 import { spawn, execSync } from 'child_process';
@@ -18,7 +19,7 @@ export class CertificateService {
   private static nginxDynamicRoot = '/etc/nginx/conf.d/dynamic';
   
   // Sidecar Configuration
-  private static CONTROLLER_URL = 'http://nginx-controller:3001';
+  private static CONTROLLER_URL = 'http://nginx_controller:3001'; // Ensure matching docker-compose service name
   private static INTERNAL_SECRET = process.env.INTERNAL_CTRL_SECRET || 'fallback_secret';
 
   private static validateDomain(domain: string): boolean {
@@ -41,8 +42,14 @@ export class CertificateService {
           });
           console.log('[CertService] Nginx reload signal sent.');
       } catch (e: any) {
-          console.error(`[CertService] Failed to reload Nginx: ${e.message}`);
-          // Não lançamos erro fatal para não derrubar o processo principal, mas logamos crítico
+          console.error(`[CertService] CRITICAL: Failed to reload Nginx via Sidecar.`);
+          if (e.code === 'ENOTFOUND') {
+              console.error(`[CertService] Host '${this.CONTROLLER_URL}' not found. Check docker-compose network aliases.`);
+          } else if (e.response) {
+              console.error(`[CertService] Controller responded with ${e.response.status}:`, e.response.data);
+          } else {
+              console.error(`[CertService] Error details: ${e.message}`);
+          }
       }
   }
 

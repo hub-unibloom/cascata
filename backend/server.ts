@@ -1381,19 +1381,56 @@ app.get('/api/data/:slug/logs', async (req: any, res: any, next: NextFunction) =
   } catch (e: any) { next(e); }
 });
 
-// --- CONTROL PLANE: PROJECTS (With Encryption) ---
+// --- CONTROL PLANE: PROJECTS (With Security Upgrade - No Auto Decrypt) ---
 app.get('/api/control/projects', async (req: any, res: any, next: NextFunction) => {
   try {
     const result = await systemPool.query(`
         SELECT 
             id, name, slug, db_name, custom_domain, ssl_certificate_source, blocklist, metadata, status, created_at,
-            pgp_sym_decrypt(jwt_secret::bytea, $1) as jwt_secret,
-            pgp_sym_decrypt(anon_key::bytea, $1) as anon_key,
-            pgp_sym_decrypt(service_key::bytea, $1) as service_key
+            '******' as jwt_secret,
+            '******' as anon_key,
+            '******' as service_key
         FROM system.projects ORDER BY created_at DESC
-    `, [SYS_SECRET]);
+    `);
     res.json(result.rows);
   } catch (e: any) { next(e); }
+});
+
+// --- NEW SECURE ROUTE: REVEAL KEY (Sudo Mode) ---
+app.post('/api/control/projects/:slug/reveal-key', async (req: any, res: any, next: NextFunction) => {
+    const { password, keyType } = req.body;
+    const { slug } = req.params;
+
+    if (!password || !keyType) return res.status(400).json({ error: "Missing credentials" });
+    if (!['jwt_secret', 'anon_key', 'service_key'].includes(keyType)) return res.status(400).json({ error: "Invalid key type" });
+
+    try {
+        // 1. Verify Admin Password (Re-Auth)
+        const adminRes = await systemPool.query('SELECT * FROM system.admin_users LIMIT 1');
+        const admin = adminRes.rows[0];
+        
+        let isValid = false;
+        if (!admin.password_hash.startsWith('$2')) {
+            isValid = admin.password_hash === password;
+        } else {
+            isValid = await bcrypt.compare(password, admin.password_hash);
+        }
+
+        if (!isValid) return res.status(403).json({ error: "Invalid Sudo Password" });
+
+        // 2. Decrypt specific key
+        const keyRes = await systemPool.query(
+            `SELECT pgp_sym_decrypt(${keyType}::bytea, $2) as decrypted_key FROM system.projects WHERE slug = $1`,
+            [slug, SYS_SECRET]
+        );
+
+        if (keyRes.rows.length === 0) return res.status(404).json({ error: "Project not found" });
+
+        res.json({ key: keyRes.rows[0].decrypted_key });
+
+    } catch (e: any) {
+        next(e);
+    }
 });
 
 app.post('/api/control/projects', async (req: any, res: any, next: NextFunction) => {
