@@ -1,6 +1,4 @@
-
 import express, { Request, RequestHandler, NextFunction } from 'express';
-import cors from 'cors';
 import pg from 'pg';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
@@ -48,7 +46,7 @@ interface CascataRequest extends Request {
 
 const app = express();
 
-app.use(cors()); 
+// NOTE: Global CORS removed. We now use 'dynamicCors' middleware after project resolution.
 // JSON Parser limit increased, but Multer will bypass this for multipart
 app.use(express.json({ limit: '100mb' }) as any);
 app.use(express.urlencoded({ extended: true }) as any);
@@ -205,56 +203,53 @@ const walk = (dir: string, rootPath: string, fileList: any[] = []) => {
 /**
  * Host Guard (Dashboard Isolation Mode)
  * - Protege o painel administrativo contra acessos via IP ou domínios não autorizados.
- * - Permite "Rescue Routes" (Login, Settings, SSL Check) para evitar lockout acidental.
- * - CORREÇÃO: AllowList expandida para garantir que rotas de infra não sejam bloqueadas.
+ * - Lógica Estrita: Apenas IP Puro, Localhost ou Domínio Configurado são permitidos.
+ * - Qualquer outro hostname retorna 404 (Stealth Mode).
  */
 const hostGuard: RequestHandler = async (req: any, res: any, next: any) => {
-    // 1. Always allow Data Plane and Health Checks
+    // 1. Data Plane & Health Checks (Always Public/Accessible for Projects)
     if (req.path === '/' || req.path === '/health' || req.path.startsWith('/api/data/')) {
         return next();
     }
 
-    // 2. Rescue Routes: Always allow these to enable recovery/configuration
-    // Isso conserta o erro 404 nas rotas de certificados e projetos
-    const allowedPrefixes = [
-        '/api/control/auth/login',
-        '/api/control/auth/verify',
-        '/api/control/system', // Abrange settings, ssl-check, certificates
-        '/api/control/projects' // Necessário para listar projetos no dashboard
-    ];
-
-    if (allowedPrefixes.some(prefix => req.path.startsWith(prefix))) {
-        return next();
-    }
-
     try {
-        // 3. Get Configured System Domain
         const settingsRes = await systemPool.query(
             "SELECT settings->>'domain' as domain FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'domain_config'"
         );
         const systemDomain = settingsRes.rows[0]?.domain;
+        const host = req.headers.host?.split(':')[0] || ''; // Strip port
 
+        // 2. Allow List: Raw IPs and Localhost
+        // Se o acesso for via IP (ex: 44.204.116.96) ou localhost, permite SEMPRE.
+        // Isso evita lockout e permite acesso inicial/manutenção.
+        const isIp = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(host); // IPv4
+        const isLocal = host === 'localhost' || host === '127.0.0.1' || host === 'cascata-backend-control' || host.startsWith('172.') || host.startsWith('10.');
+
+        if (isIp || isLocal) {
+            return next();
+        }
+
+        // 3. Domain Logic (Strict)
         if (systemDomain) {
-            const host = req.headers.host || '';
-            const cleanHost = host.split(':')[0]; // Remove port if present
-            
-            // Allow Localhost/Internal for Docker healthchecks and internal routing
-            if (cleanHost === 'localhost' || cleanHost === '127.0.0.1' || cleanHost.startsWith('172.') || cleanHost === 'cascata-backend-control') {
+            // Se um domínio está configurado, o host DEVE ser exatamente esse domínio.
+            if (host.toLowerCase() === systemDomain.toLowerCase()) {
                 return next();
             }
-
-            // 4. Strict Domain Check
-            if (cleanHost.toLowerCase() !== systemDomain.toLowerCase()) {
-                console.warn(`[HostGuard] Blocked access to ${req.path} from ${cleanHost}. Expected: ${systemDomain}`);
-                // Return 404 to hide the panel existence
-                return res.status(404).send('Not Found'); 
-            }
+        } else {
+            // Se NÃO tem domínio configurado, e não é IP/Localhost (verificado acima),
+            // então é um acesso não autorizado. Bloqueia.
         }
+
+        // 4. Block Everything Else (Stealth Mode)
+        console.warn(`[HostGuard] 404 Stealth Block: ${req.path} via ${host}. System Domain: ${systemDomain || 'None'}`);
+        return res.status(404).send('Not Found');
+
     } catch (e) {
-        // Fail open safely to avoid crashing entire server on DB glitch
-        console.error('[HostGuard] Error checking domain config', e);
+        console.error('[HostGuard] DB Error', e);
+        // Fail open only on internal error to avoid total bricking if DB is momentarily down,
+        // but typically 500 would be better. Let's allow next() to let global error handler catch if needed.
+        next(); 
     }
-    next();
 };
 
 const controlPlaneFirewall: RequestHandler = async (req: any, res: any, next: any) => {
@@ -390,6 +385,60 @@ const resolveProject: RequestHandler = async (req: any, res: any, next: any) => 
   } catch (e) {
     res.status(500).json({ error: 'Internal Resolution Error' });
   }
+};
+
+/**
+ * Dynamic CORS Middleware
+ * - Control Plane: Permissive/Reflective (secured by HostGuard & Auth).
+ * - Data Plane: Strict logic based on Project Metadata (Global Allowed Origins).
+ */
+const dynamicCors: RequestHandler = (req: any, res: any, next: any) => {
+    const origin = req.headers.origin;
+    
+    // 1. Control Plane & System Routes (Relaxed/Reflective)
+    if (!req.path.startsWith('/api/data/')) {
+        if (origin) {
+            res.setHeader('Access-Control-Allow-Origin', origin);
+            res.setHeader('Access-Control-Allow-Credentials', 'true');
+        }
+        if (req.method === 'OPTIONS') {
+            res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+            res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,apikey,x-cascata-client');
+            return res.status(200).end();
+        }
+        return next();
+    }
+
+    // 2. Data Plane (Strict per Project)
+    // req.project is available here because resolveProject ran before
+    if (req.project) {
+        const allowedOrigins = req.project.metadata?.allowed_origins || [];
+        const safeOrigins = allowedOrigins.map((o: any) => typeof o === 'string' ? o : o.url);
+        
+        // If NO rules defined -> Default Public API behavior (Allow All/Reflect)
+        if (safeOrigins.length === 0) {
+            if (origin) res.setHeader('Access-Control-Allow-Origin', origin);
+            res.setHeader('Access-Control-Allow-Credentials', 'true');
+        } 
+        // If rules DEFINED -> Strict Match
+        else {
+            if (origin && safeOrigins.includes(origin)) {
+                res.setHeader('Access-Control-Allow-Origin', origin);
+                res.setHeader('Access-Control-Allow-Credentials', 'true');
+            } else {
+                // Do not set A-C-A-O header -> Browser blocks access
+                // Optionally log blocked origin attempt
+            }
+        }
+    }
+
+    if (req.method === 'OPTIONS') {
+         res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+         res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,apikey,x-cascata-client');
+         return res.status(200).end();
+    }
+
+    next();
 };
 
 const dynamicRateLimiter: RequestHandler = async (req: any, res: any, next: any) => {
@@ -623,6 +672,7 @@ const waitForDatabase = async (retries = 30, delay = 1000): Promise<boolean> => 
 // APPLY MIDDLEWARES
 app.use(hostGuard as any); // FIRST: Check for Dashboard Isolation violations
 app.use(resolveProject as any);
+app.use(dynamicCors as any); // CORS applied strictly based on project settings
 app.use(controlPlaneFirewall as any);
 app.use(dynamicRateLimiter as any); 
 app.use(auditLogger as any); 
@@ -1441,8 +1491,6 @@ app.get('/api/data/:slug/logs', async (req: any, res: any, next: NextFunction) =
 // --- CONTROL PLANE: PROJECTS (With Security Upgrade - No Auto Decrypt) ---
 app.get('/api/control/projects', async (req: any, res: any, next: NextFunction) => {
   try {
-    // This route is critical for the dashboard listing.
-    // If HostGuard blocks it, the dashboard shows empty or errors out.
     const result = await systemPool.query(`
         SELECT 
             id, name, slug, db_name, custom_domain, ssl_certificate_source, blocklist, metadata, status, created_at,
