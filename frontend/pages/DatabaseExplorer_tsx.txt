@@ -1,0 +1,1347 @@
+
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Database, Search, Play, Table as TableIcon, Loader2, AlertCircle, Plus, X, Terminal, Code, Trash2, Download, Upload, MoreHorizontal, Copy, Edit, CheckSquare, Square, CheckCircle2, Calendar, Wand2, Lock, User, FileJson, FileSpreadsheet, RefreshCw, Archive, RotateCcw, GripVertical, Save, ArrowRight, Key, Image as ImageIcon, Link as LinkIcon, File as FileIcon, ChevronDown, Check, MoreVertical, Layers, MousePointer2, Settings, List, MessageSquare } from 'lucide-react';
+
+declare global {
+  interface Window { XLSX: any; }
+}
+
+const getUUID = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    try { return crypto.randomUUID(); } catch(e) { /* ignore */ }
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
+
+// Clipboard Helper for Non-Secure Contexts
+const copyToClipboard = async (text: string) => {
+  if (!navigator.clipboard) {
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";
+    textArea.style.left = "-9999px";
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    try {
+      document.execCommand('copy');
+      return true;
+    } catch (err) {
+      return false;
+    } finally {
+      document.body.removeChild(textArea);
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (err) {
+    return false;
+  }
+};
+
+interface ColumnDef {
+  id: string; // internal id for React keys
+  name: string;
+  type: string;
+  defaultValue: string;
+  isPrimaryKey: boolean;
+  isNullable: boolean;
+  isUnique: boolean;
+  isArray: boolean;
+  description?: string; // New: AI Context
+  foreignKey?: { table: string, column: string };
+  sourceHeader?: string; // Used during import to map CSV header to new column name
+}
+
+const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
+  // --- STATE ---
+  const [activeTab, setActiveTab] = useState<'tables' | 'query' | 'recycle'>('tables');
+  const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  const [tables, setTables] = useState<any[]>([]);
+  const [recycleBin, setRecycleBin] = useState<any[]>([]);
+  const [tableData, setTableData] = useState<any[]>([]);
+  const [columns, setColumns] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [authLinkedTable, setAuthLinkedTable] = useState<string | null>(null);
+  const [projectMetadata, setProjectMetadata] = useState<any>({});
+  
+  // --- STATE: MULTI-SELECT & GRID ---
+  const [selectedTables, setSelectedTables] = useState<Set<string>>(new Set());
+  const [selectedRows, setSelectedRows] = useState<Set<any>>(new Set());
+  const [columnOrder, setColumnOrder] = useState<string[]>([]);
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+  const [draggingColumn, setDraggingColumn] = useState<string | null>(null);
+
+  // --- STATE: RESIZABLE SIDEBAR (NEW) ---
+  const [sidebarWidth, setSidebarWidth] = useState(288); // Default w-72
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+
+  // --- STATE: SQL TERMINAL ---
+  const [query, setQuery] = useState('SELECT * FROM public.users LIMIT 10;');
+  const [queryResult, setQueryResult] = useState<any>(null);
+  
+  // --- STATE: UI & MODALS ---
+  const [executing, setExecuting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  
+  // TABLE CREATOR DRAWER STATE
+  const [showCreateTable, setShowCreateTable] = useState(false);
+  const [newTableName, setNewTableName] = useState('');
+  const [newTableDesc, setNewTableDesc] = useState(''); // New: Table Description
+  const [newTableCols, setNewTableCols] = useState<ColumnDef[]>([
+    { id: '1', name: 'id', type: 'uuid', defaultValue: 'gen_random_uuid()', isPrimaryKey: true, isNullable: false, isUnique: true, isArray: false, description: 'Unique Identifier' },
+    { id: '2', name: 'created_at', type: 'timestamptz', defaultValue: 'now()', isPrimaryKey: false, isNullable: false, isUnique: false, isArray: false, description: 'Creation Timestamp' },
+  ]);
+  const [activeFkEditor, setActiveFkEditor] = useState<string | null>(null); // Stores column ID being edited for FK
+  const [fkTargetColumns, setFkTargetColumns] = useState<string[]>([]); // Columns of the selected target table
+  const [fkLoading, setFkLoading] = useState(false);
+
+  // IMPORT STATE
+  const [importPendingData, setImportPendingData] = useState<any[] | null>(null); // If set, Create Table acts as "Create & Import"
+
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [showTrashModal, setShowTrashModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState<{ active: boolean, table: string, mode: 'SOFT' | 'HARD' }>({ active: false, table: '', mode: 'SOFT' });
+  const [verifyPassword, setVerifyPassword] = useState('');
+  
+  // --- NEW: DUPLICATE MODAL ---
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [duplicateConfig, setDuplicateConfig] = useState({ source: '', newName: '', withData: false });
+
+  // --- NEW: EXPORT MENU ---
+  const [showExportMenu, setShowExportMenu] = useState(false);
+
+  // --- NEW: ADD COLUMN MODAL ---
+  const [showAddColumn, setShowAddColumn] = useState(false);
+  const [newColumn, setNewColumn] = useState({ name: '', type: 'text', isNullable: true, defaultValue: '', isUnique: false, description: '' });
+
+  // --- STATE: INLINE EDITING & CREATION ---
+  const [inlineNewRow, setInlineNewRow] = useState<any>({});
+  const [editingCell, setEditingCell] = useState<{rowId: any, col: string} | null>(null);
+  const [editValue, setEditValue] = useState<string>('');
+  const firstInputRef = useRef<HTMLInputElement>(null);
+
+  // --- STATE: CONTEXT MENUS & DRAG ---
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, table: string } | null>(null);
+  const [draggedTable, setDraggedTable] = useState<string | null>(null); // SIDEBAR REORDER
+
+  // --- STATE: IMPORT ---
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [createTableFromImport, setCreateTableFromImport] = useState(false); // TOGGLE RESTORED
+
+  // --- COMPUTED ---
+  const pkCol = columns.find(c => c.isPrimaryKey)?.name || columns[0]?.name;
+
+  // --- HELPER: SANITIZATION & INFERENCE ---
+  const sanitizeName = (val: string) => {
+    return val
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "") // Remove accents
+      .replace(/[^a-z0-9_]/g, "_") // Replace non-alphanumeric with underscore
+      .replace(/_+/g, "_"); // Remove duplicate underscores
+  };
+
+  const getDefaultSuggestions = (type: string) => {
+      const t = type.toLowerCase();
+      if (t.includes('timestamp') || t.includes('date')) return ['now()', "timezone('utc', now())", 'current_date'];
+      if (t === 'uuid') return ['gen_random_uuid()'];
+      if (t.includes('bool')) return ['true', 'false'];
+      if (t.includes('int') || t.includes('numeric')) return ['0', '1'];
+      if (t.includes('json')) return ["'{}'::jsonb", "'[]'::jsonb"];
+      return [];
+  };
+
+  const inferType = (values: any[]): string => {
+    let isInt = true;
+    let isFloat = true;
+    let isBool = true;
+    let isDate = true;
+    let isUuid = true;
+    let hasData = false;
+
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    for (const v of values) {
+      if (v === null || v === undefined || v === '') continue;
+      hasData = true;
+      const str = String(v).trim();
+      
+      if (isUuid && !uuidRegex.test(str)) isUuid = false;
+      if (isBool && !['true', 'false', '1', '0', 'yes', 'no'].includes(str.toLowerCase())) isBool = false;
+      
+      // Date Check
+      if (isDate) {
+          const d = Date.parse(str);
+          if (isNaN(d) || !str.match(/\d/)) isDate = false; // Must contain digits
+      }
+
+      // Number Checks
+      if (!isNaN(Number(str))) {
+          if (isInt && !Number.isInteger(Number(str))) isInt = false;
+      } else {
+          isInt = false;
+          isFloat = false;
+      }
+    }
+
+    if (!hasData) return 'text';
+    if (isUuid) return 'uuid';
+    if (isBool) return 'bool';
+    if (isInt) return 'int4';
+    if (isFloat) return 'numeric';
+    if (isDate) return 'timestamptz';
+    return 'text';
+  };
+
+  // --- API HELPER ---
+  const fetchWithAuth = useCallback(async (url: string, options: any = {}) => {
+    const token = localStorage.getItem('cascata_token');
+    const response = await fetch(url, {
+      ...options,
+      headers: { ...options.headers, 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+    });
+    if (response.status === 401) { localStorage.removeItem('cascata_token'); window.location.hash = '#/login'; throw new Error('Session expired'); }
+    if (!response.ok) { const errData = await response.json().catch(() => ({})); throw new Error(errData.error || `Error ${response.status}`); }
+    return response.json();
+  }, []);
+
+  // --- RESIZE SIDEBAR LOGIC ---
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isResizingSidebar) {
+        const newWidth = e.clientX; // Simplified assuming sidebar is on left
+        if (newWidth > 150 && newWidth < 600) setSidebarWidth(newWidth);
+      }
+    };
+    const handleMouseUp = () => setIsResizingSidebar(false);
+
+    if (isResizingSidebar) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizingSidebar]);
+
+  // --- LOADERS ---
+  const fetchProjectInfo = async () => {
+    try {
+      const projects = await fetchWithAuth(`/api/control/projects`);
+      const current = projects.find((p: any) => p.slug === projectId);
+      setProjectMetadata(current?.metadata || {});
+      if (current?.metadata?.auth_link?.table) {
+        setAuthLinkedTable(current.metadata.auth_link.table);
+      }
+      return current;
+    } catch (e) { console.error(e); return null; }
+  };
+
+  const fetchTables = async () => {
+    try {
+      const [data, project, recycle] = await Promise.all([
+        fetchWithAuth(`/api/data/${projectId}/tables`),
+        fetchProjectInfo(),
+        fetchWithAuth(`/api/data/${projectId}/recycle-bin`)
+      ]);
+      
+      const savedOrder = project?.metadata?.ui_settings?.table_order || [];
+      // Re-apply sort order if exists
+      if (savedOrder.length > 0) {
+        data.sort((a: any, b: any) => {
+          const idxA = savedOrder.indexOf(a.name);
+          const idxB = savedOrder.indexOf(b.name);
+          if (idxA === -1) return 1;
+          if (idxB === -1) return -1;
+          return idxA - idxB;
+        });
+      }
+      
+      setTables(data);
+      setRecycleBin(recycle);
+      if (data.length > 0 && !selectedTable) setSelectedTable(data[0].name);
+    } catch (err: any) { setError(err.message); }
+    finally { setLoading(false); }
+  };
+
+  const loadTableSettings = async (tableName: string) => {
+      try {
+          const settings = await fetchWithAuth(`/api/data/${projectId}/ui-settings/${tableName}`);
+          if (settings.columns) return settings;
+      } catch (e) { console.log("No UI settings"); }
+      return null;
+  };
+
+  const fetchTableData = async (tableName: string) => {
+    setDataLoading(true);
+    setSelectedRows(new Set());
+    try {
+      const [rows, cols, settings] = await Promise.all([
+        fetchWithAuth(`/api/data/${projectId}/tables/${tableName}/data?limit=100`),
+        fetchWithAuth(`/api/data/${projectId}/tables/${tableName}/columns`),
+        loadTableSettings(tableName)
+      ]);
+      
+      setTableData(rows);
+      setColumns(cols);
+      
+      let finalOrder: string[] = [];
+      if (settings?.columns) {
+          const savedNames = settings.columns.map((c: any) => c.name);
+          const validSaved = savedNames.filter((name: string) => cols.some((c: any) => c.name === name));
+          const newCols = cols.filter((c: any) => !savedNames.includes(c.name)).map((c: any) => c.name);
+          finalOrder = [...validSaved, ...newCols];
+          const widths: Record<string, number> = {};
+          settings.columns.forEach((c: any) => { if(c.width) widths[c.name] = c.width; });
+          setColumnWidths(widths);
+      } else {
+          finalOrder = cols.map((c: any) => c.name);
+      }
+      setColumnOrder(finalOrder);
+
+      const initialRow: any = {};
+      cols.forEach((c: any) => {
+         if (c.name === 'id' && c.type === 'uuid') initialRow[c.name] = getUUID();
+         else initialRow[c.name] = '';
+      });
+      setInlineNewRow(initialRow);
+
+    } catch (err: any) { setError(err.message); }
+    finally { setDataLoading(false); }
+  };
+
+  useEffect(() => { fetchTables(); }, [projectId]);
+  useEffect(() => { if (selectedTable && activeTab === 'tables') fetchTableData(selectedTable); }, [selectedTable, activeTab]);
+  
+  useEffect(() => {
+    const hide = () => { 
+        setContextMenu(null); 
+        setShowExportMenu(false); 
+        // Only close FK editor if clicking outside. Handled by bubbling, but safeguard here.
+        if (activeFkEditor) setActiveFkEditor(null);
+    };
+    window.addEventListener('click', hide);
+    return () => window.removeEventListener('click', hide);
+  }, [activeFkEditor]);
+
+  // --- ACTIONS: TABLE CREATOR DRAWER ---
+  const handleAddColumnItem = () => {
+    setNewTableCols([
+      ...newTableCols,
+      { id: getUUID(), name: '', type: 'text', defaultValue: '', isPrimaryKey: false, isNullable: true, isUnique: false, isArray: false, description: '' }
+    ]);
+  };
+
+  const handleRemoveColumnItem = (id: string) => {
+    setNewTableCols(newTableCols.filter(c => c.id !== id));
+  };
+
+  const handleColumnChange = (id: string, field: keyof ColumnDef, value: any) => {
+    setNewTableCols(newTableCols.map(c => c.id === id ? { ...c, [field]: value } : c));
+  };
+
+  // Fetch columns when a target table is selected for FK
+  const handleSetForeignKey = async (id: string, table: string, column: string) => {
+      setNewTableCols(newTableCols.map(c => c.id === id ? { ...c, foreignKey: table ? { table, column: column || '' } : undefined } : c));
+      
+      if (table) {
+          setFkLoading(true);
+          try {
+              const res = await fetchWithAuth(`/api/data/${projectId}/tables/${table}/columns`);
+              setFkTargetColumns(res.map((c: any) => c.name));
+              // Set default column if none selected or invalid
+              if (!column && res.length > 0) {
+                  // Re-update state with default 'id' or first column
+                  const defaultCol = res.find((c:any) => c.name === 'id') ? 'id' : res[0].name;
+                  setNewTableCols(cols => cols.map(c => c.id === id ? { ...c, foreignKey: { table, column: defaultCol } } : c));
+              }
+          } catch (e) { console.error("FK Fetch Error", e); }
+          finally { setFkLoading(false); }
+      }
+  };
+
+  const handleCreateTableSubmit = async () => {
+    if (!newTableName) { setError("Table name is required."); return; }
+    if (newTableCols.length === 0) { setError("At least one column is required."); return; }
+    
+    setExecuting(true);
+    try {
+      const payload = {
+        name: newTableName,
+        description: newTableDesc, // Added Description
+        columns: newTableCols.map(c => ({
+          name: c.name || `col_${Math.floor(Math.random()*1000)}`,
+          // Concat '[]' if it's an array type
+          type: c.isArray ? `${c.type}[]` : c.type,
+          primaryKey: c.isPrimaryKey,
+          nullable: c.isNullable,
+          default: c.defaultValue || undefined,
+          isUnique: c.isUnique,
+          foreignKey: c.foreignKey,
+          description: c.description // Added Description
+        }))
+      };
+
+      // 1. Create Structure
+      await fetchWithAuth(`/api/data/${projectId}/tables`, {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+
+      // 2. If Import Mode: Insert Data
+      if (importPendingData) {
+          const chunkSize = 100;
+          const totalRows = importPendingData.length;
+          
+          for (let i = 0; i < totalRows; i += chunkSize) {
+              const chunk = importPendingData.slice(i, i + chunkSize);
+              // Map data: Keys in JSON are Source Headers, need to map to user-defined column names
+              const mappedChunk = chunk.map(row => {
+                  const newRow: any = {};
+                  newTableCols.forEach(col => {
+                      // If column has a source header mapping, use it. Otherwise use default or null.
+                      if (col.sourceHeader && row.hasOwnProperty(col.sourceHeader)) {
+                          let val = row[col.sourceHeader];
+                          // Basic sanitization for booleans/nulls if needed
+                          if (val === '' && col.isNullable) val = null;
+                          newRow[col.name] = val;
+                      } else if (col.defaultValue && col.defaultValue.includes('gen_random_uuid') && col.isPrimaryKey) {
+                          // Let DB handle it, or generate if needed? DB handles default.
+                      } else {
+                          // No source data for this col
+                      }
+                  });
+                  return newRow;
+              });
+
+              await fetchWithAuth(`/api/data/${projectId}/tables/${newTableName}/rows`, {
+                  method: 'POST',
+                  body: JSON.stringify({ data: mappedChunk })
+              });
+          }
+          setSuccessMsg(`Table "${newTableName}" created and ${totalRows} rows imported.`);
+      } else {
+          setSuccessMsg(`Table "${newTableName}" created successfully.`);
+      }
+
+      setShowCreateTable(false);
+      setNewTableName('');
+      setNewTableDesc('');
+      setNewTableCols([
+        { id: '1', name: 'id', type: 'uuid', defaultValue: 'gen_random_uuid()', isPrimaryKey: true, isNullable: false, isUnique: true, isArray: false, description: 'Unique Identifier' },
+        { id: '2', name: 'created_at', type: 'timestamptz', defaultValue: 'now()', isPrimaryKey: false, isNullable: false, isUnique: false, isArray: false, description: 'Creation Timestamp' },
+      ]);
+      setImportPendingData(null);
+      fetchTables();
+      // If we just created/imported, select it
+      if (importPendingData) {
+          setSelectedTable(newTableName);
+          fetchTableData(newTableName);
+      }
+
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setExecuting(false);
+    }
+  };
+
+  // --- ACTIONS: SIDEBAR DRAG ---
+  const saveTableOrder = async (newTables: any[]) => {
+      const order = newTables.map(t => t.name);
+      await fetchWithAuth(`/api/control/projects/${projectId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ metadata: { ui_settings: { table_order: order } } })
+      });
+  };
+
+  const handleTableDrop = (targetTable: string) => {
+      if (!draggedTable || draggedTable === targetTable) return;
+      const newTables = [...tables];
+      const fromIdx = newTables.findIndex(t => t.name === draggedTable);
+      const toIdx = newTables.findIndex(t => t.name === targetTable);
+      const [moved] = newTables.splice(fromIdx, 1);
+      newTables.splice(toIdx, 0, moved);
+      setTables(newTables);
+      setDraggedTable(null);
+      saveTableOrder(newTables);
+  };
+
+  // --- ACTIONS: TABLE MANAGEMENT ---
+  const handleTableSelection = (e: React.MouseEvent, tableName: string) => {
+      // REQUIREMENT 2: Smart Click for SQL Editor
+      if (activeTab === 'query') {
+          setQuery(prev => `${prev}\nSELECT * FROM public."${tableName}" LIMIT 100;`);
+          return;
+      }
+
+      if (e.detail === 2) { 
+          const next = new Set(selectedTables);
+          if (next.has(tableName)) next.delete(tableName); else next.add(tableName);
+          setSelectedTables(next);
+      } else {
+          if (!e.ctrlKey && !e.metaKey && selectedTables.size === 0) {
+             setSelectedTable(tableName);
+          }
+      }
+  };
+
+  const handleCopyStructure = async () => {
+      const targets = selectedTables.size > 0 ? Array.from(selectedTables) : [selectedTable!];
+      let fullSql = '';
+      for (const t of targets) {
+          const res = await fetchWithAuth(`/api/data/${projectId}/tables/${t}/sql`);
+          fullSql += `-- Structure for ${t}\n${res.sql}\n\n`;
+      }
+      const copied = await copyToClipboard(fullSql);
+      if (copied) {
+          setSuccessMsg(`SQL copied.`);
+          setTimeout(() => setSuccessMsg(null), 2000);
+      } else {
+          setError("Clipboard access denied.");
+      }
+  };
+
+  const handleDeleteTable = async () => {
+      setExecuting(true);
+      try {
+          if (showDeleteModal.mode === 'HARD') {
+              const verify = await fetch('/api/control/auth/verify', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` },
+                  body: JSON.stringify({ password: verifyPassword })
+              });
+              if (!verify.ok) throw new Error("Senha incorreta");
+          }
+          const payloadMode = showDeleteModal.mode === 'HARD' ? 'CASCADE' : undefined;
+          await fetchWithAuth(`/api/data/${projectId}/tables/${showDeleteModal.table}`, {
+              method: 'DELETE',
+              body: JSON.stringify({ mode: payloadMode })
+          });
+          setSuccessMsg(showDeleteModal.mode === 'SOFT' ? "Moved to Recycle Bin." : "Table Destroyed.");
+          setShowDeleteModal({ active: false, table: '', mode: 'SOFT' });
+          setVerifyPassword('');
+          fetchTables();
+      } catch (e: any) {
+          setError(e.message);
+      } finally {
+          setExecuting(false);
+      }
+  };
+
+  const handleDuplicateTableSubmit = async () => {
+      if (!duplicateConfig.newName || !duplicateConfig.source) return;
+      setExecuting(true);
+      try {
+          await fetchWithAuth(`/api/data/${projectId}/tables/${duplicateConfig.source}/duplicate`, {
+              method: 'POST',
+              body: JSON.stringify({ 
+                  newName: duplicateConfig.newName,
+                  withData: duplicateConfig.withData
+              })
+          });
+          setSuccessMsg(`Table duplicated to ${duplicateConfig.newName}`);
+          setShowDuplicateModal(false);
+          setDuplicateConfig({ source: '', newName: '', withData: false });
+          fetchTables();
+      } catch (e: any) { setError(e.message); }
+      finally { setExecuting(false); }
+  };
+
+  // --- ACTIONS: COLUMNS ---
+  const handleAddColumn = async () => {
+      if (!newColumn.name || !selectedTable) return;
+      setExecuting(true);
+      try {
+          await fetchWithAuth(`/api/data/${projectId}/tables/${selectedTable}/columns`, {
+              method: 'POST',
+              body: JSON.stringify(newColumn)
+          });
+          setSuccessMsg("Column added.");
+          setShowAddColumn(false);
+          setNewColumn({ name: '', type: 'text', isNullable: true, defaultValue: '', isUnique: false, description: '' });
+          fetchTableData(selectedTable);
+      } catch (e: any) { setError(e.message); }
+      finally { setExecuting(false); }
+  };
+
+  const handleResize = (colName: string, newWidth: number) => {
+      setColumnWidths(prev => ({ ...prev, [colName]: Math.max(10, newWidth) }));
+  };
+
+  const saveGridSettings = async () => {
+      if (!selectedTable) return;
+      const settings = {
+          columns: columnOrder.map(name => ({
+              name,
+              width: columnWidths[name]
+          }))
+      };
+      await fetchWithAuth(`/api/data/${projectId}/ui-settings/${selectedTable}`, {
+          method: 'POST',
+          body: JSON.stringify({ settings })
+      });
+  };
+
+  const handleColumnDrop = (targetCol: string) => {
+      if (!draggingColumn || draggingColumn === targetCol) return;
+      const newOrder = [...columnOrder];
+      const fromIdx = newOrder.indexOf(draggingColumn);
+      const toIdx = newOrder.indexOf(targetCol);
+      newOrder.splice(fromIdx, 1);
+      newOrder.splice(toIdx, 0, draggingColumn);
+      setColumnOrder(newOrder);
+      setDraggingColumn(null);
+      saveGridSettings();
+  };
+
+  // --- ACTIONS: IMPORT/EXPORT ---
+  const handleExport = (format: 'csv' | 'json' | 'sql' | 'xlsx') => {
+      const rowsToExport = selectedRows.size > 0 
+          ? tableData.filter(r => selectedRows.has(r[pkCol]))
+          : tableData;
+      const fileName = `${selectedTable}_export_${new Date().toISOString().slice(0,10)}`;
+
+      if (format === 'xlsx') {
+          const ws = window.XLSX.utils.json_to_sheet(rowsToExport);
+          const wb = window.XLSX.utils.book_new();
+          window.XLSX.utils.book_append_sheet(wb, ws, "Data");
+          window.XLSX.writeFile(wb, `${fileName}.xlsx`);
+      } else if (format === 'json') {
+          const blob = new Blob([JSON.stringify(rowsToExport, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a'); a.href = url; a.download = `${fileName}.json`; a.click();
+      } else if (format === 'csv') {
+          const ws = window.XLSX.utils.json_to_sheet(rowsToExport);
+          const csv = window.XLSX.utils.sheet_to_csv(ws);
+          const blob = new Blob([csv], { type: 'text/csv' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a'); a.href = url; a.download = `${fileName}.csv`; a.click();
+      } else if (format === 'sql') {
+          const sql = rowsToExport.map(row => {
+              const keys = Object.keys(row);
+              const vals = keys.map(k => typeof row[k] === 'string' ? `'${row[k].replace(/'/g, "''")}'` : row[k]);
+              return `INSERT INTO "${selectedTable}" (${keys.map(k=>`"${k}"`).join(',')}) VALUES (${vals.join(',')});`;
+          }).join('\n');
+          const blob = new Blob([sql], { type: 'text/plain' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a'); a.href = url; a.download = `${fileName}.sql`; a.click();
+      }
+  };
+
+  const handleImport = async () => {
+      if (!importFile) return;
+      setExecuting(true);
+      try {
+          const reader = new FileReader();
+          reader.onload = async (e) => {
+              const data = e.target?.result;
+              const wb = window.XLSX.read(data, { type: 'binary' });
+              const wsName = wb.SheetNames[0];
+              const json = window.XLSX.utils.sheet_to_json(wb.Sheets[wsName]);
+              
+              if (createTableFromImport) {
+                  // --- SMART IMPORT LOGIC ---
+                  // 1. Infer Headers
+                  const headers = Object.keys(json[0] || {});
+                  const sampleSize = Math.min(json.length, 50);
+                  const sampleRows = json.slice(0, sampleSize);
+
+                  const inferredCols: ColumnDef[] = [];
+                  
+                  // Add mandatory ID
+                  inferredCols.push({ id: getUUID(), name: 'id', type: 'uuid', defaultValue: 'gen_random_uuid()', isPrimaryKey: true, isNullable: false, isUnique: true, isArray: false, description: 'Import ID' });
+
+                  headers.forEach(h => {
+                      // Infer Type based on sample data
+                      const colValues = sampleRows.map((r: any) => r[h]);
+                      const inferredType = inferType(colValues);
+                      
+                      inferredCols.push({
+                          id: getUUID(),
+                          name: sanitizeName(h),
+                          sourceHeader: h, // Important for mapping later
+                          type: inferredType,
+                          defaultValue: '',
+                          isPrimaryKey: false,
+                          isNullable: true,
+                          isUnique: false,
+                          isArray: false,
+                          description: 'Imported from ' + h
+                      });
+                  });
+
+                  // Setup Create Table Drawer
+                  setNewTableName(sanitizeName(importFile.name.split('.')[0]));
+                  setNewTableCols(inferredCols);
+                  setImportPendingData(json);
+                  setShowCreateTable(true);
+                  setShowImportModal(false); // Close file picker
+                  setExecuting(false); // Stop spinning here, user needs to confirm
+                  return;
+              }
+
+              // Normal Import to existing table
+              let targetTable = selectedTable;
+              if (!targetTable) throw new Error("No target table");
+
+              const chunkSize = 100;
+              for (let i = 0; i < json.length; i += chunkSize) {
+                  const chunk = json.slice(i, i + chunkSize);
+                  await fetchWithAuth(`/api/data/${projectId}/tables/${targetTable}/rows`, {
+                      method: 'POST',
+                      body: JSON.stringify({ data: chunk })
+                  });
+              }
+              setSuccessMsg(`Imported to ${targetTable}.`);
+              setShowImportModal(false);
+              fetchTables();
+              if (targetTable) { setSelectedTable(targetTable); fetchTableData(targetTable); }
+              setExecuting(false);
+          };
+          reader.readAsBinaryString(importFile);
+      } catch (e: any) { 
+          setError(e.message); 
+          setExecuting(false);
+      }
+  };
+
+  // --- ACTIONS: RECYCLE BIN ---
+  const handleRestore = async (tableName: string) => {
+      try {
+          await fetchWithAuth(`/api/data/${projectId}/recycle-bin/${tableName}/restore`, { method: 'POST' });
+          setSuccessMsg("Table restored.");
+          fetchTables();
+      } catch (e: any) { setError(e.message); }
+  };
+
+  // --- ACTIONS: ROWS ---
+  const handleInlineSave = async () => {
+    setExecuting(true);
+    try {
+      const payload = { ...inlineNewRow };
+      columns.forEach(col => {
+        if (payload[col.name] === '' && col.isNullable) payload[col.name] = null;
+      });
+      await fetchWithAuth(`/api/data/${projectId}/tables/${selectedTable}/rows`, { method: 'POST', body: JSON.stringify({ data: payload }) });
+      setSuccessMsg('Row added.');
+      fetchTableData(selectedTable!);
+      const nextRow: any = {};
+      columns.forEach(col => {
+         if (col.name === 'id' && col.type === 'uuid') nextRow[col.name] = getUUID();
+         else nextRow[col.name] = '';
+      });
+      setInlineNewRow(nextRow);
+      setTimeout(() => firstInputRef.current?.focus(), 100);
+    } catch (e: any) { setError(e.message); }
+    finally { setExecuting(false); }
+  };
+
+  const handleUpdateCell = async (row: any, colName: string, newValue: string) => {
+    if (!pkCol) return;
+    try {
+      const payload = { [colName]: newValue };
+      await fetchWithAuth(`/api/data/${projectId}/tables/${selectedTable}/rows`, {
+        method: 'PUT',
+        body: JSON.stringify({ data: payload, pkColumn: pkCol, pkValue: row[pkCol] })
+      });
+      const updatedData = tableData.map(r => r[pkCol] === row[pkCol] ? { ...r, [colName]: newValue } : r);
+      setTableData(updatedData);
+      setEditingCell(null);
+    } catch (e: any) { setError("Update failed: " + e.message); }
+  };
+
+  const renderInput = (col: any, value: any, onChange: (val: any) => void, onEnter?: () => void, isFirst = false) => {
+    return <input ref={isFirst ? firstInputRef : undefined} value={value} onChange={(e) => onChange(e.target.value)} className="w-full bg-transparent outline-none text-xs font-medium text-slate-700 h-full px-2" onKeyDown={(e) => e.key === 'Enter' && onEnter && onEnter()} />;
+  };
+
+  const displayColumns = columnOrder.length > 0 
+    ? columnOrder.map(name => columns.find(c => c.name === name)).filter(Boolean)
+    : columns;
+
+  return (
+    <div className="flex h-full flex-col bg-[#FDFDFD] relative">
+      {/* HEADER */}
+      <header className="border-b border-slate-200 px-6 py-4 bg-white flex items-center justify-between shadow-sm z-20 h-16">
+        <div className="flex items-center gap-4">
+          <div className="p-2 bg-slate-900 text-white rounded-xl shadow-lg"><Database size={20} /></div>
+          <div><h2 className="text-lg font-black text-slate-900 tracking-tight leading-none">Data Browser</h2><p className="text-[9px] text-indigo-600 font-bold uppercase tracking-[0.2em]">{projectId}</p></div>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center bg-slate-100 p-1 rounded-xl">
+            <button onClick={() => setActiveTab('tables')} className={`px-4 py-1.5 text-[10px] font-black rounded-lg transition-all ${activeTab === 'tables' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`}>GRID VIEW</button>
+            <button onClick={() => setActiveTab('query')} className={`px-4 py-1.5 text-[10px] font-black rounded-lg transition-all ${activeTab === 'query' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`}>SQL EDITOR</button>
+          </div>
+          <button onClick={() => { setShowCreateTable(true); setImportPendingData(null); }} className="bg-slate-900 text-white px-4 py-2 rounded-xl text-[10px] font-black flex items-center gap-2 hover:bg-slate-800 transition-all"><Plus size={14} /> NEW TABLE</button>
+        </div>
+      </header>
+
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* RESIZABLE SIDEBAR (REQUIREMENT 1) */}
+        <aside 
+          className="border-r border-slate-200 bg-white flex flex-col shrink-0 z-10 relative group/sidebar"
+          style={{ width: sidebarWidth }}
+        >
+          {/* RESIZER HANDLE */}
+          <div 
+            onMouseDown={() => setIsResizingSidebar(true)}
+            className={`absolute right-0 top-0 w-1 h-full cursor-col-resize hover:bg-indigo-500 transition-colors z-50 ${isResizingSidebar ? 'bg-indigo-500 w-1.5' : 'bg-transparent'}`} 
+          />
+
+          <div className="p-4 border-b border-slate-50 flex flex-col gap-2">
+            <div className="flex items-center justify-between px-2">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{tables.length} Public Tables</span>
+                <button onClick={handleCopyStructure} title="Copy SQL" className="text-indigo-600 hover:bg-indigo-50 p-1 rounded"><Copy size={12}/></button>
+            </div>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
+            {tables.map(t => {
+              const isSelected = selectedTables.has(t.name) || selectedTable === t.name;
+              const isMulti = selectedTables.has(t.name);
+              return (
+                <div 
+                  key={t.name}
+                  draggable
+                  onDragStart={() => setDraggedTable(t.name)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => handleTableDrop(t.name)}
+                  onClick={(e) => handleTableSelection(e, t.name)} 
+                  onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, table: t.name }); }}
+                  className={`flex items-center justify-between px-4 py-3 rounded-xl transition-all cursor-pointer group select-none 
+                    ${isMulti ? 'bg-indigo-100 text-indigo-800 ring-1 ring-indigo-300' : selectedTable === t.name ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}
+                    ${draggedTable === t.name ? 'opacity-50' : ''}
+                  `}
+                >
+                  <div className="flex items-center gap-3">
+                    <GripVertical size={12} className="text-slate-300 cursor-move opacity-0 group-hover:opacity-100" />
+                    {t.name === authLinkedTable ? <User size={14} className={isSelected ? 'text-indigo-600' : 'text-emerald-500'} /> : <TableIcon size={14} className={isSelected ? 'text-indigo-600' : 'text-slate-400'} />}
+                    <span className="text-xs font-bold truncate max-w-[120px]">{t.name}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="p-4 border-t border-slate-100">
+             <button onClick={() => setShowTrashModal(true)} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-500 hover:bg-rose-50 hover:text-rose-600 rounded-xl transition-all">
+                <Trash2 size={16} /> Recycle Bin
+                {recycleBin.length > 0 && <span className="ml-auto bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full text-[9px] font-black">{recycleBin.length}</span>}
+             </button>
+          </div>
+        </aside>
+
+        {/* MAIN AREA */}
+        <main className="flex-1 overflow-hidden flex flex-col relative bg-[#FAFBFC]">
+          {activeTab === 'tables' ? (
+            selectedTable ? (
+              <div className="flex-1 flex flex-col overflow-hidden">
+                {/* TOOLBAR */}
+                <div className="px-8 py-4 border-b border-slate-200 bg-white flex items-center justify-between shrink-0">
+                   <div className="flex items-center gap-6">
+                      <h3 className="text-xl font-black text-slate-900 tracking-tight">{selectedTable}</h3>
+                      <span className="text-xs font-bold text-slate-400">{tableData.length} records</span>
+                   </div>
+                   <div className="flex items-center gap-3 relative">
+                      <div className="relative">
+                          <button onClick={(e) => { e.stopPropagation(); setShowExportMenu(!showExportMenu); }} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-50 text-slate-600 hover:bg-slate-100 text-[10px] font-black uppercase tracking-widest"><Download size={12}/> Export</button>
+                          {showExportMenu && (
+                              <div className="absolute top-full right-0 mt-2 bg-white border border-slate-200 shadow-xl rounded-xl p-1 z-50 w-32 animate-in fade-in zoom-in-95">
+                                  {['csv', 'xlsx', 'json', 'sql'].map(fmt => (
+                                      <button key={fmt} onClick={() => { handleExport(fmt as any); setShowExportMenu(false); }} className="w-full text-left px-3 py-2 hover:bg-slate-50 text-xs font-bold uppercase text-slate-600 rounded-lg">{fmt.toUpperCase()}</button>
+                                  ))}
+                              </div>
+                          )}
+                      </div>
+                      <button onClick={() => setShowImportModal(true)} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-50 text-slate-600 hover:bg-slate-100 text-[10px] font-black uppercase tracking-widest"><Upload size={12}/> Import</button>
+                   </div>
+                </div>
+
+                {/* GRID */}
+                <div className="flex-1 overflow-auto relative">
+                   <table className="border-collapse table-fixed" style={{ minWidth: '100%' }}>
+                      <thead className="sticky top-0 bg-white shadow-sm z-20">
+                         <tr>
+                            <th className="w-12 border-b border-r border-slate-200 bg-slate-50 sticky left-0 z-30"><div className="flex items-center justify-center h-full"><input type="checkbox" onChange={(e) => setSelectedRows(e.target.checked ? new Set(tableData.map(r => r[pkCol])) : new Set())} checked={selectedRows.size > 0 && selectedRows.size === tableData.length} className="rounded border-slate-300"/></div></th>
+                            {displayColumns.map((col: any) => (
+                               <th 
+                                key={col.name} 
+                                className={`px-4 py-3 text-left border-b border-r border-slate-200 bg-slate-50 relative group select-none ${draggingColumn === col.name ? 'opacity-50 bg-indigo-50' : ''}`}
+                                style={{ width: columnWidths[col.name] || 200 }}
+                                draggable
+                                onDragStart={() => setDraggingColumn(col.name)}
+                                onDragOver={(e) => e.preventDefault()}
+                                onDrop={() => handleColumnDrop(col.name)}
+                               >
+                                  <div className="flex items-center gap-2">
+                                     {col.isPrimaryKey && <Key size={10} className="text-amber-500" />}
+                                     <span className="text-[10px] font-black text-slate-700 uppercase tracking-tight truncate">{col.name}</span>
+                                     <span className="text-[9px] text-slate-400 font-mono ml-auto">{col.type}</span>
+                                  </div>
+                                  <div className="absolute right-0 top-0 w-1 h-full cursor-col-resize hover:bg-indigo-400 z-10" onMouseDown={(e) => { e.preventDefault(); const startX = e.clientX; const startWidth = columnWidths[col.name] || 200; const onMove = (moveEvent: MouseEvent) => handleResize(col.name, startWidth + (moveEvent.clientX - startX)); const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); saveGridSettings(); }; document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp); }} />
+                               </th>
+                            ))}
+                            {/* ADD COLUMN BUTTON */}
+                            <th className="w-16 border-b border-slate-200 bg-slate-50 text-center hover:bg-slate-100 cursor-pointer" onClick={() => setShowAddColumn(true)}>
+                                <Plus size={16} className="mx-auto text-slate-400" />
+                            </th>
+                         </tr>
+                         
+                         {/* INLINE ROW (FIXED SAVE) */}
+                         <tr className="bg-indigo-50/30 border-b border-indigo-100 group">
+                            <td className="p-0 text-center border-r border-slate-200 bg-indigo-50/50 sticky left-0 z-20"><Plus size={14} className="mx-auto text-indigo-400"/></td>
+                            {displayColumns.map((col: any, idx) => (
+                               <td key={col.name} className="p-0 border-r border-slate-200 relative"><div className="h-10">{renderInput(col, inlineNewRow[col.name], (val) => setInlineNewRow({...inlineNewRow, [col.name]: val}), handleInlineSave, idx === 0)}</div></td>
+                            ))}
+                            <td className="p-0 text-center bg-indigo-50/50"><button onClick={handleInlineSave} className="w-full h-full flex items-center justify-center text-indigo-600 hover:bg-indigo-100 transition-colors"><Save size={14} /></button></td>
+                         </tr>
+                      </thead>
+                      <tbody className="bg-white">
+                         {dataLoading ? (
+                            <tr><td colSpan={displayColumns.length + 2} className="py-20 text-center text-slate-400"><Loader2 className="animate-spin mx-auto mb-2" /> Loading data...</td></tr>
+                         ) : tableData.map((row, rIdx) => (
+                            <tr key={rIdx} className={`hover:bg-slate-50 group ${selectedRows.has(row[pkCol]) ? 'bg-indigo-50/50' : ''}`}>
+                               <td className="text-center border-b border-r border-slate-100 sticky left-0 bg-white group-hover:bg-slate-50 z-10"><input type="checkbox" checked={selectedRows.has(row[pkCol])} onChange={() => { const next = new Set(selectedRows); if (next.has(row[pkCol])) next.delete(row[pkCol]); else next.add(row[pkCol]); setSelectedRows(next); }} className="rounded border-slate-300"/></td>
+                               {displayColumns.map((col: any) => {
+                                  const isEditing = editingCell?.rowId === row[pkCol] && editingCell?.col === col.name;
+                                  return (
+                                     <td key={col.name} onDoubleClick={() => { setEditingCell({rowId: row[pkCol], col: col.name}); setEditValue(String(row[col.name])); }} className="border-b border-r border-slate-100 px-4 py-2.5 text-xs text-slate-700 font-medium truncate cursor-text relative">
+                                        {isEditing ? <input autoFocus value={editValue} onChange={(e) => setEditValue(e.target.value)} onBlur={() => handleUpdateCell(row, col.name, editValue)} onKeyDown={(e) => e.key === 'Enter' && handleUpdateCell(row, col.name, editValue)} className="absolute inset-0 w-full h-full px-4 bg-white outline-none border-2 border-indigo-500 shadow-lg z-10" /> : (row[col.name] === null ? <span className="text-slate-300 italic">null</span> : String(row[col.name]))}
+                                     </td>
+                                  );
+                               })}
+                               <td className="border-b border-slate-100"></td>
+                            </tr>
+                         ))}
+                      </tbody>
+                   </table>
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center text-slate-300 p-10 text-center">
+                 <div className="w-24 h-24 bg-slate-100 rounded-[2rem] flex items-center justify-center mb-6"><TableIcon size={40} className="opacity-20" /></div>
+                 <h3 className="text-2xl font-black text-slate-400 tracking-tighter mb-2">No Table Selected</h3>
+              </div>
+            )
+          ) : (
+            // RESTORED POWERFUL SQL EDITOR
+            <div className="flex-1 flex flex-col bg-slate-950 overflow-hidden relative">
+              <div className="px-8 py-5 bg-slate-900/80 border-b border-white/5 flex items-center justify-between z-10">
+                <div className="flex items-center gap-4"><div className="w-10 h-10 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-400"><Terminal size={20} /></div><h4 className="text-white font-black text-sm tracking-tight">SQL Console v2</h4></div>
+                <button onClick={async () => {
+                  setExecuting(true); setQueryResult(null);
+                  try {
+                    const data = await fetchWithAuth(`/api/data/${projectId}/query`, { method: 'POST', body: JSON.stringify({ sql: query }) });
+                    setQueryResult(data); fetchTables();
+                  } catch (err: any) { setError(err.message); }
+                  finally { setExecuting(false); }
+                }} disabled={executing} className="bg-emerald-500 text-white px-8 py-3 rounded-2xl text-xs font-black flex items-center gap-3 hover:bg-emerald-400 transition-all shadow-xl shadow-emerald-500/20">{executing ? <Loader2 size={18} className="animate-spin" /> : <Play size={18} />} EXECUTE</button>
+              </div>
+              <textarea value={query} onChange={(e) => setQuery(e.target.value)} className="flex-1 w-full bg-[#020617] text-emerald-400 p-12 font-mono text-lg outline-none resize-none spellcheck-false" />
+              {queryResult && (
+                <div className="h-[45%] bg-[#0f172a] border-t border-white/5 overflow-auto p-10 font-mono animate-in slide-in-from-bottom-10">
+                  <div className="mb-4 flex items-center gap-6"><span className="text-emerald-400 font-black text-xs uppercase tracking-widest">Query Result</span><span className="text-slate-500 text-[10px] font-bold">{queryResult.command} • {queryResult.rowCount} rows • {queryResult.duration}ms</span></div>
+                  {queryResult.rows && queryResult.rows.length > 0 ? (
+                    <div className="bg-slate-900 rounded-2xl border border-white/5 overflow-hidden">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-white/5">
+                            {Object.keys(queryResult.rows[0]).map(h => <th key={h} className="px-4 py-3 text-[10px] font-black text-slate-400 uppercase border-r border-white/5">{h}</th>)}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {queryResult.rows.map((r:any, i:number) => (
+                            <tr key={i} className="border-b border-white/5 hover:bg-white/5">
+                              {Object.values(r).map((v:any, j:number) => <td key={j} className="px-4 py-2 text-xs text-slate-300 truncate max-w-[200px] border-r border-white/5">{v === null ? 'null' : String(v)}</td>)}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : <pre className="text-xs text-slate-300 leading-6">{JSON.stringify(queryResult, null, 2)}</pre>}
+                </div>
+              )}
+            </div>
+          )}
+        </main>
+
+        {/* 
+          NEW: TABLE CREATOR DRAWER (SUPABASE STYLE) 
+          A powerful "No-Code" experience for schema design.
+        */}
+        <div 
+          className={`fixed inset-y-0 right-0 w-[500px] bg-white shadow-2xl z-[100] transform transition-transform duration-300 ease-in-out flex flex-col border-l border-slate-200 ${showCreateTable ? 'translate-x-0' : 'translate-x-full'}`}
+        >
+          <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+            <div>
+              <h3 className="text-xl font-black text-slate-900 tracking-tight">{importPendingData ? 'Import & Map' : 'Create New Table'}</h3>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Schema Designer</p>
+            </div>
+            <button onClick={() => setShowCreateTable(false)} className="p-2 hover:bg-slate-200 rounded-lg text-slate-400"><X size={20}/></button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-6 space-y-8">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Table Name</label>
+                <input 
+                  autoFocus
+                  value={newTableName} 
+                  onChange={(e) => setNewTableName(sanitizeName(e.target.value))}
+                  placeholder="public.users" 
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-4 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500/20"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Description (for AI)</label>
+                <input 
+                  value={newTableDesc}
+                  onChange={(e) => setNewTableDesc(e.target.value)}
+                  placeholder="e.g. Stores registered users and their profiles."
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-4 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-600"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center justify-between px-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Column Definitions</label>
+              </div>
+              
+              <div className="space-y-3">
+                {newTableCols.map((col, idx) => (
+                  <div key={col.id} className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm hover:shadow-md transition-all group relative">
+                    <div className="flex gap-3 mb-3">
+                      <input 
+                        value={col.name} 
+                        onChange={(e) => handleColumnChange(col.id, 'name', sanitizeName(e.target.value))}
+                        placeholder="column_name" 
+                        className="flex-[2] bg-slate-50 border-none rounded-lg px-3 py-2 text-xs font-bold outline-none"
+                      />
+                      <select 
+                        value={col.type} 
+                        onChange={(e) => handleColumnChange(col.id, 'type', e.target.value)}
+                        className="flex-1 bg-slate-100 border-none rounded-lg px-2 py-2 text-[10px] font-black uppercase text-slate-600 outline-none cursor-pointer"
+                      >
+                        <optgroup label="Numbers">
+                          <option value="int8">int8 (BigInt)</option>
+                          <option value="int4">int4 (Integer)</option>
+                          <option value="numeric">numeric</option>
+                          <option value="float8">float8</option>
+                        </optgroup>
+                        <optgroup label="Text">
+                          <option value="text">text</option>
+                          <option value="varchar">varchar</option>
+                          <option value="uuid">uuid</option>
+                        </optgroup>
+                        <optgroup label="Date/Time">
+                          <option value="timestamptz">timestamptz</option>
+                          <option value="date">date</option>
+                          <option value="time">time</option>
+                        </optgroup>
+                        <optgroup label="JSON">
+                          <option value="jsonb">jsonb</option>
+                          <option value="json">json</option>
+                        </optgroup>
+                        <optgroup label="Other">
+                          <option value="bool">boolean</option>
+                          <option value="bytea">bytea</option>
+                        </optgroup>
+                      </select>
+                      <button onClick={() => handleRemoveColumnItem(col.id)} className="p-2 text-slate-300 hover:text-rose-500 transition-colors"><X size={14}/></button>
+                    </div>
+                    
+                    <div className="mb-3">
+                        <input 
+                            value={col.description || ''}
+                            onChange={(e) => handleColumnChange(col.id, 'description', e.target.value)}
+                            placeholder="Description (helps AI understand semantics)..."
+                            className="w-full bg-slate-50 border-none rounded-lg px-3 py-1.5 text-[10px] font-medium text-slate-600 outline-none focus:bg-indigo-50/30 transition-colors"
+                        />
+                    </div>
+                    
+                    <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-lg relative">
+                       <input 
+                         list={`defaults-${col.id}`}
+                         value={col.defaultValue} 
+                         onChange={(e) => handleColumnChange(col.id, 'defaultValue', e.target.value)}
+                         placeholder="Default Value (NULL)" 
+                         className="flex-1 bg-transparent border-none text-[10px] font-mono text-slate-600 outline-none placeholder:text-slate-300"
+                       />
+                       <datalist id={`defaults-${col.id}`}>
+                          {getDefaultSuggestions(col.type).map(s => <option key={s} value={s} />)}
+                       </datalist>
+
+                       <div className="h-4 w-[1px] bg-slate-200"></div>
+                       
+                       {/* TOGGLES */}
+                       <div className="flex items-center gap-2">
+                          <div 
+                            title="Primary Key"
+                            onClick={() => handleColumnChange(col.id, 'isPrimaryKey', !col.isPrimaryKey)}
+                            className={`px-1.5 py-1 rounded text-[9px] font-black cursor-pointer select-none transition-colors ${col.isPrimaryKey ? 'bg-amber-100 text-amber-700' : 'text-slate-300 hover:bg-slate-200'}`}
+                          >PK</div>
+                          <div 
+                            title="Foreign Key (Link Table)"
+                            onClick={(e) => { e.stopPropagation(); setActiveFkEditor(activeFkEditor === col.id ? null : col.id); }}
+                            className={`px-1.5 py-1 rounded cursor-pointer select-none transition-colors flex items-center ${col.foreignKey ? 'bg-blue-100 text-blue-700' : 'text-slate-300 hover:bg-slate-200'}`}
+                          >
+                             <LinkIcon size={12} strokeWidth={4} />
+                          </div>
+                          <div 
+                            title="Array / List"
+                            onClick={() => handleColumnChange(col.id, 'isArray', !col.isArray)}
+                            className={`px-1.5 py-1 rounded text-[9px] font-black cursor-pointer select-none transition-colors ${col.isArray ? 'bg-indigo-100 text-indigo-700' : 'text-slate-300 hover:bg-slate-200'}`}
+                          >LIST</div>
+                          <div 
+                            title="Nullable"
+                            onClick={() => handleColumnChange(col.id, 'isNullable', !col.isNullable)}
+                            className={`px-1.5 py-1 rounded text-[9px] font-black cursor-pointer select-none transition-colors ${col.isNullable ? 'bg-emerald-100 text-emerald-700' : 'text-slate-300 hover:bg-slate-200'}`}
+                          >NULL</div>
+                          <div 
+                            title="Unique"
+                            onClick={() => handleColumnChange(col.id, 'isUnique', !col.isUnique)}
+                            className={`px-1.5 py-1 rounded text-[9px] font-black cursor-pointer select-none transition-colors ${col.isUnique ? 'bg-purple-100 text-purple-700' : 'text-slate-300 hover:bg-slate-200'}`}
+                          >UNIQ</div>
+                       </div>
+                    </div>
+
+                    {/* FOREIGN KEY EDITOR OVERLAY */}
+                    {activeFkEditor === col.id && (
+                        <div 
+                            onClick={(e) => e.stopPropagation()} 
+                            className="absolute z-50 top-full right-0 mt-2 w-64 bg-white border border-slate-200 shadow-xl rounded-xl p-4 animate-in fade-in zoom-in-95"
+                        >
+                            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Link to Table</h4>
+                            <div className="space-y-3">
+                                <select 
+                                    value={col.foreignKey?.table || ''} 
+                                    onChange={(e) => handleSetForeignKey(col.id, e.target.value, '')}
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-xs font-bold text-slate-700 outline-none"
+                                >
+                                    <option value="">Select Target Table...</option>
+                                    {tables.filter(t => t.name !== newTableName).map(t => (
+                                        <option key={t.name} value={t.name}>{t.name}</option>
+                                    ))}
+                                </select>
+                                {col.foreignKey?.table && (
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs text-slate-400">Column:</span>
+                                        {fkLoading ? <Loader2 size={12} className="animate-spin text-indigo-500" /> : (
+                                            <select 
+                                                value={col.foreignKey.column}
+                                                onChange={(e) => handleSetForeignKey(col.id, col.foreignKey!.table, e.target.value)}
+                                                className="flex-1 bg-slate-50 border-none rounded-lg py-1 px-2 text-xs font-mono font-bold outline-none"
+                                            >
+                                                <option value="">Select Column...</option>
+                                                {fkTargetColumns.map(c => <option key={c} value={c}>{c}</option>)}
+                                            </select>
+                                        )}
+                                    </div>
+                                )}
+                                <div className="flex justify-end pt-2">
+                                    <button onClick={() => { handleSetForeignKey(col.id, '', ''); setActiveFkEditor(null); }} className="text-[10px] font-bold text-rose-500 hover:underline">Remove Link</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <button onClick={handleAddColumnItem} className="w-full py-3 border border-dashed border-slate-300 rounded-xl text-slate-400 text-xs font-bold hover:bg-slate-50 hover:text-indigo-600 hover:border-indigo-300 transition-all flex items-center justify-center gap-2">
+                <Plus size={14}/> Add Column
+              </button>
+            </div>
+          </div>
+
+          <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex gap-4">
+             <button onClick={() => setShowCreateTable(false)} className="flex-1 py-3 text-xs font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">Cancel</button>
+             <button onClick={handleCreateTableSubmit} disabled={executing} className="flex-[2] bg-indigo-600 text-white py-3 rounded-xl text-xs font-black uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2">
+                {executing ? <Loader2 size={14} className="animate-spin"/> : importPendingData ? 'Deploy & Import' : 'Deploy Table'}
+             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* MODALS */}
+      
+      {/* DELETE TABLE MODAL (REDESIGNED) */}
+      {showDeleteModal.active && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+           <div className="bg-white rounded-[3rem] p-10 max-w-md w-full shadow-2xl border border-slate-200 text-center">
+              <div className="w-16 h-16 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mx-auto mb-6"><Trash2 size={32}/></div>
+              <h3 className="text-2xl font-black text-slate-900 mb-2">Delete {showDeleteModal.table}</h3>
+              <p className="text-xs text-slate-500 font-bold mb-8">Choose deletion strategy.</p>
+              
+              <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl mb-6">
+                 <button onClick={() => setShowDeleteModal({...showDeleteModal, mode: 'SOFT'})} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${showDeleteModal.mode === 'SOFT' ? 'bg-white shadow text-indigo-600' : 'text-slate-400'}`}>Move to Trash</button>
+                 <button onClick={() => setShowDeleteModal({...showDeleteModal, mode: 'HARD'})} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${showDeleteModal.mode === 'HARD' ? 'bg-rose-600 shadow text-white' : 'text-slate-400'}`}>Destroy</button>
+              </div>
+
+              {showDeleteModal.mode === 'HARD' && (
+                  <input type="password" placeholder="Admin Password" value={verifyPassword} onChange={e => setVerifyPassword(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 text-center font-bold text-slate-900 outline-none mb-6 focus:ring-4 focus:ring-rose-500/10" />
+              )}
+
+              <button onClick={handleDeleteTable} disabled={executing || (showDeleteModal.mode === 'HARD' && !verifyPassword)} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-600 transition-all">
+                 {executing ? <Loader2 className="animate-spin mx-auto"/> : 'Confirm Action'}
+              </button>
+              <button onClick={() => setShowDeleteModal({active:false, table:'', mode:'SOFT'})} className="mt-4 text-xs font-bold text-slate-400 hover:text-slate-600">Cancel</button>
+           </div>
+        </div>
+      )}
+
+      {/* RECYCLE BIN MODAL (NO PURGE) */}
+      {showTrashModal && (
+         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+            <div className="bg-white rounded-[3rem] p-10 max-w-lg w-full shadow-2xl border border-slate-200 relative">
+               <button onClick={() => setShowTrashModal(false)} className="absolute top-8 right-8 text-slate-300 hover:text-slate-900"><X size={24}/></button>
+               <h3 className="text-2xl font-black text-slate-900 mb-6 flex items-center gap-3"><Trash2 size={24}/> Recycle Bin</h3>
+               <p className="text-xs text-slate-500 font-bold mb-6">Deleted tables are kept for 3 days before permanent removal by system. Use 'Restore' to recover data.</p>
+               
+               <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                  {recycleBin.length === 0 && <p className="text-center text-slate-400 py-10 font-bold text-xs uppercase">Bin is empty</p>}
+                  {recycleBin.map(t => (
+                     <div key={t.name} className="flex items-center justify-between bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                        <span className="text-xs font-bold text-slate-700 truncate max-w-[200px]">{t.name}</span>
+                        <div className="flex gap-2">
+                           <button onClick={() => handleRestore(t.name)} className="p-2 bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200" title="Restore"><RotateCcw size={16}/></button>
+                        </div>
+                     </div>
+                  ))}
+               </div>
+            </div>
+         </div>
+      )}
+
+      {/* ADD COLUMN MODAL (WITH UNIQUE & DESCRIPTION) */}
+      {showAddColumn && (
+         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+            <div className="bg-white rounded-[3rem] p-10 max-w-sm w-full shadow-2xl border border-slate-200 text-center">
+               <h3 className="text-xl font-black text-slate-900 mb-6">Add New Column</h3>
+               <div className="space-y-4 mb-6">
+                  <input value={newColumn.name} onChange={e => setNewColumn({...newColumn, name: e.target.value})} placeholder="Column Name" className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-bold text-sm outline-none" />
+                  
+                  <input 
+                    value={newColumn.description} 
+                    onChange={e => setNewColumn({...newColumn, description: e.target.value})} 
+                    placeholder="Description (Semantic Hint)" 
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-medium text-sm outline-none text-slate-600" 
+                  />
+
+                  <select value={newColumn.type} onChange={e => setNewColumn({...newColumn, type: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-bold text-sm outline-none">
+                     <option value="text">Text</option>
+                     <option value="integer">Integer</option>
+                     <option value="boolean">Boolean</option>
+                     <option value="timestamptz">Timestamp</option>
+                     <option value="uuid">UUID</option>
+                     <option value="jsonb">JSON</option>
+                  </select>
+                  <div className="flex items-center justify-between px-2">
+                     <label className="text-xs font-bold text-slate-500">Nullable</label>
+                     <input type="checkbox" checked={newColumn.isNullable} onChange={e => setNewColumn({...newColumn, isNullable: e.target.checked})} />
+                  </div>
+                  {/* UNIQUE TOGGLE ADDED */}
+                  <div className="flex items-center justify-between px-2">
+                     <label className="text-xs font-bold text-slate-500">Unique</label>
+                     <input type="checkbox" checked={newColumn.isUnique} onChange={e => setNewColumn({...newColumn, isUnique: e.target.checked})} />
+                  </div>
+                  <input value={newColumn.defaultValue} onChange={e => setNewColumn({...newColumn, defaultValue: e.target.value})} placeholder="Default Value (optional)" className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-bold text-sm outline-none" />
+               </div>
+               <button onClick={handleAddColumn} disabled={executing} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all">{executing ? <Loader2 className="animate-spin mx-auto"/> : 'Create Column'}</button>
+               <button onClick={() => setShowAddColumn(false)} className="mt-4 text-xs font-bold text-slate-400">Cancel</button>
+            </div>
+         </div>
+      )}
+
+      {/* IMPORT MODAL (TOGGLE RESTORED) */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[250] flex items-center justify-center p-8 animate-in zoom-in-95">
+           <div className="bg-white rounded-[3.5rem] w-full max-w-lg p-12 shadow-2xl border border-slate-100 relative">
+              <button onClick={() => setShowImportModal(false)} className="absolute top-8 right-8 text-slate-300 hover:text-slate-900 transition-colors"><X size={24}/></button>
+              <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-8">Data Import</h3>
+              <div className="space-y-6">
+                 {/* RESTORED TOGGLE */}
+                 <div className="flex items-center justify-between bg-slate-50 p-4 rounded-2xl">
+                    <span className="text-xs font-bold text-slate-700">Create new table from file</span>
+                    <button onClick={() => setCreateTableFromImport(!createTableFromImport)} className={`w-12 h-7 rounded-full p-1 transition-colors ${createTableFromImport ? 'bg-indigo-600' : 'bg-slate-200'}`}>
+                       <div className={`w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${createTableFromImport ? 'translate-x-5' : ''}`}></div>
+                    </button>
+                 </div>
+                 
+                 <div className="border-4 border-dashed border-slate-100 rounded-[2.5rem] p-10 text-center hover:border-emerald-300 hover:bg-emerald-50/10 transition-all cursor-pointer relative group">
+                    <input type="file" accept=".csv, .xlsx, .json" onChange={(e) => setImportFile(e.target.files?.[0] || null)} className="absolute inset-0 opacity-0 cursor-pointer" />
+                    {importFile ? <span className="font-bold text-slate-900">{importFile.name}</span> : <div className="flex flex-col items-center text-slate-300 group-hover:text-emerald-500"><Upload size={40} className="mb-2"/><span className="font-bold text-sm">Drop file here</span></div>}
+                 </div>
+                 
+                 <button onClick={handleImport} disabled={!importFile || executing} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl flex items-center justify-center gap-3 disabled:opacity-50">
+                    {executing ? <Loader2 className="animate-spin" size={18}/> : 'Start Ingestion'}
+                 </button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* NEW: DUPLICATE TABLE MODAL */}
+      {showDuplicateModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+           <div className="bg-white rounded-[3rem] w-full max-w-sm p-12 shadow-2xl border border-slate-100 relative">
+              <h3 className="text-xl font-black text-slate-900 mb-6">Duplicate Table</h3>
+              <div className="space-y-4 mb-6">
+                 <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">New Table Name</label>
+                    <input autoFocus value={duplicateConfig.newName} onChange={(e) => setDuplicateConfig({...duplicateConfig, newName: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-bold text-sm outline-none" placeholder={duplicateConfig.source + '_copy'} />
+                 </div>
+                 <div className="flex items-center gap-3 p-2 cursor-pointer" onClick={() => setDuplicateConfig({...duplicateConfig, withData: !duplicateConfig.withData})}>
+                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${duplicateConfig.withData ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>
+                        {duplicateConfig.withData && <Check size={14} className="text-white"/>}
+                    </div>
+                    <span className="text-xs font-bold text-slate-600">Copy Data Rows</span>
+                 </div>
+              </div>
+              <button onClick={handleDuplicateTableSubmit} disabled={executing || !duplicateConfig.newName} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all mb-3">
+                 {executing ? <Loader2 className="animate-spin mx-auto"/> : 'Duplicate'}
+              </button>
+              <button onClick={() => setShowDuplicateModal(false)} className="w-full py-2 text-xs font-bold text-slate-400 hover:text-slate-600">Cancel</button>
+           </div>
+        </div>
+      )}
+
+      {/* CONTEXT MENU (EXPANDED - REQUIREMENT 3) */}
+      {contextMenu && (
+        <div className="fixed z-[100] bg-white border border-slate-200 shadow-2xl rounded-2xl p-2 w-56 animate-in fade-in zoom-in-95" style={{ top: contextMenu.y, left: contextMenu.x }}>
+           {/* VIEW SWITCHER */}
+           {activeTab === 'tables' ? (
+               <button onClick={() => { setActiveTab('query'); setSelectedTable(contextMenu.table); setQuery(`SELECT * FROM public."${contextMenu.table}" LIMIT 100;`); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Terminal size={14}/> Open in SQL Editor</button>
+           ) : (
+               <button onClick={() => { setActiveTab('tables'); setSelectedTable(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><TableIcon size={14}/> Open in Grid View</button>
+           )}
+           
+           <div className="h-[1px] bg-slate-100 my-1"></div>
+           
+           {/* STANDARD ACTIONS */}
+           <button onClick={() => { setSelectedTable(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><MousePointer2 size={14}/> Select</button>
+           <button onClick={() => { handleCopyStructure(); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Code size={14}/> Copy SQL</button>
+           <button onClick={() => { setDuplicateConfig({ source: contextMenu.table, newName: contextMenu.table + '_copy', withData: false }); setShowDuplicateModal(true); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Layers size={14}/> Duplicate</button>
+           
+           <div className="h-[1px] bg-slate-100 my-1"></div>
+           
+           {/* DESTRUCTIVE */}
+           <button onClick={() => { setShowDeleteModal({ active: true, table: contextMenu.table, mode: 'SOFT' }); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-all"><Trash2 size={14}/> Delete Table</button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default DatabaseExplorer;
