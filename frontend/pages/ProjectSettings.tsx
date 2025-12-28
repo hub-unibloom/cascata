@@ -37,12 +37,11 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [verifyPassword, setVerifyPassword] = useState('');
   
-  // CRITICAL FIX: Stale Closure Prevention
   type SecurityIntent = 
     | { type: 'REVEAL_KEY', keyType: string }
     | { type: 'ROTATE_KEY', keyType: string }
     | { type: 'DELETE_CERT' }
-    | { type: 'DELETE_DOMAIN' } // NEW: Intent for deleting domain
+    | { type: 'DELETE_DOMAIN' }
     | { type: 'UPDATE_PROFILE' };
 
   const [pendingIntent, setPendingIntent] = useState<SecurityIntent | null>(null);
@@ -51,10 +50,13 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
   // Backup State
   const [exporting, setExporting] = useState(false);
 
-  // --- UI STATE MACHINE FOR DOMAIN ---
+  // --- UI STATE MACHINE ---
+  // A. Estado de Input: Se o domínio no input for diferente do salvo, ou se não houver salvo.
+  const isInputDirty = customDomain !== (project?.custom_domain || '');
   const hasSavedDomain = !!project?.custom_domain;
-  const hasSSL = project?.custom_domain && availableCerts.includes(project.custom_domain);
-  const isDirty = customDomain !== (project?.custom_domain || '');
+  
+  // B. Estado de SSL: Se existe um domínio salvo E ele está na lista de certificados ativos.
+  const hasSSL = hasSavedDomain && availableCerts.includes(project.custom_domain);
 
   // --- HTTP CLIPBOARD FALLBACK ---
   const copyToClipboard = (text: string) => {
@@ -190,8 +192,6 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
   const executeDeleteDomain = async () => {
       setSaving(true);
       try {
-          // If cert exists, warn user they should delete it first, or try to delete it automatically (dangerous if shared)
-          // For safety, we only clear the DB reference. Cert cleanup is manual via the cert button.
           const res = await fetch(`/api/control/projects/${projectId}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` },
@@ -273,7 +273,7 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
   };
   const handleRotateClick = (keyType: string) => { setPendingIntent({ type: 'ROTATE_KEY', keyType }); setShowVerifyModal(true); };
   
-  // NEW: Button Logic
+  // NEW: Button Logic Handlers
   const handleSaveDomainClick = () => {
       if (!customDomain) { alert("Digite um domínio."); return; }
       handleUpdateSettings();
@@ -281,7 +281,7 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
 
   const handleDeleteDomainClick = () => {
       if (hasSSL) {
-          alert("Atenção: Remova o certificado SSL deste domínio primeiro para evitar arquivos órfãos.");
+          alert("Segurança: Você deve remover o Certificado SSL primeiro para evitar arquivos órfãos.");
           return;
       }
       setPendingIntent({ type: 'DELETE_DOMAIN' });
@@ -330,12 +330,13 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
                         value={customDomain} 
                         onChange={(e) => setCustomDomain(e.target.value)} 
                         placeholder="api.meu-app.com"
-                        disabled={hasSavedDomain && !isDirty} // Disable input if saved (must delete to change or just create separate flow?) User can edit to fix typos
+                        // Disable input only if saved AND synced (allow user to fix typos by editing)
+                        disabled={hasSavedDomain && !isInputDirty} 
                         className="flex-1 bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all disabled:bg-slate-100 disabled:text-slate-500" 
                     />
                     
-                    {/* BUTTON 1: SAVE DOMAIN (Visible if Not Saved OR Edited) */}
-                    {(!hasSavedDomain || isDirty) && (
+                    {/* BUTTON 1: SAVE DOMAIN (Visible if Not Saved OR Edited/Dirty) */}
+                    {(isInputDirty || !hasSavedDomain) && (
                         <button 
                             onClick={handleSaveDomainClick}
                             disabled={saving || !customDomain}
@@ -346,7 +347,7 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
                     )}
 
                     {/* BUTTON 2: SSL MANAGER (Visible ONLY if Saved AND Clean) */}
-                    {hasSavedDomain && !isDirty && (
+                    {hasSavedDomain && !isInputDirty && (
                         <button 
                             onClick={() => setShowCertModal(true)}
                             className={`px-4 rounded-2xl transition-all flex items-center gap-2 font-bold text-xs ${hasSSL ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}
@@ -355,15 +356,15 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
                         </button>
                     )}
 
-                    {/* BUTTON 3: REMOVE CERT (Visible ONLY if Cert Exists) */}
-                    {hasSSL && !isDirty && (
+                    {/* BUTTON 3: REMOVE CERT (Visible ONLY if Cert Exists AND Clean) */}
+                    {hasSSL && !isInputDirty && (
                         <button onClick={handleDeleteCertClick} className="bg-white border border-slate-200 text-slate-400 p-4 rounded-2xl hover:text-rose-600 hover:border-rose-200 transition-all shadow-sm" title="Remover Certificado">
                             <CloudLightning size={18} className="line-through"/>
                         </button>
                     )}
 
                     {/* BUTTON 4: DELETE DOMAIN (Visible ONLY if Saved AND Clean) */}
-                    {hasSavedDomain && !isDirty && (
+                    {hasSavedDomain && !isInputDirty && (
                         <button onClick={handleDeleteDomainClick} className="bg-rose-50 text-rose-600 p-4 rounded-2xl hover:bg-rose-600 hover:text-white transition-all shadow-sm" title="Desvincular Domínio">
                             <Trash2 size={18} />
                         </button>

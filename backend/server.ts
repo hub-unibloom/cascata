@@ -206,20 +206,24 @@ const walk = (dir: string, rootPath: string, fileList: any[] = []) => {
  * Host Guard (Dashboard Isolation Mode)
  * - Protege o painel administrativo contra acessos via IP ou domínios não autorizados.
  * - Permite "Rescue Routes" (Login, Settings, SSL Check) para evitar lockout acidental.
+ * - CORREÇÃO: AllowList expandida para garantir que rotas de infra não sejam bloqueadas.
  */
 const hostGuard: RequestHandler = async (req: any, res: any, next: any) => {
-    // 1. Always allow Health Checks and Data Plane
+    // 1. Always allow Data Plane and Health Checks
     if (req.path === '/' || req.path === '/health' || req.path.startsWith('/api/data/')) {
         return next();
     }
 
     // 2. Rescue Routes: Always allow these to enable recovery/configuration
-    if (
-        req.path.includes('/auth/login') || 
-        req.path.includes('/auth/verify') ||
-        req.path.includes('/system/settings') || 
-        req.path.includes('/system/ssl-check')
-    ) {
+    // Isso conserta o erro 404 nas rotas de certificados e projetos
+    const allowedPrefixes = [
+        '/api/control/auth/login',
+        '/api/control/auth/verify',
+        '/api/control/system', // Abrange settings, ssl-check, certificates
+        '/api/control/projects' // Necessário para listar projetos no dashboard
+    ];
+
+    if (allowedPrefixes.some(prefix => req.path.startsWith(prefix))) {
         return next();
     }
 
@@ -234,7 +238,7 @@ const hostGuard: RequestHandler = async (req: any, res: any, next: any) => {
             const host = req.headers.host || '';
             const cleanHost = host.split(':')[0]; // Remove port if present
             
-            // Allow Localhost/Internal for Docker healthchecks
+            // Allow Localhost/Internal for Docker healthchecks and internal routing
             if (cleanHost === 'localhost' || cleanHost === '127.0.0.1' || cleanHost.startsWith('172.') || cleanHost === 'cascata-backend-control') {
                 return next();
             }
@@ -247,8 +251,8 @@ const hostGuard: RequestHandler = async (req: any, res: any, next: any) => {
             }
         }
     } catch (e) {
+        // Fail open safely to avoid crashing entire server on DB glitch
         console.error('[HostGuard] Error checking domain config', e);
-        // Fail open or closed? Closed for security, but allow next() to avoid crashing
     }
     next();
 };
@@ -1437,6 +1441,8 @@ app.get('/api/data/:slug/logs', async (req: any, res: any, next: NextFunction) =
 // --- CONTROL PLANE: PROJECTS (With Security Upgrade - No Auto Decrypt) ---
 app.get('/api/control/projects', async (req: any, res: any, next: NextFunction) => {
   try {
+    // This route is critical for the dashboard listing.
+    // If HostGuard blocks it, the dashboard shows empty or errors out.
     const result = await systemPool.query(`
         SELECT 
             id, name, slug, db_name, custom_domain, ssl_certificate_source, blocklist, metadata, status, created_at,
