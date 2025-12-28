@@ -203,42 +203,52 @@ const walk = (dir: string, rootPath: string, fileList: any[] = []) => {
 // --- MIDDLEWARES DE INFRAESTRUTURA ---
 
 /**
- * Host Guard (Dashboard Isolation)
- * Verifica se existe um Domínio de Sistema configurado.
- * Se existir, BLOQUEIA acesso ao painel (rotas /api/control ou root) vindo de IPs ou outros domínios.
- * Isso resolve o bug onde projetos órfãos caiam no dashboard.
+ * Host Guard (Dashboard Isolation Mode)
+ * - Protege o painel administrativo contra acessos via IP ou domínios não autorizados.
+ * - Permite "Rescue Routes" (Login, Settings, SSL Check) para evitar lockout acidental.
  */
 const hostGuard: RequestHandler = async (req: any, res: any, next: any) => {
-    // Only verify for Control Plane traffic (Dashboard HTML or Control API)
-    if (!req.path.startsWith('/api/data/')) {
-        try {
-            // Get System Domain
-            const settingsRes = await systemPool.query(
-                "SELECT settings->>'domain' as domain FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'domain_config'"
-            );
-            const systemDomain = settingsRes.rows[0]?.domain;
+    // 1. Always allow Health Checks and Data Plane
+    if (req.path === '/' || req.path === '/health' || req.path.startsWith('/api/data/')) {
+        return next();
+    }
 
-            if (systemDomain) {
-                const host = req.headers.host || '';
-                // Clean host (remove port if exists)
-                const cleanHost = host.split(':')[0];
-                
-                // Allow Localhost/Internal for Docker healthchecks
-                if (cleanHost === 'localhost' || cleanHost === '127.0.0.1' || cleanHost.startsWith('172.') || cleanHost === 'cascata-backend-control') {
-                    return next();
-                }
+    // 2. Rescue Routes: Always allow these to enable recovery/configuration
+    if (
+        req.path.includes('/auth/login') || 
+        req.path.includes('/auth/verify') ||
+        req.path.includes('/system/settings') || 
+        req.path.includes('/system/ssl-check')
+    ) {
+        return next();
+    }
 
-                // If System Domain is set, STRICTLY match it.
-                if (cleanHost.toLowerCase() !== systemDomain.toLowerCase()) {
-                    // This is likely a Project Domain that failed SNI match falling back to default, 
-                    // OR a direct IP access attempt.
-                    console.warn(`[HostGuard] Blocked access to Dashboard from ${cleanHost}. Expected: ${systemDomain}`);
-                    return res.status(404).send('Not Found'); // Generic 404 to hide the dashboard existence
-                }
+    try {
+        // 3. Get Configured System Domain
+        const settingsRes = await systemPool.query(
+            "SELECT settings->>'domain' as domain FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'domain_config'"
+        );
+        const systemDomain = settingsRes.rows[0]?.domain;
+
+        if (systemDomain) {
+            const host = req.headers.host || '';
+            const cleanHost = host.split(':')[0]; // Remove port if present
+            
+            // Allow Localhost/Internal for Docker healthchecks
+            if (cleanHost === 'localhost' || cleanHost === '127.0.0.1' || cleanHost.startsWith('172.') || cleanHost === 'cascata-backend-control') {
+                return next();
             }
-        } catch (e) {
-            console.error('[HostGuard] Error checking domain config', e);
+
+            // 4. Strict Domain Check
+            if (cleanHost.toLowerCase() !== systemDomain.toLowerCase()) {
+                console.warn(`[HostGuard] Blocked access to ${req.path} from ${cleanHost}. Expected: ${systemDomain}`);
+                // Return 404 to hide the panel existence
+                return res.status(404).send('Not Found'); 
+            }
         }
+    } catch (e) {
+        console.error('[HostGuard] Error checking domain config', e);
+        // Fail open or closed? Closed for security, but allow next() to avoid crashing
     }
     next();
 };
