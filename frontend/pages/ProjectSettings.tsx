@@ -51,8 +51,11 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [exporting, setExporting] = useState(false);
 
   // --- UI STATE MACHINE ---
-  // A. Estado de Input: Se o domínio no input for diferente do salvo, ou se não houver salvo.
-  const isInputDirty = customDomain !== (project?.custom_domain || '');
+  // CORREÇÃO: Detecta mudanças tanto no texto do domínio quanto no dropdown de SSL
+  const isInputDirty = 
+    customDomain !== (project?.custom_domain || '') || 
+    sslSource !== (project?.ssl_certificate_source || '');
+
   const hasSavedDomain = !!project?.custom_domain;
   
   // B. Estado de SSL: Se existe um domínio salvo E ele está na lista de certificados ativos.
@@ -89,12 +92,16 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
         });
         const data = await res.json();
         const current = data.find((p: any) => p.slug === projectId);
-        setProject(current);
-        setCustomDomain(current?.custom_domain || '');
-        setSslSource(current?.ssl_certificate_source || '');
         
-        const rawOrigins = current?.metadata?.allowed_origins || [];
-        setOrigins(rawOrigins.map((o: any) => typeof o === 'string' ? { url: o, require_auth: true } : o));
+        // Só atualiza se houver dados, evita flash de conteúdo vazio
+        if (current) {
+            setProject(current);
+            setCustomDomain(current.custom_domain || '');
+            setSslSource(current.ssl_certificate_source || '');
+            
+            const rawOrigins = current.metadata?.allowed_origins || [];
+            setOrigins(rawOrigins.map((o: any) => typeof o === 'string' ? { url: o, require_auth: true } : o));
+        }
         
         fetchAvailableCerts();
     } catch (e) {
@@ -140,7 +147,7 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
                 setTimeout(() => { setRevealedKeyValues(prev => { const updated = { ...prev }; delete updated[pendingIntent.keyType]; return updated; }); }, 60000);
                 setShowVerifyModal(false); setVerifyPassword('');
             }
-        } catch (e: any) { alert("Erro de conexão."); } finally { setVerifyLoading(false); }
+        } catch (e: any) { alert("Erro de conexão."); } finally { setVerifyLoading(false); setPendingIntent(null); }
         return;
     }
 
@@ -154,13 +161,18 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
 
         if (!verifyRes.ok) { alert("Senha incorreta."); setVerifyLoading(false); return; }
 
-        setShowVerifyModal(false); setVerifyPassword('');
+        setShowVerifyModal(false); 
+        setVerifyPassword('');
 
         if (pendingIntent.type === 'ROTATE_KEY') await executeRotateKey(pendingIntent.keyType);
         else if (pendingIntent.type === 'DELETE_CERT') await executeDeleteCert();
         else if (pendingIntent.type === 'DELETE_DOMAIN') await executeDeleteDomain(); // NEW
 
-    } catch (e) { alert("Erro no processo de verificação."); } finally { setVerifyLoading(false); }
+    } catch (e) { alert("Erro no processo de verificação."); } 
+    finally { 
+        setVerifyLoading(false); 
+        setPendingIntent(null); // Limpa a intenção para evitar loops
+    }
   };
 
   // --- ACTIONS IMPLEMENTATION ---
@@ -195,19 +207,34 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
           const res = await fetch(`/api/control/projects/${projectId}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` },
-            body: JSON.stringify({ custom_domain: null }) // Set to null to remove
+            body: JSON.stringify({ custom_domain: null, ssl_certificate_source: null }) // Remove ambos
           });
+          
           if (res.ok) {
               setSuccess('Domínio desvinculado.');
-              fetchProject();
-              setCustomDomain(''); // Clear local state
+              
+              // ATUALIZAÇÃO OTIMISTA (Evita que o valor volte a aparecer)
+              setProject((prev: any) => ({ ...prev, custom_domain: null, ssl_certificate_source: null }));
+              setCustomDomain('');
+              setSslSource('');
+              
+              // Sincroniza com backend após um delay para garantir consistência
+              setTimeout(() => {
+                  fetchProject();
+                  setSuccess(null);
+              }, 1500);
           }
-      } catch(e) { alert('Erro ao remover domínio.'); } finally { setSaving(false); }
+      } catch(e) { 
+          alert('Erro ao remover domínio.'); 
+      } finally { 
+          setSaving(false); 
+      }
   };
 
   const handleUpdateSettings = async (overrideOrigins?: any[]) => {
     setSaving(true);
     try {
+      // Envia o que está no estado atual (incluindo o dropdown sslSource)
       const payload: any = { custom_domain: customDomain, ssl_certificate_source: sslSource || null };
       if (overrideOrigins) payload.metadata = { allowed_origins: overrideOrigins };
 
@@ -378,18 +405,21 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
               </div>
 
               {/* Linked Cert Selection (Optional Advanced) */}
-              <div className="space-y-2 opacity-60 hover:opacity-100 transition-opacity">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Certificado Vinculado (Opcional)</label>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">Certificado Vinculado (Opcional) <Info size={12}/></label>
                 <select 
                   value={sslSource} 
                   onChange={(e) => setSslSource(e.target.value)}
-                  className="w-full bg-white border border-slate-200 rounded-2xl py-3 px-6 text-xs font-bold text-slate-700 outline-none cursor-pointer"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-6 text-xs font-bold text-slate-700 outline-none cursor-pointer hover:border-indigo-300 transition-colors"
                 >
-                    <option value="">Usar certificado próprio do domínio</option>
+                    <option value="">Usar certificado próprio do domínio (Padrão)</option>
                     {availableCerts.filter(c => c !== customDomain).map(cert => (
                         <option key={cert} value={cert}>Compartilhar de: {cert}</option>
                     ))}
                 </select>
+                <p className="text-[9px] text-slate-400 px-2 font-medium">
+                    Se você escolher um certificado vinculado, lembre-se de clicar em <b>SALVAR</b> acima para aplicar a mudança.
+                </p>
               </div>
            </div>
         </div>
