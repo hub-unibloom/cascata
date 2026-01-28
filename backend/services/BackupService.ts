@@ -106,7 +106,7 @@ export class BackupService {
 
             await archive.finalize();
 
-            // Wait for file stream to close
+            // Fix TS Error: Wrap resolve in anonymous function to match signature
             await new Promise<void>((resolve, reject) => {
                 output.on('close', () => resolve());
                 output.on('error', reject);

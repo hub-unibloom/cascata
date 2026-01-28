@@ -34,22 +34,22 @@ function addToCache(key: string, value: string) {
 export class EdgeService {
     
     /**
-     * Module Resolver: Fetches code from external URLs (e.g. esm.sh) with security and caching.
+     * Module Resolver: Baixa código de URLs externas (ex: esm.sh) com segurança e cache.
      */
     private static async fetchModuleSource(specifier: string): Promise<string> {
-        // 1. URL Normalization
+        // 1. Normalização de URL (Suporte a imports diretos de pacotes)
         let url = specifier;
         if (!specifier.startsWith('http://') && !specifier.startsWith('https://') && !specifier.startsWith('.')) {
-            // If not URL or relative, assume NPM package via esm.sh
+            // Se não é URL nem relativo, assume pacote NPM via esm.sh (Target Deno/Browser compatible)
             url = `https://esm.sh/${specifier}?target=deno`;
         }
 
-        // 2. Check L1 Cache (Memory)
+        // 2. Checar Cache L1 (Memória - Ultra Fast)
         if (moduleCache.has(url)) {
             return moduleCache.get(url)!;
         }
 
-        // 3. Check L2 Cache (Disk)
+        // 3. Checar Cache L2 (Disco - Persistente entre restarts)
         const urlHash = crypto.createHash('md5').update(url).digest('hex');
         const cacheFilePath = path.join(CACHE_ROOT, `${urlHash}.js`);
         
@@ -63,10 +63,10 @@ export class EdgeService {
             }
         }
 
-        // 4. Security Validation (SSRF)
+        // 4. Validar Segurança (SSRF Protection)
         await validateTargetUrl(url);
 
-        // 5. Fetch
+        // 5. Fetch com Limites
         console.log(`[EdgeService] Resolving dependency: ${url}`);
         try {
             const res = await axios.get(url, { 
@@ -77,7 +77,7 @@ export class EdgeService {
             
             const source = res.data;
             
-            // 6. Save to Cache
+            // 6. Salvar nos Caches L1 e L2
             addToCache(url, source);
             try { fs.writeFileSync(cacheFilePath, source); } catch(e) {}
             
@@ -97,7 +97,7 @@ export class EdgeService {
         projectSlug: string 
     ): Promise<{ status: number, body: any }> {
         
-        // Increased memory limit for module compilation
+        // Memória isolada (128MB -> 256MB para suportar libs maiores)
         const isolate = new ivm.Isolate({ memoryLimit: 256 }); 
         const scriptContext = await isolate.createContext();
         const jail = scriptContext.global;
@@ -105,7 +105,7 @@ export class EdgeService {
         try {
             await jail.set('global', jail.derefInto());
             
-            // --- GLOBALS INJECTION ---
+            // --- INJEÇÃO DE GLOBALS ---
             
             const safeLog = (type: string, ...args: any[]) => {
                 const msg = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
@@ -120,6 +120,7 @@ export class EdgeService {
                 warn: new ivm.Callback((...args: any[]) => safeLog('log', ...args))
             }));
 
+            // Timezone Injection
             const projectRes = await systemPool.query('SELECT metadata FROM system.projects WHERE slug = $1', [projectSlug]);
             const timezone = projectRes.rows[0]?.metadata?.timezone || 'UTC';
             const enhancedEnv = { ...envVars, TZ: timezone };
@@ -142,23 +143,23 @@ export class EdgeService {
                 toHex: (str: string) => Buffer.from(str).toString('hex')
             }));
 
-            // Database Proxy
+            // Database Proxy (Pooled & Secure)
             await jail.set('db', new ivm.Reference({
                 query: new ivm.Reference(async (sql: string, params: any[]) => {
                     let client;
                     try {
                         client = await projectPool.connect();
                         await client.query(`SET TIME ZONE '${timezone}'`);
-                        await client.query(`SET statement_timeout = 5000`); 
+                        await client.query(`SET statement_timeout = 5000`); // 5s DB Timeout
                         const result = await client.query(sql, params);
-                        // Deep copy to detach from PG client
+                        // Deep clone to detach from PG client and pass to VM
                         return new ivm.ExternalCopy(JSON.parse(JSON.stringify(result.rows))).copyInto();
                     } catch (e: any) { throw e; } 
                     finally { if (client) client.release(); }
                 })
             }));
 
-            // HTTP Client Proxy (Hardened)
+            // HTTP Client Proxy (Hardened against SSRF)
             const safeLookup = (hostname: string, options: any, callback: (err: Error | null, address: string, family: number) => void) => {
                 dns.lookup(hostname, options, (err, address, family) => {
                     if (err) return callback(err, address, family);
@@ -184,7 +185,7 @@ export class EdgeService {
                     maxRedirects: 3, 
                     validateStatus: () => true,
                     httpAgent, httpsAgent,
-                    responseType: 'arraybuffer', // Handle binary safely
+                    responseType: 'arraybuffer',
                     timeout: 4000 
                 });
                 
@@ -230,11 +231,11 @@ export class EdgeService {
             
             await isolate.compileScript(polyfills).then(s => s.run(scriptContext));
 
-            // --- MODULE COMPILATION & LINKING (CORE UPGRADE) ---
+            // --- MODULE COMPILATION & LINKING (THE MAGIC) ---
             
             const module = await isolate.compileModule(code);
             
-            // Linker: Resolves imports recursively
+            // Linker: Resolve imports recursivos
             await module.instantiate(scriptContext, async (specifier, referrer) => {
                 const source = await EdgeService.fetchModuleSource(specifier);
                 return await isolate.compileModule(source);
@@ -244,24 +245,24 @@ export class EdgeService {
 
             const namespace = module.namespace;
             
-            // Support 'export default function...'
+            // Suporte a 'export default function...'
             const defaultExport = await namespace.get('default', { reference: true });
 
             if (defaultExport.typeof !== 'function') {
                 return { status: 500, body: { error: "Edge Function must export a default function." } };
             }
 
-            // Prepare Request Context
+            // Prepara o contexto de entrada
             const reqCopy = new ivm.ExternalCopy(context).copyInto();
             
-            // Execute Default Function
+            // Executa
             const resultRef = await defaultExport.apply(undefined, [reqCopy], { result: { promise: true, copy: true } });
             
             return { status: 200, body: resultRef };
 
         } catch (e: any) {
             console.error(`[Edge:${projectSlug}] Execution Error:`, e.message);
-            // Error Sanitization
+            // Sanitização de Erro para não vazar paths internos
             const safeError = e.message.replace(/\/app\/backend\/services\//g, '[System]');
             
             if (e.message.includes('isolate is disposed') || e.message.includes('timeout')) {
@@ -269,6 +270,7 @@ export class EdgeService {
             }
             return { status: 500, body: { error: `Runtime Error: ${safeError}` } };
         } finally {
+            // Limpeza Garantida
             try { 
                 scriptContext.release(); 
                 if (!isolate.isDisposed) isolate.dispose(); 

@@ -32,12 +32,14 @@ export class SystemLogService {
         // Hook Stdout
         process.stdout.write = (chunk: any, ...args: any[]) => {
             this.pushLog('INFO', chunk);
+            // Fix: Cast args to any to bypass strict Node.js write signature overload issue
             return originalStdout.apply(process.stdout, [chunk, ...args] as any);
         };
 
         // Hook Stderr
         process.stderr.write = (chunk: any, ...args: any[]) => {
             this.pushLog('ERROR', chunk);
+            // Fix: Cast args to any
             return originalStderr.apply(process.stderr, [chunk, ...args] as any);
         };
 
