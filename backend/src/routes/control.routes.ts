@@ -4,7 +4,7 @@ import express from 'express';
 import { AdminController } from '../controllers/AdminController.js';
 import { BackupController } from '../controllers/BackupController.js';
 import { SecretsController } from '../controllers/SecretsController.js';
-import { McpController } from '../controllers/McpController.js'; // Import
+import { McpController } from '../controllers/McpController.js'; 
 import { backupUpload } from '../config/main.js';
 import { cascataAuth } from '../middlewares/core.js';
 import { controlPlaneFirewall } from '../middlewares/security.js';
@@ -46,6 +46,9 @@ router.delete('/system/certificates/:domain', AdminController.deleteCertificate 
 
 // Webhooks (Control)
 router.post('/system/webhooks/:id/test', AdminController.testWebhook as any);
+
+// System Observability (NEW)
+router.get('/system/logs', AdminController.getSystemLogs as any);
 
 // Projects
 router.get('/projects', AdminController.listProjects as any);

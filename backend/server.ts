@@ -16,6 +16,7 @@ import { MigrationService } from './services/MigrationService.js';
 import { QueueService } from './services/QueueService.js';
 import { RateLimitService } from './services/RateLimitService.js';
 import { PoolService } from './services/PoolService.js';
+import { SystemLogService } from './services/SystemLogService.js'; // NEW
 
 // --- ROUTES ---
 import mainRouter from './src/routes/index.js';
@@ -30,6 +31,9 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const MIGRATIONS_ROOT = path.resolve(__dirname, '../migrations');
+
+// --- INITIALIZE SYSTEM LOGGING (OBSERVABILITY) ---
+SystemLogService.init();
 
 // --- WORKER MODE (SCALE-OUT) ---
 if (process.env.SERVICE_MODE === 'WORKER') {
@@ -98,7 +102,7 @@ else {
     app.use(hostGuard as any);
 
     // --- HEALTH CHECK (Deep Check) ---
-    app.get('/', (req, res) => { res.send('Cascata Engine v9.8 (Enterprise Hardened) OK'); });
+    app.get('/', (req, res) => { res.send('Cascata Engine v9.9 (Enterprise Hardened) OK'); });
     app.get('/health', async (req, res) => { 
         let dbStatus = 'unknown';
         try {

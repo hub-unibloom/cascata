@@ -17,6 +17,7 @@ import { ImportService } from '../../services/ImportService.js';
 import { WebhookService } from '../../services/WebhookService.js';
 import { RealtimeService } from '../../services/RealtimeService.js';
 import { RateLimitService } from '../../services/RateLimitService.js';
+import { SystemLogService } from '../../services/SystemLogService.js'; // NEW
 
 const generateKey = () => import('crypto').then(c => c.randomBytes(32).toString('hex'));
 
@@ -73,6 +74,14 @@ export class AdminController {
         } catch (e: any) { next(e); }
     }
 
+    // --- SYSTEM OBSERVABILITY ---
+    static async getSystemLogs(req: CascataRequest, res: any, next: any) {
+        try {
+            const logs = await SystemLogService.getLogs(200);
+            res.json(logs);
+        } catch (e: any) { next(e); }
+    }
+
     static async listProjects(req: CascataRequest, res: any, next: any) {
         try { 
             const result = await systemPool.query(`
@@ -90,7 +99,7 @@ export class AdminController {
     }
 
     static async createProject(req: CascataRequest, res: any, next: any) {
-        const { name, slug, timezone } = req.body; // Added timezone
+        const { name, slug, timezone } = req.body; 
         const safeSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '');
         
         const reserved = ['system', 'control', 'api', 'dashboard', 'assets', 'auth', 'health'];
@@ -98,7 +107,6 @@ export class AdminController {
             return res.status(400).json({ error: "Reserved project slug." });
         }
 
-        // Timezone validation (Native JS check)
         const tz = timezone || 'UTC';
         try {
             Intl.DateTimeFormat(undefined, { timeZone: tz });
@@ -111,7 +119,6 @@ export class AdminController {
         
         try {
             const keys = { anon: await generateKey(), service: await generateKey(), jwt: await generateKey() };
-            // Inject timezone into metadata
             const metadata = { timezone: tz };
             
             const insertRes = await systemPool.query(
@@ -141,7 +148,6 @@ export class AdminController {
 
     static async updateProject(req: CascataRequest, res: any, next: any) {
         try {
-            // REMOVIDO 'timezone' do destructuring para garantir imutabilidade.
             const { custom_domain, log_retention_days, metadata, ssl_certificate_source } = req.body;
             
             if (metadata) {
@@ -231,13 +237,8 @@ export class AdminController {
             if (log_retention_days !== undefined) { fields.push(`log_retention_days = $${idx++}`); values.push(log_retention_days); }
             if (ssl_certificate_source !== undefined) { fields.push(`ssl_certificate_source = $${idx++}`); values.push(ssl_certificate_source); }
             
-            // Merge metadata update (Timezone is explicitly excluded here to enforce immutability)
             let metadataUpdate = metadata || {};
-            
-            // Remove timezone se por acaso foi passado dentro do objeto metadata no body
-            if (metadataUpdate && metadataUpdate.timezone) {
-                delete metadataUpdate.timezone;
-            }
+            if (metadataUpdate && metadataUpdate.timezone) { delete metadataUpdate.timezone; }
 
             if (Object.keys(metadataUpdate).length > 0) { 
                 fields.push(`metadata = COALESCE(metadata, '{}'::jsonb) || $${idx++}::jsonb`); 
@@ -267,11 +268,9 @@ export class AdminController {
             const project = (await systemPool.query('SELECT * FROM system.projects WHERE slug = $1', [slug])).rows[0];
             if (!project) return res.status(404).json({ error: 'Not found' });
             
-            // 1. Force Close Pools & Listeners
             await PoolService.terminate(project.db_name);
             RealtimeService.teardownProjectListener(slug);
 
-            // 2. Drop Database (Atomic)
             if (!project.metadata?.external_db_url) {
                 await systemPool.query(`DROP DATABASE IF EXISTS "${project.db_name}"`);
             }
@@ -344,18 +343,7 @@ export class AdminController {
     static async confirmImport(req: CascataRequest, res: any, next: any) {
         try {
             const { temp_path, slug, name, mode, include_data } = req.body;
-            
-            // CAF 2.0 Integration
-            const result = await ImportService.restoreProject(
-                temp_path, 
-                slug, 
-                systemPool, 
-                { 
-                    mode: mode || 'recovery', 
-                    includeData: include_data !== false,
-                    nameOverride: name 
-                }
-            );
+            const result = await ImportService.restoreProject(temp_path, slug, systemPool, { mode: mode || 'recovery', includeData: include_data !== false, nameOverride: name });
             await CertificateService.rebuildNginxConfigs(systemPool);
             res.json(result);
         } catch (e: any) { next(e); }
