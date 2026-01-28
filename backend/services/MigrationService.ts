@@ -15,19 +15,11 @@ export class MigrationService {
     try {
       client = await systemPool.connect();
       
-      // 1. Try Distributed Lock (Non-Blocking)
-      // Usar try_advisory_lock evita que réplicas fiquem presas esperando.
-      // Se não conseguir o lock, assume que o líder está migrando e continua o boot.
-      const { rows } = await client.query(`SELECT pg_try_advisory_lock(${this.LOCK_ID}) as locked`);
-      const hasLock = rows[0].locked;
-
-      if (!hasLock) {
-          console.log('[MigrationService] Another instance holds the lock. Skipping migrations check to allow fast boot.');
-          // Em um sistema ideal, poderíamos esperar o lock liberar, mas para scale-out, 
-          // queremos que os workers subam rápido. A consistência eventual do schema é aceitável.
-          return;
-      }
-
+      // 1. Acquire Distributed Lock
+      // pg_advisory_lock blocks until lock is available. 
+      // This ensures only one node runs migrations at a time, and others wait.
+      console.log('[MigrationService] Waiting for distributed lock...');
+      await client.query(`SELECT pg_advisory_lock(${this.LOCK_ID})`);
       console.log('[MigrationService] Lock acquired. Starting checks...');
 
       try {
@@ -69,13 +61,12 @@ export class MigrationService {
             }
           }
           
-          // Rebuild Nginx configs only if leader
           await CertificateService.rebuildNginxConfigs(systemPool);
           
           // --- CRITICAL SECTION END ---
           
       } finally {
-          // Always release the lock if we acquired it
+          // Always release the lock
           await client.query(`SELECT pg_advisory_unlock(${this.LOCK_ID})`);
           console.log('[MigrationService] Lock released.');
       }
