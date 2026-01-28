@@ -1,0 +1,41 @@
+
+-- SECURE BY DEFAULT: Hardening de Permissões (Atualizado Fase 3.5)
+-- Esta migração garante que tabelas NOVAS e EXISTENTES não sejam públicas.
+
+-- 1. Configurar Defaults para Futuras Tabelas
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM anon;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM authenticated;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM authenticated;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON FUNCTIONS FROM anon;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON FUNCTIONS FROM authenticated;
+
+-- 2. Retroatividade: Revogar permissões de tabelas JÁ CRIADAS
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    -- Revoga de Tabelas
+    FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
+        EXECUTE 'REVOKE ALL ON TABLE public.' || quote_ident(r.tablename) || ' FROM anon';
+        EXECUTE 'REVOKE ALL ON TABLE public.' || quote_ident(r.tablename) || ' FROM authenticated';
+        -- Mantém acesso de leitura apenas se RLS estiver ativo? 
+        -- Não, "Secure by Default" significa fechado. RLS Policies liberam o acesso.
+    END LOOP;
+
+    -- Revoga de Sequências
+    FOR r IN (SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema = 'public') LOOP
+        EXECUTE 'REVOKE ALL ON SEQUENCE public.' || quote_ident(r.sequence_name) || ' FROM anon';
+        EXECUTE 'REVOKE ALL ON SEQUENCE public.' || quote_ident(r.sequence_name) || ' FROM authenticated';
+    END LOOP;
+    
+    -- Revoga de Funções (Exceto UUID e PGPcrypto)
+    FOR r IN (SELECT routine_name FROM information_schema.routines WHERE routine_schema = 'public') LOOP
+        IF r.routine_name NOT LIKE 'uuid_%' AND r.routine_name NOT LIKE 'pgp_%' THEN
+            EXECUTE 'REVOKE ALL ON FUNCTION public.' || quote_ident(r.routine_name) || ' FROM anon';
+            EXECUTE 'REVOKE ALL ON FUNCTION public.' || quote_ident(r.routine_name) || ' FROM authenticated';
+        END IF;
+    END LOOP;
+END $$;

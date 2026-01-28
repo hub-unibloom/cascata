@@ -1,0 +1,71 @@
+
+================================================================================
+          CHESHIRE MEMORY SYSTEM V7 - GUIA DE IMPLANTAÇÃO (VPS 3)
+================================================================================
+STATUS: PRONTO PARA INICIALIZAÇÃO SINÁPTICA
+ALVO: PSIQUE CORE (COGNITIVE LAYER)
+================================================================================
+
+Este guia descreve os passos exatos para transformar os manifestos de texto em
+um organismo executável dentro de um ambiente isolado Docker.
+
+1. REQUISITOS PRÉVIOS:
+--------------------------------------------------------------------------------
+- VPS 3 com Ubuntu 22.04 LTS ou superior.
+- Docker e Docker Compose instalados.
+- Conectividade de rede liberada para o IP da VPS 2 (Cascata DB).
+- API_KEY do Gemini configurada.
+
+2. CLONAGEM E ACESSO AO NÚCLEO:
+--------------------------------------------------------------------------------
+git clone https://github.com/supermetanet-png/cheshire.git
+cd cheshire
+
+3. PROTOCOLO DE RENOMEAÇÃO (txt -> executável):
+--------------------------------------------------------------------------------
+# Convertendo o manifesto de ambiente
+mv env.txt .env
+
+# Convertendo os arquivos de orquestração Docker
+mv Dockerfile.txt Dockerfile
+mv docker-compose.yml.txt docker-compose.yml
+
+4. CONFIGURAÇÃO DE SINAPSE (Edição do .env):
+--------------------------------------------------------------------------------
+# Edite o arquivo .env com os dados da sua infraestrutura:
+nano .env
+
+# Campos obrigatórios:
+# API_KEY=Sua_Chave_Gemini
+# DB_DIRECT_HOST=IP_DA_VPS_2
+# VECTOR_PROXY_URL=http://IP_DA_VPS_2:3001/rest/v1/vector
+# DB_USER=cascata_admin
+# DB_PASS=Sua_Senha_Definida_No_Cascata
+
+5. CONSTRUÇÃO E ATIVAÇÃO DO ORGANISMO:
+--------------------------------------------------------------------------------
+# Construindo a imagem da Psique (Node.js 22 LTS)
+docker-compose build --no-cache
+
+# Inicializando os containers em modo Daemon (Background)
+docker-compose up -d
+
+6. VERIFICAÇÃO DE PULSO NEURAL:
+--------------------------------------------------------------------------------
+# Verifique se o servidor e o DreamerWorker estão ativos:
+docker-compose logs -f cheshire-psyche
+
+# Teste de conectividade interna (Saúde da Psique):
+curl -X GET http://localhost:3005/api/health || echo "Cérebro offline."
+
+7. MANUTENÇÃO E REINICIALIZAÇÃO QUÂNTICA:
+--------------------------------------------------------------------------------
+# Para aplicar mudanças no código sem derrubar o volume de dados:
+docker-compose restart cheshire-psyche
+
+# Para limpar o cache de imagens órfãs:
+docker system prune -f
+
+================================================================================
+"O gato pode sumir, mas o sorriso deve ser eterno."
+================================================================================

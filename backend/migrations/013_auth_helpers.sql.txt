@@ -1,0 +1,37 @@
+
+-- Funções auxiliares para RLS (Emulação do ambiente Supabase/PostgREST)
+
+-- auth.uid()
+-- Retorna o ID do usuário logado (do JWT) ou NULL
+CREATE OR REPLACE FUNCTION auth.uid() 
+RETURNS uuid 
+LANGUAGE sql 
+STABLE 
+AS $$
+  SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid;
+$$;
+
+-- auth.role()
+-- Retorna a role do usuário (ex: 'authenticated', 'anon')
+CREATE OR REPLACE FUNCTION auth.role() 
+RETURNS text 
+LANGUAGE sql 
+STABLE 
+AS $$
+  SELECT NULLIF(current_setting('request.jwt.claim.role', true), '')::text;
+$$;
+
+-- auth.email()
+-- Retorna o email do usuário (se estiver no JWT)
+CREATE OR REPLACE FUNCTION auth.email() 
+RETURNS text 
+LANGUAGE sql 
+STABLE 
+AS $$
+  SELECT NULLIF(current_setting('request.jwt.claim.email', true), '')::text;
+$$;
+
+-- Permissões
+GRANT EXECUTE ON FUNCTION auth.uid() TO PUBLIC;
+GRANT EXECUTE ON FUNCTION auth.role() TO PUBLIC;
+GRANT EXECUTE ON FUNCTION auth.email() TO PUBLIC;
