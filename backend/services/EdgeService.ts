@@ -9,6 +9,8 @@ import { Agent as HttpsAgent } from 'https';
 import dns from 'dns';
 import fs from 'fs';
 import path from 'path';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 import { validateTargetUrl, isPrivateIP } from '../src/utils/index.js';
 import { systemPool } from '../src/config/main.js';
 
@@ -34,22 +36,22 @@ function addToCache(key: string, value: string) {
 export class EdgeService {
     
     /**
-     * Module Resolver: Baixa código de URLs externas (ex: esm.sh) com segurança e cache.
+     * Module Resolver: Fetches code from external URLs (e.g. esm.sh) with security and caching.
      */
     private static async fetchModuleSource(specifier: string): Promise<string> {
-        // 1. Normalização de URL (Suporte a imports diretos de pacotes)
+        // 1. URL Normalization
         let url = specifier;
         if (!specifier.startsWith('http://') && !specifier.startsWith('https://') && !specifier.startsWith('.')) {
-            // Se não é URL nem relativo, assume pacote NPM via esm.sh (Target Deno/Browser compatible)
+            // If not URL or relative, assume NPM package via esm.sh
             url = `https://esm.sh/${specifier}?target=deno`;
         }
 
-        // 2. Checar Cache L1 (Memória - Ultra Fast)
+        // 2. Check L1 Cache (Memory)
         if (moduleCache.has(url)) {
             return moduleCache.get(url)!;
         }
 
-        // 3. Checar Cache L2 (Disco - Persistente entre restarts)
+        // 3. Check L2 Cache (Disk)
         const urlHash = crypto.createHash('md5').update(url).digest('hex');
         const cacheFilePath = path.join(CACHE_ROOT, `${urlHash}.js`);
         
@@ -63,21 +65,24 @@ export class EdgeService {
             }
         }
 
-        // 4. Validar Segurança (SSRF Protection)
+        // 4. Security Validation (SSRF)
         await validateTargetUrl(url);
 
-        // 5. Fetch com Limites
+        // 5. Fetch
         console.log(`[EdgeService] Resolving dependency: ${url}`);
         try {
             const res = await axios.get(url, { 
                 responseType: 'text', 
                 timeout: 5000,
-                maxContentLength: MAX_MODULE_SIZE
+                maxContentLength: MAX_MODULE_SIZE,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (compatible; CascataEdge/1.0; +https://cascata.io)'
+                }
             });
             
             const source = res.data;
             
-            // 6. Salvar nos Caches L1 e L2
+            // 6. Save to Cache
             addToCache(url, source);
             try { fs.writeFileSync(cacheFilePath, source); } catch(e) {}
             
@@ -97,7 +102,7 @@ export class EdgeService {
         projectSlug: string 
     ): Promise<{ status: number, body: any }> {
         
-        // Memória isolada (128MB -> 256MB para suportar libs maiores)
+        // Increased memory limit for module compilation
         const isolate = new ivm.Isolate({ memoryLimit: 256 }); 
         const scriptContext = await isolate.createContext();
         const jail = scriptContext.global;
@@ -105,7 +110,12 @@ export class EdgeService {
         try {
             await jail.set('global', jail.derefInto());
             
-            // --- INJEÇÃO DE GLOBALS ---
+            // --- CONTEXT EXTRACTION ---
+            const user = context.user || {};
+            // Determine role based on JWT or default to anon. 
+            const userRole = user.role || (user.sub ? 'authenticated' : 'anon');
+
+            // --- GLOBALS INJECTION ---
             
             const safeLog = (type: string, ...args: any[]) => {
                 const msg = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
@@ -120,13 +130,21 @@ export class EdgeService {
                 warn: new ivm.Callback((...args: any[]) => safeLog('log', ...args))
             }));
 
-            // Timezone Injection
+            // FETCH PROJECT METADATA (Timezone & Governance)
             const projectRes = await systemPool.query('SELECT metadata FROM system.projects WHERE slug = $1', [projectSlug]);
-            const timezone = projectRes.rows[0]?.metadata?.timezone || 'UTC';
+            const metadata = projectRes.rows[0]?.metadata || {};
+            const timezone = metadata.timezone || 'UTC';
+            
+            // SECURITY: Check AI Governance Mode
+            const governance = metadata.ai_governance || {};
+            const isReadOnly = governance.mode === 'read_only';
+
             const enhancedEnv = { ...envVars, TZ: timezone };
             await jail.set('env', new ivm.ExternalCopy(enhancedEnv).copyInto());
 
-            // Crypto Proxy
+            // --- NATIVE MODULE BRIDGES (POLYFILLS) ---
+
+            // 1. Crypto Proxy
             await jail.set('_crypto_proxy', new ivm.Reference({
                 randomUUID: () => crypto.randomUUID(),
                 randomBytes: (size: number) => {
@@ -135,7 +153,7 @@ export class EdgeService {
                 }
             }));
 
-            // Encoding Proxy
+            // 2. Encoding Proxy
             await jail.set('_encoding_proxy', new ivm.Reference({
                 btoa: (str: string) => Buffer.from(str).toString('base64'),
                 atob: (str: string) => Buffer.from(str, 'base64').toString('binary'),
@@ -143,23 +161,94 @@ export class EdgeService {
                 toHex: (str: string) => Buffer.from(str).toString('hex')
             }));
 
-            // Database Proxy (Pooled & Secure)
+            // 3. Cascata Utils (Secure Native Bridges for Auth)
+            await jail.set('_cascata_utils', new ivm.Reference({
+                bcryptHash: async (plain: string) => {
+                    // Cost factor 10 is reasonable for edge
+                    const hash = await bcrypt.hash(plain, 10);
+                    return new ivm.ExternalCopy(hash).copyInto();
+                },
+                bcryptCompare: async (plain: string, hash: string) => {
+                    const match = await bcrypt.compare(plain, hash);
+                    return new ivm.ExternalCopy(match).copyInto();
+                },
+                jwtSign: (payload: any, secret: string, options: any) => {
+                    // Force reasonable defaults if missing
+                    const opts = { expiresIn: '1h', ...options };
+                    const token = jwt.sign(payload, secret, opts);
+                    return new ivm.ExternalCopy(token).copyInto();
+                },
+                jwtVerify: (token: string, secret: string) => {
+                    try {
+                        const decoded = jwt.verify(token, secret);
+                        return new ivm.ExternalCopy(decoded).copyInto();
+                    } catch(e) {
+                        return new ivm.ExternalCopy(null).copyInto();
+                    }
+                }
+            }));
+
+            // --- SECURE DATABASE PROXY (RLS ENFORCED + GOVERNANCE) ---
+            // This is the core security upgrade. Every query runs inside a transaction
+            // with the user's specific context injected.
             await jail.set('db', new ivm.Reference({
                 query: new ivm.Reference(async (sql: string, params: any[]) => {
                     let client;
                     try {
                         client = await projectPool.connect();
+                        
+                        // 1. Start Transaction
+                        await client.query('BEGIN');
+
+                        // 1.1 Governance: Enforce Read-Only Mode (Database Level Lock)
+                        if (isReadOnly) {
+                            await client.query('SET TRANSACTION READ ONLY');
+                        }
+                        
+                        // 2. Drop privileges to API Role (Security Baseline)
+                        await client.query(`SET LOCAL ROLE cascata_api_role`);
+
+                        // 3. Inject User Context for RLS (auth.uid(), auth.role())
+                        const claims = {
+                            'request.jwt.claim.sub': user.sub || '',
+                            'request.jwt.claim.role': userRole,
+                            'request.jwt.claim.email': user.email || ''
+                        };
+
+                        for (const [key, value] of Object.entries(claims)) {
+                            if (value) {
+                                await client.query(`SELECT set_config($1, $2, true)`, [key, String(value)]);
+                            }
+                        }
+
+                        // 4. Configs
                         await client.query(`SET TIME ZONE '${timezone}'`);
-                        await client.query(`SET statement_timeout = 5000`); // 5s DB Timeout
+                        await client.query(`SET statement_timeout = 5000`); 
+                        
+                        // 5. Execute User Query
                         const result = await client.query(sql, params);
-                        // Deep clone to detach from PG client and pass to VM
+                        
+                        // 6. Commit
+                        await client.query('COMMIT');
+                        
+                        // Deep copy to detach from PG client
                         return new ivm.ExternalCopy(JSON.parse(JSON.stringify(result.rows))).copyInto();
-                    } catch (e: any) { throw e; } 
+                    } catch (e: any) { 
+                        // Rollback on error to prevent session poisoning
+                        if (client) await client.query('ROLLBACK').catch(() => {});
+                        
+                        // Treat Read-Only violations explicitly
+                        if (e.message.includes('cannot execute') && e.message.includes('read-only transaction')) {
+                            throw new Error("Governance Violation: Project is in Read-Only mode. Write operations are blocked.");
+                        }
+
+                        throw e; 
+                    } 
                     finally { if (client) client.release(); }
                 })
             }));
 
-            // HTTP Client Proxy (Hardened against SSRF)
+            // HTTP Client Proxy (Hardened)
             const safeLookup = (hostname: string, options: any, callback: (err: Error | null, address: string, family: number) => void) => {
                 dns.lookup(hostname, options, (err, address, family) => {
                     if (err) return callback(err, address, family);
@@ -185,7 +274,7 @@ export class EdgeService {
                     maxRedirects: 3, 
                     validateStatus: () => true,
                     httpAgent, httpsAgent,
-                    responseType: 'arraybuffer',
+                    responseType: 'arraybuffer', // Handle binary safely
                     timeout: 4000 
                 });
                 
@@ -208,12 +297,42 @@ export class EdgeService {
             // --- POLYFILLS SCRIPT ---
             const polyfills = `
                 global.process = { env: env };
+                
+                // Native Utils (Bcrypt/JWT)
+                global.Cascata = {
+                    auth: {
+                        hashPassword: async (p) => _cascata_utils.apply(undefined, ['bcryptHash', p], { result: { promise: true, copy: true } }),
+                        verifyPassword: async (p, h) => _cascata_utils.apply(undefined, ['bcryptCompare', p, h], { result: { promise: true, copy: true } }),
+                        signToken: (p, s, o) => _cascata_utils.applySync(undefined, ['jwtSign', p, s, o], { result: { copy: true } }),
+                        verifyToken: (t, s) => _cascata_utils.applySync(undefined, ['jwtVerify', t, s], { result: { copy: true } })
+                    }
+                };
+
+                // Crypto
                 global.crypto = {
                     randomUUID: () => _crypto_proxy.applySync(undefined, [], { result: { copy: true } }),
                     randomBytes: (size) => _crypto_proxy.applySync(undefined, ['randomBytes', size], { result: { copy: true } })
                 };
                 global.btoa = (s) => _encoding_proxy.applySync(undefined, ['btoa', s], { result: { copy: true } });
                 global.atob = (s) => _encoding_proxy.applySync(undefined, ['atob', s], { result: { copy: true } });
+                
+                // TextEncoder/Decoder Polyfill
+                global.TextEncoder = class TextEncoder {
+                    encode(str) { return new Uint8Array(Buffer.from(str)); }
+                };
+                global.TextDecoder = class TextDecoder {
+                    decode(arr) { return Buffer.from(arr).toString('utf-8'); }
+                };
+                global.Buffer = {
+                    from: (data, enc) => {
+                       if (typeof data === 'string' && enc === 'hex') {
+                           return _encoding_proxy.applySync(undefined, ['fromHex', data], { result: { copy: true } });
+                       }
+                       return data; 
+                    }
+                };
+
+                // DB & Fetch
                 global.$db = {
                     query: async (sql, params) => db.get('query').apply(undefined, [sql, params || []], { arguments: { copy: true }, result: { promise: true } })
                 };
@@ -231,11 +350,11 @@ export class EdgeService {
             
             await isolate.compileScript(polyfills).then(s => s.run(scriptContext));
 
-            // --- MODULE COMPILATION & LINKING (THE MAGIC) ---
+            // --- MODULE COMPILATION & LINKING (CORE UPGRADE) ---
             
             const module = await isolate.compileModule(code);
             
-            // Linker: Resolve imports recursivos
+            // Linker: Resolves imports recursively
             await module.instantiate(scriptContext, async (specifier, referrer) => {
                 const source = await EdgeService.fetchModuleSource(specifier);
                 return await isolate.compileModule(source);
@@ -245,24 +364,24 @@ export class EdgeService {
 
             const namespace = module.namespace;
             
-            // Suporte a 'export default function...'
+            // Support 'export default function...'
             const defaultExport = await namespace.get('default', { reference: true });
 
             if (defaultExport.typeof !== 'function') {
                 return { status: 500, body: { error: "Edge Function must export a default function." } };
             }
 
-            // Prepara o contexto de entrada
+            // Prepare Request Context
             const reqCopy = new ivm.ExternalCopy(context).copyInto();
             
-            // Executa
+            // Execute Default Function
             const resultRef = await defaultExport.apply(undefined, [reqCopy], { result: { promise: true, copy: true } });
             
             return { status: 200, body: resultRef };
 
         } catch (e: any) {
             console.error(`[Edge:${projectSlug}] Execution Error:`, e.message);
-            // Sanitização de Erro para não vazar paths internos
+            // Error Sanitization
             const safeError = e.message.replace(/\/app\/backend\/services\//g, '[System]');
             
             if (e.message.includes('isolate is disposed') || e.message.includes('timeout')) {
@@ -270,7 +389,6 @@ export class EdgeService {
             }
             return { status: 500, body: { error: `Runtime Error: ${safeError}` } };
         } finally {
-            // Limpeza Garantida
             try { 
                 scriptContext.release(); 
                 if (!isolate.isDisposed) isolate.dispose(); 
