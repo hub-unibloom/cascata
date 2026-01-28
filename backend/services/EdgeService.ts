@@ -102,7 +102,8 @@ export class EdgeService {
         const isolate = new ivm.Isolate({ memoryLimit: 256 }); 
         const scriptContext = await isolate.createContext();
         const jail = scriptContext.global;
-        
+        const qdrantUrl = `http://${process.env.QDRANT_HOST || 'qdrant'}:${process.env.QDRANT_PORT || '6333'}`;
+
         try {
             await jail.set('global', jail.derefInto());
             
@@ -153,7 +154,6 @@ export class EdgeService {
                         // Set timeout for queries to prevent hanging
                         await client.query(`SET statement_timeout = 5000`); 
                         const result = await client.query(sql, params);
-                        // Deep clone to detach from PG client
                         return new ivm.ExternalCopy(JSON.parse(JSON.stringify(result.rows))).copyInto();
                     } catch (e: any) { throw e; } 
                     finally { if (client) client.release(); }
@@ -183,11 +183,11 @@ export class EdgeService {
                     method: (init as any).method || 'GET',
                     headers: (init as any).headers || {},
                     data: (init as any).body,
-                    maxRedirects: 3, 
+                    maxRedirects: 3, // Allow some redirects but bounded
                     validateStatus: () => true,
                     httpAgent, httpsAgent,
                     responseType: 'arraybuffer', // Handle binary safely
-                    timeout: 4000 
+                    timeout: 4000 // Sub-timeout for fetch
                 });
                 
                 if (response.data.length > 5 * 1024 * 1024) throw new Error("Response too large (Max 5MB)");
