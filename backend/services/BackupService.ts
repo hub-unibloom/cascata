@@ -107,8 +107,8 @@ export class BackupService {
             await archive.finalize();
 
             // Wait for file stream to close
-            await new Promise((resolve, reject) => {
-                output.on('close', resolve);
+            await new Promise<void>((resolve, reject) => {
+                output.on('close', () => resolve());
                 output.on('error', reject);
             });
 

@@ -32,13 +32,13 @@ export class SystemLogService {
         // Hook Stdout
         process.stdout.write = (chunk: any, ...args: any[]) => {
             this.pushLog('INFO', chunk);
-            return originalStdout.apply(process.stdout, [chunk, ...args]);
+            return originalStdout.apply(process.stdout, [chunk, ...args] as any);
         };
 
         // Hook Stderr
         process.stderr.write = (chunk: any, ...args: any[]) => {
             this.pushLog('ERROR', chunk);
-            return originalStderr.apply(process.stderr, [chunk, ...args]);
+            return originalStderr.apply(process.stderr, [chunk, ...args] as any);
         };
 
         console.log('[SystemLogService] Console hooks attached. Logs streaming to Redis.');
