@@ -16,7 +16,12 @@ export class PostgrestService {
         body: any,
         headers: any
     ): PostgrestQuery {
-        const safeTable = `"${tableName.replace(/"/g, '""')}"`;
+        // SANITIZATION: Strict Identifier Validation
+        if (!/^[a-zA-Z0-9_]+$/.test(tableName)) {
+            throw new Error("Invalid table name identifier.");
+        }
+
+        const safeTable = `"${tableName}"`;
         const params: any[] = [];
         let sql = '';
         let countQuery = '';
@@ -35,6 +40,9 @@ export class PostgrestService {
         Object.keys(query).forEach(key => {
             if (['select', 'order', 'limit', 'offset', 'on_conflict', 'columns'].includes(key)) return;
             
+            // SANITIZATION: Key must be valid identifier
+            if (!/^[a-zA-Z0-9_]+$/.test(key)) return;
+
             const value = query[key];
             const { clause, val } = this.parseFilter(key, value, params.length + 1);
             if (clause) {
@@ -78,11 +86,6 @@ export class PostgrestService {
             
             // DoS PROTECTION: Cap count query execution time
             if (headers['prefer'] && headers['prefer'].includes('count=exact')) {
-                // We inject a local statement timeout just for the count query context
-                // Note: The actual execution of this setting depends on how the controller runs the query
-                // but standard practice is to prepend it or run it in same transaction.
-                // Since this returns a string, we cannot prepend SET here easily for single query execution.
-                // However, the controller will execute countQuery separately.
                 countQuery = `SELECT COUNT(*) as total FROM public.${safeTable} ${whereClause}`;
             }
 
@@ -91,7 +94,11 @@ export class PostgrestService {
             if (rows.length === 0) throw new Error("No data to insert");
 
             const keys = Object.keys(rows[0]);
-            const cols = keys.map(k => `"${k.replace(/"/g, '""')}"`).join(', ');
+            // SANITIZATION
+            keys.forEach(k => {
+                if (!/^[a-zA-Z0-9_]+$/.test(k)) throw new Error(`Invalid column name: ${k}`);
+            });
+            const cols = keys.map(k => `"${k}"`).join(', ');
             
             const valueGroups: string[] = [];
             let paramIdx = 1;
@@ -107,8 +114,8 @@ export class PostgrestService {
 
             let upsertClause = '';
             if (headers['prefer'] && headers['prefer'].includes('resolution=merge-duplicates')) {
-                const conflictTarget = onConflictParam ? `"${onConflictParam.replace(/"/g, '""')}"` : '"id"';
-                const updateSet = keys.map(k => `"${k.replace(/"/g, '""')}" = EXCLUDED."${k.replace(/"/g, '""')}"`).join(', ');
+                const conflictTarget = onConflictParam ? `"${onConflictParam.replace(/[^a-zA-Z0-9_]/g, '')}"` : '"id"';
+                const updateSet = keys.map(k => `"${k}" = EXCLUDED."${k}"`).join(', ');
                 upsertClause = `ON CONFLICT (${conflictTarget}) DO UPDATE SET ${updateSet}`;
             } else if (headers['prefer'] && headers['prefer'].includes('resolution=ignore-duplicates')) {
                 upsertClause = `ON CONFLICT DO NOTHING`;
@@ -124,13 +131,17 @@ export class PostgrestService {
 
             const setClauses: string[] = [];
             keys.forEach(k => {
-                setClauses.push(`"${k.replace(/"/g, '""')}" = $${params.length + 1}`);
+                if (!/^[a-zA-Z0-9_]+$/.test(k)) throw new Error(`Invalid column name: ${k}`);
+                setClauses.push(`"${k}" = $${params.length + 1}`);
                 params.push(body[k]);
             });
 
             const updateFilters: string[] = [];
             Object.keys(query).forEach(key => {
                 if (['select', 'order', 'limit', 'offset'].includes(key)) return;
+                // SANITIZATION
+                if (!/^[a-zA-Z0-9_]+$/.test(key)) return;
+                
                 const value = query[key];
                 const { clause, val } = this.parseFilter(key, value, params.length + 1);
                 if (clause) {
@@ -150,6 +161,9 @@ export class PostgrestService {
             const deleteFilters: string[] = [];
             Object.keys(query).forEach(key => {
                 if (['select', 'order', 'limit', 'offset'].includes(key)) return;
+                // SANITIZATION
+                if (!/^[a-zA-Z0-9_]+$/.test(key)) return;
+                
                 const value = query[key];
                 const { clause, val } = this.parseFilter(key, value, params.length + 1);
                 if (clause) {
@@ -173,6 +187,9 @@ export class PostgrestService {
         if (!selectParam || selectParam === '*' || selectParam === '%2A') return '*';
         return selectParam.split(',').map(c => {
             const part = c.trim();
+            // Basic sanitization, ideally should be stricter
+            if (!/^[a-zA-Z0-9_:\->.\s\(\)]+$/.test(part)) return ''; 
+
             if (part.includes(':') && !part.includes('::')) {
                 const [col, alias] = part.split(':');
                 return `"${col.trim()}" AS "${alias.trim()}"`;
@@ -181,7 +198,7 @@ export class PostgrestService {
                 return part;
             }
             return `"${part}"`;
-        }).join(', ');
+        }).filter(Boolean).join(', ');
     }
 
     private static parseOrder(orderParam: string): string {
@@ -189,7 +206,7 @@ export class PostgrestService {
         const parts = orderParam.split(',');
         const orders = parts.map(p => {
             const [col, dir] = p.split('.');
-            const cleanCol = col.replace(/[^a-zA-Z0-9_> -]/g, '');
+            const cleanCol = col.replace(/[^a-zA-Z0-9_]/g, '');
             const safeCol = `"${cleanCol}"`;
             const safeDir = (dir && dir.toLowerCase() === 'desc') ? 'DESC' : 'ASC';
             let nulls = '';
@@ -202,7 +219,7 @@ export class PostgrestService {
 
     private static parseFilter(key: string, value: string, paramIndex: number): { clause: string, val: any } {
         const parts = value.split('.');
-        const column = `"${key.replace(/"/g, '')}"`;
+        const column = `"${key}"`; // key is already sanitized in caller
 
         if (parts.length < 2) {
             return { clause: `${column} = $${paramIndex}`, val: value };

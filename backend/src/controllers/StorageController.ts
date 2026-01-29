@@ -118,12 +118,45 @@ export class StorageController {
 
     static async deleteBucket(req: CascataRequest, res: any, next: any) {
         try {
-            const bucketPath = path.join(STORAGE_ROOT, req.project.slug, req.params.name);
-            if (!bucketPath.startsWith(path.join(STORAGE_ROOT, req.project.slug))) { 
+            const { name } = req.params;
+            const projectSlug = req.project.slug;
+            const bucketPath = path.join(STORAGE_ROOT, projectSlug, name);
+            
+            // Security Check
+            if (!bucketPath.startsWith(path.join(STORAGE_ROOT, projectSlug))) { 
                 return res.status(403).json({ error: 'Access denied' }); 
             }
+
+            // 1. External Provider Cleanup (Zombie Prevention)
+            const storageConfig: StorageConfig = req.project.metadata?.storage_config || { provider: 'local' };
+            
+            if (storageConfig.provider !== 'local') {
+                console.log(`[Storage] Performing Deep Clean on external bucket: ${name} (${storageConfig.provider})`);
+                
+                // Fetch all objects linked to this bucket
+                const objects = await systemPool.query(
+                    'SELECT full_path FROM system.storage_objects WHERE project_slug=$1 AND bucket=$2',
+                    [projectSlug, name]
+                );
+
+                // Batch delete or iterate
+                // Note: StorageService.delete handles the provider logic (S3, Cloudinary, etc.)
+                // We use Promise.allSettled to ensure we try to delete everything even if one fails
+                const deletionPromises = objects.rows.map(row => 
+                    StorageService.delete(row.full_path, storageConfig)
+                        .catch(err => console.warn(`[Storage] Failed to delete orphan ${row.full_path}:`, err.message))
+                );
+
+                await Promise.allSettled(deletionPromises);
+            }
+
+            // 2. Local Cleanup (Filesystem)
+            // Even if external, we might have empty folder structures locally
             await fs.rm(bucketPath, { recursive: true, force: true });
-            await systemPool.query('DELETE FROM system.storage_objects WHERE project_slug=$1 AND bucket=$2', [req.project.slug, req.params.name]);
+            
+            // 3. Metadata Cleanup (Database)
+            await systemPool.query('DELETE FROM system.storage_objects WHERE project_slug=$1 AND bucket=$2', [projectSlug, name]);
+            
             res.json({ success: true }); 
         } catch (e: any) { 
             res.status(500).json({ error: e.message }); 
