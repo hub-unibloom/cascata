@@ -65,6 +65,9 @@ CREATE TABLE IF NOT EXISTS system.api_logs (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Performance Index para Dashboard de Logs
+CREATE INDEX IF NOT EXISTS idx_api_logs_project_date ON system.api_logs (project_slug, created_at DESC);
+
 -- Configurações de UI
 CREATE TABLE IF NOT EXISTS system.ui_settings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

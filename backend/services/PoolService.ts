@@ -22,16 +22,16 @@ interface PoolEntry {
 }
 
 /**
- * PoolService v5.3 (Aggressive Zombie Killer)
- * Gerenciamento avançado de conexões e limpeza de transações órfãs.
+ * PoolService v5.4 (Resource Guard)
+ * Gerenciamento de conexões com limite estrito de instâncias e limpeza agressiva.
  */
 export class PoolService {
   private static pools = new Map<string, PoolEntry>();
-  private static REAPER_INTERVAL_MS = 20 * 1000; // Check mais frequente (20s)
-  private static IDLE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutos de inatividade do pool
-  private static MAX_ACTIVE_POOLS = 500; 
+  private static REAPER_INTERVAL_MS = 20 * 1000; 
+  private static IDLE_THRESHOLD_MS = 2 * 60 * 1000; // Reduced to 2 minutes for faster rotation
+  private static MAX_ACTIVE_POOLS = 200; // Strict limit on concurrent Pool objects in Node process
   private static DEFAULT_STATEMENT_TIMEOUT = 15000; 
-  private static MAX_IDLE_TX_TIME = '2 minutes'; // Tempo máximo para IDLE IN TRANSACTION
+  private static MAX_IDLE_TX_TIME = '2 minutes'; 
 
   public static configure(config: { maxConnections?: number, idleTimeout?: number, statementTimeout?: number }) {
       if (config.statementTimeout) {
@@ -47,7 +47,7 @@ export class PoolService {
           this.killIdleTransactions().catch(e => console.error('[PoolService] Idle Killer Failed:', e));
       }, this.REAPER_INTERVAL_MS);
       
-      console.log('[PoolService] Smart Reaper initialized (Aggressive Mode).');
+      console.log('[PoolService] Resource Guard initialized.');
   }
 
   public static getTotalActivePools(): number {
@@ -55,25 +55,23 @@ export class PoolService {
   }
 
   /**
-   * Mata transações que estão 'idle in transaction' por mais de X minutos.
-   * Isso previne que clientes com bugs bloqueiem tabelas (Row Locks) indefinidamente.
+   * Mata transações que estão 'idle in transaction' no banco.
    */
   private static async killIdleTransactions() {
       try {
           const res = await systemPool.query(`
-              SELECT pg_terminate_backend(pid), datname, usename, query, state_change
+              SELECT pg_terminate_backend(pid)
               FROM pg_stat_activity
               WHERE state = 'idle in transaction'
               AND state_change < NOW() - INTERVAL '${this.MAX_IDLE_TX_TIME}'
               AND datname IS NOT NULL
-              AND pid <> pg_backend_pid() -- Don't kill self
+              AND pid <> pg_backend_pid()
           `);
           
           if (res.rowCount && res.rowCount > 0) {
-              console.warn(`[PoolService] ☢️  Killed ${res.rowCount} zombie transactions (Idle > ${this.MAX_IDLE_TX_TIME}).`);
+              console.warn(`[PoolService] ☢️  Killed ${res.rowCount} zombie transactions.`);
           }
       } catch (e: any) {
-          // Ignora erros pontuais (ex: DB reiniciando)
           if (e.code !== '57P03') console.error('[PoolService] Zombie Killer Error:', e.message);
       }
   }
@@ -84,6 +82,7 @@ export class PoolService {
       
       const entries = Array.from(this.pools.entries()).sort((a, b) => a[1].lastAccessed - b[1].lastAccessed);
 
+      // 1. Idle Cleanup
       for (const [key, entry] of entries) {
           if (now - entry.lastAccessed > this.IDLE_THRESHOLD_MS) {
               this.gracefulClose(key, entry);
@@ -91,13 +90,16 @@ export class PoolService {
           }
       }
 
+      // 2. Hard Cap Enforcement (Eviction Strategy)
       if (this.pools.size > this.MAX_ACTIVE_POOLS) {
           const currentSize = this.pools.size;
           const toRemove = currentSize - this.MAX_ACTIVE_POOLS;
           
           if (toRemove > 0) {
-              console.warn(`[PoolService] Hard Cap Reached (${currentSize}). Ejecting ${toRemove} oldest pools.`);
+              console.warn(`[PoolService] Hard Cap Reached (${currentSize}). Evicting ${toRemove} oldest pools.`);
+              // Filter entries again to ensure we don't double-remove if they were idle
               const remainingEntries = entries.filter(([k]) => this.pools.has(k));
+              
               for (let i = 0; i < toRemove && i < remainingEntries.length; i++) {
                   const [key, entry] = remainingEntries[i];
                   this.gracefulClose(key, entry);
@@ -106,16 +108,13 @@ export class PoolService {
           }
       }
 
-      if (closedCount > 0) console.log(`[PoolService] Reaped ${closedCount} pools.`);
+      if (closedCount > 0) console.log(`[PoolService] Cleanup: Reaped ${closedCount} pools.`);
   }
 
   private static gracefulClose(key: string, entry: PoolEntry) {
-      try {
-          entry.pool.end().catch(e => console.error(`[PoolService] Error closing ${key}:`, e.message));
-          this.pools.delete(key);
-      } catch (e) {
-          console.error(`[PoolService] Critical error removing pool ${key}`, e);
-      }
+      // Don't await, let it drain in background
+      entry.pool.end().catch(e => console.error(`[PoolService] Error closing ${key}:`, e.message));
+      this.pools.delete(key);
   }
 
   public static get(dbIdentifier: string, config?: PoolConfig): pg.Pool {
@@ -132,6 +131,11 @@ export class PoolService {
       const entry = this.pools.get(uniqueKey)!;
       entry.lastAccessed = Date.now();
       return entry.pool;
+    }
+
+    // Force eviction if we are at capacity before creating new
+    if (this.pools.size >= this.MAX_ACTIVE_POOLS) {
+        this.reapZombies();
     }
 
     let dbUrl: string;
@@ -173,6 +177,7 @@ export class PoolService {
 
     pool.on('error', (err) => {
       console.error(`[PoolService] Error on ${uniqueKey}:`, err.message);
+      // Remove bad pool immediately
       if (this.pools.has(uniqueKey)) {
           this.pools.delete(uniqueKey);
       }
@@ -184,10 +189,6 @@ export class PoolService {
         activeConnections: requestedMax,
         isExternal
     });
-    
-    if (this.pools.size > this.MAX_ACTIVE_POOLS) {
-        this.reapZombies();
-    }
     
     return pool;
   }

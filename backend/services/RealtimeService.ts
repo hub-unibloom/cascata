@@ -19,13 +19,18 @@ interface ProjectListener {
     isExternal: boolean;
 }
 
+/**
+ * RealtimeService v3.1 (Hydration Safety)
+ */
 export class RealtimeService {
     private static subscribers = new Map<string, Set<ClientConnection>>();
-    
-    // Architectual Fix: Track active listeners with Reference Counting
     private static activeListeners = new Map<string, ProjectListener>();
-    
     private static MAX_CLIENTS_PER_PROJECT = 5000; 
+
+    // --- CONCURRENCY CONTROL (THUNDERING HERD PROTECTION) ---
+    // Limit simultaneous hydration queries across the entire node instance
+    private static HYDRATION_LIMIT = 50; 
+    private static activeHydrations = 0;
 
     public static async handleConnection(req: any, res: any) {
         const slug = req.params.slug;
@@ -54,7 +59,6 @@ export class RealtimeService {
         const clientId = Date.now().toString(36) + Math.random().toString(36).substr(2);
         res.write(`data: ${JSON.stringify({ type: 'connected', clientId })}\n\n`);
 
-        // Initialize or Increment Listener Reference
         await this.acquireListener(project);
 
         if (!this.subscribers.has(slug)) {
@@ -76,7 +80,6 @@ export class RealtimeService {
         req.on('close', () => {
             clearInterval(heartbeat);
             this.subscribers.get(slug)?.delete(connection);
-            // Decrement or Shutdown Listener
             this.releaseListener(slug);
         });
     }
@@ -90,7 +93,6 @@ export class RealtimeService {
             return;
         }
 
-        // Create new Listener
         console.log(`[Realtime] 🟢 Spawning dedicated listener for ${slug}`);
         
         let connectionString: string;
@@ -165,52 +167,43 @@ export class RealtimeService {
 
         try {
             const rawPayload = JSON.parse(msg.payload);
-            
-            // HYDRATION LOGIC (Definitive Phase 2 Fix)
-            // If payload has no 'record' but has 'record_id' and 'table', we fetch the data.
-            // This prevents the 8kb limit crash in Postgres triggers.
-            
             let finalPayload = rawPayload;
 
+            // HYDRATION LOGIC WITH CIRCUIT BREAKER
+            // If payload has no 'record' but has 'record_id' and 'table'
             if (!rawPayload.record && rawPayload.record_id && rawPayload.table && rawPayload.action !== 'DELETE') {
-                // Fetch the fresh data
-                // We use the PoolService here because it's a quick query, not a long-lived listener
-                try {
-                    const listener = this.activeListeners.get(slug);
-                    if (listener) {
-                        // Use a separate pool for query to avoid blocking the listener connection if possible,
-                        // or just use PoolService which manages this.
-                        // We need to resolve the DB Name. Since we are inside the service, we might not have the DB Name handy 
-                        // unless we stored it in the listener map or query system.projects.
-                        // Optimization: Use the listener connection string to derive context or query directly via PoolService if we know the DB Name.
-                        // Since we don't have DB Name easily here, let's use the listener's connection string to get a Pool.
-                        // Extract DB Name from connection string is risky (regex).
-                        // Better: We query system to get DB Name if needed, OR we just trust the client app to re-fetch.
-                        
-                        // Decision: For Phase 2 Stability, we implement Server-Side Hydration to maintain compatibility.
-                        // We will use the connection string from the listener to spawn a temporary Pool query.
-                        
-                        // Note: To avoid overhead, we use PoolService.get with the connection string directly.
-                        // We can use a dummy name since we provide the connectionString.
-                        const pool = PoolService.get(`rt_hydration_${slug}`, { connectionString: listener.connectionString });
-                        
-                        const res = await pool.query(`SELECT * FROM public.${quoteId(rawPayload.table)} WHERE id = $1`, [rawPayload.record_id]);
-                        if (res.rows.length > 0) {
-                            finalPayload.record = res.rows[0];
+                
+                // CHECK CONCURRENCY LIMIT
+                if (this.activeHydrations >= this.HYDRATION_LIMIT) {
+                    console.warn(`[Realtime] ⚠️ Hydration Skipped for ${slug} (Load Shedding). Sending ID only.`);
+                    finalPayload.hydration_skipped = true;
+                    // Client must fetch data manually via REST API if hydration_skipped is true
+                } else {
+                    this.activeHydrations++;
+                    try {
+                        const listener = this.activeListeners.get(slug);
+                        if (listener) {
+                            // Use a temporary pool connection for the lookup
+                            // Using PoolService ensures connection recycling and limits
+                            const pool = PoolService.get(`rt_hydration_${slug}`, { connectionString: listener.connectionString });
+                            
+                            const res = await pool.query(`SELECT * FROM public.${quoteId(rawPayload.table)} WHERE id = $1`, [rawPayload.record_id]);
+                            if (res.rows.length > 0) {
+                                finalPayload.record = res.rows[0];
+                            }
                         }
+                    } catch (err) {
+                        console.warn(`[Realtime] Hydration failed for ${slug}`, err);
+                    } finally {
+                        this.activeHydrations--;
                     }
-                } catch (err) {
-                    console.warn(`[Realtime] Hydration failed for ${slug}`, err);
-                    // Fallback: Send without record, client might fetch it.
                 }
             }
 
             // Trigger Push Engine (Neural Pulse)
-            // This logic is decoupled from the socket broadcast
-            // We fire and forget this check
             this.triggerNeuralPulse(slug, finalPayload);
 
-            // Broadcast to connected clients
+            // Broadcast
             this.broadcast(slug, finalPayload);
 
         } catch (e) {
@@ -220,7 +213,6 @@ export class RealtimeService {
 
     private static async triggerNeuralPulse(slug: string, payload: any) {
         try {
-            // Check if project has firebase config (cached check would be better, but db check is safe for Phase 2)
             const projRes = await systemPool.query('SELECT db_name, metadata FROM system.projects WHERE slug = $1', [slug]);
             const project = projRes.rows[0];
             

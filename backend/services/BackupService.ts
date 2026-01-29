@@ -199,11 +199,9 @@ export class BackupService {
 
             if (provider === 'gdrive') {
                 result = await GDriveService.uploadStream(fileStream, fileName, 'application/zip', config);
-                await GDriveService.enforceRetention(config, policy.retention_count, policy.slug);
             } 
             else if (['s3', 'b2', 'r2', 'wasabi', 'aws'].includes(provider)) {
                 result = await S3BackupService.uploadStream(fileStream, fileName, 'application/zip', config);
-                await S3BackupService.enforceRetention(config, policy.retention_count, policy.slug);
             } 
             else {
                 throw new Error(`Provider ${provider} not supported`);
@@ -223,6 +221,9 @@ export class BackupService {
                 `UPDATE system.backup_policies SET last_run_at = NOW(), last_status = 'success' WHERE id = $1`,
                 [policyId]
             );
+            
+            // EXECUTE RETENTION POLICY (Centralized Logic)
+            await this.enforceRetention(policyId, provider, config, policy.retention_count);
 
         } catch (e: any) {
             console.error(`[BackupJob] Failed: ${e.message}`);
@@ -237,6 +238,52 @@ export class BackupService {
             throw e;
         } finally {
             if (tempFile && fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+        }
+    }
+
+    /**
+     * Enforces retention policy by consulting the database history first.
+     * Ensures we delete files that we know about, and keeps DB in sync.
+     */
+    private static async enforceRetention(policyId: string, provider: string, config: any, retentionCount: number) {
+        if (retentionCount <= 0 || retentionCount > 1000) return; // Unlimited or invalid
+
+        try {
+            // Get successful backups for this policy, ordered by newest first
+            const historyRes = await systemPool.query(
+                `SELECT id, external_id FROM system.backup_history 
+                 WHERE policy_id = $1 AND status = 'completed' AND external_id IS NOT NULL 
+                 ORDER BY finished_at DESC`,
+                [policyId]
+            );
+
+            const backups = historyRes.rows;
+            
+            if (backups.length > retentionCount) {
+                // Identify backups to delete (from the end of the list)
+                const toDelete = backups.slice(retentionCount);
+                console.log(`[BackupRetention] Pruning ${toDelete.length} old backups for policy ${policyId}`);
+
+                for (const backup of toDelete) {
+                    try {
+                        // 1. Delete from Provider
+                        if (provider === 'gdrive') {
+                            await GDriveService.deleteFile(backup.external_id, config);
+                        } else {
+                            await S3BackupService.deleteObject(backup.external_id, config);
+                        }
+
+                        // 2. Delete from Database (Only if provider delete didn't throw)
+                        await systemPool.query(`DELETE FROM system.backup_history WHERE id = $1`, [backup.id]);
+                        
+                    } catch (err: any) {
+                        console.warn(`[BackupRetention] Failed to delete backup ${backup.id}:`, err.message);
+                        // Optional: Mark as 'orphaned' or 'failed_delete' in DB instead of ignoring
+                    }
+                }
+            }
+        } catch (e) {
+            console.error(`[BackupRetention] Policy check failed:`, e);
         }
     }
 

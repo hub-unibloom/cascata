@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { Pool } from 'pg';
 
@@ -32,8 +33,14 @@ export class AiService {
     }
 
     private static async generateWithRetry(parameters: { model: string, contents: any, config?: any }, retries = 3, delay = 1000): Promise<string> {
-        // Inicialização direta por chamada conforme Gold Rules do Gemini
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+        // Validation: Ensure API Key is present before attempting to call
+        const apiKey = process.env.API_KEY;
+        if (!apiKey) {
+            throw new Error("System Error: Gemini API Key is not configured in the backend environment.");
+        }
+
+        const ai = new GoogleGenAI({ apiKey });
+        
         try {
             const response = await ai.models.generateContent({
                 model: parameters.model,

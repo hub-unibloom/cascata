@@ -376,16 +376,18 @@ export class DataController {
                 // We explicitly reset the role to the initial login user (cascata_admin) to guarantee access to auth.users.
                 await client.query("RESET ROLE"); 
                 
-                const [tables, users, size] = await Promise.all([
+                const [tables, users, size, connections] = await Promise.all([
                     client.query("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name NOT LIKE '_deleted_%'"),
                     client.query("SELECT count(*) FROM auth.users"),
-                    client.query("SELECT pg_size_pretty(pg_database_size(current_database()))")
+                    client.query("SELECT pg_size_pretty(pg_database_size(current_database()))"),
+                    client.query("SELECT count(*) as active_connections FROM pg_stat_activity WHERE datname = current_database()")
                 ]);
 
                 res.json({ 
                     tables: parseInt(tables.rows[0].count),
                     users: parseInt(users.rows[0].count),
                     size: size.rows[0].pg_size_pretty,
+                    active_connections: parseInt(connections.rows[0].active_connections),
                     throughput: logsRes.rows.map(r => ({
                         name: r.name,
                         requests: parseInt(r.requests),
