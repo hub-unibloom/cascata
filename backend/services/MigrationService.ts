@@ -15,18 +15,11 @@ export class MigrationService {
     try {
       client = await systemPool.connect();
       
-      // 1. Try Distributed Lock (Non-Blocking)
-      // pg_try_advisory_lock returns false immediately if locked, avoiding boot blocking.
-      const { rows } = await client.query(`SELECT pg_try_advisory_lock(${this.LOCK_ID}) as locked`);
-      const hasLock = rows[0].locked;
-
-      if (!hasLock) {
-          console.log('[MigrationService] Another instance holds the lock. Skipping migrations check to allow fast boot.');
-          // In scale-out, we assume the leader is handling migrations. 
-          // We proceed to boot to avoid stalling replica startup.
-          return;
-      }
-
+      // 1. Acquire Distributed Lock
+      // pg_advisory_lock blocks until lock is available. 
+      // This ensures only one node runs migrations at a time, and others wait.
+      console.log('[MigrationService] Waiting for distributed lock...');
+      await client.query(`SELECT pg_advisory_lock(${this.LOCK_ID})`);
       console.log('[MigrationService] Lock acquired. Starting checks...');
 
       try {
@@ -51,18 +44,10 @@ export class MigrationService {
             .sort();
 
           for (const file of files) {
-            // Check if already applied
             const check = await client.query('SELECT id FROM system.migrations WHERE name = $1', [file]);
             if (check.rowCount === 0) {
               console.log(`[MigrationService] Applying: ${file}`);
               const sql = fs.readFileSync(path.join(migrationsRoot, file), 'utf-8');
-              
-              // Skip empty/deprecated files logic handled by content, but good to be safe
-              if (!sql.trim()) {
-                  await client.query('INSERT INTO system.migrations (name) VALUES ($1)', [file]);
-                  continue;
-              }
-
               try {
                 await client.query('BEGIN');
                 await client.query(sql);
@@ -76,13 +61,12 @@ export class MigrationService {
             }
           }
           
-          // Rebuild Nginx configs only if leader
           await CertificateService.rebuildNginxConfigs(systemPool);
           
           // --- CRITICAL SECTION END ---
           
       } finally {
-          // Always release the lock if we acquired it
+          // Always release the lock
           await client.query(`SELECT pg_advisory_unlock(${this.LOCK_ID})`);
           console.log('[MigrationService] Lock released.');
       }

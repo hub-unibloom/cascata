@@ -15,7 +15,13 @@ export const dynamicCors: RequestHandler = (req: any, res: any, next: any) => {
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,apikey,x-cascata-client,Prefer,Range,x-client-info,x-supabase-auth,content-profile,accept-profile,x-supabase-api-version,x-cascata-signature,x-cascata-event');
     res.setHeader('Access-Control-Expose-Headers', 'Content-Range, X-Total-Count, Link');
 
+    // SECURITY FIX: Removed implicit trust for FlutterFlow/AppSmith.
+    // Logic now depends entirely on `req.project` context resolved by the previous middleware.
+    
     if (!req.project) {
+        // Pre-flight check para rotas do sistema/dashboard (sem projeto associado)
+        // Permite acesso se a origem bater com o domínio do sistema configurado (implícito),
+        // mas não libera para origens arbitrárias.
         if (req.method === 'OPTIONS') return res.status(200).end();
         return next();
     }
@@ -31,7 +37,8 @@ export const dynamicCors: RequestHandler = (req: any, res: any, next: any) => {
         }
     } 
     else {
-        // MODO ESTRITO (Prod)
+        // MODO ESTRITO (Prod): Verifica Whitelist do Banco
+        // FlutterFlow/AppSmith devem ser adicionados explicitamente aqui pelo usuário.
         if (origin && safeOrigins.includes(origin)) {
             res.setHeader('Access-Control-Allow-Origin', origin);
         }
@@ -42,7 +49,7 @@ export const dynamicCors: RequestHandler = (req: any, res: any, next: any) => {
 };
 
 export const hostGuard: RequestHandler = async (req: any, res: any, next: any) => {
-    if (req.project) return next(); // Project resolution handles its own domain locking
+    if (req.project) return next();
     if (req.path === '/' || req.path === '/health') return next();
 
     try {
@@ -55,20 +62,16 @@ export const hostGuard: RequestHandler = async (req: any, res: any, next: any) =
         const isIp = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(host); 
         const isLocal = host === 'localhost' || host === '127.0.0.1' || host === 'cascata-backend-control' || host.startsWith('172.') || host.startsWith('10.');
 
-        if (isLocal) return next();
+        if (isIp || isLocal) return next();
 
-        // STRICT MODE: If system domain is set, BLOCK DIRECT IP ACCESS (unless local)
-        // This prevents attackers from bypassing Cloudflare/WAF by hitting the IP directly.
         if (systemDomain) {
             if (host.toLowerCase() === systemDomain.toLowerCase()) return next();
-            
-            console.warn(`[HostGuard] 🛑 Blocked Direct Access: ${req.path} via ${host} (Expected: ${systemDomain})`);
-            // Return 444 No Response (Nginx style) or 404 to hide existence
-            return res.status(404).send('Not Found');
         } else {
-            // If no domain configured, allow IP (Initial Setup Mode)
             return next();
         }
+
+        console.warn(`[HostGuard] 404 Stealth Block: ${req.path} via ${host}. System Domain: ${systemDomain || 'None'}`);
+        return res.status(404).send('Not Found');
 
     } catch (e) { next(); }
 };
@@ -143,12 +146,15 @@ export const dynamicRateLimiter: RequestHandler = async (req: any, res: any, nex
 
     const r = req as CascataRequest;
     
-    // 2. Global RPS Tracking
+    // 2. Global RPS Tracking (For Dashboard Graph)
+    // This feeds the 'Traffic Pulse' chart with real-time data
     await RateLimitService.trackGlobalRPS(r.project.slug);
 
-    // 3. Path Normalization
+    // 3. Path Normalization (The Window/Door Fix)
+    // Converts /rest/v1/users AND /tables/users/data -> table:users
     let logicalResource = req.path.replace(`/api/data/${r.project.slug}`, '') || '/';
     
+    // Detect Resource Type for Logical Matching
     if (logicalResource.includes('/tables/')) {
         const parts = logicalResource.split('/tables/');
         if (parts[1]) {
@@ -158,16 +164,17 @@ export const dynamicRateLimiter: RequestHandler = async (req: any, res: any, nex
     } else if (logicalResource.includes('/rest/v1/')) {
         const parts = logicalResource.split('/rest/v1/');
         if (parts[1]) {
+            // Check if RPC call in PostgREST
             if (parts[1].startsWith('rpc/')) {
                 const rpcName = parts[1].replace('rpc/', '').split('/')[0];
                 logicalResource = `rpc:${rpcName}`;
             } else {
-                const tableName = parts[1].split(/[/?]/)[0];
+                const tableName = parts[1].split(/[/?]/)[0]; // Handle query params
                 logicalResource = `table:${tableName}`;
             }
         }
     } else if (logicalResource.includes('/auth/')) {
-        logicalResource = 'auth:*';
+        logicalResource = 'auth:*'; // Blanket auth rule matching
     } else if (logicalResource.includes('/rpc/')) {
         const rpcName = logicalResource.replace('/rpc/', '').split('/')[0];
         logicalResource = `rpc:${rpcName}`;

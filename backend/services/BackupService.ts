@@ -6,11 +6,10 @@ import path from 'path';
 import fs from 'fs';
 import axios from 'axios';
 import { Readable, PassThrough } from 'stream';
-import { pipeline } from 'stream/promises';
 import { URL } from 'url';
 import { GDriveService } from './GDriveService.js';
 import { S3BackupService } from './S3BackupService.js';
-import { systemPool, SYS_SECRET, TEMP_UPLOAD_ROOT } from '../src/config/main.js';
+import { systemPool, SYS_SECRET } from '../src/config/main.js';
 
 export interface ProjectMetadata {
     id: string;
@@ -31,115 +30,100 @@ interface TableDefinition {
 
 export class BackupService {
     
-    /**
-     * Generate backup to a temporary file on disk (Safety against OOM).
-     */
-    public static async generateBackupToFile(project: ProjectMetadata): Promise<string> {
-        const tempFilePath = path.join(TEMP_UPLOAD_ROOT, `backup_${project.slug}_${Date.now()}.zip`);
-        const output = fs.createWriteStream(tempFilePath);
+    public static generateBackupStream(project: ProjectMetadata): Readable {
         const archive = archiver('zip', { zlib: { level: 9 } });
+        const passThrough = new PassThrough();
         const qdrantUrl = `http://${process.env.QDRANT_HOST || 'qdrant'}:${process.env.QDRANT_PORT || '6333'}`;
 
-        archive.pipe(output);
-
-        try {
-            const connectionString = this.resolveConnectionString(project);
-
-            // 1. MANIFEST
-            const manifest = {
-                version: '2.0',
-                engine: 'Cascata-Architect-v7',
-                exported_at: new Date().toISOString(),
-                type: 'full_snapshot',
-                project: {
-                    name: project.name,
-                    slug: project.slug,
-                    db_name: project.db_name,
-                    custom_domain: project.custom_domain,
-                    metadata: project.metadata
-                }
-            };
-            archive.append(JSON.stringify(manifest, null, 2), { name: 'manifest.json' });
-
-            // 2. SECRETS
-            const secrets = {
-                jwt_secret: project.jwt_secret,
-                anon_key: project.anon_key,
-                service_key: project.service_key
-            };
-            archive.append(JSON.stringify(secrets, null, 2), { name: 'system/secrets.json' });
-
-            // 3. VECTORS
-            try {
-                const snapRes = await axios.post(`${qdrantUrl}/collections/${project.slug}/snapshots`);
-                const snapName = snapRes.data.result.name;
-                const snapDownloadUrl = `${qdrantUrl}/collections/${project.slug}/snapshots/${snapName}`;
-                const snapResponse = await axios.get(snapDownloadUrl, { responseType: 'stream' });
-                archive.append(snapResponse.data, { name: `vector/snapshot.qdrant` });
-            } catch (vErr: any) {
-                console.warn(`[Backup] Vector snapshot skipped: ${vErr.message}`);
-                archive.append(`Vector snapshot failed: ${vErr.message}`, { name: 'vector/status.log' });
-            }
-
-            // 4. SCHEMA
-            const schemaStream = await this.getSchemaDumpStream(connectionString);
-            archive.append(schemaStream, { name: 'schema/structure.sql' });
-
-            // 5. AUTH
-            const authDataStream = await this.getDataDumpStream(connectionString, ['auth']);
-            archive.append(authDataStream, { name: 'system/auth_data.sql' });
-
-            // 6. BUSINESS DATA
-            const tables = await this.listTables(connectionString);
-            for (const table of tables) {
-                if (table.schema === 'public') {
-                    const tableStream = await this.getTableCsvStream(connectionString, table.schema, table.name);
-                    archive.append(tableStream, { name: `data/${table.schema}.${table.name}.csv` });
-                }
-            }
-
-            // 7. STORAGE
-            const projectStoragePath = path.resolve(process.env.STORAGE_ROOT || '../storage', project.slug);
-            if (fs.existsSync(projectStoragePath)) {
-                archive.directory(projectStoragePath, 'storage');
-            }
-
-            await archive.finalize();
-
-            // Fix TS Error: Wrap resolve in anonymous function to match signature
-            await new Promise<void>((resolve, reject) => {
-                output.on('close', () => resolve());
-                output.on('error', reject);
-            });
-
-            return tempFilePath;
-
-        } catch (e: any) {
-            console.error('[BackupService] Critical Failure:', e);
+        // SAFETY: Se o stream for fechado abruptamente, garantimos que não fica lixo
+        passThrough.on('close', () => {
             archive.abort();
-            output.destroy(); 
-            if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); 
-            throw e;
-        }
+        });
+
+        archive.pipe(passThrough);
+
+        (async () => {
+            try {
+                const connectionString = this.resolveConnectionString(project);
+
+                // 1. MANIFEST
+                const manifest = {
+                    version: '2.0',
+                    engine: 'Cascata-Architect-v7',
+                    exported_at: new Date().toISOString(),
+                    type: 'full_snapshot',
+                    project: {
+                        name: project.name,
+                        slug: project.slug,
+                        db_name: project.db_name,
+                        custom_domain: project.custom_domain,
+                        metadata: project.metadata
+                    }
+                };
+                archive.append(JSON.stringify(manifest, null, 2), { name: 'manifest.json' });
+
+                // 2. SECRETS
+                const secrets = {
+                    jwt_secret: project.jwt_secret,
+                    anon_key: project.anon_key,
+                    service_key: project.service_key
+                };
+                archive.append(JSON.stringify(secrets, null, 2), { name: 'system/secrets.json' });
+
+                // 3. VECTORS
+                try {
+                    const snapRes = await axios.post(`${qdrantUrl}/collections/${project.slug}/snapshots`);
+                    const snapName = snapRes.data.result.name;
+                    const snapDownloadUrl = `${qdrantUrl}/collections/${project.slug}/snapshots/${snapName}`;
+                    const snapResponse = await axios.get(snapDownloadUrl, { responseType: 'stream' });
+                    archive.append(snapResponse.data, { name: `vector/snapshot.qdrant` });
+                } catch (vErr: any) {
+                    console.warn(`[Backup] Vector snapshot skipped: ${vErr.message}`);
+                    archive.append(`Vector snapshot failed: ${vErr.message}`, { name: 'vector/status.log' });
+                }
+
+                // 4. SCHEMA
+                const schemaStream = await this.getSchemaDumpStream(connectionString, passThrough);
+                archive.append(schemaStream, { name: 'schema/structure.sql' });
+
+                // 5. AUTH
+                const authDataStream = await this.getDataDumpStream(connectionString, ['auth'], passThrough);
+                archive.append(authDataStream, { name: 'system/auth_data.sql' });
+
+                // 6. BUSINESS DATA
+                const tables = await this.listTables(connectionString);
+                for (const table of tables) {
+                    if (table.schema === 'public') {
+                        const tableStream = await this.getTableCsvStream(connectionString, table.schema, table.name, passThrough);
+                        archive.append(tableStream, { name: `data/${table.schema}.${table.name}.csv` });
+                    }
+                }
+
+                // 7. STORAGE
+                const projectStoragePath = path.resolve(process.env.STORAGE_ROOT || '../storage', project.slug);
+                if (fs.existsSync(projectStoragePath)) {
+                    archive.directory(projectStoragePath, 'storage');
+                }
+
+                await archive.finalize();
+
+            } catch (e: any) {
+                console.error('[BackupService] Critical Failure:', e);
+                archive.abort();
+                passThrough.destroy(e);
+            }
+        })();
+
+        return passThrough;
     }
 
     public static async streamExport(project: ProjectMetadata, res: any) {
-        let tempFile: string | null = null;
-        try {
-            tempFile = await this.generateBackupToFile(project);
-            res.attachment(`${project.slug}_${new Date().toISOString().split('T')[0]}.caf`);
-            
-            const fileStream = fs.createReadStream(tempFile);
-            fileStream.pipe(res);
-            
-            fileStream.on('close', () => {
-                if (tempFile && fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-            });
-
-        } catch (e: any) {
-            if (tempFile && fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+        const stream = this.generateBackupStream(project);
+        res.attachment(`${project.slug}_${new Date().toISOString().split('T')[0]}.caf`);
+        stream.pipe(res);
+        stream.on('error', (err) => {
             if (!res.headersSent) res.status(500).send({ error: 'Snapshot generation failed.' });
-        }
+        });
     }
 
     public static async executePolicyJob(policyId: string) {
@@ -184,31 +168,26 @@ export class BackupService {
         );
         const historyId = historyRes.rows[0].id;
 
-        let tempFile: string | null = null;
-
         try {
-            // Generate to DISK first to calculate size and avoid OOM
-            tempFile = await this.generateBackupToFile(project);
+            const backupStream = this.generateBackupStream(project);
             const fileName = `${policy.slug}_backup_${new Date().toISOString().replace(/[:.]/g, '-')}.caf`;
-
-            // Stream from DISK to Cloud
-            const fileStream = fs.createReadStream(tempFile);
 
             let result;
             const provider = policy.provider || 'gdrive';
 
             if (provider === 'gdrive') {
-                result = await GDriveService.uploadStream(fileStream, fileName, 'application/zip', config);
+                result = await GDriveService.uploadStream(backupStream, fileName, 'application/zip', config);
+                await GDriveService.enforceRetention(config, policy.retention_count, policy.slug);
             } 
             else if (['s3', 'b2', 'r2', 'wasabi', 'aws'].includes(provider)) {
-                result = await S3BackupService.uploadStream(fileStream, fileName, 'application/zip', config);
+                result = await S3BackupService.uploadStream(backupStream, fileName, 'application/zip', config);
+                await S3BackupService.enforceRetention(config, policy.retention_count, policy.slug);
             } 
             else {
                 throw new Error(`Provider ${provider} not supported`);
             }
 
-            const stats = fs.statSync(tempFile);
-            const finalSize = stats.size;
+            const finalSize = result.size || 0; 
 
             await systemPool.query(
                 `UPDATE system.backup_history 
@@ -221,9 +200,6 @@ export class BackupService {
                 `UPDATE system.backup_policies SET last_run_at = NOW(), last_status = 'success' WHERE id = $1`,
                 [policyId]
             );
-            
-            // EXECUTE RETENTION POLICY (Centralized Logic)
-            await this.enforceRetention(policyId, provider, config, policy.retention_count);
 
         } catch (e: any) {
             console.error(`[BackupJob] Failed: ${e.message}`);
@@ -236,54 +212,6 @@ export class BackupService {
                 [policyId]
             );
             throw e;
-        } finally {
-            if (tempFile && fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-        }
-    }
-
-    /**
-     * Enforces retention policy by consulting the database history first.
-     * Ensures we delete files that we know about, and keeps DB in sync.
-     */
-    private static async enforceRetention(policyId: string, provider: string, config: any, retentionCount: number) {
-        if (retentionCount <= 0 || retentionCount > 1000) return; // Unlimited or invalid
-
-        try {
-            // Get successful backups for this policy, ordered by newest first
-            const historyRes = await systemPool.query(
-                `SELECT id, external_id FROM system.backup_history 
-                 WHERE policy_id = $1 AND status = 'completed' AND external_id IS NOT NULL 
-                 ORDER BY finished_at DESC`,
-                [policyId]
-            );
-
-            const backups = historyRes.rows;
-            
-            if (backups.length > retentionCount) {
-                // Identify backups to delete (from the end of the list)
-                const toDelete = backups.slice(retentionCount);
-                console.log(`[BackupRetention] Pruning ${toDelete.length} old backups for policy ${policyId}`);
-
-                for (const backup of toDelete) {
-                    try {
-                        // 1. Delete from Provider
-                        if (provider === 'gdrive') {
-                            await GDriveService.deleteFile(backup.external_id, config);
-                        } else {
-                            await S3BackupService.deleteObject(backup.external_id, config);
-                        }
-
-                        // 2. Delete from Database (Only if provider delete didn't throw)
-                        await systemPool.query(`DELETE FROM system.backup_history WHERE id = $1`, [backup.id]);
-                        
-                    } catch (err: any) {
-                        console.warn(`[BackupRetention] Failed to delete backup ${backup.id}:`, err.message);
-                        // Optional: Mark as 'orphaned' or 'failed_delete' in DB instead of ignoring
-                    }
-                }
-            }
-        } catch (e) {
-            console.error(`[BackupRetention] Policy check failed:`, e);
         }
     }
 
@@ -298,6 +226,7 @@ export class BackupService {
 
     private static async listTables(connectionString: string): Promise<TableDefinition[]> {
         const isExternal = !connectionString.includes(process.env.DB_DIRECT_HOST || 'db');
+        // FIX: Usar Client em vez de Pool para operações pontuais. Evita conexões penduradas.
         const client = new Client({ connectionString, ssl: isExternal ? { rejectUnauthorized: false } : false });
         try {
             await client.connect();
@@ -314,7 +243,7 @@ export class BackupService {
         }
     }
 
-    private static async getSchemaDumpStream(connectionString: string): Promise<Readable> {
+    private static async getSchemaDumpStream(connectionString: string, parentStream: PassThrough): Promise<Readable> {
         const url = new URL(connectionString);
         const args = [
             '--host', url.hostname,
@@ -328,11 +257,15 @@ export class BackupService {
             '-n', 'auth'
         ];
         const child = spawn('pg_dump', args, { env: { ...process.env, PGPASSWORD: url.password } });
+        
+        // AUTO-KILL: Se o stream pai morrer, mata o processo filho para liberar locks
+        parentStream.on('close', () => { if (child.exitCode === null) child.kill(); });
+        
         if (!child.stdout) throw new Error("pg_dump stdout null");
         return child.stdout;
     }
 
-    private static async getDataDumpStream(connectionString: string, schemas: string[]): Promise<Readable> {
+    private static async getDataDumpStream(connectionString: string, schemas: string[], parentStream: PassThrough): Promise<Readable> {
         const url = new URL(connectionString);
         const args = [
             '--host', url.hostname,
@@ -347,15 +280,21 @@ export class BackupService {
             ...schemas.flatMap(s => ['-n', s])
         ];
         const child = spawn('pg_dump', args, { env: { ...process.env, PGPASSWORD: url.password } });
+        
+        parentStream.on('close', () => { if (child.exitCode === null) child.kill(); });
+        
         if (!child.stdout) throw new Error("pg_dump data stdout null");
         return child.stdout;
     }
 
-    private static async getTableCsvStream(connectionString: string, schema: string, tableName: string): Promise<Readable> {
+    private static async getTableCsvStream(connectionString: string, schema: string, tableName: string, parentStream: PassThrough): Promise<Readable> {
         const url = new URL(connectionString);
         const query = `COPY (SELECT * FROM "${schema}"."${tableName}") TO STDOUT WITH CSV HEADER`;
         const args = ['-h', url.hostname, '-p', url.port, '-U', url.username, '-d', url.pathname.slice(1), '-c', query];
         const child = spawn('psql', args, { env: { ...process.env, PGPASSWORD: url.password } });
+        
+        parentStream.on('close', () => { if (child.exitCode === null) child.kill(); });
+        
         if (!child.stdout) throw new Error("psql stdout null");
         return child.stdout;
     }

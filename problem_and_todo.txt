@@ -1,0 +1,187 @@
+Relatório de Auditoria Técnica - Projeto Cascata
+
+
+Lacunas Reais (Definições Ausentes)
+
+Execução de Código Edge Sem Gerenciamento de Dependências: O EdgeService.ts utiliza isolated-vm para rodar código JS. No entanto, não existe mecanismo para o usuário instalar ou importar pacotes NPM externos (node_modules). O usuário está limitado estritamente às globais injetadas (axios, pg, crypto). A promessa de "Serverless Functions" é severamente limitada sem suporte a bibliotecas de terceiros.
+
+
+Falta de Limites Físicos de Armazenamento: Embora o StorageController verifique quotas via metadados (checkQuota), não há enforcement no nível do sistema de arquivos ou Nginx para impedir que um único tenant lote o disco da VPS, derrubando todos os outros tenants. O limite de client_max_body_size do Nginx protege a requisição, mas não o acumulado.
+
+
+Vácuo na Gestão de Sessão do PostgreSQL: O RealtimeService e o PoolService gerenciam conexões, mas não existe lógica clara de eviction para conexões ociosas "zumbis" que podem ter ficado presas em transações abertas (IDLE IN TRANSACTION). O reapZombies do PoolService fecha pools inativos, mas não monitora a saúde interna das conexões do Postgres.
+Ausência de Logs de Sistema vs. Logs de Projeto: O ProjectLogs.tsx mostra logs de API. Não existe interface ou mecanismo para visualizar logs de erro do sistema (crash do Node, falha de conexão do Redis, erro do Certbot) para o super-admin. O debug depende de acesso SSH.
+
+
+
+
+2. Pontas Soltas (Referências Desconectadas)
+Migration 003 Depreciada: O arquivo backend/migrations/003_n8n_support.sql.txt está explicitamente vazio e marcado como depreciado, mas a numeração continua. Isso cria um "buraco" no histórico semântico do banco.
+
+Arquivo index.tsx na Raiz: Existe um index.tsx na raiz do projeto com um aviso de placeholder, enquanto o código real está em frontend/index.tsx. Isso gera confusão na configuração de build do Vite e suja a estrutura de diretórios.
+
+Role cascata_api_role no MCP: O McpService.ts executa a ferramenta run_sql diretamente via pool.query(sql). Diferente do DataController, que usa queryWithRLS para fazer SET LOCAL ROLE cascata_api_role, o MCP executa queries com a conexão do Pool (que loga como superusuário/dono do banco). As regras de governança da IA (Read-Only) são apenas instruções de texto para o LLM e não restrições físicas no banco.
+
+Fallback de JWT_SECRET: Vários arquivos (ex: middlewares/core.ts) usam 'fallback_secret' se a variável de ambiente falhar. Isso é um risco de segurança crítico se um deploy for feito com .env mal configurado, permitindo tokens forjados universais.
+
+
+
+
+
+3. Código Problemático (Implementação Duvidosa)
+Concorrência em Migrações (MigrationService.ts): O serviço roda automaticamente no boot (server.ts). Em um cenário de escala horizontal (múltiplos containers backend_control), todos tentarão rodar migrações simultaneamente ao iniciar. Falta um mecanismo de Lock distribuído (via Redis ou Postgres Advisory Lock).
+
+
+Validação de Magic Bytes (StorageService.ts): A função validateMagicBytesAsync lê apenas os primeiros 4 bytes. Formatos complexos ou arquivos poliglotas (maliciosos) podem burlar isso facilmente. Além disso, a lista de MAGIC_NUMBERS é hardcoded e limitada.
+
+
+Restore de Banco de Dados (ImportService.ts): O método restoreProject faz um "Atomic Swap" renomeando bancos de dados (ALTER DATABASE ... RENAME). Isso exige desconectar todos os usuários ativos. O PoolService.terminate tenta matar conexões, mas em ambientes de alta carga, novas conexões podem entrar no milissegundo entre o kill e o rename, fazendo o restore falhar catastroficamente.
+Parsing de JSON no EdgeService: O log de segurança trunca mensagens longas (safeLog), mas o retorno da função Edge (JSON.stringify(result)) não tem proteção explícita contra objetos circulares ou gigantescos que podem estourar a memória do processo Node principal ao serem serializados para o Express response.
+
+
+4. Falta de Sinergia (Incoerência Arquitetural)
+RLS Designer vs. SQL Real: O RLSDesigner.tsx constrói uma árvore lógica visual (LogicNode). Se um usuário alterar a política diretamente via SQL no DatabaseExplorer, o Designer não consegue "ler de volta" (parsear) esse SQL para a árvore visual. Isso torna o Designer inútil para manutenção de políticas complexas criadas manualmente.
+Duplicidade de Configuração de E-mail: Existe configuração de SMTP no AuthConfig.tsx (persiste em metadata.auth_config) e lógica de envio no AuthService.ts. Porém, o PushService (notificações mobile) e WebhookService parecem operar em silos separados, sem um "Notification Center" unificado que orquestre E-mail + Push + Webhook como canais de uma mesma mensagem.
+Vite Proxy vs. Nginx: O vite.config.ts configura um proxy para /api apontando para localhost:3000. O docker-compose.yml e nginx.conf configuram o Nginx para fazer o roteamento reverso. Em desenvolvimento local e produção, o fluxo de rede é diferente, o que pode mascarar erros de CORS e headers (como x-forwarded-for) que só aparecerão em produção.
+
+
+5. Mocks e Abstrações Falsas
+
+Simulação de RLS (RLSDesigner.tsx): A função handleSimulate executa um EXPLAIN (FORMAT JSON, ANALYZE) embrulhado em uma transação com ROLLBACK. Embora tecnicamente funcional, isso não simula fielmente o comportamento de escritas (INSERT/UPDATE) que dependem de triggers ou constraints diferidas. É uma simulação de leitura aplicada a conceitos de escrita.
+"Zero Trust" Vector Proxy: O VectorController é chamado de "Zero-Trust Proxy", mas ele apenas repassa a requisição para o Qdrant via Axios. Não há injeção de filtros de metadados obrigatórios (ex: forçar filter: { user_id: ... }). O isolamento é apenas por Collection (Projeto), mas dentro do projeto, qualquer usuário autenticado pode (teoricamente, se a API for exposta) buscar vetores de qualquer outro usuário se não houver um middleware de interceptação de query body.
+
+
+6. Riscos Técnicos e Conceituais
+
+Risco Crítico de Segurança no Docker Socket: O container nginx_controller monta /var/run/docker.sock. Se esse container for comprometido (ex: via vulnerabilidade no Express ou dependência), o atacante ganha acesso root ao host físico inteiro. É uma violação grave do princípio de menor privilégio.
+
+Gargalo no Backup (Stream Pipe): O BackupService usa archiver e PassThrough streams. Para bancos de dados na casa dos Gigabytes, o pg_dump pode gerar dados mais rápido do que a rede (upload para S3/GDrive) consegue absorver. Sem backpressure controlado ou armazenamento temporário em disco eficiente (que não seja na RAM), isso vai causar estouro de memória (OOM) no Node.js.
+
+Dependência de DNS Externo para SSRF: A função validateTargetUrl resolve DNS para checar IPs privados. Ataques de DNS Rebinding com TTL curto podem passar por essa checagem (o IP é público na checagem, mas privado no momento do axios.request). É necessário fixar o IP resolvido na requisição HTTP, não apenas confiar no hostname.
+
+SQL Injection via Identificadores: Embora quoteId seja usado em muitos lugares, o PostgrestService.ts constrói queries SQL dinâmicas complexas (buildQuery). A validação de nomes de colunas e operadores depende estritamente da sanidade do input. Se um nome de coluna malicioso passar pelo filtro, há risco, pois ele é injetado na string SQL.
+
+------
+
+Com base no **Relatório de Auditoria Técnica - Projeto Cascata**, organizei os problemas identificados em uma lista de tarefas (To-Do) estruturada por categorias de risco e funcionalidade.
+
+Esta lista foca exclusivamente nos pontos técnicos levantados, permitindo que você valide as soluções com sua equipe interna.
+
+---
+
+## 📋 To-Do List: Auditoria Projeto Cascata
+
+### 🔴 1. Segurança e Riscos Críticos
+
+* 
+**Remover Fallback de JWT:** Eliminar o uso de `'fallback_secret'` em arquivos como `middlewares/core.ts` para evitar tokens forjados.
+
+
+* 
+**Revisar Acesso ao Docker Socket:** Avaliar a montagem de `/var/run/docker.sock` no container `nginx_controller` para mitigar risco de acesso root ao host.
+
+
+* 
+**Corrigir Permissões do MCP:** Implementar restrições físicas no banco para o `McpService.ts`, garantindo que não execute queries como superusuário/dono do banco.
+
+
+* 
+**Prevenir SSRF via DNS Rebinding:** Ajustar a função `validateTargetUrl` para fixar o IP resolvido na requisição HTTP, impedindo ataques de DNS Rebinding.
+
+
+* 
+**Sanitizar Identificadores SQL:** Revisar o `PostgrestService.ts` e a função `buildQuery` para garantir que nomes de colunas e operadores não permitam injeção de SQL.
+
+
+* 
+**Reforçar Vector Proxy:** Implementar injeção obrigatória de filtros de metadados no `VectorController` para garantir isolamento real entre usuários no Qdrant.
+
+
+
+### 🟠 2. Infraestrutura e Estabilidade (Backend)
+
+* 
+**Implementar Gerenciamento de Dependências no Edge:** Criar mecanismo para importação de pacotes NPM externos no `EdgeService.ts`.
+
+
+* 
+**Estabelecer Limites Físicos de Armazenamento:** Implementar enforcement no sistema de arquivos ou Nginx para impedir que um único tenant lote o disco da VPS.
+
+
+* 
+**Gestão de Conexões "Zumbis":** Adicionar lógica de *eviction* para conexões ociosas (IDLE IN TRANSACTION) no PostgreSQL.
+
+
+* 
+**Locks de Migração:** Implementar um mecanismo de Lock distribuído (Redis ou Postgres Advisory Lock) no `MigrationService.ts` para evitar conflitos em escala horizontal.
+
+
+* 
+**Prevenir OOM em Backups:** Adicionar controle de *backpressure* no `BackupService` para lidar com grandes volumes de dados sem estourar a memória RAM.
+
+
+* 
+**Refinar Restore de Banco:** Revisar o método `restoreProject` para lidar com novas conexões que surgem durante o processo de "Atomic Swap".
+
+
+
+### 🟡 3. Arquitetura e Sinergia
+
+* 
+**Sincronizar RLS Designer:** Desenvolver parser para que o `RLSDesigner.tsx` consiga ler políticas SQL alteradas manualmente no `DatabaseExplorer`.
+
+
+* 
+**Unificar Centro de Notificações:** Integrar E-mail, Push e Webhook em um serviço orquestrado, eliminando os silos atuais.
+
+
+* 
+**Alinhar Fluxos de Proxy:** Padronizar o comportamento do Vite Proxy e Nginx para evitar discrepâncias de CORS e headers entre dev e produção.
+
+
+* 
+**Interface de Logs do Sistema:** Criar interface para o super-admin visualizar logs de erro do sistema (Node, Redis, Certbot) sem depender de SSH.
+
+
+
+### 🔵 4. Limpeza e Refatoração
+
+* 
+**Corrigir Sequência de Migrações:** Tratar o "buraco" no histórico deixado pela Migration 003 depreciada.
+
+
+* 
+**Organizar Estrutura de Diretórios:** Remover o arquivo `index.tsx` da raiz, centralizando o frontend em `frontend/index.tsx`.
+
+
+* 
+**Melhorar Validação de Arquivos:** Expandir a `validateMagicBytesAsync` para ler mais de 4 bytes e suportar uma lista de MAGIC_NUMBERS mais abrangente.
+
+
+* 
+**Proteção de Memória no Edge:** Implementar proteções contra objetos gigantes ou circulares no retorno da função Edge para evitar crash no processo principal.
+
+
+
+
+	🛡️ CASCATA SECURITY PROTOCOL (AUTO-PROMPT)
+A Regra Suprema (Security First + Zero Regression):
+
+Contexto: Você está atuando no núcleo do Cascata, um BaaS Multi-tenant Open Source de qualidade nivel elite enterprise com segurança nivel supremo e fucionalidades nivel inacreditaavel mss real. Pessaos podderão clonar o projeto no github, e colcoar em sua propria vps e poder gerenciar e criar seu proprios projetos.
+O sistema opera em dois planos: Control Plane (Admin do Sistema) e Data Plane (Dados dos Tenants).
+A Regra Suprema (Security First + Zero Regression):
+Ao corrigir uma vulnerabilidade ou adicionar/atualizaar uma feature, você NÃO PODE quebrar a funcionalidade existente, nem introduzir novas falhas lógicas de nenhum tipo, nem reredir em segurça, aqui só avançamos!
+O intuito da correção é upgrade com zero regressão.
+
+
+Se você tocar em um arquivo, devolva-o *completo e corrigido*. Se a correção exigir alterar a lógica de negócio (ex: mudar o fluxo de Link Identity), explique o motivo de segurança (ex: "Prevenção de Sequestro de Conta").
+
+
+
+Pontos chave:
+Contexto do Tenant
+Input Hostil
+Recursos Finitos
+Praticidade e profssionalismo nivel enterprise em profundidade
+Segurança em Profundidade
+

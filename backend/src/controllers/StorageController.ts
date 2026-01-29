@@ -47,7 +47,7 @@ export class StorageController {
             
         } catch(e) {
             console.error("Quota Check Failed:", e);
-            // FAIL OPEN (Safety Net) mas com limite hardcoded pequeno para evitar abuso
+            // FAIL OPEN (Safety Net) mas com limite hardcoded pequeno
             return { allowed: incomingSize < 50 * 1024 * 1024 }; 
         }
     }
@@ -118,44 +118,12 @@ export class StorageController {
 
     static async deleteBucket(req: CascataRequest, res: any, next: any) {
         try {
-            const { name } = req.params;
-            const projectSlug = req.project.slug;
-            const bucketPath = path.join(STORAGE_ROOT, projectSlug, name);
-            
-            // Security Check: Path Traversal Protection
-            if (!bucketPath.startsWith(path.join(STORAGE_ROOT, projectSlug))) { 
+            const bucketPath = path.join(STORAGE_ROOT, req.project.slug, req.params.name);
+            if (!bucketPath.startsWith(path.join(STORAGE_ROOT, req.project.slug))) { 
                 return res.status(403).json({ error: 'Access denied' }); 
             }
-
-            // 1. External Provider Cleanup (Deep Clean Protocol)
-            // Isso evita que arquivos fiquem "órfãos" no S3/R2 gerando custo.
-            const storageConfig: StorageConfig = req.project.metadata?.storage_config || { provider: 'local' };
-            
-            if (storageConfig.provider !== 'local') {
-                console.log(`[Storage] Performing Deep Clean on external bucket: ${name} (${storageConfig.provider})`);
-                
-                // Busca todos os objetos que pertencem a este bucket no DB
-                const objects = await systemPool.query(
-                    'SELECT full_path FROM system.storage_objects WHERE project_slug=$1 AND bucket=$2',
-                    [projectSlug, name]
-                );
-
-                // Executa deleção em paralelo, mas com tratamento de erro individual (Settled)
-                const deletionPromises = objects.rows.map(row => 
-                    StorageService.delete(row.full_path, storageConfig)
-                        .catch(err => console.warn(`[Storage] Failed to delete orphan ${row.full_path}:`, err.message))
-                );
-
-                await Promise.allSettled(deletionPromises);
-            }
-
-            // 2. Local Cleanup (Filesystem)
-            // Mesmo se for provider externo, pastas vazias podem existir localmente como cache ou estrutura.
             await fs.rm(bucketPath, { recursive: true, force: true });
-            
-            // 3. Metadata Cleanup (Database)
-            await systemPool.query('DELETE FROM system.storage_objects WHERE project_slug=$1 AND bucket=$2', [projectSlug, name]);
-            
+            await systemPool.query('DELETE FROM system.storage_objects WHERE project_slug=$1 AND bucket=$2', [req.project.slug, req.params.name]);
             res.json({ success: true }); 
         } catch (e: any) { 
             res.status(500).json({ error: e.message }); 
@@ -226,9 +194,9 @@ export class StorageController {
 
             const result = await StorageService.createUploadUrl(fullKey, type, storageConfig);
             
-            // Note: Reservation release is implicitly handled by TTL if upload fails, 
-            // or handled via webhook/confirmation if we had that flow. 
-            // For now, TTL handles cleanup.
+            // Release reservation implicitly or handle via webhook callback?
+            // For signed URLs, we can't easily know when it finishes. 
+            // The reservation expires automatically (TTL).
             
             res.json({
                 strategy: result.strategy,
@@ -304,7 +272,7 @@ export class StorageController {
                 }
                 res.json({ success: true, path: dest.replace(STORAGE_ROOT, ''), provider: 'local' });
             } else {
-                // Se foi proxy para externo, limpa o arquivo temporário local
+                // If proxy to external, cleanup local temp
                 try { await fs.unlink(req.file.path); } catch(e) {}
                 res.json({ success: true, path: resultUrl, provider: storageConfig.provider, url: resultUrl });
             }
@@ -317,7 +285,7 @@ export class StorageController {
                 provider: storageConfig.provider
             });
             
-            // Release reservation explicitly
+            // Release reservation explicitly as we are done
             if (reservationId) await RateLimitService.releaseStorage(req.project.slug, reservationId);
 
         } catch (e: any) { 

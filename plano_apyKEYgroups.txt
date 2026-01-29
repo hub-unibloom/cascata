@@ -1,0 +1,28 @@
+#Faato importantissimo, o resumo da ideia:
+a interface continua a mesma o 'frontend/pages/RLSManager.tsx' atual, mas agora no popup DE CRIR AAS REGRAS, UAM MUDANÇA NA  na seção onde temos keys customozaadas agora serão 'groups' podendo a pessoa selecionar 'grupos' e definir regras dentro deles para a tabela ou RPC que foi selecionada, asism como já fazemos em casos de chaves normais, seja anon ou JWT Secret onde denifmos menssagenss customizadas de rspostas e limites customizadoss por tipo de chave, agora taambem a mesma coisa, só que para grupos. Grupos essses que com seu limites já facilitam repusa de chaves antes dde chagaraaao DB. Cada chave tem seu limite atingiido não pelo grupo inteiro, mas sim *pelo uso individual dela* dentro doss limites estaabelecidos  no grupo que ela é filha.
+
+
+
+A arquitetura de Key Groups funciona através de uma hierarquia onde o Key Group (o "Plano") são incoporadas as regras do jogo qunado se faala em tabelas(crud personalizados) ou uso de RPC.
+
+ - como "Plano Gold", "Parceiros B2B" ou "Free Tier" - contendo a configuração JSON com crud_limits (exemplo: leitura ilimitada, escrita 100/s) e permissões de RPC, enquanto a API Key (o "Crachá")  está vinculada a um grupo através de um campo adicional novo, podendo ser movida entre grupos conforme a necessidade do administrador.
+ 
+ A estratégia "Zero-DB" protege os Pools de conexão contra ataques através de validação em memória (Redis), onde as configurações dos grupos ficam cacheadas (config:group:gold -> { "crud": { "read": -1, "create": 50 } "rpc_whitelist": ["calcular_frete"] 10 }) e a validação de requisições verifica no Redis se a chave existe e qual seu grupo (apikey:sk_live_xyz -> { "group_id": "gold", "vencimento": "12/12/2032" }), rejeitando requisições inválidas ou vencidas antes de qualquer conexão com o Postgres ser aberta(Mas isso dependde das configurações, por exemplo se o adminissstrador na horaa da criação de tal regra ativar um "if"
+ Ex.xemplo:
+ Se tal apikey do grupo "Standard" passar do limite, em vez de bloquear (429), você pode apenas adicionar um delay artificial (sleep) na resposta. Isso desencoraja abuso sem quebrar a aplicação dele.
+
+Issso deve ser mais uma regra no grupo, ous seja o administraaddor pode habilitaar ou desabilitar esse tipo de atitude por grupo dentro da regra que ta snedo criada e pode definir limites menores personalizados como já fazemos:
+Rate
+2
+Burst
+0
+Seconds
+1
+( e mais uma checkbox box com input de tempo "ENcerra total após X seconds do vencimento da chave. Possibilitando que se encerre de vez ouq ue apenas fique "nerfado"") 
+
+ ), mantendo o Pool 100% livre para usuários legítimos, enquanto o incremento de uso (INCR) é feito na chave individual mas comparado contra o limite do Grupo. Isso permite poder granular;
+ 
+. A grande vantagem é que ao validar a existência do grupo e da chave na memória RAM (Redis), você garante que um ataque DDoS de chaves inválidas ou estouradas custe zero processamento do banco de dados principal, transformando isso em arquitetura Enterprise de verdade enquanto simplifica a gestão (evitando editar 1.000 linhas no banco para alterar limites de 1.000 usuários) e abre portas para gestão de acesso por modelos de negocio..
+
+LEIA OS CÓDIGOS ANTES DE FAZER QUALQUER ALTERAÇÃO, MENTAALIZE ELE PRIMEIRO CADA UM ANTES DE MODIFICAR UMA VIRGULA. MEDIDA PROTETIVA QUANTO A PERDA DE FUNÇÕES.
+Voltei a uma versãao anterior. Tive de voltar pois estavamos recebendo resultaados preguiçosos, incompletos, que excluiram muita das funções existentes, epobreciam as feaatures e ainda muitos dos códigoss esstaavam vindo sem sinergia, ai voltei para um ponto antes da criação dos grupo, e vamos partir daqui novamente, mas agora com mais atenção cuidado, deve-se ler e memorizar e mentalizar os códigos existentes antes de editar, issoára vc não inventar de escrever coisas que ficam muito fora da nossaaa arquitetura e principalmente para não fugir do alto ápadrão dessenvolvido até aqui, ou seja, não perder oq ue fizemos, a unia coisa que queremos de diferente é a questão dos grupo com as regras que nós pensamos e eu já te falei, trouxe um resumo aqui e 'plano_apyKEYgroups.txt' vc deve ler ele e compreender que a interface continua a mesma, ams agora no popup na seção onde temos keyss customozaadas agora serão 'grupos' podendo a pessoa selecionar grupos' e definir regras dentro deles asism como já fazemos em casos de chaves normais, seja anon ou JWT Secret onde denifmos menssagenss customizadas de rspostas e limites customizadoss por tipo de chave, agora taambem a mesma coisa, só que para grupos. Grupos essses que com seu slimites já facilitam respusa dde chaves. Cada chave tem sseu limite atingiido não pelo grupo inteiro, mas sim pelo uso dela dentro doss limites estaabelecidos nessstas regras.

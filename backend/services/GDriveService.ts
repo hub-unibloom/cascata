@@ -161,4 +161,24 @@ export class GDriveService {
 
         await pipeline(res.data, fs.createWriteStream(destPath));
     }
+
+    public static async enforceRetention(config: ServiceAccountConfig, retentionCount: number, filePrefix: string) {
+        if (!config.root_folder_id || retentionCount <= 0) return;
+        const token = await this.getGoogleToken(config);
+        const q = `'${config.root_folder_id}' in parents and name contains '${filePrefix}' and trashed = false`;
+        
+        const listRes = await axios.get('https://www.googleapis.com/drive/v3/files', {
+            headers: { 'Authorization': `Bearer ${token}` },
+            params: { q, orderBy: 'createdTime desc', fields: 'files(id, name, createdTime)' }
+        });
+
+        const files = listRes.data.files || [];
+        
+        if (files.length > retentionCount) {
+            const toDelete = files.slice(retentionCount);
+            for (const file of toDelete) {
+                try { await this.deleteFile(file.id, config); } catch (e) { console.warn(`[GDrive] Prune error:`, e); }
+            }
+        }
+    }
 }

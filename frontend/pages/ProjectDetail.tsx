@@ -1,25 +1,9 @@
+
 import React, { useState, useEffect } from 'react';
-import { Shield, Key, Database, Activity, CheckCircle2, Loader2, Server, Settings2, Globe, Lock, Workflow, ExternalLink, Power, ArrowRight, BookOpen, Zap, BarChart3, AlertCircle, Brain, Cable, Network } from 'lucide-react';
+import { Shield, Key, Database, Activity, CheckCircle2, Loader2, Server, Settings2, Globe, Lock, Workflow, ExternalLink, Power, ArrowRight, BookOpen, Zap, BarChart3, AlertCircle, Brain, Cable } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
 import ProjectSettings from './ProjectSettings';
 import ProjectIntelligence from './ProjectIntelligence';
-
-const StatCard: React.FC<{ title: string, value: string, icon: React.ReactNode, label: string }> = ({ title, value, icon, label }) => (
-  <div className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm hover:shadow-2xl hover:shadow-indigo-500/5 transition-all group relative overflow-hidden">
-    <div className="absolute inset-0 bg-gradient-to-b from-white to-slate-50 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-    <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:scale-125 transition-transform duration-500">{icon}</div>
-    <div className="relative z-10">
-        <div className="flex items-center justify-between mb-6">
-        <div className="w-12 h-12 rounded-2xl bg-white border border-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300 shadow-sm">
-            {icon}
-        </div>
-        <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">{label}</span>
-        </div>
-        <div className="text-4xl font-black text-slate-900 mb-1 tracking-tighter">{value}</div>
-        <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{title}</div>
-    </div>
-  </div>
-);
 
 const ProjectDetail: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'intelligence' | 'settings'>('overview');
@@ -53,9 +37,6 @@ const ProjectDetail: React.FC<{ projectId: string }> = ({ projectId }) => {
 
   useEffect(() => {
     fetchProjectData();
-    // Auto-refresh stats every 10s for connection monitoring
-    const interval = setInterval(fetchProjectData, 10000);
-    return () => clearInterval(interval);
   }, [projectId]);
 
   const getBaseUrl = () => {
@@ -99,11 +80,10 @@ const ProjectDetail: React.FC<{ projectId: string }> = ({ projectId }) => {
 
       {activeTab === 'overview' && (
         <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <StatCard title="Data Entities" value={loading ? '...' : stats?.tables?.toString() || '0'} icon={<Database className="text-indigo-600" />} label="public schema" />
             <StatCard title="Auth Records" value={loading ? '...' : stats?.users?.toString() || '0'} icon={<Shield className="text-emerald-500" />} label="active users" />
             <StatCard title="Physical Volume" value={loading ? '...' : stats?.size || '0 MB'} icon={<Server className="text-blue-500" />} label="disk usage" />
-            <StatCard title="DB Connections" value={loading ? '...' : stats?.active_connections?.toString() || '0'} icon={<Network className="text-amber-500" />} label="active sessions" />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
@@ -195,6 +175,7 @@ const ProjectDetail: React.FC<{ projectId: string }> = ({ projectId }) => {
                      </div>
                 </div>
             </div>
+          </div>
         </div>
       )}
 
@@ -208,5 +189,22 @@ const ProjectDetail: React.FC<{ projectId: string }> = ({ projectId }) => {
     </div>
   );
 };
+
+const StatCard: React.FC<{ title: string, value: string, icon: React.ReactNode, label: string }> = ({ title, value, icon, label }) => (
+  <div className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm hover:shadow-2xl hover:shadow-indigo-500/5 transition-all group relative overflow-hidden">
+    <div className="absolute inset-0 bg-gradient-to-b from-white to-slate-50 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+    <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:scale-125 transition-transform duration-500">{icon}</div>
+    <div className="relative z-10">
+        <div className="flex items-center justify-between mb-6">
+        <div className="w-12 h-12 rounded-2xl bg-white border border-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300 shadow-sm">
+            {icon}
+        </div>
+        <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">{label}</span>
+        </div>
+        <div className="text-4xl font-black text-slate-900 mb-1 tracking-tighter">{value}</div>
+        <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{title}</div>
+    </div>
+  </div>
+);
 
 export default ProjectDetail;

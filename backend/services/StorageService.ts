@@ -1,3 +1,4 @@
+
 import fs from 'fs';
 import path from 'path';
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
@@ -6,7 +7,8 @@ import axios from 'axios';
 import FormData from 'form-data';
 import { Buffer } from 'buffer';
 import jwt from 'jsonwebtoken';
-import { STORAGE_ROOT, systemPool } from '../src/config/main.js';
+import { spawn } from 'child_process';
+import { STORAGE_ROOT } from '../src/config/main.js';
 
 export type StorageProviderType = 'local' | 's3' | 'cloudinary' | 'imagekit' | 'cloudflare_images' | 'gdrive' | 'dropbox' | 'onedrive';
 
@@ -63,32 +65,48 @@ export interface StorageConfig {
 }
 
 /**
- * StorageService v4.0 (DB-Native Calculation)
- * Removes dependency on 'du' command for performance and portability.
+ * StorageService v3.2 (Physical Quota Enforcement)
+ * - Streams Nativos
+ * - Presigned URLs
+ * - Disk Usage Calculation via OS
  */
 export class StorageService {
 
     /**
-     * Calcula o uso físico de disco somando os metadados indexados no banco.
-     * Performance: O(1) vs O(N) do 'du'.
-     * Reliability: Funciona em qualquer OS/Container sem binários externos.
+     * Calcula o uso físico de disco real usando 'du'.
+     * Muito mais rápido e preciso que somar via banco ou recursão de fs.
      */
     public static async getPhysicalDiskUsage(projectSlug: string): Promise<number> {
-        try {
-            // Soma apenas arquivos 'local' para cota de disco físico
-            // Provedores externos (S3, etc) não contam para o limite de disco da VPS
-            const res = await systemPool.query(
-                `SELECT SUM(size) as total 
-                 FROM system.storage_objects 
-                 WHERE project_slug = $1 AND provider = 'local'`,
-                [projectSlug]
-            );
+        const targetDir = path.join(STORAGE_ROOT, projectSlug);
+        
+        // Se a pasta não existe, uso é 0
+        if (!fs.existsSync(targetDir)) return 0;
+
+        return new Promise((resolve, reject) => {
+            // 'du -sb' retorna o tamanho em bytes de forma sumarizada
+            // -s: summarize, -b: bytes
+            const child = spawn('du', ['-sb', targetDir]);
+            let output = '';
+            let error = '';
+
+            child.stdout.on('data', (data) => { output += data.toString(); });
+            child.stderr.on('data', (data) => { error += data.toString(); });
+
+            child.on('close', (code) => {
+                if (code !== 0) {
+                    console.warn(`[StorageService] 'du' command failed: ${error}. Fallback to 0.`);
+                    resolve(0); // Fail safe to avoid blocking uploads if OS command fails
+                } else {
+                    const bytes = parseInt(output.split(/\s+/)[0]);
+                    resolve(isNaN(bytes) ? 0 : bytes);
+                }
+            });
             
-            return parseInt(res.rows[0].total || '0');
-        } catch (e) {
-            console.error(`[StorageService] Failed to calculate usage for ${projectSlug}`, e);
-            return 0; // Fail open to avoid blocking operations on DB error
-        }
+            child.on('error', (err) => {
+                console.error(`[StorageService] Failed to spawn 'du':`, err);
+                resolve(0);
+            });
+        });
     }
 
     // --- PRESIGNED URL GENERATION (DIRECT UPLOAD) ---
@@ -229,7 +247,7 @@ export class StorageService {
         }
     }
 
-    // --- PROVIDER IMPLEMENTATIONS (Kept intact for provider stability) ---
+    // --- PROVIDER IMPLEMENTATIONS ---
 
     private static async uploadS3(stream: fs.ReadStream, file: MulterFile, key: string, conf: NonNullable<StorageConfig['s3']>) {
         const s3 = new S3Client({

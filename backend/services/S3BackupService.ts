@@ -1,5 +1,5 @@
 
-import { S3Client, ListObjectsV2Command, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, ListObjectsV2Command, DeleteObjectsCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Upload } from '@aws-sdk/lib-storage';
 import { Readable } from 'stream';
@@ -119,13 +119,41 @@ export class S3BackupService {
     }
 
     /**
-     * Deleta um objeto específico (Usado pela política de retenção centralizada).
+     * Política de Retenção: Remove backups antigos.
      */
-    public static async deleteObject(key: string, config: S3Config): Promise<void> {
+    public static async enforceRetention(config: S3Config, retentionCount: number, filePrefix: string) {
+        if (retentionCount <= 0) return;
         const s3 = this.getClient(config);
-        await (s3 as any).send(new DeleteObjectCommand({
-            Bucket: config.bucket,
-            Key: key
-        }));
+
+        try {
+            const listCommand = new ListObjectsV2Command({
+                Bucket: config.bucket,
+                Prefix: filePrefix // Filtra apenas backups deste projeto
+            });
+
+            // Cast to any to avoid TS error about 'send' property
+            const data = await (s3 as any).send(listCommand);
+            const files = data.Contents || [];
+
+            // Ordena descendente por data (Mais novos primeiro)
+            files.sort((a: any, b: any) => (b.LastModified?.getTime() || 0) - (a.LastModified?.getTime() || 0));
+
+            if (files.length > retentionCount) {
+                const toDelete = files.slice(retentionCount);
+                console.log(`[S3] Pruning ${toDelete.length} old backups...`);
+
+                const deleteCommand = new DeleteObjectsCommand({
+                    Bucket: config.bucket,
+                    Delete: {
+                        Objects: toDelete.map((f: any) => ({ Key: f.Key }))
+                    }
+                });
+
+                // Cast to any to avoid TS error about 'send' property
+                await (s3 as any).send(deleteCommand);
+            }
+        } catch (e: any) {
+            console.warn(`[S3] Retention policy warning: ${e.message}`);
+        }
     }
 }
