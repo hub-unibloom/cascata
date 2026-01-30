@@ -49,26 +49,60 @@ export class DataAuthController {
         } catch (e: any) { next(e); }
     }
 
+    /**
+     * UNIVERSAL LOGIN (formerly legacyToken)
+     * The agnostic entry point for ANY auth strategy (CPF, Email, Biometrics, etc).
+     */
     static async legacyToken(req: CascataRequest, res: any, next: any) {
         const { provider, identifier, password } = req.body;
+        
+        if (!provider || !identifier) {
+            return res.status(400).json({ error: 'Provider and identifier are required.' });
+        }
+
         const clientIp = String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').replace('::ffff:', '');
         const secConfig = DataAuthController.getSecurityConfig(req);
+        const lockKey = `${provider}:${identifier}`; // Specific lock for this identity
+
         try {
-            const lockout = await RateLimitService.checkAuthLockout(req.project.slug, clientIp, identifier, secConfig);
+            const lockout = await RateLimitService.checkAuthLockout(req.project.slug, clientIp, lockKey, secConfig);
             if (lockout.locked) return res.status(429).json({ error: lockout.reason });
+            
             const idRes = await req.projectPool!.query('SELECT * FROM auth.identities WHERE provider = $1 AND identifier = $2', [provider, identifier]);
+            
             if (!idRes.rows[0]) {
-                await RateLimitService.registerAuthFailure(req.project.slug, clientIp, identifier, secConfig);
+                await RateLimitService.registerAuthFailure(req.project.slug, clientIp, lockKey, secConfig);
                 return res.status(401).json({ error: 'Invalid credentials' });
             }
-            const storedHash = idRes.rows[0].password_hash;
+            
+            const identity = idRes.rows[0];
+            const storedHash = identity.password_hash;
+            
+            if (!storedHash) {
+                // Identity exists but has no password (maybe it's OTP only?)
+                return res.status(400).json({ error: 'This identity does not support password login.' });
+            }
+
             let isValid = storedHash.startsWith('$2') ? await bcrypt.compare(password, storedHash) : (storedHash === password);
+            
             if (!isValid) {
-                await RateLimitService.registerAuthFailure(req.project.slug, clientIp, identifier, secConfig);
+                await RateLimitService.registerAuthFailure(req.project.slug, clientIp, lockKey, secConfig);
                 return res.status(401).json({ error: 'Invalid credentials' });
             }
-            await RateLimitService.clearAuthFailure(req.project.slug, clientIp, identifier);
-            res.json(await AuthService.createSession(idRes.rows[0].user_id, req.projectPool!, req.project.jwt_secret));
+            
+            await RateLimitService.clearAuthFailure(req.project.slug, clientIp, lockKey);
+            
+            // Create session with the specific provider context
+            const session = await AuthService.createSession(
+                identity.user_id, 
+                req.projectPool!, 
+                req.project.jwt_secret, 
+                '1h', 
+                30, 
+                provider // Pass 'cpf', 'gamertag', etc.
+            );
+            
+            res.json(session);
         } catch (e: any) { next(e); }
     }
 
@@ -155,7 +189,16 @@ export class DataAuthController {
         try {
             const profile = await AuthService.verifyPasswordless(req.projectPool!, req.body.provider, req.body.identifier, req.body.code);
             const userId = await AuthService.upsertUser(req.projectPool!, profile);
-            res.json(await AuthService.createSession(userId, req.projectPool!, req.project.jwt_secret));
+            
+            // Pass the specific provider used for verification
+            res.json(await AuthService.createSession(
+                userId, 
+                req.projectPool!, 
+                req.project.jwt_secret, 
+                '1h', 
+                30, 
+                req.body.provider
+            ));
         } catch(e: any) { next(e); }
     }
 
@@ -202,25 +245,49 @@ export class DataAuthController {
 
     static async goTrueAuthorize(req: CascataRequest, res: any, next: any) {
         try {
-            const prov = req.project.metadata?.auth_config?.providers?.[req.query.provider as string];
+            let providerName = req.query.provider as string;
+            // Map common aliases to internal names if needed, or pass through
+            const prov = req.project.metadata?.auth_config?.providers?.[providerName];
+            
             if (!prov?.client_id) throw new Error("Provider not configured.");
+            
             const host = req.headers.host;
             const callbackUrl = req.project.custom_domain && host === req.project.custom_domain ? `https://${host}/auth/v1/callback` : `https://${host}/api/data/${req.project.slug}/auth/v1/callback`;
-            const state = Buffer.from(JSON.stringify({ redirectTo: req.query.redirect_to || '' })).toString('base64');
-            res.redirect(AuthService.getAuthUrl(req.query.provider as string, { clientId: prov.client_id, redirectUri: callbackUrl }, state));
+            
+            // Pass the provider name in the state so we know who to talk to on callback
+            const state = Buffer.from(JSON.stringify({ 
+                redirectTo: req.query.redirect_to || '',
+                provider: providerName 
+            })).toString('base64');
+            
+            res.redirect(AuthService.getAuthUrl(providerName, { clientId: prov.client_id, redirectUri: callbackUrl }, state));
         } catch (e: any) { next(e); }
     }
 
     static async goTrueCallback(req: CascataRequest, res: any, next: any) {
         try {
             let finalRedirect = '';
-            try { finalRedirect = JSON.parse(Buffer.from(req.query.state as string, 'base64').toString('utf8')).redirectTo; } catch(e) {}
-            const prov = req.project.metadata?.auth_config?.providers?.['google'];
+            let providerName = 'google'; // Default fallback
+
+            try { 
+                const stateData = JSON.parse(Buffer.from(req.query.state as string, 'base64').toString('utf8'));
+                finalRedirect = stateData.redirectTo;
+                if (stateData.provider) providerName = stateData.provider;
+            } catch(e) {}
+
+            const prov = req.project.metadata?.auth_config?.providers?.[providerName];
+            
+            if (!prov) throw new Error(`Provider configuration for ${providerName} missing.`);
+
             const host = req.headers.host;
             const callbackUrl = req.project.custom_domain && host === req.project.custom_domain ? `https://${host}/auth/v1/callback` : `https://${host}/api/data/${req.project.slug}/auth/v1/callback`;
-            const profile = await AuthService.handleCallback('google', req.query.code as string, { clientId: prov.client_id, clientSecret: prov.client_secret, redirectUri: callbackUrl });
+            
+            const profile = await AuthService.handleCallback(providerName, req.query.code as string, { clientId: prov.client_id, clientSecret: prov.client_secret, redirectUri: callbackUrl });
             const userId = await AuthService.upsertUser(req.projectPool!, profile);
-            const session = await AuthService.createSession(userId, req.projectPool!, req.project.jwt_secret);
+            
+            // Pass the dynamic provider name here
+            const session = await AuthService.createSession(userId, req.projectPool!, req.project.jwt_secret, '1h', 30, providerName);
+            
             const hash = `access_token=${session.access_token}&refresh_token=${session.refresh_token}&expires_in=${session.expires_in}&token_type=bearer&type=recovery`;
             if (finalRedirect || req.project.metadata?.auth_config?.site_url) {
                 const target = finalRedirect || req.project.metadata.auth_config.site_url;
