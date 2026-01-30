@@ -4,12 +4,12 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
+import process from 'process';
 
 dotenv.config();
 
 const { Pool } = pg;
 
-// --- ROBUST PATH RESOLUTION ---
 const APP_ROOT = path.resolve('.');
 
 export const STORAGE_ROOT = process.env.STORAGE_ROOT || path.resolve(APP_ROOT, '../storage');
@@ -17,7 +17,6 @@ export const MIGRATIONS_ROOT = process.env.MIGRATIONS_ROOT || path.resolve(APP_R
 export const TEMP_UPLOAD_ROOT = process.env.TEMP_UPLOAD_ROOT || path.resolve(APP_ROOT, 'temp_uploads');
 export const NGINX_DYNAMIC_ROOT = process.env.NGINX_DYNAMIC_ROOT || '/etc/nginx/conf.d/dynamic';
 
-// Ensure Directories Exist
 const ensureDir = (dir: string) => {
     try {
         if (!fs.existsSync(dir)) {
@@ -32,7 +31,6 @@ ensureDir(STORAGE_ROOT);
 ensureDir(NGINX_DYNAMIC_ROOT);
 ensureDir(TEMP_UPLOAD_ROOT);
 
-// --- SYSTEM DATABASE POOL ---
 if (!process.env.SYSTEM_DATABASE_URL) {
     console.error('[Config] FATAL: SYSTEM_DATABASE_URL is not defined.');
     process.exit(1);
@@ -48,22 +46,19 @@ systemPool.on('error', (err) => {
     console.error('[SystemPool] Unexpected error on idle client', err);
 });
 
-// --- MULTER CONFIG (HARDENED) ---
-// Note: We use 100MB limit. This should match NGINX client_max_body_size.
 export const upload = multer({ 
     dest: TEMP_UPLOAD_ROOT,
     limits: {
-        fileSize: 100 * 1024 * 1024, // 100MB limit per file
-        fieldSize: 10 * 1024 * 1024 // 10MB limit for text fields
+        fileSize: 100 * 1024 * 1024, 
+        fieldSize: 10 * 1024 * 1024 
     }
 });
 
 export const backupUpload = multer({ 
     dest: TEMP_UPLOAD_ROOT,
-    limits: { fileSize: 5 * 1024 * 1024 * 1024 } // 5GB for backups
+    limits: { fileSize: 5 * 1024 * 1024 * 1024 } 
 });
 
-// --- SECURITY CONSTANTS (FAIL SECURE) ---
 if (!process.env.SYSTEM_JWT_SECRET) {
     console.error('[Config] FATAL: SYSTEM_JWT_SECRET is missing. Security cannot be guaranteed.');
     process.exit(1);

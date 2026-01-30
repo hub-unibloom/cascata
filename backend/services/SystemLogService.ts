@@ -1,18 +1,15 @@
 
 import { Redis } from 'ioredis';
+import process from 'process';
+import { Buffer } from 'buffer';
 
-/**
- * SystemLogService
- * Captures process-level logs (stdout/stderr) and persists them in Redis
- * for consumption by the Control Plane UI.
- */
 export class SystemLogService {
     private static redis: Redis | null = null;
     private static LOG_KEY = 'sys:runtime_logs';
-    private static MAX_LOGS = 1000; // Keep last 1000 logs
+    private static MAX_LOGS = 1000;
 
     public static init() {
-        if (process.env.SERVICE_MODE === 'WORKER') return; // Workers log to stdout only
+        if (process.env.SERVICE_MODE === 'WORKER') return;
 
         try {
             this.redis = new Redis({
@@ -29,17 +26,13 @@ export class SystemLogService {
         const originalStdout = process.stdout.write;
         const originalStderr = process.stderr.write;
 
-        // Hook Stdout
         process.stdout.write = (chunk: any, ...args: any[]) => {
             this.pushLog('INFO', chunk);
-            // Fix: Cast args to any to bypass strict Node.js write signature overload issue
             return originalStdout.apply(process.stdout, [chunk, ...args] as any);
         };
 
-        // Hook Stderr
         process.stderr.write = (chunk: any, ...args: any[]) => {
             this.pushLog('ERROR', chunk);
-            // Fix: Cast args to any
             return originalStderr.apply(process.stderr, [chunk, ...args] as any);
         };
 
@@ -55,7 +48,6 @@ export class SystemLogService {
             msg: message.toString().trim()
         });
 
-        // Fire and forget push + trim
         this.redis.lpush(this.LOG_KEY, logEntry).catch(() => {});
         this.redis.ltrim(this.LOG_KEY, 0, this.MAX_LOGS - 1).catch(() => {});
     }
