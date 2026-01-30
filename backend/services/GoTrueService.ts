@@ -109,7 +109,8 @@ export class GoTrueService {
                  AuthService.sendWelcomeEmail(email, emailConfig, authConfig.email_templates, jwtSecret).catch(e => console.error("Welcome Email Failed", e));
             }
 
-            const session = await AuthService.createSession(user.id, pool, jwtSecret);
+            // Create session for 'email' provider
+            const session = await AuthService.createSession(user.id, pool, jwtSecret, '1h', 30, 'email');
             return this.formatSessionResponse(session);
 
         } catch (e) {
@@ -217,8 +218,8 @@ export class GoTrueService {
                 AuthService.sendLoginAlert(userEmail, emailConfig, projectConfig.auth_config.email_templates, jwtSecret).catch(() => {});
             }
 
-            // Create Session
-            const session = await AuthService.createSession(userId, pool, jwtSecret);
+            // Create Session for 'email' provider (since all verification flows here are email-based)
+            const session = await AuthService.createSession(userId, pool, jwtSecret, '1h', 30, 'email');
             return session;
 
         } catch (e) {
@@ -332,12 +333,14 @@ export class GoTrueService {
                 AuthService.sendLoginAlert(params.email, emailConfig, authConfig.email_templates, jwtSecret).catch(() => {});
             }
 
-            const session = await AuthService.createSession(identity.user_id, pool, jwtSecret);
+            // Create session for 'email'
+            const session = await AuthService.createSession(identity.user_id, pool, jwtSecret, '1h', 30, 'email');
             return this.formatSessionResponse(session);
         }
 
         if (params.grant_type === 'refresh_token') {
             if (!params.refresh_token) throw new Error("Refresh token required");
+            // refreshSession maintains the original provider logic implicitly through session recreation or we assume 'cascata' if not tracked
             const session = await AuthService.refreshSession(params.refresh_token, pool, jwtSecret);
             return this.formatSessionResponse(session);
         }
@@ -374,7 +377,8 @@ export class GoTrueService {
                 AuthService.sendLoginAlert(profile.email, emailConfig, authConfig.email_templates, jwtSecret).catch(() => {});
             }
             
-            const session = await AuthService.createSession(userId, pool, jwtSecret);
+            // Create session for the specific social provider
+            const session = await AuthService.createSession(userId, pool, jwtSecret, '1h', 30, provider);
             return this.formatSessionResponse(session);
         }
 

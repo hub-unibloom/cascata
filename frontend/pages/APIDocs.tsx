@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   BookOpen, Copy, Globe, Database, Code2, 
   ChevronRight, ChevronDown, Loader2, FileText, 
@@ -7,7 +7,8 @@ import {
   FileJson, Package, Blocks, Link as LinkIcon, Zap,
   Layers, ArrowRight, ShieldCheck, Play, Key, AlertCircle, RefreshCw,
   ListFilter, MousePointer2, CheckSquare, Users, Lock, Fingerprint,
-  HardDrive, Upload as UploadIcon, Trash2, Cloud
+  HardDrive, Upload as UploadIcon, Trash2, Cloud, Radio, Share2, GripVertical,
+  Table as TableIcon
 } from 'lucide-react';
 
 interface APIDocsProps {
@@ -18,6 +19,33 @@ const SYSTEM_RPC_PREFIXES = ['uuid_', 'pg_', 'armor', 'crypt', 'digest', 'hmac',
 
 // --- STORAGE DEFINITIONS ---
 const STORAGE_ENDPOINTS = [
+    {
+        id: 'storage_sign',
+        name: 'Sign Upload (Handshake)',
+        method: 'POST',
+        path: '/storage/:bucket/sign',
+        description: 'Get a presigned URL or upload strategy. Required for S3/Cloud providers.',
+        body: { name: "file.png", type: "image/png", size: 1024, path: "folder/subfolder" },
+        is_upload: false
+    },
+    {
+        id: 'storage_upload',
+        name: 'Upload File (Proxy)',
+        method: 'POST',
+        path: '/storage/:bucket/upload',
+        description: 'Upload file content via multipart/form-data (if Direct strategy unavailable).',
+        body: { path: "folder/subfolder" },
+        is_upload: true
+    },
+    {
+        id: 'storage_folder',
+        name: 'Create Folder',
+        method: 'POST',
+        path: '/storage/:bucket/folder',
+        description: 'Create a virtual directory marker.',
+        body: { name: "new_folder", path: "parent_folder" },
+        is_upload: false
+    },
     {
         id: 'storage_list_buckets',
         name: 'List Buckets',
@@ -33,24 +61,15 @@ const STORAGE_ENDPOINTS = [
         method: 'GET',
         path: '/storage/:bucket/list',
         description: 'List files and folders in a specific bucket.',
-        body: {}, // Query param path handled in generator
+        body: {}, 
         is_upload: false
-    },
-    {
-        id: 'storage_upload',
-        name: 'Upload File',
-        method: 'POST',
-        path: '/storage/:bucket/upload',
-        description: 'Upload a file using multipart/form-data.',
-        body: { path: "folder/subfolder" },
-        is_upload: true
     },
     {
         id: 'storage_get',
         name: 'Download / Serve',
         method: 'GET',
         path: '/storage/:bucket/object/:path',
-        description: 'Retrieve a file via public URL (requires headers if RLS enabled).',
+        description: 'Retrieve a file via public URL (Secure Proxy).',
         body: {},
         is_upload: false
     },
@@ -60,8 +79,53 @@ const STORAGE_ENDPOINTS = [
         method: 'DELETE',
         path: '/storage/:bucket/object',
         description: 'Remove a file permanently.',
-        body: {}, // Query param path
+        body: {}, 
         is_upload: false
+    }
+];
+
+// --- REALTIME DEFINITIONS ---
+const REALTIME_ENDPOINTS = [
+    {
+        id: 'realtime_connect',
+        name: 'Connect Stream (SSE)',
+        method: 'GET',
+        path: '/realtime',
+        description: 'Subscribe to database changes via Server-Sent Events.',
+        body: {},
+        params: '?table=users',
+        auth_required: false // Uses apikey query param usually
+    }
+];
+
+// --- VECTOR DEFINITIONS ---
+const VECTOR_ENDPOINTS = [
+    {
+        id: 'vector_search',
+        name: 'Semantic Search',
+        method: 'POST',
+        path: '/vector/points/search',
+        description: 'Find similar records using vector embeddings.',
+        body: { vector: [0.1, 0.2, 0.3], limit: 5, with_payload: true },
+        auth_required: true
+    },
+    {
+        id: 'vector_upsert',
+        name: 'Upsert Points',
+        method: 'PUT',
+        path: '/vector/points',
+        description: 'Insert or update vector data points.',
+        body: { points: [{ id: "uuid-1", vector: [0.1, 0.2], payload: { text: "hello" } }] },
+        auth_required: true
+    },
+    {
+        id: 'vector_delete',
+        name: 'Delete Points',
+        method: 'POST',
+        path: '/vector/points/delete',
+        description: 'Remove points by ID.',
+        body: { points: ["uuid-1"] },
+        auth_required: true
     }
 ];
 
@@ -111,24 +175,6 @@ const AUTH_ENDPOINTS = [
         description: 'Retrieve details of the currently logged-in user.',
         body: {},
         auth_required: true // Needs Bearer
-    },
-    {
-        id: 'auth_refresh',
-        name: 'Refresh Token',
-        method: 'POST',
-        path: '/auth/v1/token',
-        description: 'Refresh a session using a valid refresh_token.',
-        body: { grant_type: "refresh_token", refresh_token: "your_refresh_token_here" },
-        auth_required: false
-    },
-    {
-        id: 'auth_logout',
-        name: 'Sign Out',
-        method: 'POST',
-        path: '/auth/v1/logout',
-        description: 'Revoke the current session.',
-        body: {},
-        auth_required: true // Needs Bearer
     }
 ];
 
@@ -174,6 +220,31 @@ const generateSmartValue = (name: string, type: string) => {
     return "text_value";
 };
 
+const DEFAULT_GROUP_ORDER = ['auth', 'realtime', 'vector', 'storage', 'tables', 'edge', 'rpc'];
+
+// --- SMART SEARCH ENGINE ---
+const smartSearch = (item: any, query: string): boolean => {
+    if (!query) return true;
+    const q = query.toLowerCase().trim();
+    
+    // For simple string items (table names, function names)
+    if (typeof item === 'string') {
+        return item.toLowerCase().includes(q);
+    }
+    
+    // For rich objects (endpoints)
+    const searchableText = [
+        item.name,
+        item.description,
+        item.path,
+        item.method,
+        item.id
+    ].filter(Boolean).join(' ').toLowerCase();
+
+    // Check if query is contained in the aggregated text
+    return searchableText.includes(q);
+};
+
 const APIDocs: React.FC<APIDocsProps> = ({ projectId }) => {
   const [activeTab, setActiveTab] = useState<'reference' | 'connect' | 'guides'>('reference');
   const [spec, setSpec] = useState<any>(null);
@@ -186,10 +257,24 @@ const APIDocs: React.FC<APIDocsProps> = ({ projectId }) => {
   // UX States
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [expandedParams, setExpandedParams] = useState<Set<string>>(new Set()); 
-  // Sidebar Accordion State (Default all open)
-  const [expandedSidebarGroups, setExpandedSidebarGroups] = useState<Set<string>>(new Set(['auth', 'tables', 'edge', 'rpc', 'storage']));
   
-  // Table Operations State (Which method is active for each table: GET | POST | PATCH | DELETE)
+  // Sidebar Accordion State (Default all open)
+  const [expandedSidebarGroups, setExpandedSidebarGroups] = useState<Set<string>>(new Set(DEFAULT_GROUP_ORDER));
+  
+  // Drag & Drop Order State
+  const [groupOrder, setGroupOrder] = useState<string[]>(() => {
+      try {
+          const saved = localStorage.getItem('cascata_docs_order');
+          return saved ? JSON.parse(saved) : DEFAULT_GROUP_ORDER;
+      } catch { return DEFAULT_GROUP_ORDER; }
+  });
+  const [draggedGroup, setDraggedGroup] = useState<string | null>(null);
+
+  // Long Press State
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isLongPress = useRef(false);
+
+  // Table Operations State
   const [tableOperations, setTableOperations] = useState<Record<string, string>>({});
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -209,6 +294,11 @@ const APIDocs: React.FC<APIDocsProps> = ({ projectId }) => {
   useEffect(() => {
     fetchData();
   }, [projectId]);
+
+  // Persist Group Order
+  useEffect(() => {
+    localStorage.setItem('cascata_docs_order', JSON.stringify(groupOrder));
+  }, [groupOrder]);
 
   const fetchData = async () => {
     try {
@@ -279,7 +369,7 @@ const APIDocs: React.FC<APIDocsProps> = ({ projectId }) => {
       }
   };
 
-  const toggleItem = (name: string, type: 'table' | 'rpc' | 'edge' | 'auth' | 'storage') => {
+  const toggleItem = (name: string, type: 'table' | 'rpc' | 'edge' | 'auth' | 'storage' | 'realtime' | 'vector') => {
     const next = new Set(expandedItems);
     if (next.has(name)) {
         next.delete(name);
@@ -302,10 +392,65 @@ const APIDocs: React.FC<APIDocsProps> = ({ projectId }) => {
   };
 
   const toggleSidebarGroup = (group: string) => {
+      if (isLongPress.current) return; // Ignore click if it was a long press
+      
       const next = new Set(expandedSidebarGroups);
       if (next.has(group)) next.delete(group);
       else next.add(group);
       setExpandedSidebarGroups(next);
+  };
+
+  // --- DRAG & DROP HANDLERS ---
+  const handleDragStart = (e: React.DragEvent, group: string) => {
+      e.stopPropagation();
+      setDraggedGroup(group);
+      e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, group: string) => {
+      e.preventDefault();
+      if (!draggedGroup || draggedGroup === group) return;
+      
+      const newOrder = [...groupOrder];
+      const fromIndex = newOrder.indexOf(draggedGroup);
+      const toIndex = newOrder.indexOf(group);
+      
+      // Swap
+      newOrder.splice(fromIndex, 1);
+      newOrder.splice(toIndex, 0, draggedGroup);
+      
+      setGroupOrder(newOrder);
+  };
+
+  const handleDragEnd = () => {
+      setDraggedGroup(null);
+  };
+
+  // --- LONG PRESS HANDLERS ---
+  const startLongPress = (group: string, items: any[]) => {
+      isLongPress.current = false;
+      longPressTimer.current = setTimeout(() => {
+          isLongPress.current = true;
+          // Select All Logic
+          const next = new Set(selectedItems);
+          setIsMultiSelectMode(true);
+          
+          items.forEach(item => {
+              // Item might be a string (table name) or object (endpoint def)
+              const id = typeof item === 'string' ? item : item.id;
+              next.add(id);
+          });
+          setSelectedItems(next);
+          // Auto-expand group if selecting all
+          setExpandedSidebarGroups(prev => new Set(prev).add(group));
+      }, 500); // 500ms threshold
+  };
+
+  const endLongPress = () => {
+      if (longPressTimer.current) {
+          clearTimeout(longPressTimer.current);
+          longPressTimer.current = null;
+      }
   };
 
   const setTableOperation = (tableName: string, op: string) => {
@@ -325,11 +470,13 @@ const APIDocs: React.FC<APIDocsProps> = ({ projectId }) => {
           
           if (!expandedItems.has(name)) {
               // Try to guess type based on lists
-              let type: 'table' | 'rpc' | 'edge' | 'auth' | 'storage' = 'table';
+              let type: 'table' | 'rpc' | 'edge' | 'auth' | 'storage' | 'realtime' | 'vector' = 'table';
               if (apiItems.rpcs.includes(name)) type = 'rpc';
               else if (apiItems.edge.includes(name)) type = 'edge';
               else if (apiItems.auth.some(a => a.id === name)) type = 'auth';
               else if (apiItems.storage.some(s => s.id === name)) type = 'storage';
+              else if (apiItems.realtime.some(r => r.id === name)) type = 'realtime';
+              else if (apiItems.vector.some(v => v.id === name)) type = 'vector';
               
               toggleItem(name, type);
           }
@@ -436,16 +583,27 @@ const APIDocs: React.FC<APIDocsProps> = ({ projectId }) => {
       }
   };
 
-  const generateCurl = (method: string, path: string, type: 'table' | 'rpc' | 'edge' | 'auth' | 'storage', endpointDef?: any) => {
+  const generateCurl = (method: string, path: string, type: 'table' | 'rpc' | 'edge' | 'auth' | 'storage' | 'realtime' | 'vector', endpointDef?: any) => {
       let url = '';
       let bucketName = buckets.length > 0 ? buckets[0].name : 'my-bucket';
       let safePath = path.replace(':bucket', bucketName).replace(':path', 'file.png');
+      
+      const anonKey = projectData?.anon_key || '<YOUR_ANON_KEY>';
+
+      // REALTIME (SSE) Special Case
+      if (type === 'realtime') {
+          let rtBase = getAuthBaseUrl(); 
+          url = `${rtBase}/realtime?apikey=${anonKey}&table=users`;
+          return `curl -N -H "Accept: text/event-stream" "${url}"`;
+      }
 
       if (type === 'auth') {
           url = `${getAuthBaseUrl()}${endpointDef.path}`;
       } else if (type === 'edge') {
           const fnName = path.replace('/edge/', '');
           url = getEdgeUrl(fnName);
+      } else if (type === 'vector') {
+          url = `${getAuthBaseUrl()}${endpointDef.path}`;
       } else if (type === 'storage') {
            // Base URL for storage
            let baseUrl = getBaseUrl().replace('/rest/v1', ''); // Strip rest base
@@ -472,7 +630,6 @@ const APIDocs: React.FC<APIDocsProps> = ({ projectId }) => {
           }
       }
 
-      const anonKey = projectData?.anon_key || '<YOUR_ANON_KEY>';
       
       let cmd = `curl -X ${method} "${url}" \\\n`;
       
@@ -505,7 +662,7 @@ const APIDocs: React.FC<APIDocsProps> = ({ projectId }) => {
           
           let bodyPayload = '{}';
 
-          if (type === 'auth' || type === 'storage') {
+          if (type === 'auth' || type === 'storage' || type === 'vector') {
               if (endpointDef?.body && Object.keys(endpointDef.body).length > 0) {
                  bodyPayload = JSON.stringify(endpointDef.body, null, 2);
               }
@@ -551,67 +708,73 @@ const APIDocs: React.FC<APIDocsProps> = ({ projectId }) => {
       }
 
       return cmd;
-  };
+    };
 
-  const apiItems = useMemo(() => {
-      const tables: string[] = [];
-      const edgeFunctions: string[] = [];
+    const apiItems = useMemo(() => {
+        const tables: string[] = [];
+        const edgeFunctions: string[] = [];
 
-      if (spec && spec.paths) {
-          Object.keys(spec.paths).forEach(path => {
-              // Tables
-              const tableMatch = path.match(/^\/tables\/(.+)\/data$/);
-              if (tableMatch && tableMatch[1].toLowerCase().includes(searchQuery.toLowerCase())) {
-                  tables.push(tableMatch[1]);
-              }
-              // Edge Functions
-              if (path.startsWith('/edge/')) {
-                  const fnName = path.replace('/edge/', '');
-                  if (fnName.toLowerCase().includes(searchQuery.toLowerCase())) {
-                      edgeFunctions.push(fnName);
-                  }
-              }
-          });
-      }
+        if (spec && spec.paths) {
+            Object.keys(spec.paths).forEach(path => {
+                // Tables
+                const tableMatch = path.match(/^\/tables\/(.+)\/data$/);
+                if (tableMatch && smartSearch(tableMatch[1], searchQuery)) {
+                    tables.push(tableMatch[1]);
+                }
+                // Edge Functions
+                if (path.startsWith('/edge/')) {
+                    const fnName = path.replace('/edge/', '');
+                    if (smartSearch(fnName, searchQuery)) {
+                        edgeFunctions.push(fnName);
+                    }
+                }
+            });
+        }
 
-      const rpcs = new Set<string>();
-      customFunctions.forEach(fn => {
-          if (!SYSTEM_RPC_PREFIXES.some(prefix => fn.name.startsWith(prefix))) {
-              if (fn.name.toLowerCase().includes(searchQuery.toLowerCase())) {
-                  rpcs.add(fn.name);
-              }
-          }
-      });
-      
-      const auth = AUTH_ENDPOINTS.filter(e => e.name.toLowerCase().includes(searchQuery.toLowerCase()));
-      const storage = STORAGE_ENDPOINTS.filter(e => e.name.toLowerCase().includes(searchQuery.toLowerCase()));
+        const rpcs = new Set<string>();
+        customFunctions.forEach(fn => {
+            if (!SYSTEM_RPC_PREFIXES.some(prefix => fn.name.startsWith(prefix))) {
+                if (smartSearch(fn.name, searchQuery)) {
+                    rpcs.add(fn.name);
+                }
+            }
+        });
+        
+        const auth = AUTH_ENDPOINTS.filter(e => smartSearch(e, searchQuery));
+        const storage = STORAGE_ENDPOINTS.filter(e => smartSearch(e, searchQuery));
+        const realtime = REALTIME_ENDPOINTS.filter(e => smartSearch(e, searchQuery));
+        const vector = VECTOR_ENDPOINTS.filter(e => smartSearch(e, searchQuery));
 
-      return { tables, rpcs: Array.from(rpcs), edge: edgeFunctions, auth, storage };
-  }, [spec, customFunctions, searchQuery]);
+        return { tables, rpcs: Array.from(rpcs), edge: edgeFunctions, auth, storage, realtime, vector };
+    }, [spec, customFunctions, searchQuery]);
 
-  // VISIBLE ITEMS CALCULATION (FILTER LOGIC)
-  const visibleItems = useMemo(() => {
-      if (selectedItems.size >= 1 && isMultiSelectMode) {
-          return {
-              tables: apiItems.tables.filter(t => selectedItems.has(t)),
-              rpcs: apiItems.rpcs.filter(r => selectedItems.has(r)),
-              edge: apiItems.edge.filter(e => selectedItems.has(e)),
-              auth: apiItems.auth.filter(a => selectedItems.has(a.id)),
-              storage: apiItems.storage.filter(s => selectedItems.has(s.id))
-          };
-      }
-      if (selectedItems.size === 1 && !isMultiSelectMode) {
-          const selected = Array.from(selectedItems)[0];
-          return {
-               tables: apiItems.tables.filter(t => t === selected),
-               rpcs: apiItems.rpcs.filter(r => r === selected),
-               edge: apiItems.edge.filter(e => e === selected),
-               auth: apiItems.auth.filter(a => a.id === selected),
-               storage: apiItems.storage.filter(s => s.id === selected)
-          };
-      }
-      return apiItems;
-  }, [apiItems, selectedItems, isMultiSelectMode]);
+    // VISIBLE ITEMS CALCULATION (FILTER LOGIC)
+    const visibleItems = useMemo(() => {
+        if (selectedItems.size >= 1 && isMultiSelectMode) {
+            return {
+                tables: apiItems.tables.filter(t => selectedItems.has(t)),
+                rpcs: apiItems.rpcs.filter(r => selectedItems.has(r)),
+                edge: apiItems.edge.filter(e => selectedItems.has(e)),
+                auth: apiItems.auth.filter(a => selectedItems.has(a.id)),
+                storage: apiItems.storage.filter(s => selectedItems.has(s.id)),
+                realtime: apiItems.realtime.filter(r => selectedItems.has(r.id)),
+                vector: apiItems.vector.filter(v => selectedItems.has(v.id))
+            };
+        }
+        if (selectedItems.size === 1 && !isMultiSelectMode) {
+            const selected = Array.from(selectedItems)[0];
+            return {
+                 tables: apiItems.tables.filter(t => t === selected),
+                 rpcs: apiItems.rpcs.filter(r => r === selected),
+                 edge: apiItems.edge.filter(e => e === selected),
+                 auth: apiItems.auth.filter(a => a.id === selected),
+                 storage: apiItems.storage.filter(s => s.id === selected),
+                 realtime: apiItems.realtime.filter(r => r.id === selected),
+                 vector: apiItems.vector.filter(v => v.id === selected)
+            };
+        }
+        return apiItems;
+    }, [apiItems, selectedItems, isMultiSelectMode]);
 
   const supabaseConfigCode = `
 import { createClient } from '@supabase/supabase-js'
@@ -623,6 +786,115 @@ export const supabase = createClient(supabaseUrl, supabaseKey)
   `;
 
   if (loading) return <div className="p-20 flex justify-center"><Loader2 className="animate-spin text-indigo-600" /></div>;
+
+  // Render Helper for Drag & Drop Sidebar
+  const renderSidebarGroup = (groupKey: string) => {
+    let title = '';
+    let items: any[] = [];
+    let emptyMsg = 'No items found';
+    
+    switch(groupKey) {
+        case 'auth':
+            title = 'Authentication';
+            items = apiItems.auth;
+            break;
+        case 'realtime':
+            title = 'Realtime Engine (SSE)';
+            items = apiItems.realtime;
+            break;
+        case 'vector':
+            title = 'Vector Memory (RAG)';
+            items = apiItems.vector;
+            break;
+        case 'storage':
+            title = 'Storage Engine';
+            items = apiItems.storage;
+            break;
+        case 'tables':
+            title = 'Tables & Views';
+            items = apiItems.tables;
+            emptyMsg = 'No tables found';
+            break;
+        case 'edge':
+            title = 'Edge Functions';
+            items = apiItems.edge;
+            emptyMsg = 'No functions found';
+            break;
+        case 'rpc':
+            title = 'Stored Procedures';
+            items = apiItems.rpcs;
+            emptyMsg = 'No RPCs found';
+            break;
+    }
+
+    // Smart Search Indicator Logic
+    const hasHiddenMatches = searchQuery && !expandedSidebarGroups.has(groupKey) && items.length > 0;
+    
+    // Group Header Selection Icon (Dynamic based on group type)
+    const GroupIcon = () => {
+        if (groupKey === 'auth') return <Fingerprint size={12} className={selectedItems.has(items[0]?.id) ? 'opacity-100' : 'opacity-50'}/>;
+        if (groupKey === 'realtime') return <Radio size={12}/>;
+        if (groupKey === 'vector') return <Share2 size={12}/>;
+        if (groupKey === 'storage') return <HardDrive size={12}/>;
+        if (groupKey === 'tables') return <TableIcon size={12}/>; // Changed to TableIcon for Tables
+        if (groupKey === 'edge') return <Globe size={12}/>;
+        if (groupKey === 'rpc') return <Zap size={12}/>;
+        return null;
+    }
+
+    return (
+        <div 
+            key={groupKey} 
+            draggable
+            onDragStart={(e) => handleDragStart(e, groupKey)}
+            onDragOver={(e) => handleDragOver(e, groupKey)}
+            onDragEnd={handleDragEnd}
+            className={`border rounded-xl overflow-hidden bg-white transition-all ${draggedGroup === groupKey ? 'opacity-50 border-dashed border-indigo-400' : 'border-slate-100'} ${hasHiddenMatches ? 'ring-2 ring-indigo-300 ring-offset-1' : ''}`}
+        >
+            <div 
+                className={`w-full flex items-center justify-between px-4 py-3 cursor-grab active:cursor-grabbing hover:bg-slate-100 transition-colors ${hasHiddenMatches ? 'bg-indigo-50/50' : 'bg-slate-50'}`}
+                onClick={() => toggleSidebarGroup(groupKey)}
+                onMouseDown={() => startLongPress(groupKey, items)}
+                onMouseUp={endLongPress}
+                onMouseLeave={endLongPress}
+                onTouchStart={() => startLongPress(groupKey, items)}
+                onTouchEnd={endLongPress}
+            >
+                <div className="flex items-center gap-2">
+                    <GripVertical size={14} className="text-slate-300"/>
+                    <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest select-none">{title}</h4>
+                </div>
+                {expandedSidebarGroups.has(groupKey) ? <ChevronDown size={14} className="text-slate-400"/> : <ChevronRight size={14} className="text-slate-400"/>}
+            </div>
+            
+            {expandedSidebarGroups.has(groupKey) && (
+                <div className="space-y-1 p-2 max-h-[350px] overflow-y-auto custom-scrollbar">
+                    {items.map(item => {
+                        const id = typeof item === 'string' ? item : item.id;
+                        const name = typeof item === 'string' ? item : item.name;
+                        
+                        return (
+                            <button 
+                                key={id} 
+                                onClick={() => handleSidebarClick(id)}
+                                onDoubleClick={() => handleSidebarDoubleClick(id)}
+                                className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 
+                                    ${selectedItems.has(id) ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}
+                            >
+                                <div className="flex-1 flex items-center gap-2 truncate">
+                                    <GroupIcon />
+                                    {name}
+                                </div>
+                                {selectedItems.has(id) && <Check size={12}/>}
+                            </button>
+                        );
+                    })}
+                    {items.length === 0 && <p className="text-[10px] text-slate-300 px-3 italic py-2">{emptyMsg}</p>}
+                </div>
+            )}
+        </div>
+    );
+  };
 
   return (
     <div className="p-10 max-w-7xl mx-auto w-full space-y-10 pb-40">
@@ -675,450 +947,396 @@ export const supabase = createClient(supabaseUrl, supabaseKey)
                 )}
                 
                 <div className="space-y-2">
-                    {/* AUTH SERVICES */}
-                    <div className="border border-slate-100 rounded-xl overflow-hidden bg-white">
-                        <button 
-                            onClick={() => toggleSidebarGroup('auth')} 
-                            className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors"
-                        >
-                            <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Authentication</h4>
-                            {expandedSidebarGroups.has('auth') ? <ChevronDown size={14} className="text-slate-400"/> : <ChevronRight size={14} className="text-slate-400"/>}
-                        </button>
-                        {expandedSidebarGroups.has('auth') && (
-                            <div className="space-y-1 p-2 max-h-[350px] overflow-y-auto custom-scrollbar">
-                                {apiItems.auth.map(endpoint => (
-                                    <button 
-                                        key={endpoint.id} 
-                                        onClick={() => handleSidebarClick(endpoint.id)}
-                                        onDoubleClick={() => handleSidebarDoubleClick(endpoint.id)}
-                                        className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 
-                                            ${selectedItems.has(endpoint.id) ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}
-                                    >
-                                        <div className="flex-1 flex items-center gap-2 truncate">
-                                            <Fingerprint size={12} className={selectedItems.has(endpoint.id) ? 'opacity-100' : 'opacity-50'}/> 
-                                            {endpoint.name}
-                                        </div>
-                                        {selectedItems.has(endpoint.id) && <Check size={12}/>}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* STORAGE ENGINE */}
-                    <div className="border border-slate-100 rounded-xl overflow-hidden bg-white">
-                        <button 
-                            onClick={() => toggleSidebarGroup('storage')} 
-                            className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors"
-                        >
-                            <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Storage Engine</h4>
-                            {expandedSidebarGroups.has('storage') ? <ChevronDown size={14} className="text-slate-400"/> : <ChevronRight size={14} className="text-slate-400"/>}
-                        </button>
-                        {expandedSidebarGroups.has('storage') && (
-                            <div className="space-y-1 p-2 max-h-[350px] overflow-y-auto custom-scrollbar">
-                                {apiItems.storage.map(endpoint => (
-                                    <button 
-                                        key={endpoint.id} 
-                                        onClick={() => handleSidebarClick(endpoint.id)}
-                                        onDoubleClick={() => handleSidebarDoubleClick(endpoint.id)}
-                                        className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 
-                                            ${selectedItems.has(endpoint.id) ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}
-                                    >
-                                        <div className="flex-1 flex items-center gap-2 truncate">
-                                            <HardDrive size={12} className={selectedItems.has(endpoint.id) ? 'opacity-100' : 'opacity-50'}/> 
-                                            {endpoint.name}
-                                        </div>
-                                        {selectedItems.has(endpoint.id) && <Check size={12}/>}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* TABLES */}
-                    <div className="border border-slate-100 rounded-xl overflow-hidden bg-white">
-                        <button 
-                            onClick={() => toggleSidebarGroup('tables')} 
-                            className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors"
-                        >
-                            <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Tables & Views</h4>
-                            {expandedSidebarGroups.has('tables') ? <ChevronDown size={14} className="text-slate-400"/> : <ChevronRight size={14} className="text-slate-400"/>}
-                        </button>
-                        {expandedSidebarGroups.has('tables') && (
-                            <div className="space-y-1 p-2 max-h-[350px] overflow-y-auto custom-scrollbar">
-                                {apiItems.tables.map(name => (
-                                    <button 
-                                        key={name} 
-                                        onClick={() => handleSidebarClick(name)}
-                                        onDoubleClick={() => handleSidebarDoubleClick(name)}
-                                        className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 
-                                            ${selectedItems.has(name) ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}
-                                    >
-                                        <div className="flex-1 flex items-center gap-2 truncate">
-                                            <Database size={12} className={selectedItems.has(name) ? 'opacity-100' : 'opacity-50'}/> 
-                                            {name}
-                                        </div>
-                                        {selectedItems.has(name) && <Check size={12}/>}
-                                    </button>
-                                ))}
-                                {apiItems.tables.length === 0 && <p className="text-[10px] text-slate-300 px-3 italic py-2">No tables found</p>}
-                            </div>
-                        )}
-                    </div>
-                    
-                    {/* EDGE FUNCTIONS */}
-                    <div className="border border-slate-100 rounded-xl overflow-hidden bg-white">
-                        <button 
-                            onClick={() => toggleSidebarGroup('edge')} 
-                            className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors"
-                        >
-                            <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Edge Functions</h4>
-                            {expandedSidebarGroups.has('edge') ? <ChevronDown size={14} className="text-slate-400"/> : <ChevronRight size={14} className="text-slate-400"/>}
-                        </button>
-                        {expandedSidebarGroups.has('edge') && (
-                            <div className="space-y-1 p-2 max-h-[350px] overflow-y-auto custom-scrollbar">
-                                {apiItems.edge.map(name => (
-                                    <button 
-                                        key={name} 
-                                        onClick={() => handleSidebarClick(name)}
-                                        onDoubleClick={() => handleSidebarDoubleClick(name)}
-                                        className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 
-                                            ${selectedItems.has(name) ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}
-                                    >
-                                        <div className="flex-1 flex items-center gap-2 truncate">
-                                            <Globe size={12} className={selectedItems.has(name) ? 'opacity-100' : 'opacity-50'}/> 
-                                            {name}
-                                        </div>
-                                        {selectedItems.has(name) && <Check size={12}/>}
-                                    </button>
-                                ))}
-                                {apiItems.edge.length === 0 && <p className="text-[10px] text-slate-300 px-3 italic py-2">No functions found</p>}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* RPCs */}
-                    <div className="border border-slate-100 rounded-xl overflow-hidden bg-white">
-                        <button 
-                            onClick={() => toggleSidebarGroup('rpc')} 
-                            className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors"
-                        >
-                            <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Stored Procedures</h4>
-                            {expandedSidebarGroups.has('rpc') ? <ChevronDown size={14} className="text-slate-400"/> : <ChevronRight size={14} className="text-slate-400"/>}
-                        </button>
-                        {expandedSidebarGroups.has('rpc') && (
-                            <div className="space-y-1 p-2 max-h-[350px] overflow-y-auto custom-scrollbar">
-                                {apiItems.rpcs.map(name => (
-                                    <button 
-                                        key={name} 
-                                        onClick={() => handleSidebarClick(name)}
-                                        onDoubleClick={() => handleSidebarDoubleClick(name)}
-                                        className={`w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 
-                                            ${selectedItems.has(name) ? 'bg-amber-500 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}
-                                    >
-                                        <div className="flex-1 flex items-center gap-2 truncate">
-                                            <Zap size={12} className={selectedItems.has(name) ? 'opacity-100' : 'opacity-50'}/> 
-                                            {name}
-                                        </div>
-                                        {selectedItems.has(name) && <Check size={12}/>}
-                                    </button>
-                                ))}
-                                {apiItems.rpcs.length === 0 && <p className="text-[10px] text-slate-300 px-3 italic py-2">No RPCs found</p>}
-                            </div>
-                        )}
-                    </div>
+                    {groupOrder.map(groupKey => renderSidebarGroup(groupKey))}
                 </div>
             </aside>
 
             {/* Main Content */}
             <div className="lg:col-span-3 space-y-12">
-                
-                {/* Auth Section */}
-                {visibleItems.auth.length > 0 && (
-                    <div className="space-y-8">
-                       {visibleItems.auth.map(endpoint => {
-                           const isExpanded = expandedItems.has(endpoint.id);
-                           return (
-                              <div key={endpoint.id} id={`ref-${endpoint.id}`} className={`bg-white border transition-all rounded-[2rem] overflow-hidden ${isExpanded ? 'border-indigo-200 shadow-xl' : 'border-slate-200 hover:border-indigo-200'}`}>
-                                  <div 
-                                      onClick={() => toggleItem(endpoint.id, 'auth')}
-                                      className="p-6 flex items-center justify-between cursor-pointer bg-white hover:bg-slate-50/50 transition-colors"
-                                  >
-                                      <div className="flex items-center gap-4">
-                                          <div className="w-10 h-10 bg-slate-900 text-white rounded-xl flex items-center justify-center">
-                                              <Users size={20}/>
-                                          </div>
-                                          <div>
-                                              <h3 className="text-lg font-black text-slate-900 tracking-tight">{endpoint.name}</h3>
-                                              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">{endpoint.description}</p>
-                                          </div>
-                                      </div>
-                                      <div className="flex items-center gap-3">
-                                          <span className={`px-2 py-1 rounded-md text-[9px] font-black uppercase ${endpoint.method === 'GET' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'}`}>{endpoint.method}</span>
-                                          {isExpanded ? <ChevronDown size={20} className="text-slate-300"/> : <ChevronRight size={20} className="text-slate-300"/>}
-                                      </div>
-                                  </div>
-                                  {isExpanded && (
-                                      <div className="border-t border-slate-100 p-6 bg-slate-50/50">
-                                          <CodeBlock 
-                                              label="Execute Request" 
-                                              code={generateCurl(endpoint.method, endpoint.path, 'auth', endpoint)} 
-                                              onCopy={() => safeCopyToClipboard(generateCurl(endpoint.method, endpoint.path, 'auth', endpoint), endpoint.id)}
-                                              copied={copiedUrl === endpoint.id}
-                                          />
-                                          {endpoint.auth_required && (
-                                              <div className="mt-4 flex items-center gap-2 text-xs font-bold text-amber-600 bg-amber-50 p-2 rounded-lg inline-block">
-                                                  <Lock size={12}/> Requires User Access Token
+                {groupOrder.map(groupKey => {
+                    // Render content blocks based on group order
+                    switch(groupKey) {
+                        case 'realtime':
+                            if (visibleItems.realtime.length === 0) return null;
+                            return (
+                                <div key="realtime" className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
+                                   {visibleItems.realtime.map(endpoint => {
+                                       const isExpanded = expandedItems.has(endpoint.id);
+                                       return (
+                                          <div key={endpoint.id} id={`ref-${endpoint.id}`} className={`bg-white border transition-all rounded-[2rem] overflow-hidden ${isExpanded ? 'border-amber-200 shadow-xl' : 'border-slate-200 hover:border-amber-200'}`}>
+                                              <div 
+                                                  onClick={() => toggleItem(endpoint.id, 'realtime')}
+                                                  className="p-6 flex items-center justify-between cursor-pointer bg-white hover:bg-slate-50/50 transition-colors"
+                                              >
+                                                  <div className="flex items-center gap-4">
+                                                      <div className="w-10 h-10 bg-amber-500 text-white rounded-xl flex items-center justify-center">
+                                                          <Radio size={20}/>
+                                                      </div>
+                                                      <div>
+                                                          <h3 className="text-lg font-black text-slate-900 tracking-tight">{endpoint.name}</h3>
+                                                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">{endpoint.description}</p>
+                                                      </div>
+                                                  </div>
+                                                  <div className="flex items-center gap-3">
+                                                      <span className="px-2 py-1 rounded-md text-[9px] font-black uppercase bg-slate-100 text-slate-600">STREAM</span>
+                                                      {isExpanded ? <ChevronDown size={20} className="text-slate-300"/> : <ChevronRight size={20} className="text-slate-300"/>}
+                                                  </div>
                                               </div>
-                                          )}
-                                      </div>
-                                  )}
-                              </div>
-                           );
-                       })}
-                    </div>
-                )}
-
-                {/* Storage Section */}
-                {visibleItems.storage.length > 0 && (
-                    <div className="space-y-8">
-                       {visibleItems.storage.map(endpoint => {
-                           const isExpanded = expandedItems.has(endpoint.id);
-                           return (
-                              <div key={endpoint.id} id={`ref-${endpoint.id}`} className={`bg-white border transition-all rounded-[2rem] overflow-hidden ${isExpanded ? 'border-indigo-200 shadow-xl' : 'border-slate-200 hover:border-indigo-200'}`}>
-                                  <div 
-                                      onClick={() => toggleItem(endpoint.id, 'storage')}
-                                      className="p-6 flex items-center justify-between cursor-pointer bg-white hover:bg-slate-50/50 transition-colors"
-                                  >
-                                      <div className="flex items-center gap-4">
-                                          <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
-                                              <Cloud size={20}/>
+                                              {isExpanded && (
+                                                  <div className="border-t border-slate-100 p-6 bg-slate-50/50">
+                                                      <CodeBlock 
+                                                          label="Connect Command (SSE)" 
+                                                          code={generateCurl(endpoint.method, endpoint.path, 'realtime', endpoint)} 
+                                                          onCopy={() => safeCopyToClipboard(generateCurl(endpoint.method, endpoint.path, 'realtime', endpoint), endpoint.id)}
+                                                          copied={copiedUrl === endpoint.id}
+                                                      />
+                                                      <p className="text-[10px] text-slate-400 mt-2 px-1">Use <code>EventSource</code> in JS clients to consume this stream.</p>
+                                                  </div>
+                                              )}
                                           </div>
-                                          <div>
-                                              <h3 className="text-lg font-black text-slate-900 tracking-tight">{endpoint.name}</h3>
-                                              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">{endpoint.description}</p>
-                                          </div>
-                                      </div>
-                                      <div className="flex items-center gap-3">
-                                          <span className={`px-2 py-1 rounded-md text-[9px] font-black uppercase ${endpoint.method === 'GET' ? 'bg-blue-50 text-blue-600' : endpoint.method === 'POST' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{endpoint.method}</span>
-                                          {isExpanded ? <ChevronDown size={20} className="text-slate-300"/> : <ChevronRight size={20} className="text-slate-300"/>}
-                                      </div>
-                                  </div>
-                                  {isExpanded && (
-                                      <div className="border-t border-slate-100 p-6 bg-slate-50/50">
-                                          <CodeBlock 
-                                              label="Execute Request" 
-                                              code={generateCurl(endpoint.method, endpoint.path, 'storage', endpoint)} 
-                                              onCopy={() => safeCopyToClipboard(generateCurl(endpoint.method, endpoint.path, 'storage', endpoint), endpoint.id)}
-                                              copied={copiedUrl === endpoint.id}
-                                          />
-                                          {endpoint.is_upload && (
-                                              <p className="text-[10px] text-slate-400 mt-2 px-1 flex items-center gap-1"><UploadIcon size={10}/> Use Multipart/Form-Data for file uploads.</p>
-                                          )}
-                                      </div>
-                                  )}
-                              </div>
-                           );
-                       })}
-                    </div>
-                )}
-
-                {/* Tables Section */}
-                {visibleItems.tables.length > 0 && (
-                    <div className="space-y-8">
-                        {visibleItems.tables.map(name => {
-                            const path = `/tables/${name}/data`;
-                            const isExpanded = expandedItems.has(name);
-                            const isParamsExpanded = expandedParams.has(name);
-                            const activeOp = tableOperations[name] || 'GET';
-                            
-                            return (
-                                <div key={name} id={`ref-${name}`} className={`bg-white border transition-all rounded-[2rem] overflow-hidden ${isExpanded ? 'border-indigo-200 shadow-xl' : 'border-slate-200 hover:border-indigo-200'}`}>
-                                    <div 
-                                        onClick={() => toggleItem(name, 'table')}
-                                        className="p-6 flex items-center justify-between cursor-pointer bg-white hover:bg-slate-50/50 transition-colors"
-                                    >
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
-                                                <Database size={20}/>
-                                            </div>
-                                            <div>
-                                                <h3 className="text-lg font-black text-slate-900 tracking-tight">{name}</h3>
-                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">REST Resource</p>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-3">
-                                            {/* Interactive Operation Badges */}
-                                            <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-                                                <button 
-                                                    onClick={() => setTableOperation(name, 'GET')}
-                                                    className={`px-2 py-1 rounded-md text-[9px] font-black uppercase transition-all ${activeOp === 'GET' ? 'bg-blue-600 text-white shadow-md' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
-                                                >
-                                                    GET
-                                                </button>
-                                                <button 
-                                                    onClick={() => setTableOperation(name, 'POST')}
-                                                    className={`px-2 py-1 rounded-md text-[9px] font-black uppercase transition-all ${activeOp === 'POST' ? 'bg-emerald-600 text-white shadow-md' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}
-                                                >
-                                                    POST
-                                                </button>
-                                                <button 
-                                                    onClick={() => setTableOperation(name, 'PATCH')}
-                                                    className={`px-2 py-1 rounded-md text-[9px] font-black uppercase transition-all ${activeOp === 'PATCH' ? 'bg-orange-600 text-white shadow-md' : 'bg-orange-50 text-orange-600 hover:bg-orange-100'}`}
-                                                >
-                                                    PATCH
-                                                </button>
-                                                <button 
-                                                    onClick={() => setTableOperation(name, 'DELETE')}
-                                                    className={`px-2 py-1 rounded-md text-[9px] font-black uppercase transition-all ${activeOp === 'DELETE' ? 'bg-rose-600 text-white shadow-md' : 'bg-rose-50 text-rose-600 hover:bg-rose-100'}`}
-                                                >
-                                                    DEL
-                                                </button>
-                                            </div>
-                                            {isExpanded ? <ChevronDown size={20} className="text-slate-300"/> : <ChevronRight size={20} className="text-slate-300"/>}
-                                        </div>
-                                    </div>
-
-                                    {isExpanded && (
-                                        <div className="border-t border-slate-100">
-                                            <CrudExample 
-                                                name={name} 
-                                                path={path} 
-                                                generateCurl={generateCurl} 
-                                                safeCopyToClipboard={safeCopyToClipboard} 
-                                                copiedUrl={copiedUrl} 
-                                                richData={richMetadata[name]} 
-                                                isParamsExpanded={isParamsExpanded}
-                                                onToggleParams={() => toggleParams(name)}
-                                                activeOp={activeOp}
-                                            />
-                                        </div>
-                                    )}
+                                       );
+                                   })}
                                 </div>
                             );
-                        })}
-                    </div>
-                )}
-                
-                {/* Edge Functions Section */}
-                {visibleItems.edge.length > 0 && (
-                    <div className="space-y-8">
-                        {visibleItems.edge.map(name => {
-                            const isExpanded = expandedItems.has(name);
-                            const path = `/edge/${name}`;
-                            
-                            return (
-                                <div key={name} id={`ref-${name}`} className={`bg-white border transition-all rounded-[2rem] overflow-hidden ${isExpanded ? 'border-emerald-200 shadow-xl' : 'border-slate-200 hover:border-emerald-200'}`}>
-                                    <div 
-                                        onClick={() => toggleItem(name, 'edge')}
-                                        className="p-6 flex items-center justify-between cursor-pointer bg-white hover:bg-slate-50/50 transition-colors"
-                                    >
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
-                                                <Globe size={20}/>
-                                            </div>
-                                            <div>
-                                                <h3 className="text-lg font-black text-slate-900 tracking-tight">{name}</h3>
-                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Serverless Function</p>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-3">
-                                            <span className="px-2 py-1 rounded-md bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase">POST</span>
-                                            {isExpanded ? <ChevronDown size={20} className="text-slate-300"/> : <ChevronRight size={20} className="text-slate-300"/>}
-                                        </div>
-                                    </div>
 
-                                    {isExpanded && (
-                                        <div className="border-t border-slate-100 p-6 bg-slate-50/50">
-                                            <CodeBlock 
-                                                label="Invoke Function" 
-                                                code={generateCurl('POST', path, 'edge')} 
-                                                onCopy={() => safeCopyToClipboard(generateCurl('POST', path, 'edge'), path)}
-                                                copied={copiedUrl === path}
-                                            />
-                                            <p className="text-[10px] text-slate-400 mt-2 px-1">Edge functions run in an isolated V8 environment and accept JSON payload.</p>
-                                        </div>
-                                    )}
+                        case 'vector':
+                            if (visibleItems.vector.length === 0) return null;
+                            return (
+                                <div key="vector" className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
+                                   {visibleItems.vector.map(endpoint => {
+                                       const isExpanded = expandedItems.has(endpoint.id);
+                                       return (
+                                          <div key={endpoint.id} id={`ref-${endpoint.id}`} className={`bg-white border transition-all rounded-[2rem] overflow-hidden ${isExpanded ? 'border-purple-200 shadow-xl' : 'border-slate-200 hover:border-purple-200'}`}>
+                                              <div 
+                                                  onClick={() => toggleItem(endpoint.id, 'vector')}
+                                                  className="p-6 flex items-center justify-between cursor-pointer bg-white hover:bg-slate-50/50 transition-colors"
+                                              >
+                                                  <div className="flex items-center gap-4">
+                                                      <div className="w-10 h-10 bg-purple-600 text-white rounded-xl flex items-center justify-center">
+                                                          <Share2 size={20}/>
+                                                      </div>
+                                                      <div>
+                                                          <h3 className="text-lg font-black text-slate-900 tracking-tight">{endpoint.name}</h3>
+                                                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">{endpoint.description}</p>
+                                                      </div>
+                                                  </div>
+                                                  <div className="flex items-center gap-3">
+                                                      <span className="px-2 py-1 rounded-md text-[9px] font-black uppercase bg-purple-50 text-purple-700">{endpoint.method}</span>
+                                                      {isExpanded ? <ChevronDown size={20} className="text-slate-300"/> : <ChevronRight size={20} className="text-slate-300"/>}
+                                                  </div>
+                                              </div>
+                                              {isExpanded && (
+                                                  <div className="border-t border-slate-100 p-6 bg-slate-50/50">
+                                                      <CodeBlock 
+                                                          label="Vector Operation" 
+                                                          code={generateCurl(endpoint.method, endpoint.path, 'vector', endpoint)} 
+                                                          onCopy={() => safeCopyToClipboard(generateCurl(endpoint.method, endpoint.path, 'vector', endpoint), endpoint.id)}
+                                                          copied={copiedUrl === endpoint.id}
+                                                      />
+                                                  </div>
+                                              )}
+                                          </div>
+                                       );
+                                   })}
                                 </div>
                             );
-                        })}
-                    </div>
-                )}
 
-                {/* RPCs Section */}
-                {visibleItems.rpcs.length > 0 && (
-                    <div className="space-y-8">
-                        {visibleItems.rpcs.map(name => {
-                            const isExpanded = expandedItems.has(name);
-                            const isParamsExpanded = expandedParams.has(name);
-                            const path = `/rpc/${name}`;
-                            const meta = richMetadata[name];
-                            const args = meta?.fields || [];
-                            
+                        case 'auth':
+                            if (visibleItems.auth.length === 0) return null;
                             return (
-                                <div key={name} id={`ref-${name}`} className={`bg-white border transition-all rounded-[2rem] overflow-hidden ${isExpanded ? 'border-amber-200 shadow-xl' : 'border-slate-200 hover:border-amber-200'}`}>
-                                    <div 
-                                        onClick={() => toggleItem(name, 'rpc')}
-                                        className="p-6 flex items-center justify-between cursor-pointer bg-white hover:bg-slate-50/50 transition-colors"
-                                    >
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center">
-                                                <Zap size={20}/>
-                                            </div>
-                                            <div>
-                                                <h3 className="text-lg font-black text-slate-900 tracking-tight">{name}</h3>
-                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Stored Procedure</p>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-3">
-                                            <span className="px-2 py-1 rounded-md bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase">POST</span>
-                                            {isExpanded ? <ChevronDown size={20} className="text-slate-300"/> : <ChevronRight size={20} className="text-slate-300"/>}
-                                        </div>
-                                    </div>
+                                <div key="auth" className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
+                                   {visibleItems.auth.map(endpoint => {
+                                       const isExpanded = expandedItems.has(endpoint.id);
+                                       return (
+                                          <div key={endpoint.id} id={`ref-${endpoint.id}`} className={`bg-white border transition-all rounded-[2rem] overflow-hidden ${isExpanded ? 'border-indigo-200 shadow-xl' : 'border-slate-200 hover:border-indigo-200'}`}>
+                                              <div 
+                                                  onClick={() => toggleItem(endpoint.id, 'auth')}
+                                                  className="p-6 flex items-center justify-between cursor-pointer bg-white hover:bg-slate-50/50 transition-colors"
+                                              >
+                                                  <div className="flex items-center gap-4">
+                                                      <div className="w-10 h-10 bg-slate-900 text-white rounded-xl flex items-center justify-center">
+                                                          <Users size={20}/>
+                                                      </div>
+                                                      <div>
+                                                          <h3 className="text-lg font-black text-slate-900 tracking-tight">{endpoint.name}</h3>
+                                                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">{endpoint.description}</p>
+                                                      </div>
+                                                  </div>
+                                                  <div className="flex items-center gap-3">
+                                                      <span className={`px-2 py-1 rounded-md text-[9px] font-black uppercase ${endpoint.method === 'GET' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'}`}>{endpoint.method}</span>
+                                                      {isExpanded ? <ChevronDown size={20} className="text-slate-300"/> : <ChevronRight size={20} className="text-slate-300"/>}
+                                                  </div>
+                                              </div>
+                                              {isExpanded && (
+                                                  <div className="border-t border-slate-100 p-6 bg-slate-50/50">
+                                                      <CodeBlock 
+                                                          label="Execute Request" 
+                                                          code={generateCurl(endpoint.method, endpoint.path, 'auth', endpoint)} 
+                                                          onCopy={() => safeCopyToClipboard(generateCurl(endpoint.method, endpoint.path, 'auth', endpoint), endpoint.id)}
+                                                          copied={copiedUrl === endpoint.id}
+                                                      />
+                                                      {endpoint.auth_required && (
+                                                          <div className="mt-4 flex items-center gap-2 text-xs font-bold text-amber-600 bg-amber-50 p-2 rounded-lg inline-block">
+                                                              <Lock size={12}/> Requires User Access Token
+                                                          </div>
+                                                      )}
+                                                  </div>
+                                              )}
+                                          </div>
+                                       );
+                                   })}
+                                </div>
+                            );
 
-                                    {isExpanded && (
-                                        <div className="border-t border-slate-100 p-6 bg-slate-50/50">
-                                            {/* Params Table (Collapsible) */}
-                                            {args.length > 0 && (
-                                                <div className="mb-6 bg-white rounded-xl border border-slate-200 overflow-hidden">
-                                                    <div 
-                                                        onClick={() => toggleParams(name)}
-                                                        className="px-4 py-2 bg-slate-100 border-b border-slate-200 flex justify-between items-center cursor-pointer hover:bg-slate-200/50 transition-colors"
-                                                    >
-                                                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2"><ListFilter size={12}/> Arguments</span>
-                                                        {isParamsExpanded ? <ChevronDown size={14} className="text-slate-400"/> : <ChevronRight size={14} className="text-slate-400"/>}
-                                                    </div>
-                                                    {isParamsExpanded && (
-                                                        <div className="max-h-60 overflow-y-auto">
-                                                            <table className="w-full text-left animate-in slide-in-from-top-1">
-                                                                <tbody>
-                                                                    {args.map((arg: any, idx: number) => (
-                                                                        <tr key={idx} className="border-b border-slate-100 last:border-0">
-                                                                            <td className="px-4 py-2 text-xs font-bold font-mono text-indigo-700">{arg.name}</td>
-                                                                            <td className="px-4 py-2 text-xs font-mono text-slate-500">{arg.type}</td>
-                                                                            <td className="px-4 py-2 text-xs font-black uppercase text-slate-400">{arg.mode || 'IN'}</td>
-                                                                        </tr>
-                                                                    ))}
-                                                                </tbody>
-                                                            </table>
+                        case 'storage':
+                            if (visibleItems.storage.length === 0) return null;
+                            return (
+                                <div key="storage" className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
+                                   {visibleItems.storage.map(endpoint => {
+                                       const isExpanded = expandedItems.has(endpoint.id);
+                                       return (
+                                          <div key={endpoint.id} id={`ref-${endpoint.id}`} className={`bg-white border transition-all rounded-[2rem] overflow-hidden ${isExpanded ? 'border-indigo-200 shadow-xl' : 'border-slate-200 hover:border-indigo-200'}`}>
+                                              <div 
+                                                  onClick={() => toggleItem(endpoint.id, 'storage')}
+                                                  className="p-6 flex items-center justify-between cursor-pointer bg-white hover:bg-slate-50/50 transition-colors"
+                                              >
+                                                  <div className="flex items-center gap-4">
+                                                      <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
+                                                          <Cloud size={20}/>
+                                                      </div>
+                                                      <div>
+                                                          <h3 className="text-lg font-black text-slate-900 tracking-tight">{endpoint.name}</h3>
+                                                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">{endpoint.description}</p>
+                                                      </div>
+                                                  </div>
+                                                  <div className="flex items-center gap-3">
+                                                      <span className={`px-2 py-1 rounded-md text-[9px] font-black uppercase ${endpoint.method === 'GET' ? 'bg-blue-50 text-blue-600' : endpoint.method === 'POST' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{endpoint.method}</span>
+                                                      {isExpanded ? <ChevronDown size={20} className="text-slate-300"/> : <ChevronRight size={20} className="text-slate-300"/>}
+                                                  </div>
+                                              </div>
+                                              {isExpanded && (
+                                                  <div className="border-t border-slate-100 p-6 bg-slate-50/50">
+                                                      <CodeBlock 
+                                                          label="Execute Request" 
+                                                          code={generateCurl(endpoint.method, endpoint.path, 'storage', endpoint)} 
+                                                          onCopy={() => safeCopyToClipboard(generateCurl(endpoint.method, endpoint.path, 'storage', endpoint), endpoint.id)}
+                                                          copied={copiedUrl === endpoint.id}
+                                                      />
+                                                      {endpoint.is_upload && (
+                                                          <p className="text-[10px] text-slate-400 mt-2 px-1 flex items-center gap-1"><UploadIcon size={10}/> Use Multipart/Form-Data for file uploads.</p>
+                                                      )}
+                                                  </div>
+                                              )}
+                                          </div>
+                                       );
+                                   })}
+                                </div>
+                            );
+
+                        case 'tables':
+                            if (visibleItems.tables.length === 0) return null;
+                            return (
+                                <div key="tables" className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
+                                    {visibleItems.tables.map(name => {
+                                        const path = `/tables/${name}/data`;
+                                        const isExpanded = expandedItems.has(name);
+                                        const isParamsExpanded = expandedParams.has(name);
+                                        const activeOp = tableOperations[name] || 'GET';
+                                        
+                                        return (
+                                            <div key={name} id={`ref-${name}`} className={`bg-white border transition-all rounded-[2rem] overflow-hidden ${isExpanded ? 'border-indigo-200 shadow-xl' : 'border-slate-200 hover:border-indigo-200'}`}>
+                                                <div 
+                                                    onClick={() => toggleItem(name, 'table')}
+                                                    className="p-6 flex items-center justify-between cursor-pointer bg-white hover:bg-slate-50/50 transition-colors"
+                                                >
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
+                                                            <Database size={20}/>
                                                         </div>
-                                                    )}
+                                                        <div>
+                                                            <h3 className="text-lg font-black text-slate-900 tracking-tight">{name}</h3>
+                                                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">REST Resource</p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-3">
+                                                        {/* Interactive Operation Badges */}
+                                                        <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                                                            <button 
+                                                                onClick={() => setTableOperation(name, 'GET')}
+                                                                className={`px-2 py-1 rounded-md text-[9px] font-black uppercase transition-all ${activeOp === 'GET' ? 'bg-blue-600 text-white shadow-md' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
+                                                            >
+                                                                GET
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => setTableOperation(name, 'POST')}
+                                                                className={`px-2 py-1 rounded-md text-[9px] font-black uppercase transition-all ${activeOp === 'POST' ? 'bg-emerald-600 text-white shadow-md' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}
+                                                            >
+                                                                POST
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => setTableOperation(name, 'PATCH')}
+                                                                className={`px-2 py-1 rounded-md text-[9px] font-black uppercase transition-all ${activeOp === 'PATCH' ? 'bg-orange-600 text-white shadow-md' : 'bg-orange-50 text-orange-600 hover:bg-orange-100'}`}
+                                                            >
+                                                                PATCH
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => setTableOperation(name, 'DELETE')}
+                                                                className={`px-2 py-1 rounded-md text-[9px] font-black uppercase transition-all ${activeOp === 'DELETE' ? 'bg-rose-600 text-white shadow-md' : 'bg-rose-50 text-rose-600 hover:bg-rose-100'}`}
+                                                            >
+                                                                DEL
+                                                            </button>
+                                                        </div>
+                                                        {isExpanded ? <ChevronDown size={20} className="text-slate-300"/> : <ChevronRight size={20} className="text-slate-300"/>}
+                                                    </div>
                                                 </div>
-                                            )}
 
-                                            <CodeBlock 
-                                                label="Execute Function" 
-                                                code={generateCurl('POST', path, 'rpc')} 
-                                                onCopy={() => safeCopyToClipboard(generateCurl('POST', path, 'rpc'), path)}
-                                                copied={copiedUrl === path}
-                                            />
-                                        </div>
-                                    )}
+                                                {isExpanded && (
+                                                    <div className="border-t border-slate-100">
+                                                        <CrudExample 
+                                                            name={name} 
+                                                            path={path} 
+                                                            generateCurl={generateCurl} 
+                                                            safeCopyToClipboard={safeCopyToClipboard} 
+                                                            copiedUrl={copiedUrl} 
+                                                            richData={richMetadata[name]} 
+                                                            isParamsExpanded={isParamsExpanded}
+                                                            onToggleParams={() => toggleParams(name)}
+                                                            activeOp={activeOp}
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             );
-                        })}
-                    </div>
-                )}
+
+                        case 'edge':
+                            if (visibleItems.edge.length === 0) return null;
+                            return (
+                                <div key="edge" className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
+                                    {visibleItems.edge.map(name => {
+                                        const isExpanded = expandedItems.has(name);
+                                        const path = `/edge/${name}`;
+                                        
+                                        return (
+                                            <div key={name} id={`ref-${name}`} className={`bg-white border transition-all rounded-[2rem] overflow-hidden ${isExpanded ? 'border-emerald-200 shadow-xl' : 'border-slate-200 hover:border-emerald-200'}`}>
+                                                <div 
+                                                    onClick={() => toggleItem(name, 'edge')}
+                                                    className="p-6 flex items-center justify-between cursor-pointer bg-white hover:bg-slate-50/50 transition-colors"
+                                                >
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
+                                                            <Globe size={20}/>
+                                                        </div>
+                                                        <div>
+                                                            <h3 className="text-lg font-black text-slate-900 tracking-tight">{name}</h3>
+                                                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Serverless Function</p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-3">
+                                                        <span className="px-2 py-1 rounded-md bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase">POST</span>
+                                                        {isExpanded ? <ChevronDown size={20} className="text-slate-300"/> : <ChevronRight size={20} className="text-slate-300"/>}
+                                                    </div>
+                                                </div>
+
+                                                {isExpanded && (
+                                                    <div className="border-t border-slate-100 p-6 bg-slate-50/50">
+                                                        <CodeBlock 
+                                                            label="Invoke Function" 
+                                                            code={generateCurl('POST', path, 'edge')} 
+                                                            onCopy={() => safeCopyToClipboard(generateCurl('POST', path, 'edge'), path)}
+                                                            copied={copiedUrl === path}
+                                                        />
+                                                        <p className="text-[10px] text-slate-400 mt-2 px-1">Edge functions run in an isolated V8 environment and accept JSON payload.</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            );
+
+                        case 'rpc':
+                            if (visibleItems.rpcs.length === 0) return null;
+                            return (
+                                <div key="rpc" className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
+                                    {visibleItems.rpcs.map(name => {
+                                        const isExpanded = expandedItems.has(name);
+                                        const isParamsExpanded = expandedParams.has(name);
+                                        const path = `/rpc/${name}`;
+                                        const meta = richMetadata[name];
+                                        const args = meta?.fields || [];
+                                        
+                                        return (
+                                            <div key={name} id={`ref-${name}`} className={`bg-white border transition-all rounded-[2rem] overflow-hidden ${isExpanded ? 'border-amber-200 shadow-xl' : 'border-slate-200 hover:border-amber-200'}`}>
+                                                <div 
+                                                    onClick={() => toggleItem(name, 'rpc')}
+                                                    className="p-6 flex items-center justify-between cursor-pointer bg-white hover:bg-slate-50/50 transition-colors"
+                                                >
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center">
+                                                            <Zap size={20}/>
+                                                        </div>
+                                                        <div>
+                                                            <h3 className="text-lg font-black text-slate-900 tracking-tight">{name}</h3>
+                                                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Stored Procedure</p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-3">
+                                                        <span className="px-2 py-1 rounded-md bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase">POST</span>
+                                                        {isExpanded ? <ChevronDown size={20} className="text-slate-300"/> : <ChevronRight size={20} className="text-slate-300"/>}
+                                                    </div>
+                                                </div>
+
+                                                {isExpanded && (
+                                                    <div className="border-t border-slate-100 p-6 bg-slate-50/50">
+                                                        {/* Params Table (Collapsible) */}
+                                                        {args.length > 0 && (
+                                                            <div className="mb-6 bg-white rounded-xl border border-slate-200 overflow-hidden">
+                                                                <div 
+                                                                    onClick={() => toggleParams(name)}
+                                                                    className="px-4 py-2 bg-slate-100 border-b border-slate-200 flex justify-between items-center cursor-pointer hover:bg-slate-200/50 transition-colors"
+                                                                >
+                                                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2"><ListFilter size={12}/> Arguments</span>
+                                                                    {isParamsExpanded ? <ChevronDown size={14} className="text-slate-400"/> : <ChevronRight size={14} className="text-slate-400"/>}
+                                                                </div>
+                                                                {isParamsExpanded && (
+                                                                    <div className="max-h-60 overflow-y-auto">
+                                                                        <table className="w-full text-left animate-in slide-in-from-top-1">
+                                                                            <tbody>
+                                                                                {args.map((arg: any, idx: number) => (
+                                                                                    <tr key={idx} className="border-b border-slate-100 last:border-0">
+                                                                                        <td className="px-4 py-2 text-xs font-bold font-mono text-indigo-700">{arg.name}</td>
+                                                                                        <td className="px-4 py-2 text-xs font-mono text-slate-500">{arg.type}</td>
+                                                                                        <td className="px-4 py-2 text-xs font-black uppercase text-slate-400">{arg.mode || 'IN'}</td>
+                                                                                    </tr>
+                                                                                ))}
+                                                                            </tbody>
+                                                                        </table>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+
+                                                        <CodeBlock 
+                                                            label="Execute Function" 
+                                                            code={generateCurl('POST', path, 'rpc')} 
+                                                            onCopy={() => safeCopyToClipboard(generateCurl('POST', path, 'rpc'), path)}
+                                                            copied={copiedUrl === path}
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            );
+                        
+                        default:
+                            return null;
+                    }
+                })}
             </div>
           </div>
       )}

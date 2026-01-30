@@ -497,16 +497,51 @@ export class AuthService {
         } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
     }
 
-    public static async createSession(userId: string, projectPool: Pool, jwtSecret: string, expiresIn: string = '1h', refreshTokenExpiresInDays: number = 30): Promise<SessionTokens> {
-        const accessToken = jwt.sign({ sub: userId, role: 'authenticated', aud: 'authenticated' }, jwtSecret, { expiresIn: expiresIn as any });
+    public static async createSession(
+        userId: string, 
+        projectPool: Pool, 
+        jwtSecret: string, 
+        expiresIn: string = '1h', 
+        refreshTokenExpiresInDays: number = 30,
+        loginProvider: string = 'cascata' 
+    ): Promise<SessionTokens> {
+        
+        // 1. Create JWT Payload
+        // We inject 'provider' so RLS can use current_setting('request.jwt.claim.provider', true)
+        const payload = { 
+            sub: userId, 
+            role: 'authenticated', 
+            aud: 'authenticated',
+            app_metadata: { 
+                provider: loginProvider, 
+                role: 'authenticated' 
+            }
+        };
+
+        const accessToken = jwt.sign(payload, jwtSecret, { expiresIn: expiresIn as any });
+        
+        // 2. Generate Refresh Token
         const rawRefreshToken = crypto.randomBytes(40).toString('hex');
         const tokenHash = crypto.createHash('sha256').update(rawRefreshToken).digest('hex');
         const expiresAt = new Date();
         expiresAt.setDate(expiresAt.getDate() + refreshTokenExpiresInDays);
+        
         await projectPool.query(`INSERT INTO auth.refresh_tokens (token_hash, user_id, expires_at) VALUES ($1, $2, $3)`, [tokenHash, userId, expiresAt]);
+        
         const userRes = await projectPool.query(`SELECT id, raw_user_meta_data FROM auth.users WHERE id = $1`, [userId]);
         const user = userRes.rows[0];
-        return { access_token: accessToken, refresh_token: rawRefreshToken, expires_in: this.parseSeconds(expiresIn), user: { id: user.id, email: user.raw_user_meta_data?.email, user_metadata: user.raw_user_meta_data, app_metadata: { provider: 'cascata', role: 'authenticated' } } };
+        
+        return { 
+            access_token: accessToken, 
+            refresh_token: rawRefreshToken, 
+            expires_in: this.parseSeconds(expiresIn), 
+            user: { 
+                id: user.id, 
+                email: user.raw_user_meta_data?.email, 
+                user_metadata: user.raw_user_meta_data, 
+                app_metadata: payload.app_metadata 
+            } 
+        };
     }
 
     public static async refreshSession(rawRefreshToken: string, projectPool: Pool, jwtSecret: string, expiresIn: string = '1h'): Promise<SessionTokens> {

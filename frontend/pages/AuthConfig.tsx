@@ -7,7 +7,7 @@ import {
   Filter, ChevronLeft, ChevronRight, CheckSquare, Square, Link,
   Clock, Zap, Github, Facebook, Twitter, Edit2, Unlink, Layers,
   RefreshCcw, ArrowRight, LayoutTemplate, Send, ShieldAlert, Target,
-  MessageSquare, Server, Plug, BellRing, PartyPopper
+  MessageSquare, Server, Plug, BellRing, PartyPopper, Code
 } from 'lucide-react';
 
 const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
@@ -355,6 +355,7 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
 
   const handleSaveProviderConfig = () => {
       if (!showProviderConfig) return;
+      // We pass just the specific provider update, assuming saveStrategies merges correctly
       saveStrategies(strategies, { providers: { [showProviderConfig]: providerConfig } });
       setShowProviderConfig(null);
   };
@@ -521,6 +522,14 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
   const isOauth = (s: string) => ['google', 'github', 'facebook', 'twitter'].includes(s);
 
   const isAggressiveSecurity = securityConfig.max_attempts < 3 || securityConfig.lockout_minutes > 60;
+
+  // --- CALLBACK URL HELPER ---
+  const getCallbackUrl = () => {
+      const host = projectDomain || window.location.host;
+      const protocol = projectDomain ? 'https' : window.location.protocol.replace(':', '');
+      const prefix = projectDomain ? '' : `/api/data/${projectId}`;
+      return `${protocol}://${host}${prefix}/auth/v1/callback`;
+  };
 
   return (
     <div className="flex h-full flex-col bg-[#F8FAFC]">
@@ -1130,12 +1139,39 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">JWT Expiration</label>
                         <input value={strategyConfig.jwt_expiration || '24h'} onChange={(e) => setStrategyConfig({...strategyConfig, jwt_expiration: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none"/>
                      </div>
-                     {/* Added Refresh Token here as per specific request to match previous functionality */}
                      <div className="space-y-2">
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Refresh Validity (Days)</label>
                         <input type="number" value={strategyConfig.refresh_validity_days || 30} onChange={(e) => setStrategyConfig({...strategyConfig, refresh_validity_days: parseInt(e.target.value)})} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none"/>
                      </div>
                   </div>
+
+                  {/* EDUCATIONAL SNIPPET FOR CUSTOM STRATEGIES */}
+                  {!isOauth(selectedStrategy || '') && selectedStrategy !== 'email' && (
+                     <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800 shadow-xl overflow-hidden relative group">
+                         <div className="flex justify-between items-center mb-4">
+                             <h4 className="text-emerald-400 font-black text-xs uppercase tracking-widest flex items-center gap-2"><Code size={14}/> Integration Snippet</h4>
+                             <button onClick={() => safeCopy(`
+// Universal Login (Any Provider)
+const { user, session } = await cascata.auth.signIn({
+  provider: '${selectedStrategy}',
+  identifier: 'unique_user_id',
+  password: 'user_password'
+});`)} className="text-slate-500 hover:text-white transition-colors p-1"><Copy size={14}/></button>
+                         </div>
+                         <pre className="text-[10px] font-mono text-slate-300 whitespace-pre-wrap leading-relaxed">
+{`// Universal Login (Any Provider)
+const { user, session } = await cascata.auth.signIn({
+  provider: '${selectedStrategy}',
+  identifier: 'unique_user_id',
+  password: 'user_password'
+});`}
+                         </pre>
+                         <div className="mt-4 p-3 bg-white/5 rounded-xl border border-white/10 text-[10px] text-slate-400 leading-relaxed">
+                             Use <strong>Universal Login</strong> to authenticate with this custom strategy. 
+                             Unlike standard email login, this endpoint accepts any provider identifier you define.
+                         </div>
+                     </div>
+                  )}
 
                   {/* RESTORED OTP CONFIGURATION BLOCK (Only for non-OAuth strategies) */}
                   {!isOauth(selectedStrategy || '') && selectedStrategy !== 'email' && (
@@ -1232,6 +1268,7 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                               <option value="email">Email</option>
                               <option value="phone">Phone</option>
                               <option value="cpf">CPF</option>
+                              <option value="gamertag">Gamertag</option>
                           </select>
                       </div>
                       <button onClick={handleCreateUser} disabled={executing} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl mt-4 hover:bg-indigo-700 transition-all">
@@ -1254,6 +1291,59 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                   </div>
               </div>
           </div>
+      )}
+
+      {/* PROVIDER CONFIG MODAL */}
+      {showProviderConfig && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+            <div className="bg-white rounded-[3rem] w-full max-w-md p-10 shadow-2xl relative">
+                <button onClick={() => setShowProviderConfig(null)} className="absolute top-8 right-8 text-slate-300 hover:text-slate-900 transition-colors"><X size={24} /></button>
+                <div className="flex flex-col items-center mb-6">
+                    <div className="w-16 h-16 bg-slate-900 text-white rounded-[1.5rem] flex items-center justify-center shadow-xl mb-4">
+                         {showProviderConfig === 'github' ? <Github size={32}/> : <Globe size={32}/>}
+                    </div>
+                    <h3 className="text-2xl font-black text-slate-900 tracking-tight capitalize">Configure {showProviderConfig}</h3>
+                    <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">OAuth Integration</p>
+                </div>
+                
+                <div className="space-y-4">
+                    <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Client ID</label>
+                        <input 
+                            value={providerConfig.client_id || ''} 
+                            onChange={(e) => setProviderConfig({...providerConfig, client_id: e.target.value})} 
+                            className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-mono text-indigo-600"
+                            placeholder="Received from Provider"
+                        />
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Client Secret</label>
+                        <input 
+                            type="password"
+                            value={providerConfig.client_secret || ''} 
+                            onChange={(e) => setProviderConfig({...providerConfig, client_secret: e.target.value})} 
+                            className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-mono"
+                            placeholder="••••••••••••••••"
+                        />
+                    </div>
+                    
+                    <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 block flex items-center gap-1"><Link size={10}/> Callback URL (Redirect URI)</label>
+                        <div className="flex items-center gap-2 bg-white border border-slate-200 p-2 rounded-xl">
+                            <code className="text-[10px] text-slate-600 font-mono truncate flex-1">{getCallbackUrl()}</code>
+                            <button onClick={() => safeCopy(getCallbackUrl())} className="p-1.5 hover:bg-slate-100 rounded-lg text-indigo-500"><Copy size={12}/></button>
+                        </div>
+                        <p className="text-[9px] text-slate-400 mt-2 px-1 leading-tight">
+                            Add this URL to your OAuth App settings in the Provider's Developer Console.
+                        </p>
+                    </div>
+
+                    <button onClick={handleSaveProviderConfig} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 mt-2">
+                        <CheckCircle2 size={16}/> Save Configuration
+                    </button>
+                </div>
+            </div>
+        </div>
       )}
 
       {/* DELETE CONFIRM */}
