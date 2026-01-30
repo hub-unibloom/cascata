@@ -3,6 +3,7 @@ import { RequestHandler } from 'express';
 import { CascataRequest } from '../types.js';
 import { systemPool } from '../config/main.js';
 import { WebhookService } from '../../services/WebhookService.js';
+import { SystemLogService } from '../../services/SystemLogService.js';
 
 export const detectSemanticAction = (method: string, path: string): string | null => {
     if (path.includes('/tables') && method === 'POST' && path.endsWith('/rows')) return 'INSERT_ROWS';
@@ -97,22 +98,19 @@ export const auditLogger: RequestHandler = (req: any, res: any, next: any) => {
           }
        }
 
-       // 1. Audit Log Insert with Safe Stringify
-       systemPool.query(
-        `INSERT INTO system.api_logs (project_slug, method, path, status_code, client_ip, duration_ms, user_role, payload, headers, geo_info) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [
-            r.project.slug, 
-            req.method, 
-            req.path, 
-            res.statusCode, 
-            clientIp, 
-            duration, 
-            r.userRole || 'unauthorized', 
-            safeStringify(inputPayload), // USE SAFE STRINGIFY
-            safeStringify({ referer: req.headers.referer, userAgent: req.headers['user-agent'] }), 
-            JSON.stringify(geoInfo)
-        ]
-       ).catch(() => {});
+       // 1. Audit Log Insert via Firehose (Optimized)
+       SystemLogService.bufferAuditLog({
+           project_slug: r.project.slug,
+           method: req.method,
+           path: req.path,
+           status_code: res.statusCode,
+           client_ip: clientIp,
+           duration_ms: duration,
+           user_role: r.userRole || 'unauthorized',
+           payload: safeStringify(inputPayload),
+           headers: safeStringify({ referer: req.headers.referer, userAgent: req.headers['user-agent'] }),
+           geo_info: JSON.stringify(geoInfo)
+       });
        
        // 2. Webhook Dispatch (ONLY on Success 2xx)
        if (res.statusCode >= 200 && res.statusCode < 300 && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {

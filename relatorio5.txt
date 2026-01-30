@@ -1,0 +1,66 @@
+
+RELATÓRIO TÉCNICO DE AUDITORIA #5 - PROTOCOLOS, CICLO DE VIDA E BORDAS
+DATA: IMEDIATA
+ESCOPO: ANÁLISE DE IMPLEMENTAÇÃO DE PROTOCOLOS, PARSERS E GESTÃO DE RECURSOS.
+PREMISSA: Foco em falhas de implementação detalhadas que comprometem a integridade dos dados e a estabilidade a longo prazo.
+
+1. LÓGICA QUEBRADA EM PARSERS (Critical Bug)
+--------------------------------------------------------------------------------
+1.1. Parser Ingênuo de Query String (PostgREST)
+   - Arquivo: `backend/services/PostgrestService.ts` -> `parseFilter`
+   - Diagnóstico: O método utiliza `value.split('.')` para separar o operador do valor.
+   - Cenário: Uma query legítima como `?email=eq.john.doe@gmail.com`.
+   - Execução: O split resulta em `['eq', 'john', 'doe@gmail', 'com']`. O operador é identificado corretamente ('eq'), mas o valor capturado é apenas 'john'. O restante é descartado ou causa comportamento imprevisível.
+   - Impacto: Impossibilidade de filtrar por strings que contenham pontos (emails, domínios, valores decimais formatados, filenames), quebrando funcionalidades básicas de CRUD via API REST.
+
+2. VIOLAÇÃO DE ISOLAMENTO EM VETORES (Zero-Trust Breach)
+--------------------------------------------------------------------------------
+2.1. Proxy Vetorial Sem Contexto de Usuário
+   - Arquivo: `backend/src/controllers/VectorController.ts`
+   - Diagnóstico: O método `proxy` repassa o `req.body` diretamente para o Qdrant via Axios: `data: req.body`.
+   - Problema: Diferente do PostgreSQL (onde injetamos `auth.uid()`), o Qdrant não possui contexto de sessão nativo. O sistema confia que o frontend enviará o filtro correto (ex: `filter: { must: [{ key: "user_id", match: { value: "..." } }] }`).
+   - Risco: Um usuário malicioso pode enviar uma requisição via cURL para o endpoint de busca vetorial removendo o filtro de `user_id` ou alterando-o para o ID de outro usuário. Como o proxy não injeta/força esse filtro no payload JSON antes de enviar ao Qdrant, o usuário pode acessar vetores (e payloads associados) de todo o projeto.
+   - Veredito: O Proxy deve interceptar o body, validar a estrutura e *forçar* a injeção do filtro de tenant/usuário baseado no JWT antes de encaminhar ao Qdrant.
+
+3. ARQUITETURA DE FILAS ACOPLADA (Resource Contention)
+--------------------------------------------------------------------------------
+3.1. Inicialização de Workers no Processo da API
+   - Arquivo: `backend/services/QueueService.ts`
+   - Diagnóstico: O método `init()` instancia tanto as `Queue` (Producer) quanto os `Worker` (Consumer) incondicionalmente.
+   - Arquivo: `backend/server.ts`
+   - Contexto: O `server.ts` chama `QueueService.init()` tanto no modo `WORKER` quanto no modo `CONTROL_PLANE` (implicitamente ou para ter acesso às filas).
+   - Problema: Em um cluster com 5 instâncias de API (`backend_data`) e 1 instância de Worker dedicado, TODAS as 6 instâncias estarão processando jobs de background (processando Webhooks e Backups).
+   - Impacto:
+     1. Concorrência desnecessária no banco e Redis.
+     2. Degradação de performance da API (processamento de imagem/backup consumindo CPU da thread de resposta HTTP).
+     3. Risco de "Split Brain" em jobs que não lidam bem com concorrência distribuída se o lock do Redis falhar.
+   - Correção: O método `init()` deve aceitar um parâmetro ou ler `SERVICE_MODE` para decidir se instancia `Worker` ou apenas `Queue`.
+
+4. GESTÃO DE CICLO DE VIDA DE DADOS (Data Rot)
+--------------------------------------------------------------------------------
+4.1. Acúmulo Infinito de Refresh Tokens Revogados
+   - Arquivo: `backend/services/AuthService.ts` -> `refreshSession`
+   - Diagnóstico: O código executa `UPDATE auth.refresh_tokens SET revoked = true` para o token antigo e insere um novo.
+   - Problema: Não existe rotina de limpeza (TTL/Pruning) para tokens revogados ou expirados na tabela `auth.refresh_tokens`.
+   - Impacto: Crescimento linear infinito da tabela de tokens. Em projetos grandes, isso degradará a performance de login/refresh (full scan ou index bloat) e aumentará o custo de armazenamento inultimente. Necessário job de limpeza periódica.
+
+5. FALTA DE SINERGIA E IDEMPOTÊNCIA
+--------------------------------------------------------------------------------
+5.1. Hook de Console Não-Idempotente
+   - Arquivo: `backend/services/SystemLogService.ts`
+   - Diagnóstico: O método `hookConsole` substitui `process.stdout.write`. Não há verificação se já foi hookado.
+   - Risco: Se `init()` for chamado mais de uma vez (ex: em testes, hot-reload em dev, ou reinicialização de componentes), o hook será aplicado sobre o hook anterior.
+   - Impacto: Logs duplicados, triplicados ou Loop infinito de stack overflow se o logger interno tentar escrever no console que chama o logger novamente.
+
+6. SEGURANÇA DE REDE (SSRF Bypass)
+--------------------------------------------------------------------------------
+6.1. Vulnerabilidade a Redirecionamento em Edge Service
+   - Arquivo: `backend/services/EdgeService.ts`
+   - Diagnóstico: O `fetch` polyfill usa `axios` com um `httpAgent` customizado (`safeLookup`) para bloquear IPs privados.
+   - Falha: O Axios é configurado com `maxRedirects: 3`. A validação `validateTargetUrl` ocorre apenas na URL inicial.
+   - Cenário de Ataque: O atacante fornece `http://attacker.com/redirect`. O `validateTargetUrl` aprova (IP público). O servidor do atacante responde com 302 para `http://169.254.169.254/latest/meta-data/`. O Axios segue o redirecionamento.
+   - Risco: O `safeLookup` *deve* pegar isso na resolução DNS do redirecionamento, mas a configuração do agente deve garantir que ele seja reutilizado para os redirecionamentos. Se o Axios criar novos agentes ou se o `lookup` não for chamado para o IP literal no redirect, o SSRF ocorre.
+   - Recomendação: Desabilitar redirecionamentos automáticos (`maxRedirects: 0`) e tratar redirecionamentos manualmente no código, revalidando cada URL alvo contra a lista de bloqueio.
+
+VEREDITO FINAL (RELATÓRIO 5):
+O sistema apresenta maturidade em recursos, mas fragilidade em "Edge Cases" (casos de borda). O parser de query string é um bloqueador funcional imediato. A falta de injeção de contexto no Proxy Vetorial é um bloqueador de segurança grave para aplicações multi-tenant que usam IA. A arquitetura de Workers misturada com API impede o escalonamento eficiente de infraestrutura.

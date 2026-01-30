@@ -1,0 +1,68 @@
+
+RELATÓRIO TÉCNICO DE AUDITORIA #11 - SUTILEZAS DE IMPLEMENTAÇÃO E RISCOS WEB
+DATA: IMEDIATA
+ESCOPO: SDK, CONTROLLERS E COMPORTAMENTOS PADRÃO.
+PREMISSA: Identificação de falhas não cobertas anteriormente, focando na camada de aplicação e comportamento padrão de bibliotecas.
+
+1. INDETERMINISMO EM CHAMADAS RPC (Critical Data Integrity)
+--------------------------------------------------------------------------------
+1.1. Dependência da Ordem de Chaves JSON
+   - Arquivo: `backend/src/controllers/DataController.ts` -> `executeRpc`
+   - Diagnóstico: O código extrai valores para a function Postgres usando `const values = Object.values(params);`.
+   - Problema: O padrão JSON não garante a ordem das chaves. Embora engines V8 modernos preservem a ordem de inserção, proxies, firewalls ou bibliotecas de frontend podem reordenar o objeto `{"a": 1, "b": 2}` para `{"b": 2, "a": 1}`.
+   - Cenário: Uma função SQL `fn_transfer(from_id, to_id)` recebe o JSON. Se as chaves forem invertidas na transmissão, o dinheiro é transferido na direção errada.
+   - Impacto: Corrupção lógica de dados silenciosa e catastrófica.
+   - Correção: O backend deve introspectar os nomes dos argumentos da função (já disponível via `information_schema.parameters`) e mapear os valores do JSON nominalmente antes de passar ao array `values`.
+
+2. VULNERABILIDADES WEB (Stored XSS & CORS Bypass)
+--------------------------------------------------------------------------------
+2.1. Stored XSS via Storage Serving
+   - Arquivo: `backend/src/controllers/StorageController.ts` -> `serveFile`
+   - Diagnóstico: O método usa `res.sendFile(filePath)`. O Express/Send tenta adivinhar o `Content-Type` baseado na extensão.
+   - Vetor: Um usuário malicioso faz upload de um arquivo contendo HTML/JS malicioso nomeado como `relatorio.html` ou `image.svg` (SVGs podem conter script).
+   - Execução: Quando outro usuário (ex: admin) acessa a URL gerada por `serveFile`, o navegador renderiza o HTML/Script no contexto de origem do domínio da API.
+   - Impacto: Roubo de cookies `admin_token` (se não forem HttpOnly estrito) ou execução de ações em nome do usuário logado.
+   - Correção: Forçar header `Content-Disposition: attachment` ou `Content-Security-Policy: sandbox` para arquivos servidos diretamente, exceto para whitelists estritas de imagens seguras (jpg, png).
+
+2.2. Bypass de CORS via Subdomínio Fraco
+   - Arquivo: `backend/src/middlewares/security.ts` -> `dynamicCors`
+   - Diagnóstico: `if (origin && (origin.includes('localhost') || origin.includes('127.0.0.1')))`.
+   - Vetor: Um atacante registra o domínio `localhost.evil.com` ou `127.0.0.1.attacker.net`.
+   - Execução: O navegador envia a Origin. O `includes` retorna verdadeiro. A API reflete o domínio atacante no header `Access-Control-Allow-Origin` e define `Access-Control-Allow-Credentials: true`.
+   - Impacto: CSRF/Exfiltração de dados em ambientes que assumem estar rodando em "modo dev" ou "público".
+
+3. EFICIÊNCIA DE RECURSOS (Resource Leak)
+--------------------------------------------------------------------------------
+3.1. Exhaustão de Conexões SMTP (Nodemailer)
+   - Arquivo: `backend/services/AuthService.ts` -> `sendEmail`
+   - Diagnóstico: `const transporter = nodemailer.createTransport(...)` é chamado DENTRO do método, a cada envio de email.
+   - Problema: Cada chamada cria um novo pool de conexões TCP/TLS com o servidor SMTP (Gmail, AWS SES, etc).
+   - Impacto: Sob carga (ex: disparo de newsletter ou muitos signups), o servidor SMTP bloqueará o IP por excesso de conexões simultâneas ou handshake overhead. O Node.js sofrerá com `EMFILE` ou timeouts.
+   - Correção: O `transporter` deve ser um Singleton inicializado uma vez (ou com rotação inteligente) e reutilizado.
+
+3.2. Multiplicação de Conexões Redis no QueueService
+   - Arquivo: `backend/services/QueueService.ts` -> `init`
+   - Diagnóstico: `new Queue(...)` e `new Worker(...)` são instanciados criando suas próprias conexões Redis internas (padrão do BullMQ se não passar `connection`).
+   - Contagem: 3 Filas + 2 Workers = 5 conexões Redis por instância do Node.js.
+   - Impacto: Em um cluster com 10 réplicas, são 50 conexões ociosas mantendo keepalive no Redis. O BullMQ suporta reutilização de conexão `ioredis`. Deveria ser instanciado um cliente Redis compartilhado e passado na opção `{ connection: sharedRedisClient }`.
+
+4. SEGURANÇA DO CLIENTE (SDK Design Flaw)
+--------------------------------------------------------------------------------
+4.1. Persistência Insegura Padrão no SDK
+   - Arquivo: `frontend/lib/cascata-sdk.ts` -> `saveSession`
+   - Diagnóstico: `localStorage.setItem(key, JSON.stringify(session));`
+   - Problema: `localStorage` é acessível por qualquer JavaScript rodando na página. Qualquer falha XSS (Cross-Site Scripting) na aplicação que usa o SDK resulta no roubo imediato do `access_token` e `refresh_token`.
+   - Impacto: Comprometimento de contas de usuários finais.
+   - Correção: O SDK deveria padronizar o armazenamento em memória (`inMemory`) e oferecer `localStorage` apenas como opt-in explícito, ou usar Cookies `HttpOnly` geridos pelo backend (o que exige mudança na arquitetura de auth para set-cookie headers).
+
+5. INTEGRIDADE DE TIPOS NO BANCO (Postgres Casting)
+--------------------------------------------------------------------------------
+5.1. Armazenamento de Binário em Campo Texto (Vault)
+   - Arquivo: `backend/src/controllers/SecretsController.ts`
+   - Migration: `024_secure_vault.sql.txt` -> `secret_value TEXT`
+   - Código: `pgp_sym_encrypt($6, $7)` retorna `bytea`.
+   - Problema: O PostgreSQL pode converter implicitamente `bytea` para `text` usando representação escape hex (`\x...`), aumentando o tamanho do armazenamento em 2x a 4x. Além disso, dependendo do encoding do banco (UTF8 vs LATIN1), sequências de bytes criptografados podem ser inválidas para campos TEXT, causando erros de inserção.
+   - Correção: A coluna `secret_value` deve ser explicitamente `BYTEA` ou o valor deve ser codificado em Base64 *antes* da inserção e criptografia, garantindo compatibilidade de string.
+
+VEREDITO FINAL (RELATÓRIO 11):
+O sistema apresenta vulnerabilidades clássicas de aplicações web (XSS via upload, CORS permissivo) e ineficiências na gestão de conexões externas (SMTP, Redis). A confiança na ordem de chaves JSON para RPCs é um erro crítico de design de API que deve ser corrigido imediatamente para garantir a integridade transacional.

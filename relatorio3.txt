@@ -1,0 +1,75 @@
+
+RELATÓRIO TÉCNICO DE AUDITORIA #3 - ESCALABILIDADE & RESILIÊNCIA DISTRIBUÍDA
+DATA: IMEDIATA
+PREMISSA: Correções de R1 e R2 aplicadas.
+ESCOPO: ANÁLISE DE CENÁRIOS DISTRIBUÍDOS, CONSISTÊNCIA DE DADOS E LIMITES DE I/O.
+
+1. LACUNAS REAIS (Distributed Consistency & I/O Bottlenecks)
+--------------------------------------------------------------------------------
+1.1. Incoerência de Cache L1 em Ambiente Clusterizado
+   - Arquivo: `backend/services/RateLimitService.ts`
+   - Diagnóstico: O serviço implementa um cache em memória (L1 `keysCache` e `groupsCache`) com TTL de 60s para evitar hits excessivos no Redis/DB.
+   - Problema: Em um cenário com múltiplas réplicas do `backend_data`, a alteração de um Plano (Key Group) ou revogação de uma API Key em uma instância não se propaga para as outras até o TTL expirar. Um cliente bloqueado pode continuar acessando a API por até 1 minuto em outras instâncias.
+   - Impacto: Janela de vulnerabilidade de segurança e inconsistência de cobrança/limites. Falta um mecanismo de Pub/Sub (Redis Channel) para invalidar o cache local de todas as instâncias quando ocorre uma escrita.
+
+1.2. Gargalo de Escrita de Logs Estruturados (Write Amplification)
+   - Arquivo: `backend/middlewares/logging.ts`
+   - Diagnóstico: O middleware `auditLogger` insere cada requisição HTTP diretamente no PostgreSQL (`system.api_logs`).
+   - Problema: O PostgreSQL não é otimizado para alta ingestão de logs (Append-Only) concorrendo com transações OLTP de negócio. Sob carga de 10k RPS, o banco de sistema travará devido a I/O de disco (WAL) e autovacuum na tabela de logs, derrubando todo o Control Plane.
+   - Veredito: Logs de alta frequência devem ser enviados para um "Firehose" (ex: Redis Stream, Kafka) e processados em lote (Batch Insert) por um Worker dedicado, ou movidos para um banco OLAP (ClickHouse/Elastic).
+
+2. PONTAS SOLTAS (Loose Ends)
+--------------------------------------------------------------------------------
+2.1. Uploads Grandes e Ephemeral Storage
+   - Arquivo: `backend/services/GDriveService.ts` (e S3 wrapper se houver buffer)
+   - Diagnóstico: Método `uploadStream` cria um arquivo temporário em disco (`fs.createWriteStream(tempPath)`) para calcular o tamanho antes de enviar.
+   - Problema: Em ambientes Serverless ou Containers com sistema de arquivos efêmero/limitado (ex: Fargate, Cloud Run com 20GB), uploads concorrentes de arquivos grandes (ex: vídeos de 2GB) esgotarão o espaço em disco do container, causando `ENOSPC` e crash da aplicação.
+   - Solução Necessária: Streaming "Pass-Through" real sem buffer em disco, ou validação estrita do espaço em disco disponível antes de aceitar o stream.
+
+2.2. Race Condition na Migração Automática
+   - Arquivo: `backend/services/MigrationService.ts`
+   - Diagnóstico: O uso de `pg_try_advisory_lock` evita conflito de execução, mas a lógica de "Skip if locked" pode fazer com que uma instância inicie *antes* que a migração crítica (ex: nova coluna) termine na instância líder.
+   - Impacto: A instância secundária pode tentar fazer queries em colunas que ainda não existem, gerando erros 500 intermitentes durante o deploy. O sistema deveria aguardar (spin-wait) a liberação do lock em vez de pular a verificação.
+
+3. CÓDIGO PROBLEMÁTICO (Context Leakage Risk)
+--------------------------------------------------------------------------------
+3.1. Risco de Vazamento de Contexto RLS (Connection Pooling)
+   - Arquivo: `backend/src/utils/index.ts` -> `queryWithRLS`
+   - Diagnóstico: O código usa `client.query('BEGIN')` ... `set_config` ... `COMMIT/ROLLBACK`.
+   - Problema: Se ocorrer um erro catastrófico que impeça a execução do `ROLLBACK` ou se a conexão for devolvida ao pool "suja" (ex: crash do processo Node.js antes do release, embora raro com try/finally), a próxima requisição que pegar essa conexão pode herdar as variáveis de sessão (`request.jwt.claim.*`) do usuário anterior se o Pooler (PgBouncer) não estiver configurado com `DISCARD ALL` ou se estiver em modo Session.
+   - Mitigação: Garantir `RESET ALL` explícito no `finally` antes do `release()`, não confiar apenas no comportamento transacional do driver.
+
+3.2. Bloqueio de Event Loop por Edge Functions
+   - Arquivo: `backend/services/EdgeService.ts`
+   - Diagnóstico: O uso de `isolated-vm` protege a memória, mas a orquestração (chamadas de banco, rede) roda na Main Thread do Node.js.
+   - Problema: Se 100 requisições simultâneas dispararem Edge Functions que fazem parsing pesado de JSON ou criptografia (mesmo que dentro do Isolate, a serialização da ponte Isolate <-> Node é custosa), o Event Loop do Express será bloqueado, aumentando a latência de todas as outras rotas, inclusive healthchecks.
+   - Veredito: Execução de Edge Functions deve ocorrer em uma Thread Pool separada (Worker Threads) ou serviço isolado, não no processo principal da API.
+
+4. FALTA DE SINERGIA
+--------------------------------------------------------------------------------
+4.1. "Zombie Killers" Competitivos
+   - Arquivo: `backend/services/PoolService.ts`
+   - Diagnóstico: `initReaper` é chamado no `server.ts`.
+   - Problema: Se escalarmos para 10 instâncias do Backend, teremos 10 processos rodando `setInterval` para matar conexões ociosas no MESMO banco de dados. Isso gera ruído desnecessário no banco e condições de corrida onde múltiplos backends tentam matar a mesma sessão.
+   - Solução: Tarefas de manutenção de banco devem ser exclusivas de um nó "Leader" ou rodar via Cron Job externo, não descentralizadas em cada instância da API.
+
+5. MOCKS E ABSTRAÇÕES FALSAS
+--------------------------------------------------------------------------------
+5.1. Abstração de Backup "Restore"
+   - Arquivo: `ImportService.ts`
+   - Diagnóstico: A função `restoreProject` destrói o schema `public` e recria.
+   - Problema: Em produção, isso é um "Downtime Event". Não há suporte a "Blue/Green Deployment" de dados (restaurar em um schema temporário `public_next`, trocar o ponteiro e dropar o antigo).
+   - Impacto: Qualquer falha no meio do restore deixa o projeto em estado zumbi (sem tabelas antigas, sem tabelas novas completas). A operação não é atômica no nível da aplicação (apenas no nível de transação SQL, mas arquivos e vetores correm por fora).
+
+6. RISCOS TÉCNICOS E CONCEITUAIS
+--------------------------------------------------------------------------------
+6.1. Dependência de Superusuário para Manutenção
+   - Diversos serviços (`PoolService`, `ImportService`) assumem que o usuário do banco (`DB_USER`) tem permissão para `pg_terminate_backend`, `CREATE ROLE`, `CREATE DATABASE`.
+   - Risco: Em ambientes de banco gerenciado (AWS RDS, Azure, Supabase, Neon), o usuário fornecido geralmente NÃO é superusuário. O sistema falhará ao tentar orquestrar tarefas administrativas que exigem `SUPERUSER`. A arquitetura deve suportar operação com privilégios limitados.
+
+6.2. Service Key "God Mode"
+   - O sistema utiliza uma única `service_key` para todas as operações administrativas internas (CRON, Webhooks, Admin API).
+   - Risco: Se essa chave vazar (ex: commit acidental de um dev num Edge Function), o atacante tem controle total. Deveria haver escopos para chaves de serviço (ex: `service_role:storage`, `service_role:auth`).
+
+VEREDITO FINAL (RELATÓRIO 3):
+O sistema evoluiu de "Funcional" para "Robusto", mas ainda opera sob uma mentalidade "Monolítica" que não sobreviverá a uma escala elástica (Kubernetes/Auto-scaling). Os maiores riscos agora residem na coordenação de estado distribuído (Cache L1, Logs, Jobs Competitivos) e na gestão de recursos finitos (Disco, CPU) sob carga de múltiplos tenants. A separação entre Control Plane e Data Plane precisa ser física (serviços distintos), não apenas lógica (rotas distintas).

@@ -21,9 +21,11 @@ export class QueueService {
     private static webhookQueue: Queue;
     private static pushQueue: Queue;
     private static backupQueue: Queue;
+    private static maintenanceQueue: Queue; // Nova fila para limpeza
     
     private static pushWorker: Worker;
     private static backupWorker: Worker;
+    private static maintenanceWorker: Worker;
 
     private static async validateTarget(targetUrl: string): Promise<void> {
         try {
@@ -51,9 +53,10 @@ export class QueueService {
         });
 
         // 3. Backup Scheduler Queue
-        this.backupQueue = new Queue('cascata-backups', {
-            ...REDIS_CONFIG
-        });
+        this.backupQueue = new Queue('cascata-backups', { ...REDIS_CONFIG });
+
+        // 4. Maintenance Queue (System cleanup)
+        this.maintenanceQueue = new Queue('cascata-maintenance', { ...REDIS_CONFIG });
 
         // --- WORKERS ---
 
@@ -85,7 +88,34 @@ export class QueueService {
                 console.error(`[Queue:Backup] Error processing policy ${policyId}:`, error.message);
                 throw error;
             }
-        }, { ...REDIS_CONFIG, concurrency: 2 }); // Limit concurrency to avoid overloading CPU with compression
+        }, { ...REDIS_CONFIG, concurrency: 2 });
+
+        // Maintenance Worker (Log Purge)
+        this.maintenanceWorker = new Worker('cascata-maintenance', async (job: Job) => {
+            if (job.name === 'purge-logs') {
+                console.log('[Queue:Maintenance] Running global log purge...');
+                try {
+                    // Itera todos os projetos e limpa logs antigos baseado na retention policy
+                    const projects = await systemPool.query('SELECT slug, log_retention_days FROM system.projects');
+                    let totalPurged = 0;
+                    
+                    for (const proj of projects.rows) {
+                        const days = proj.log_retention_days || 30;
+                        const res = await systemPool.query(`SELECT system.purge_old_logs($1, $2)`, [proj.slug, days]);
+                        totalPurged += parseInt(res.rows[0].purge_old_logs);
+                    }
+                    console.log(`[Queue:Maintenance] Purged ${totalPurged} old logs.`);
+                } catch (e: any) {
+                    console.error('[Queue:Maintenance] Log purge failed:', e.message);
+                }
+            }
+        }, { ...REDIS_CONFIG });
+
+        // Schedule Maintenance Jobs (Daily at 4 AM)
+        this.maintenanceQueue.add('purge-logs', {}, {
+            repeat: { pattern: '0 4 * * *' },
+            jobId: 'system-log-purge'
+        }).catch(e => console.error("Failed to schedule log purge", e));
     }
 
     public static async addPushJob(data: any) {

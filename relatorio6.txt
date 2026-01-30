@@ -1,0 +1,80 @@
+
+RELATÓRIO TÉCNICO DE AUDITORIA #6 - SEGURANÇA OFENSIVA E ANOMALIAS ESTRUTURAIS
+DATA: IMEDIATA
+ESCOPO: VULNERABILIDADES LÓGICAS, BYPASS DE CONTROLES E INTEGRIDADE.
+PREMISSA: Foco em vetores de ataque não triviais e falhas de design silenciosas.
+
+1. SEGURANÇA DE REDE E BYPASS (Critical Logic Flaw)
+--------------------------------------------------------------------------------
+1.1. Bypass de "Domain Locking" via Host Header Spoofing
+   - Arquivo: `backend/src/middlewares/core.ts` -> `resolveProject`
+   - Diagnóstico: A lógica verifica `if (project.custom_domain && resolutionMethod === 'slug')`. Para bloquear acesso direto via slug quando existe domínio customizado, ela checa: `const isDev = host.includes('localhost') || host.includes('127.0.0.1')`.
+   - Vetor de Ataque: Um atacante pode enviar uma requisição para o IP público do servidor de produção (ou o domínio padrão `api.cascata.io`) definindo o header `Host: localhost`.
+   - Execução: `curl -H "Host: localhost" https://api.production.com/api/data/projeto-secreto/...`
+   - Resultado: A variável `isDev` torna-se `true`. O middleware libera o acesso direto via slug, ignorando a política de segurança que exigiria o acesso via `custom_domain`.
+   - Impacto: Evasão completa da política de restrição de domínio, expondo APIs que deveriam estar restritas a um domínio específico (e possivelmente protegido por WAF externo).
+
+2. GESTÃO DE SESSÃO E IDENTIDADE (Broken Authentication)
+--------------------------------------------------------------------------------
+2.1. Logout Incompleto (Refresh Token Zombie)
+   - Arquivo: `backend/services/GoTrueService.ts` -> `handleLogout`
+   - Diagnóstico: O método chama `RateLimitService.blacklistToken(token)` para revogar o *Access Token* (JWT).
+   - Falha: O *Refresh Token* associado àquela sessão **não é revogado** no banco de dados (`auth.refresh_tokens`).
+   - Cenário:
+     1. Atacante rouba o par Access/Refresh Token.
+     2. Vítima faz logout (invalida o Access Token atual via blacklist).
+     3. Atacante usa o Refresh Token roubado para gerar um *novo* Access Token válido.
+   - Impacto: Persistência de sessão maliciosa mesmo após logout explícito do usuário legítimo.
+
+3. INTEGRIDADE DE DADOS E BACKUP (Silent Corruption)
+--------------------------------------------------------------------------------
+3.1. Falha Silenciosa em Streaming de Backup HTTP
+   - Arquivo: `backend/services/BackupService.ts` -> `streamExport`
+   - Diagnóstico: O método define headers (200 OK, attachment) e inicia o pipe do `fs.createReadStream`. A geração do arquivo (`generateBackupToFile`) ocorre antes.
+   - Problema: Se `generateBackupToFile` falhar parcialmente (ex: erro no dump do Postgres no meio do processo ou erro de I/O de disco cheio) *antes* de finalizar o ZIP, mas *depois* de criar o arquivo vazio/parcial, o endpoint retornará um arquivo ZIP corrompido ou truncado com status HTTP 200.
+   - Risco: O usuário baixa um backup de 0 bytes ou incompleto achando que está seguro. Não há verificação de integridade (hash/checksum) antes de iniciar o stream de resposta HTTP.
+
+4. VETORES DE ATAQUE DE RECURSOS (DoS)
+--------------------------------------------------------------------------------
+4.1. Exaustão de Memória Redis via IP Spoofing
+   - Arquivo: `backend/services/RateLimitService.ts` -> `check`
+   - Arquivo: `backend/src/middlewares/security.ts` -> `dynamicRateLimiter`
+   - Diagnóstico: A chave do Redis é formada por `rate:{slug}:{tier}:{IP}:{rule}`. O IP é extraído de `x-forwarded-for` ou `x-real-ip`.
+   - Vetor: Se o Nginx não estiver configurado para *limpar* esses headers de requisições externas (trust proxy mal configurado), um atacante pode enviar milhões de requisições com IPs falsos randômicos (`X-Real-IP: <random>`).
+   - Impacto: Criação de milhões de chaves únicas no Redis em segundos. Como o `RateLimitService` usa `incr` e `expire`, cada chave consome RAM. Isso levará à exaustão da memória do Redis e queda do serviço global (System-wide DoS).
+
+5. LÓGICA DE BANCO DE DADOS (Schema Design Flaw)
+--------------------------------------------------------------------------------
+5.1. Colisões de Nomes no Vault (NULL Unique Constraint)
+   - Arquivo: `backend/migrations/024_secure_vault.sql.txt`
+   - Diagnóstico: `UNIQUE(project_slug, parent_id, name)`.
+   - Comportamento SQL Padrão: Em muitas versões do PostgreSQL, `NULL` em constraints UNIQUE é considerado distinto. Ou seja, `(slug, NULL, 'senha')` != `(slug, NULL, 'senha')`.
+   - Problema: Na raiz do cofre (`parent_id` é NULL), o banco pode permitir múltiplos segredos com o mesmo `name`.
+   - Impacto: O `SecretsController.list` ou `.reveal` pode retornar o segredo errado ou falhar se houver duplicatas, quebrando a consistência da UI e a expectativa de unicidade de chaves. (Nota: PG 15+ tem `NULLS NOT DISTINCT`, mas a migration não especifica isso).
+
+6. RISCOS DE IA E RCE (Remote Code Execution)
+--------------------------------------------------------------------------------
+6.1. RCE via Agente MCP (Full Power Mode)
+   - Arquivo: `backend/services/McpService.ts` -> `manage_edge_function`
+   - Diagnóstico: A ferramenta permite `action: 'create'` recebendo `code` arbitrário em JS/TS.
+   - Cenário: Se a governança estiver em `read_write` (padrão em dev), um Agente MCP (ou atacante com a Service Key) pode criar uma Edge Function que:
+     1. Importa `process` via `env`.
+     2. Usa o `_cascata_utils` ou a conexão `db` injetada.
+     3. Executa lógica maliciosa para exfiltrar todas as variáveis de ambiente (`process.env`) ou deletar dados do sistema.
+   - Agravante: Edge Functions têm acesso à rede (`fetch`). A função maliciosa pode enviar os segredos para um servidor externo.
+   - Veredito: O nível de confiança dado ao Agente no modo `read_write` equivale a dar acesso SSH restrito, mas suficiente para danos catastróficos.
+
+7. PERFORMANCE DE RUNTIME (Edge Overhead)
+--------------------------------------------------------------------------------
+7.1. Serialização Excessiva na Ponte Isolate (CPU Burn)
+   - Arquivo: `backend/services/EdgeService.ts` -> `db.query` callback
+   - Diagnóstico: `return new ivm.ExternalCopy(JSON.parse(JSON.stringify(result.rows))).copyInto();`
+   - Problema:
+     1. `result.rows` (Objeto JS do driver PG) -> String JSON (`JSON.stringify`).
+     2. String JSON -> Objeto JS (`JSON.parse`).
+     3. Objeto JS -> Serialização IVM (`ExternalCopy`).
+     4. Deserialização dentro do Isolate.
+   - Impacto: Para queries retornando 1MB de dados, isso triplica o uso de memória e bloqueia o Event Loop do Node.js principal durante a stringificação/parsing síncronos. Edge Functions intensivas em dados degradarão severamente a performance da API principal.
+
+VEREDITO FINAL (RELATÓRIO 6):
+O sistema possui vulnerabilidades de segurança ofensiva clássicas (Host Header, Logout Incompleto) e riscos de infraestrutura (Redis DoS, Backup Corrompido). A "inteligência" do sistema (MCP/Edge) cria uma superfície de ataque ampla para execução de código arbitrário se as chaves vazarem. A arquitetura precisa de hardening em nível de protocolo (HTTP/Headers) e ciclo de vida de sessão.

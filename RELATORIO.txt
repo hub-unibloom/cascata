@@ -1,0 +1,69 @@
+RELATÓRIO DE AUDITORIA TÉCNICA - CASCATA BAAS
+
+1. Lacunas reais
+
+1.1. Healthcheck do Qdrant no Docker Compose
+- Diagnóstico: O healthcheck do serviço `qdrant` em `docker-compose.yml` executa `test: ["CMD-SHELL", "sleep 3; exit 0"]`.
+- Impacto: Isso é um healthcheck "falso" que sempre retorna sucesso após 3 segundos, independentemente do estado real do serviço. Se o Qdrant falhar ao iniciar, os serviços dependentes (`backend_control`, `backend_data`) tentarão conectar prematuramente ou falharão sem que o orquestrador perceba o problema raiz.
+
+1.2. Implementação parcial de Storage Providers
+- Diagnóstico: Em `StorageService.ts`, o método `delete` lança erro para Google Drive: `Error("Google Drive deletion by path is not supported via this API (Requires ID).")`.
+- Impacto: A interface de usuário (`StorageExplorer.tsx`) permite selecionar e tentar deletar arquivos. Se o provider for GDrive, a ação falhará no backend, quebrando a expectativa de funcionalidade completa do gerenciador de arquivos. Não há mecanismo de resolução de Path para ID implementado para este provider no método de delete.
+
+1.3. Hardcoding de Modelos de IA
+- Diagnóstico: Em `AiService.ts`, os modelos `gemini-3-flash-preview` e `gemini-3-pro-preview` estão hardcoded nas chamadas.
+- Impacto: Modelos "preview" da Google têm ciclo de vida curto. Se a API mudar ou descontinuar esses modelos específicos, a funcionalidade de inteligência (Architect, Docs, SQL Fix) quebrará, exigindo recompilação do backend. Isso deveria estar parametrizado via variáveis de ambiente ou banco de dados.
+
+2. Pontas soltas
+
+2.1. Arquivo de Migração Vazio
+- Diagnóstico: O arquivo `backend/migrations/003_n8n_support.sql.txt` contém apenas comentários dizendo que o suporte foi removido.
+- Impacto: Manter arquivos de migração vazios polui o histórico e pode gerar confusão sobre a integridade do schema. Embora preserve a numeração, indica uma decisão de design que deixou "lixo" no repositório.
+
+2.2. Referências a Cloud Backup não implementado
+- Diagnóstico: Em `ProjectLogs.tsx`, há um card "Cloud Backup" com um badge "EM BREVE".
+- Impacto: Interface com promessa de funcionalidade futura sem implementação correspondente no backend atual para exportação automática de logs para nuvem.
+
+3. Código problemático
+
+3.1. Risco de N+1 no Realtime Service
+- Diagnóstico: Em `RealtimeService.ts`, o método `handleNotification` detecta payload vazio e tenta "hidratar" (buscar) o registro executando uma query `SELECT` via `PoolService`.
+- Impacto: Em cenários de alta carga (ex: Batch Insert de 10.000 linhas), isso gerará 10.000 queries de leitura imediatas contra o banco de dados ("Hydration Storm"), potencialmente causando DDoS autoinfligido.
+
+3.2. Implementação Fake de OAuth
+- Diagnóstico: `AuthService.getAuthUrl` recebe um parâmetro `provider`. O código contém `if (provider === 'google') ...` e `if (provider === 'github') ...`, lançando erro para qualquer outro.
+- Impacto: A promessa de uma arquitetura "agnóstica" de providers é parcialmente falsa. Adicionar um novo provider exige alteração hardcoded no `AuthService`, violando o princípio Open/Closed.
+
+3.3. Risco de Segurança em EdgeService (Dependência Externa)
+- Diagnóstico: O `EdgeService.ts` baixa dependências dinamicamente de `https://esm.sh/`.
+- Impacto: Risco de Supply Chain Attack. Não há verificação de integridade (SRI/Checksum) nos scripts baixados. Se o `esm.sh` for comprometido ou servir um código malicioso, as Edge Functions executarão código arbitrário.
+
+4. Falta de sinergia
+
+4.1. Logging de Workers Invisível
+- Diagnóstico: Em `SystemLogService.ts`, há uma verificação: `if (process.env.SERVICE_MODE === 'WORKER') return;`.
+- Impacto: O serviço de logs do sistema ignora explicitamente os Workers. Falhas críticas no processamento de background jobs (Backups, Webhooks, Push) não aparecerão no painel de logs do sistema ("Observability Hub"), criando um ponto cego operacional.
+
+4.2. Log de Auditoria vs Log de Aplicação
+- Diagnóstico: O sistema usa `system.api_logs` para auditoria de requisições HTTP e também para logs genéricos do sistema (via `SystemLogService` hookando stdout/stderr).
+- Impacto: Mistura logs estruturados de tráfego com logs não estruturados de runtime na mesma tabela/stream, dificultando a análise e possivelmente poluindo métricas de tráfego com logs de depuração.
+
+5. Mocks e abstrações falsas
+
+5.1. Qdrant Healthcheck
+- Diagnóstico: Como mencionado em 1.1, o healthcheck do Qdrant é um comando shell `sleep 3; exit 0`.
+- Impacto: Abstração falsa de saúde do serviço. O orquestrador assume que o serviço está pronto apenas baseado no tempo, não na real disponibilidade da porta ou da aplicação.
+
+6. Riscos técnicos e conceituais
+
+6.1. Armazenamento de Chaves em Memória no Frontend
+- Diagnóstico: `AuthConfig.tsx` e `ProjectSettings.tsx` expõem segredos (Service Key, JWT Secret) e, em alguns fluxos, armazenam isso no estado do React.
+- Impacto: A exposição dessas chaves na interface administrativa (mesmo que via HTTPS) aumenta o risco de vazamento via XSS ou acesso físico à máquina do administrador logado.
+
+6.2. Concorrência no Cache de Arquivos (Edge)
+- Diagnóstico: `EdgeService.ts` escreve arquivos de cache em `system_cache/deps` sem lock de arquivo.
+- Impacto: Em um ambiente com múltiplas instâncias do Backend ou concorrência alta na mesma instância, pode haver corrupção de arquivo se dois processos tentarem escrever o mesmo módulo cacheado simultaneamente.
+
+6.3. Injeção de SQL via RLS Designer
+- Diagnóstico: `RLSDesigner` envia SQL cru para `DataController.runRawQuery` (via proxy no frontend `handleDeploy`).
+- Impacto: Risco elevado. Embora exija autenticação de serviço, permite que um admin autenticado execute qualquer SQL arbitrário no banco, bypassando validações de estrutura. Se a conta de admin for comprometida, o atacante tem execução remota de código SQL total.

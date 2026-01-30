@@ -1,0 +1,64 @@
+
+RELATÓRIO TÉCNICO DE AUDITORIA #10 - ESTABILIDADE DE RUNTIME E INTEGRAÇÃO
+DATA: IMEDIATA
+ESCOPO: PONTE EDGE/DB, PROVEDORES EXTERNOS E INTEGRIDADE DE ARQUIVOS.
+PREMISSA: Foco em falhas de processo que derrubam o Node.js ou corrompem estados de longo prazo.
+
+1. CRASH DE PROCESSO EM EDGE FUNCTIONS (Unhandled Rejection)
+--------------------------------------------------------------------------------
+1.1. Quebra da Ponte Isolate-Node em Timeouts
+   - Arquivo: `backend/services/EdgeService.ts` -> `jail.set('db', ...)`
+   - Diagnóstico: O método `db.query` é uma referência assíncrona executada no host (Node.js). Se a Edge Function atingir o timeout (`module.evaluate({ timeout: timeoutMs })`), o `isolate` é descartado (`isolate.dispose()`).
+   - O Erro: Se uma query SQL estiver em andamento quando o timeout ocorrer, a Promise do banco retornará *após* o Isolate morrer. O callback tentará executar `new ivm.ExternalCopy(...)` para passar os dados de volta.
+   - Resultado: O método `ExternalCopy` lançará "Error: Isolate is disposed". Como isso acontece dentro de uma Promise chain assíncrona iniciada pelo Isolate (que já não existe), essa exceção pode se tornar uma `UnhandledPromiseRejection`, derrubando o processo principal da API se não tratada especificamente no callback da ponte.
+   - Correção: Envolver o retorno da ponte `db.query` em um try-catch específico que verifica `isolate.isDisposed` antes de tentar copiar dados de volta.
+
+2. TRAVAMENTO DE WORKERS (Infinite Network Wait)
+--------------------------------------------------------------------------------
+2.1. Axios sem Timeout no Push Engine
+   - Arquivo: `backend/services/PushProcessor.ts` -> `processDelivery`
+   - Diagnóstico: As chamadas `axios.post` para o Google FCM não possuem configuração de `timeout`.
+   - Problema: O padrão do Axios é timeout `0` (infinito). Se a API do Google aceitar a conexão mas não responder (socket hang) ou houver falha de rede silenciosa (firewall drop), a Promise nunca resolve.
+   - Impacto: O Worker do BullMQ ficará preso processando aquele job indefinidamente (ou até o timeout do job, que trava a concorrência). Se muitos jobs travarem, a fila para de ser processada.
+   - Solução: Adicionar `{ timeout: 10000 }` (10s) em todas as chamadas externas.
+
+3. CORRUPÇÃO DE BACKUP POR LIMPEZA (GC Race Condition)
+--------------------------------------------------------------------------------
+3.1. Garbage Collector de Arquivos Temporários Agressivo
+   - Arquivo: `backend/server.ts` -> `cleanTempUploads`
+   - Lógica: `if (now - stats.mtimeMs > 3600 * 1000)`. Remove arquivos com mais de 1 hora.
+   - Cenário: Um backup de um banco de dados muito grande (terabytes) ou upload lento para S3 pode levar mais de 1 hora para ser gerado/transmitido.
+   - Falha: O `cleanTempUploads` deletará o arquivo `.zip` ou `.caf` temporário *enquanto* ele ainda está sendo escrito ou lido pelo stream de upload.
+   - Resultado: O processo de backup falha com erro de I/O (`ENOENT` ou `EBADF`).
+   - Correção: Verificar se o arquivo está aberto por algum processo (difícil em Node puro) ou, melhor, atualizar o `mtime` do arquivo periodicamente durante o processo de geração/upload (touch) para evitar a coleta.
+
+4. INCONSISTÊNCIA DE ARMAZENAMENTO (Orphaned Files)
+--------------------------------------------------------------------------------
+4.1. Arquivos Zumbis em Falha de Indexação
+   - Arquivo: `backend/src/controllers/StorageController.ts` -> `uploadFile`
+   - Fluxo: 
+     1. Upload físico (`StorageService.upload`).
+     2. Indexação no Banco (`StorageIndexer.indexObject`).
+   - Problema: Se a etapa 2 falhar (ex: erro de conexão com PG, violação de constraint, deadlock), o arquivo já foi salvo no disco/S3 na etapa 1.
+   - Resultado: O arquivo existe fisicamente e consome cota/custo, mas é invisível no painel do sistema e no banco de dados. Não há rotina de compensação (rollback) para deletar o arquivo físico se o index falhar.
+   - Correção: Envolver a indexação em try-catch e, no catch, executar a deleção física do arquivo recém-criado.
+
+5. FRAGILIDADE DE IMPORTAÇÃO (Regex Brittle)
+--------------------------------------------------------------------------------
+5.1. Manipulação de SQL via Regex Instável
+   - Arquivo: `backend/services/ImportService.ts` -> `restoreProject`
+   - Diagnóstico: `sqlContent.replace(/^CREATE SCHEMA public;/gm, ...)`
+   - Problema: Regex baseada em strings exatas é frágil. Se a ferramenta que gerou o dump (pg_dump de versão diferente) adicionar um comentário, espaço extra ou aspas (`CREATE SCHEMA "public";`), o replace falha silenciosamente.
+   - Impacto: O script tentará criar o schema public novamente, causando erro fatal no restore ("schema already exists") e abortando a operação, deixando o banco em estado inconsistente.
+
+6. VETOR DE STRESS EM SIMULAÇÃO RLS (Database DoS)
+--------------------------------------------------------------------------------
+6.1. Abuso de EXPLAIN ANALYZE
+   - Arquivo: `frontend/pages/RLSDesigner.tsx` -> `handleSimulate`
+   - Backend: `DataController.runRawQuery`
+   - Diagnóstico: O simulador executa `EXPLAIN (FORMAT JSON, ANALYZE) ...`. O comando `ANALYZE` *executa* a query de fato para medir o tempo real.
+   - Vetor: Um usuário malicioso (com acesso ao painel) pode criar uma política RLS propositalmente pesada (ex: Cross Join cartesiano, funções recursivas) e clicar repetidamente em "Run Simulation".
+   - Impacto: O banco de dados de produção sofrerá carga real de processamento dessas queries pesadas, podendo degradar a performance para todos os usuários reais, mesmo que a política não esteja salva/ativa. O timeout de 20s ajuda, mas concorrência de simulações pode saturar a CPU.
+
+VEREDITO FINAL (RELATÓRIO 10):
+O sistema possui pontos cegos na gestão de falhas assíncronas (Edge/DB e Axios/Network) que podem causar "hangups" ou crashes do processo principal. A consistência entre o armazenamento físico e o índice lógico do Storage é frágil em casos de erro. A limpeza de temporários baseada puramente em tempo (TTL) ignora o estado de "uso" do recurso, ameaçando processos longos legítimos.

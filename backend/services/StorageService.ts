@@ -65,10 +65,11 @@ export interface StorageConfig {
 }
 
 /**
- * StorageService v3.2 (Physical Quota Enforcement)
+ * StorageService v3.3 (Fixed GDrive Delete)
  * - Streams Nativos
  * - Presigned URLs
  * - Disk Usage Calculation via OS
+ * - Google Drive Path Resolution
  */
 export class StorageService {
 
@@ -236,7 +237,9 @@ export class StorageService {
                     break;
 
                 case 'gdrive':
-                    throw new Error("Google Drive deletion by path is not supported via this API (Requires ID).");
+                    if (!config.gdrive) throw new Error("Google Drive Config missing");
+                    await this.deleteGDrive(cleanKey, config.gdrive);
+                    break;
                 
                 default:
                     throw new Error(`Delete not supported for ${config.provider}`);
@@ -248,6 +251,23 @@ export class StorageService {
     }
 
     // --- PROVIDER IMPLEMENTATIONS ---
+
+    private static async getGDriveToken(conf: NonNullable<StorageConfig['gdrive']>) {
+        const now = Math.floor(Date.now() / 1000);
+        const jwtClaim = {
+            iss: conf.clientEmail,
+            scope: 'https://www.googleapis.com/auth/drive.file',
+            aud: 'https://oauth2.googleapis.com/token',
+            exp: now + 3600,
+            iat: now
+        };
+        const signedJwt = jwt.sign(jwtClaim, conf.privateKey, { algorithm: 'RS256' });
+        const tokenRes = await axios.post('https://oauth2.googleapis.com/token', {
+            grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+            assertion: signedJwt
+        });
+        return tokenRes.data.access_token;
+    }
 
     private static async uploadS3(stream: fs.ReadStream, file: MulterFile, key: string, conf: NonNullable<StorageConfig['s3']>) {
         const s3 = new S3Client({
@@ -309,15 +329,40 @@ export class StorageService {
     }
 
     private static async uploadGDrive(stream: fs.ReadStream, file: MulterFile, targetPath: string, conf: NonNullable<StorageConfig['gdrive']>) {
-        const now = Math.floor(Date.now() / 1000);
-        const jwtClaim = { iss: conf.clientEmail, scope: 'https://www.googleapis.com/auth/drive.file', aud: 'https://oauth2.googleapis.com/token', exp: now + 3600, iat: now };
-        const signedJwt = jwt.sign(jwtClaim, conf.privateKey, { algorithm: 'RS256' });
-        const tokenRes = await axios.post('https://oauth2.googleapis.com/token', { grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: signedJwt });
+        // Updated to use shared helper
+        const accessToken = await this.getGDriveToken(conf);
+        
         const formData = new FormData();
         formData.append('metadata', JSON.stringify({ name: file.originalname, parents: conf.rootFolderId ? [conf.rootFolderId] : undefined }), { contentType: 'application/json' });
         formData.append('file', stream, { contentType: file.mimetype, knownLength: file.size });
-        const uploadRes = await axios.post('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink', formData, { headers: { ...formData.getHeaders(), 'Authorization': `Bearer ${tokenRes.data.access_token}` } });
+        const uploadRes = await axios.post('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink', formData, { headers: { ...formData.getHeaders(), 'Authorization': `Bearer ${accessToken}` } });
         return uploadRes.data.webViewLink;
+    }
+
+    private static async deleteGDrive(key: string, conf: NonNullable<StorageConfig['gdrive']>) {
+        const token = await this.getGDriveToken(conf);
+        const fileName = path.basename(key);
+        
+        // Search by name and ensure parent folder matches if configured
+        let q = `name = '${fileName}' and trashed = false`;
+        if (conf.rootFolderId) {
+            q += ` and '${conf.rootFolderId}' in parents`;
+        }
+
+        const listRes = await axios.get('https://www.googleapis.com/drive/v3/files', {
+            headers: { 'Authorization': `Bearer ${token}` },
+            params: { q, fields: 'files(id)' }
+        });
+
+        const files = listRes.data.files;
+        if (files && files.length > 0) {
+            // Delete all matching files (usually just one if names are unique)
+            for (const file of files) {
+                await axios.delete(`https://www.googleapis.com/drive/v3/files/${file.id}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+            }
+        }
     }
 
     private static async uploadDropbox(stream: fs.ReadStream, file: MulterFile, key: string, conf: NonNullable<StorageConfig['dropbox']>) {

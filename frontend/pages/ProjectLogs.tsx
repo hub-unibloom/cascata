@@ -20,6 +20,9 @@ const ProjectLogs: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [executing, setExecuting] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  
+  // Cloud Backup State
+  const [exportingCloud, setExportingCloud] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -180,6 +183,31 @@ const ProjectLogs: React.FC<{ projectId: string }> = ({ projectId }) => {
     link.click();
   };
 
+  const handleCloudBackup = async () => {
+      setExportingCloud(true);
+      try {
+          const res = await fetch(`/api/control/projects/${projectId}/logs/export-cloud`, {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` }
+          });
+          const data = await res.json();
+          if (res.ok && data.url) {
+              setSuccess("Exportação para nuvem concluída!");
+              // Opcional: Abrir o link para o usuário verificar
+              if (confirm("Exportação concluída. Deseja abrir o arquivo no provedor de nuvem?")) {
+                  window.open(data.url, '_blank');
+              }
+          } else {
+              setError(data.error || "Falha na exportação para nuvem. Verifique se há uma política de backup ativa.");
+          }
+      } catch (e: any) {
+          setError("Erro de conexão ao exportar.");
+      } finally {
+          setExportingCloud(false);
+          setTimeout(() => { setSuccess(null); setError(null); }, 4000);
+      }
+  };
+
   const filteredLogs = hideInternal 
     ? logs.filter(l => !l.geo_info?.is_internal) 
     : logs;
@@ -234,7 +262,7 @@ const ProjectLogs: React.FC<{ projectId: string }> = ({ projectId }) => {
              </button>
              <div className="w-[1px] h-6 bg-slate-200 mx-1"></div>
              <button onClick={() => fetchData()} className="p-3 text-slate-500 hover:text-indigo-600 transition-all"><RefreshCw size={20} className={loading ? 'animate-spin' : ''} /></button>
-             <button onClick={handleExportLogs} className="p-3 text-slate-500 hover:text-indigo-600 transition-all"><Download size={20} /></button>
+             <button onClick={handleExportLogs} className="p-3 text-slate-500 hover:text-indigo-600 transition-all" title="Baixar JSON Local"><Download size={20} /></button>
              <button onClick={() => setShowSettings(true)} className="p-3 text-slate-500 hover:text-indigo-600 transition-all"><Settings2 size={20} /></button>
           </div>
         </div>
@@ -416,15 +444,23 @@ const ProjectLogs: React.FC<{ projectId: string }> = ({ projectId }) => {
               {settingsTab === 'general' && (
                   <div className="space-y-12">
                      
-                     {/* Cloud Backup (Disabled) */}
-                     <div className="bg-slate-50 border border-slate-200 p-6 rounded-[2.5rem] flex items-center justify-between opacity-60">
+                     {/* Cloud Backup (Implemented) */}
+                     <div className="bg-slate-50 border border-slate-200 p-6 rounded-[2.5rem] flex items-center justify-between">
                         <div className="flex items-center gap-4">
                            <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-sm text-indigo-600"><Cloud size={20}/></div>
                            <div>
-                              <h4 className="text-sm font-black text-slate-900 flex items-center gap-2">Cloud Backup <span className="bg-indigo-100 text-indigo-700 text-[8px] px-2 py-0.5 rounded-full">EM BREVE</span></h4>
-                              <p className="text-[10px] text-slate-500 font-bold mt-1">Export logs to Google Drive automatically.</p>
+                              <h4 className="text-sm font-black text-slate-900 flex items-center gap-2">Cloud Log Export</h4>
+                              <p className="text-[10px] text-slate-500 font-bold mt-1">Exportar logs (CSV) para o provedor de backup configurado.</p>
                            </div>
                         </div>
+                        <button 
+                            onClick={handleCloudBackup}
+                            disabled={exportingCloud}
+                            className="bg-indigo-600 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg disabled:opacity-50"
+                        >
+                            {exportingCloud ? <Loader2 size={14} className="animate-spin"/> : <Download size={14}/>} 
+                            Exportar
+                        </button>
                      </div>
 
                      {/* Auto Block Toggle */}

@@ -1,0 +1,84 @@
+
+RELATÓRIO TÉCNICO DE AUDITORIA #2 - DEEP DIVE
+DATA: IMEDIATA
+ESCOPO: ANÁLISE ESTÁTICA DE CÓDIGO E ARQUITETURA
+PERFIL: CRÍTICO/RESTRITIVO
+
+1. LACUNAS ARQUITETURAIS (Scalability & Isolation)
+--------------------------------------------------------------------------------
+1.1. Estado em Memória no Serviço de Realtime (Cluster Broken)
+   - Arquivo: `backend/services/RealtimeService.ts`
+   - Diagnóstico: O serviço mantém um mapa estático `activeListeners` e `subscribers` na memória do processo Node.js.
+   - Problema: Embora o `LISTEN/NOTIFY` do Postgres faça broadcast para todas as conexões, o controle de `refCount` e o gerenciamento de conexões ociosas são locais. Em um cenário de escala horizontal (ex: 3 containers `backend_data`), o mecanismo de "releaseListener" pode fechar prematuramente uma conexão com o banco em uma instância enquanto outra instância ainda precisava dela, ou pior, manter conexões zumbis em instâncias onde os clientes já desconectaram.
+   - Veredito: O estado de conexões ativas deveria ser gerenciado via Redis (Pub/Sub ou Contadores Atômicos) para sincronia entre réplicas.
+
+1.2. Cache de Edge Functions Local (Filesystem Dependency)
+   - Arquivo: `backend/services/EdgeService.ts`
+   - Diagnóstico: O cache de dependências (`CACHE_ROOT`) grava arquivos no disco local do container (`system_cache/deps`).
+   - Problema: Em arquitetura distribuída (Kubernetes/Swarm), novos containers nascem sem cache, causando latência alta ("Cold Start") e tráfego repetitivo para `esm.sh`. Além disso, não há mecanismo de expiração de arquivo físico, apenas LRU em memória (`moduleCache`). O disco encherá indefinidamente.
+   - Veredito: O cache de código deveria utilizar o Redis ou um volume compartilhado persistente com política de expiração (TTL).
+
+1.3. Gargalo de CPU em Validação de API Keys
+   - Arquivo: `backend/services/RateLimitService.ts` -> `validateCustomKey`
+   - Diagnóstico: O método utiliza `bcrypt.compare` para validar chaves de API (`sk_live_...`) em cada requisição (com cache LRU curto de 30s/60s).
+   - Problema: `bcrypt` é intencionalmente lento e intensivo em CPU para evitar brute-force de senhas. Usá-lo para autenticar tráfego de API (que pode chegar a milhares de RPS) causará exaustão de CPU (Event Loop Blocking) no `backend_data` sob carga.
+   - Veredito: Chaves de API de alto volume devem usar hashing rápido (SHA-256 ou BLAKE2b), não hashing de senha (Bcrypt/Argon2). O Bcrypt deve ser reservado apenas para senhas de usuários e admin.
+
+2. RISCOS TÉCNICOS E DE SEGURANÇA (Critical Vulnerabilities)
+--------------------------------------------------------------------------------
+2.1. Exposição Crítica do Docker Socket
+   - Arquivo: `docker-compose.yml` (Serviço `nginx_controller`)
+   - Diagnóstico: Volume `- /var/run/docker.sock:/var/run/docker.sock` montado.
+   - Impacto: Escalação de Privilégio Total. Se o container `nginx_controller` for comprometido (via RCE na API Express rodando na porta 3001), o atacante ganha acesso root ao host (VPS), podendo destruir, criar ou inspecionar qualquer container, inclusive o banco de dados.
+   - Veredito: Substituir por um sinal via arquivo compartilhado ou usar uma API Docker restrita/proxy com TLS.
+
+2.2. "Zombie Killer" Agressivo Demais
+   - Arquivo: `backend/services/PoolService.ts`
+   - Diagnóstico: Método `killIdleTransactions` mata sessões `idle in transaction` maiores que 2 minutos.
+   - Risco: Migrações de schema longas, operações de manutenção (VACUUM manual) ou relatórios analíticos complexos rodados via aplicação podem ser mortos abruptamente pelo próprio backend, causando corrupção lógica ou falhas intermitentes difíceis de debugar.
+   - Veredito: O limite de tempo deveria ser configurável por "role" ou "application_name", isentando operações administrativas.
+
+2.3. Execução de Comandos do SO para Uso de Disco
+   - Arquivo: `backend/services/StorageService.ts`
+   - Diagnóstico: Uso de `spawn('du', ...)` para calcular uso de disco.
+   - Problema:
+     1. Performance: `du` percorre a árvore de arquivos. Em um bucket com milhões de arquivos, isso é IO-Blocking no nível do SO, degradando a performance do servidor inteiro.
+     2. Segurança: Embora os argumentos pareçam controlados, invocar shell commands é sempre um vetor de risco se a sanitização de `projectSlug` falhar em algum ponto anterior.
+   - Veredito: Manter um contador atômico no Banco de Dados ou Redis, incrementado/decrementado a cada Upload/Delete. Usar `du` apenas para reconciliação periódica (cron job), nunca no fluxo da requisição (request-response cycle).
+
+3. CÓDIGO PROBLEMÁTICO (Smells & Anti-patterns)
+--------------------------------------------------------------------------------
+3.1. Mistura de Responsabilidades no Frontend
+   - Arquivo: `frontend/pages/DatabaseExplorer.tsx`
+   - Diagnóstico: A lógica de construção de DDL (`CREATE TABLE`, `ALTER TABLE`) está hardcoded no React.
+   - Problema: Se a sintaxe do Postgres mudar ou se desejar validar regras de negócio (ex: proibido criar tabelas sem PK), o frontend precisa ser redeployado. O frontend deveria enviar a intenção (JSON) e o backend gerar e executar o SQL (Pattern Command/Handler).
+
+3.2. Tratamento de Erros Genérico no Edge Service
+   - Arquivo: `backend/services/EdgeService.ts`
+   - Diagnóstico: `await isolate.compileModule(code)`
+   - Problema: Erros de sintaxe no código do usuário (User-Code) lançam exceções que são capturadas genericamente. O feedback para o desenvolvedor é pobre ("Runtime Error"). Não há distinção clara entre "Erro de Compilação", "Timeout" e "Erro de Runtime".
+
+3.3. Injeção de Dependência Implícita (Storage)
+   - Arquivo: `backend/src/config/main.ts`
+   - Diagnóstico: `STORAGE_ROOT` define um caminho local, mas `StorageService` suporta S3.
+   - Problema: A estrutura assume que a pasta local `storage` sempre deve existir e ser criada, mesmo se o projeto estiver configurado para usar apenas S3. Isso gera lixo no sistema de arquivos (pastas vazias de projetos que usam S3).
+
+4. PONTAS SOLTAS (Loose Ends)
+--------------------------------------------------------------------------------
+4.1. Extensões de Arquivo em Migrations
+   - Diagnóstico: Arquivos em `backend/migrations` terminam em `.sql.txt`.
+   - Problema: O código `MigrationService.ts` procura por `.sql` ou `.sql.txt`. Isso parece ser um contorno para o ambiente de desenvolvimento (WebContainer/Browser) que não lida bem com `.sql`. Em produção, isso gera confusão. Scripts de deploy devem renomear ou o código deve padronizar.
+
+4.2. Hardcoding de Modelos de IA
+   - Arquivo: `backend/services/AiService.ts`
+   - Diagnóstico: `gemini-3-flash-preview` e `gemini-3-pro-preview` hardcoded.
+   - Problema: Modelos "preview" são instáveis e depreciados rapidamente. Quando o Google lançar a v3 estável e matar o preview, o sistema quebra. A string do modelo deve vir de `system.ui_settings` (tabela de config) ou variável de ambiente com fallback.
+
+5. FALTA DE SINERGIA
+--------------------------------------------------------------------------------
+5.1. Duplicidade de Lógica de Log
+   - O `SystemLogService.ts` (Redis list) e o `auditLogger` (Postgres table `system.api_logs`) operam de forma desconexa.
+   - O sistema grava logs de auditoria no Postgres (bom para histórico) e logs de runtime (stdout/stderr) no Redis (bom para live tail). Porém, não há correlação (Trace ID) entre um erro de runtime capturado no console e a requisição HTTP que o originou na tabela de auditoria. Debugar um erro 500 torna-se um jogo de adivinhação entre dois logs.
+
+VEREDITO 2:
+O sistema possui funcionalidades avançadas (Edge Functions, RLS Designer, Push Engine), mas sofre de decisões de design que dificultam a escala horizontal (Stateful Services) e introduzem riscos de segurança desnecessários (Docker Sock, Bcrypt para API Keys). A camada de infraestrutura precisa ser desacoplada da camada de aplicação lógica.

@@ -8,7 +8,7 @@ import fs from 'fs';
 import axios from 'axios';
 import { spawn } from 'child_process';
 import { CascataRequest } from '../types.js';
-import { systemPool, SYS_SECRET, STORAGE_ROOT } from '../config/main.js';
+import { systemPool, SYS_SECRET, STORAGE_ROOT, TEMP_UPLOAD_ROOT } from '../config/main.js';
 import { DatabaseService } from '../../services/DatabaseService.js';
 import { PoolService } from '../../services/PoolService.js';
 import { CertificateService } from '../../services/CertificateService.js';
@@ -17,7 +17,9 @@ import { ImportService } from '../../services/ImportService.js';
 import { WebhookService } from '../../services/WebhookService.js';
 import { RealtimeService } from '../../services/RealtimeService.js';
 import { RateLimitService } from '../../services/RateLimitService.js';
-import { SystemLogService } from '../../services/SystemLogService.js'; // NEW
+import { SystemLogService } from '../../services/SystemLogService.js';
+import { GDriveService } from '../../services/GDriveService.js';
+import { S3BackupService } from '../../services/S3BackupService.js';
 
 const generateKey = () => import('crypto').then(c => c.randomBytes(32).toString('hex'));
 
@@ -330,6 +332,59 @@ export class AdminController {
             const projectData = { ...project, ...keys };
             await BackupService.streamExport(projectData, res);
         } catch (e: any) { if (!res.headersSent) res.status(500).json({ error: e.message }); }
+    }
+    
+    // NEW: Cloud Export for Logs
+    static async exportLogsToCloud(req: CascataRequest, res: any, next: any) {
+        const { slug } = req.params;
+        const tempFile = path.join(TEMP_UPLOAD_ROOT, `logs_${slug}_${Date.now()}.csv`);
+
+        try {
+            // 1. Fetch available backup policy to use credentials
+            const policyRes = await systemPool.query(
+                `SELECT provider, 
+                 CASE 
+                    WHEN config ? 'encrypted_data' THEN pgp_sym_decrypt(decode(config->>'encrypted_data', 'base64'), $2)
+                    ELSE config::text
+                 END as config_str
+                 FROM system.backup_policies WHERE project_slug = $1 AND is_active = true LIMIT 1`,
+                [slug, SYS_SECRET]
+            );
+
+            if (policyRes.rows.length === 0) {
+                return res.status(400).json({ error: "Nenhuma política de backup configurada. Configure uma para habilitar exportação para nuvem." });
+            }
+
+            const policy = policyRes.rows[0];
+            const config = JSON.parse(policy.config_str);
+
+            // 2. Dump Logs to CSV
+            await systemPool.query(`COPY (SELECT * FROM system.api_logs WHERE project_slug = '${slug}') TO '${tempFile}' WITH CSV HEADER`);
+
+            // 3. Upload
+            const fileName = `logs_${slug}_${new Date().toISOString().split('T')[0]}.csv`;
+            const fileStream = fs.createReadStream(tempFile);
+            let downloadUrl = '';
+
+            if (policy.provider === 'gdrive') {
+                const result = await GDriveService.uploadStream(fileStream, fileName, 'text/csv', config);
+                downloadUrl = result.webViewLink;
+            } else if (['s3', 'b2', 'r2', 'wasabi', 'aws'].includes(policy.provider)) {
+                const result = await S3BackupService.uploadStream(fileStream, fileName, 'text/csv', config);
+                // Generate temporary signed URL for immediate download
+                downloadUrl = await S3BackupService.getSignedDownloadUrl(result.id, config);
+            } else {
+                throw new Error(`Provider ${policy.provider} not supported for log export.`);
+            }
+
+            res.json({ success: true, url: downloadUrl });
+
+        } catch (e: any) {
+            console.error("Log Export Failed", e);
+            res.status(500).json({ error: "Falha na exportação de logs: " + e.message });
+        } finally {
+            if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+        }
     }
 
     static async uploadImport(req: CascataRequest, res: any, next: any) {

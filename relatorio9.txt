@@ -1,0 +1,67 @@
+
+RELATÓRIO TÉCNICO DE AUDITORIA #9 - TEATRO DE SEGURANÇA E RISCOS DE CICLO DE VIDA
+DATA: IMEDIATA
+ESCOPO: VAULT, AUTH ENGINE, REALTIME E ROTINAS DE LIMPEZA.
+PREMISSA: Foco em vulnerabilidades onde a interface promete segurança que o backend não garante e vazamentos de recursos a longo prazo.
+
+1. TEATRO DE SEGURANÇA (Security Theater - Critical)
+--------------------------------------------------------------------------------
+1.1. Bypass de Senha no Cofre (Vault Reveal)
+   - Arquivo: `backend/src/controllers/SecretsController.ts` -> `reveal`
+   - Diagnóstico: O endpoint `reveal` utiliza a chave de sistema (`SYS_SECRET`) para descriptografar o segredo diretamente (`pg_sym_decrypt`).
+   - Arquivo: `frontend/pages/ProjectSettings.tsx` -> `handleRevealSecret`
+   - Problema: A interface solicita a senha do administrador ("Verify Password Modal") e valida via `/auth/verify`. Se aprovado, o frontend chama o endpoint `reveal`.
+   - Vulnerabilidade: A verificação de senha é **puramente client-side** (lógica de fluxo). O endpoint `reveal` do backend não exige a senha no payload, nem a valida.
+   - Cenário: Se um atacante roubar o cookie/token de sessão do Admin (XSS ou acesso físico), ele pode chamar o endpoint `reveal` via cURL ou Console do Navegador diretamente, ignorando o modal de senha e obtendo todos os segredos em texto plano.
+   - Correção: O endpoint `reveal` deve exigir a senha do admin no corpo da requisição e revalidá-la (bcrypt compare) antes de executar a descriptografia.
+
+2. NEGAÇÃO DE SERVIÇO (ReDoS via Configuração)
+--------------------------------------------------------------------------------
+2.1. Regex Bomb em Validação de Identificador
+   - Arquivo: `backend/services/AuthService.ts` -> `validateIdentifier`
+   - Diagnóstico: `const regex = new RegExp(regexPattern); return regex.test(identifier);`
+   - Contexto: O `regexPattern` vem do banco de dados (`system.api_key_groups` ou config de Auth), configurável pelo usuário.
+   - Vetor: Um administrador malicioso ou uma configuração importada viciada pode definir um padrão como `(a+)+` e enviar uma string longa "aaaaaaaaaaaaaaaaaaaaa!".
+   - Impacto: O processo Node.js trava em 100% de CPU tentando resolver a regex (Catastrophic Backtracking), causando DoS completo da API.
+   - Solução: Utilizar uma biblioteca de validação de regex segura (ex: `safe-regex`) ou rodar a validação dentro do `isolated-vm` (já disponível no projeto) com timeout estrito.
+
+3. PRIVACIDADE E ENUMERAÇÃO (Timing Attack)
+--------------------------------------------------------------------------------
+3.1. Enumeração de E-mails via Magic Link
+   - Arquivo: `backend/services/GoTrueService.ts` -> `handleMagicLink`
+   - Diagnóstico: Se o usuário não existe: `await new Promise(r => setTimeout(r, Math.random() * 500 + 200)); return {};`.
+   - Problema: Se o usuário existe, o sistema tenta enviar e-mail via SMTP/Resend. O tempo de handshake SMTP real é significativamente diferente (e tem variância de rede diferente) do `setTimeout` sintético. Além disso, erros de SMTP lançam exceção (500), enquanto usuário inexistente retorna 200.
+   - Impacto: Atacantes podem enumerar quais e-mails estão cadastrados na base medindo o tempo de resposta ou observando códigos de erro.
+   - Correção: Enfileirar o envio de e-mail (QueueService) para que a resposta HTTP seja sempre imediata e idêntica ("Se o e-mail existir, enviamos o link"), desacoplando o sucesso do envio da resposta da API.
+
+4. ESTABILIDADE E CONCORRÊNCIA (Race Condition)
+--------------------------------------------------------------------------------
+4.1. Conexão Zumbi em Realtime (Listener Lifecycle)
+   - Arquivo: `backend/services/RealtimeService.ts` -> `acquireListener` / `releaseListener`
+   - Diagnóstico: O controle de `refCount` e a conexão PG (`client.connect()`) não são atômicos.
+   - Cenário: Em ambientes de desenvolvimento (React Strict Mode) ou redes instáveis, o cliente conecta e desconecta rapidamente.
+   - Execução: 
+     1. Conexão A inicia `acquireListener` (Async, demora 100ms).
+     2. Conexão A cai, chama `releaseListener`. Como o `client` ainda não está no Map (está no `await`), o release falha ou decrementa errado.
+     3. A conexão PG é estabelecida e fica órfã ("Leaked Connection") pois o sistema acha que não há ninguém ouvindo.
+   - Impacto: Esgotamento do pool de conexões do PostgreSQL silenciosamente.
+
+5. MANUTENÇÃO AUTOMÁTICA (Data Growth)
+--------------------------------------------------------------------------------
+5.1. Ausência de Purge Automático de Logs
+   - Arquivo: `backend/src/controllers/AdminController.ts` -> `purgeLogs` (Manual)
+   - Diagnóstico: Existe a função `system.purge_old_logs` e o campo `log_retention_days` no projeto.
+   - Problema: Não existe um Job Agendado (CRON do sistema ou Queue) que chame essa função periodicamente. A tabela `system.api_logs` cresce indefinidamente até o disco encher ou a performance degradar, a menos que o admin clique no botão "Limpar Logs" manualmente.
+   - Solução: Adicionar um Job recorrente no `QueueService` que itera sobre todos os projetos e executa o purge baseado na retenção configurada.
+
+6. GESTÃO DE RECURSOS (Memory Bloat)
+--------------------------------------------------------------------------------
+6.1. Edge Function Payload Bomb
+   - Arquivo: `backend/services/EdgeService.ts` -> `execute`
+   - Diagnóstico: O código compila o módulo JS (`isolate.compileModule(code)`).
+   - Problema: Não há validação do tamanho da string `code` vinda do banco (`system.assets`). Um usuário pode salvar um "código" de 50MB (texto) no banco.
+   - Impacto: Ao carregar esse asset para execução, o Node.js aloca memória para a string + buffer do Isolate. Múltiplas execuções simultâneas desse asset causam OOM (Out Of Memory) e crash do container.
+   - Correção: Limitar o tamanho do código-fonte permitido no `DataController.upsertAsset` (ex: máx 1MB).
+
+VEREDITO FINAL (RELATÓRIO 9):
+O sistema apresenta vulnerabilidades onde a segurança depende da interface do usuário (Client-Side), o que é inaceitável para um produto de infraestrutura. A ausência de automação na limpeza de logs garante problemas futuros de disco. A validação de Regex e o tratamento de conexões assíncronas no Realtime precisam de hardening para evitar DoS trivial.

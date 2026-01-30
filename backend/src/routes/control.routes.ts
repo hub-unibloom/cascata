@@ -64,6 +64,7 @@ router.post('/projects/:slug/secrets', AdminController.updateSecrets as any);
 router.post('/projects/:slug/block-ip', AdminController.blockIp as any);
 router.delete('/projects/:slug/blocklist/:ip', AdminController.unblockIp as any);
 router.delete('/projects/:slug/logs', AdminController.purgeLogs as any);
+router.post('/projects/:slug/logs/export-cloud', AdminController.exportLogsToCloud as any); // NOVA ROTA
 
 // BACKUP POLICIES ROUTES (NEW PHASE 2)
 router.get('/projects/:slug/backups/policies', BackupController.listPolicies as any);

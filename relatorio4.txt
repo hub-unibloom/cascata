@@ -1,0 +1,61 @@
+
+RELATÓRIO TÉCNICO DE AUDITORIA #4 - LÓGICA DE NEGÓCIO E GOVERNANÇA AVANÇADA
+DATA: IMEDIATA
+PREMISSA: Foco em falhas lógicas sutis, bypass de governança e integridade de dados.
+
+1. FALHAS DE GOVERNANÇA DE IA (Critical Bypass)
+--------------------------------------------------------------------------------
+1.1. Bypass de "Allowed Tables" via SQL Raw
+   - Arquivo: `backend/services/McpService.ts` -> `executeTool`
+   - Diagnóstico: A ferramenta `get_table_info` verifica a lista `allowed_tables` antes de retornar metadados. Porém, a ferramenta `run_sql` recebe um SQL arbitrário e o executa diretamente no pool (`pool.query(sql)`).
+   - Problema: Um Agente de IA malicioso ou confuso pode simplesmente inferir nomes de tabelas (ou usar `SELECT * FROM information_schema.tables`) e executar `SELECT * FROM tabela_proibida` usando `run_sql`, ignorando completamente a restrição de escopo definida no frontend.
+   - Impacto: A governança de "Context Scope" é apenas cosmética. Ela esconde a estrutura do prompt inicial, mas não impede o acesso aos dados se o Agente "adivinhar" ou descobrir os nomes das tabelas de outra forma.
+   - Correção Necessária: Implementar um parser SQL (ex: `pgsql-ast-parser`) no `run_sql` para validar as tabelas acessadas contra a whitelist, ou usar uma Role de Banco de Dados restrita dinamicamente para a conexão do Agente.
+
+2. VULNERABILIDADES DE FLUXO DE AUTENTICAÇÃO (Account Takeover Risk)
+--------------------------------------------------------------------------------
+2.1. Sequestro de Conta via Pre-Auth Linking
+   - Arquivo: `backend/services/AuthService.ts` -> `upsertUser`
+   - Cenário:
+     1. Atacante cria conta com `vitima@gmail.com` + Senha (o email não é confirmado, então ele não loga, mas o registro existe).
+     2. Vítima real faz login via Google (`vitima@gmail.com`).
+     3. `upsertUser` encontra o registro pelo email e vincula a identidade Google à conta criada pelo atacante.
+     4. O sistema (corretamente) não marca o email como confirmado automaticamente na tabela `auth.users` só porque o Google entrou (embora devesse, pois o Google é confiável).
+     5. Risco: Se em algum momento o email for confirmado (ex: lógica futura ou admin manual), o Atacante (que sabe a senha) ganha acesso à conta da Vítima.
+   - Correção Necessária: Ao vincular uma identidade OAuth confiável (Google) a uma conta existente NÃO confirmada com provider 'email', o sistema deve invalidar a senha existente (hash = null) para exigir um reset de senha, prevenindo que o criador original (atacante) acesse a conta.
+
+3. CONDIÇÕES DE CORRIDA (Race Conditions)
+--------------------------------------------------------------------------------
+3.1. Furo na Cota de Storage (Non-Atomic Check-and-Reserve)
+   - Arquivo: `backend/controllers/StorageController.ts` -> `checkQuota`
+   - Diagnóstico: O método lê o uso atual (DB/Cache), soma a reserva e depois escreve a nova reserva.
+   - Problema: Entre a leitura e a escrita, múltiplas requisições de upload simultâneas (ex: upload paralelo de 100 arquivos pequenos) podem ler o mesmo valor "atual", passando todas na verificação de cota antes que o cache seja atualizado.
+   - Impacto: Um usuário pode exceder significativamente seu limite de armazenamento se disparar uploads paralelos massivos.
+   - Correção: Usar script Lua no Redis para realizar a verificação e incremento (`INCRBY` + verificação) em uma única operação atômica.
+
+4. COMPATIBILIDADE E FRONTEND
+--------------------------------------------------------------------------------
+4.1. Dependência de API Proprietária de Navegador
+   - Arquivo: `frontend/components/CascataArchitect.tsx`
+   - Diagnóstico: Uso direto de `window.webkitSpeechRecognition`.
+   - Problema: Esta API só existe no Chrome/Safari (Webkit/Blink). Usuários de Firefox ou outros browsers terão erro ou a funcionalidade de voz quebrada silenciosamente.
+   - Impacto: Experiência de usuário degradada em navegadores não-Chromium. Deveria haver feature detection e fallback (digitação) ou polyfill.
+
+5. AUDITORIA E OBSERVABILIDADE
+--------------------------------------------------------------------------------
+5.1. Cegueira em Exfiltração de Dados via MCP
+   - Arquivo: `backend/services/McpService.ts`
+   - Diagnóstico: O log de auditoria registra `MCP_TOOL` com o SQL executado.
+   - Problema: Não há registro do *volume* de dados retornado ou se houve erro na transmissão. Se um agente executar `SELECT * FROM users` e receber 1 milhão de linhas, o log mostrará apenas a query, sem indicar que um dump massivo de dados ocorreu.
+   - Recomendação: Logar o `rowCount` e o tamanho do payload de resposta no `system.api_logs` para detectar exfiltração de dados por agentes.
+
+6. SEGURANÇA OPERACIONAL
+--------------------------------------------------------------------------------
+6.1. Exposição de Chave de Serviço no Frontend (Risco Humano)
+   - Arquivo: `frontend/pages/ProjectIntelligence.tsx`
+   - Diagnóstico: O modal exibe a configuração JSON para o MCP contendo a `Authorization: Bearer SERVICE_KEY` em texto plano para o usuário copiar.
+   - Risco: O usuário é instruído a colar isso em ferramentas de terceiros (Claude Desktop, IDEs). Se essas ferramentas sincronizarem configurações (ex: VSCode Sync), a chave root do projeto vaza para a nuvem de terceiros.
+   - Recomendação: Implementar um mecanismo de "App Passwords" ou "Agent Keys" com escopo limitado e revogáveis, em vez de usar a `SERVICE_KEY` mestre para integrações externas.
+
+VEREDITO FINAL (RELATÓRIO 4):
+O sistema possui bases sólidas, mas a camada de "Inteligência" (MCP/AI) introduz vetores de bypass de segurança significativos se não for contida. A suposição de que ferramentas de IA respeitarão instruções de texto ("Allowed Tables") é falha; restrições devem ser aplicadas no nível do motor de execução (SQL Parser/DB Role). Além disso, o fluxo de unificação de contas precisa de hardening contra ataques de pre-hijacking.

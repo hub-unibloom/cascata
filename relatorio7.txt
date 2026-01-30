@@ -1,0 +1,58 @@
+
+RELATÓRIO TÉCNICO DE AUDITORIA #7 - SEGURANÇA DE INTERFACE E LÓGICA DE BANCO
+DATA: IMEDIATA
+ESCOPO: FRONTEND, ENGINE POSTGREST E SERVIÇOS DE BORDA.
+PREMISSA: Foco em vazamento de dados via UX, falhas de schema dinâmico e DoS lógico.
+
+1. SEGURANÇA DE INTERFACE (Data Leakage)
+--------------------------------------------------------------------------------
+1.1. Vazamento de Credenciais via URL (Query String Exposure)
+   - Arquivo: `frontend/pages/StorageExplorer.tsx` -> `getSecureDownloadLink`
+   - Diagnóstico: O link de download seguro é gerado anexando `?apikey=${token}`.
+   - Problema: URLs, incluindo a query string, são frequentemente logadas em proxies, históricos de navegador e logs de acesso de servidores (como o próprio Nginx e logs do Cloudflare).
+   - Impacto: O Token JWT de administração (ou do usuário logado) fica exposto permanentemente nos logs de infraestrutura intermediária. Se um atacante tiver acesso a logs de proxy reverso, ele sequestra a sessão do administrador.
+   - Correção: O download deve ser feito via XHR/Fetch com header `Authorization` e transformado em `Blob` local (Object URL), ou usar um token de curta duração ("Signed URL" com escopo único de arquivo) gerado no backend, não o JWT mestre da sessão.
+
+2. NEGAÇÃO DE SERVIÇO LÓGICA (Authentication DoS)
+--------------------------------------------------------------------------------
+2.1. Invalidação Agressiva de OTP (Login Race)
+   - Arquivo: `backend/services/AuthService.ts` -> `initiatePasswordless`
+   - Diagnóstico: Antes de inserir um novo código, executa `DELETE FROM auth.otp_codes WHERE provider = $1 AND identifier = $2`.
+   - Vetor de Ataque: Um atacante pode criar um script que solicita o envio de Magic Link para o email da vítima a cada 2 segundos.
+   - Efeito: Quando a vítima recebe o email #1 e tenta clicar, o atacante já solicitou o #2, o que deletou o código do #1 do banco. O link da vítima torna-se inválido instantaneamente. A vítima fica presa num loop de "Link Expirado" e não consegue logar.
+   - Correção: Implementar Rate Limit estrito no endpoint de *envio* de desafio (ex: 1 a cada 60s por email) OU permitir múltiplos códigos válidos simultâneos (com limite de quantidade, ex: max 3).
+
+3. LÓGICA DE BANCO DE DADOS (Schema Rigidity)
+--------------------------------------------------------------------------------
+3.1. Quebra de Realtime em Chaves Primárias Não-Padrão
+   - Arquivo: `backend/services/DatabaseService.ts` (Trigger `notify_changes`)
+   - Diagnóstico: O trigger assume hardcoded: `IF (TG_OP = 'DELETE') THEN record_id := OLD.id::text;`.
+   - Problema: Se o usuário criar uma tabela onde a Primary Key não se chama `id` (ex: `user_code`, `uuid`, ou chave composta), o trigger falhará ao tentar acessar `OLD.id` ou `NEW.id`, lançando erro na transação e impedindo INSERT/UPDATE/DELETE na tabela.
+   - Impacto: O sistema de Realtime impõe uma restrição silenciosa de design de banco de dados. Tabelas legadas ou importadas que não seguem a convenção `id` quebram a aplicação.
+   - Solução: O trigger deve introspectar dinamicamente a PK usando `TG_ARGV` ou JSONB conversion para extrair a chave primária correta.
+
+3.2. Corrupção de Upsert em Chaves Compostas (PostgREST)
+   - Arquivo: `backend/services/PostgrestService.ts` -> `buildQuery` (POST)
+   - Diagnóstico: `const conflictTarget = onConflictParam ? "${onConflictParam.replace(/[^a-zA-Z0-9_]/g, '')}" : '"id"';`
+   - Cenário: Um upsert em chave composta requer `?on_conflict=col1,col2`.
+   - Execução: O regex remove a vírgula, transformando em `col1col2`. O SQL gerado `ON CONFLICT ("col1col2")` falha porque essa coluna não existe.
+   - Impacto: Impossibilidade de realizar Upserts (INSERT ... ON CONFLICT) em tabelas com chaves únicas compostas, quebrando a compatibilidade com o padrão PostgREST.
+
+4. EXAUSTÃO DE RECURSOS (Resource Governance)
+--------------------------------------------------------------------------------
+4.1. CPU DoS via Edge Functions (Crypto Mining Risk)
+   - Arquivo: `backend/services/EdgeService.ts`
+   - Diagnóstico: O limite de execução é apenas temporal (`timeoutMs`).
+   - Vetor: Um usuário pode criar uma função que executa `bcrypt.hash` ou loops matemáticos intensos. Se ele disparar 50 requisições simultâneas, ele ocupa 100% da CPU do Node.js (mesmo em threads separadas do `isolated-vm`, elas competem por CPU da máquina host).
+   - Impacto: Degradação total do serviço para todos os tenants.
+   - Recomendação: Monitorar o tempo de CPU (não apenas wall-clock) ou restringir o uso de funções nativas pesadas (`bcrypt`) dentro do Isolate.
+
+4.2. Storage Exhaustion via Qdrant Snapshots (Proxy Abuse)
+   - Arquivo: `backend/src/controllers/VectorController.ts`
+   - Diagnóstico: O proxy permite métodos `POST` para `*`. A API do Qdrant possui endpoints para criar snapshots (backups completos da coleção).
+   - Vetor: Um usuário autenticado pode chamar repetidamente o endpoint de criação de snapshot do Qdrant via proxy.
+   - Impacto: Cada snapshot duplica o tamanho da coleção no disco. Um loop simples pode encher o disco do servidor rapidamente (`ENOSPC`), derrubando o banco de dados e o sistema operacional.
+   - Correção: O Proxy deve ter uma lista de permissão (whitelist) de endpoints seguros (search, upsert, delete), bloqueando endpoints administrativos do Qdrant (snapshots, config cluster).
+
+VEREDITO FINAL (RELATÓRIO 7):
+O sistema atingiu um nível de complexidade onde as falhas não são mais "erros de código", mas sim "consequências de design". A suposição de que chaves primárias sempre são `id`, a limpeza agressiva de OTPs para segurança que causa DoS, e a permissividade de proxies internos (Qdrant) criam vetores de ataque sutis mas devastadores em produção. A sanitização de input no serviço PostgREST está agressiva demais, quebrando funcionalidades avançadas do SQL.
