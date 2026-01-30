@@ -116,19 +116,17 @@ export class RateLimitService {
         this.groupsCache.delete(groupId);
     }
 
-    // --- STORAGE QUOTA LOCKING (Physical Enforcement) ---
-    // Previne condição de corrida em uploads paralelos reservando espaço antes do I/O
+    // --- STORAGE QUOTA CACHING & LOCKING ---
     
     public static async reserveStorage(projectSlug: string, bytes: number, ttlSeconds: number = 3600) {
         if (!this.redis || !this.isRedisHealthy) return;
         try {
             const key = `storage:reserved:${projectSlug}`;
             const reservationId = crypto.randomUUID();
-            // Adiciona uma "reserva" específica
             const itemKey = `${key}:${reservationId}`;
             
             const pipe = this.redis.multi();
-            pipe.set(itemKey, bytes, 'EX', ttlSeconds); // Expira automaticamente se o upload falhar/ travar
+            pipe.set(itemKey, bytes, 'EX', ttlSeconds);
             await pipe.exec();
             
             return reservationId;
@@ -146,14 +144,35 @@ export class RateLimitService {
     public static async getReservedStorage(projectSlug: string): Promise<number> {
         if (!this.redis || !this.isRedisHealthy) return 0;
         try {
-            // Scan é melhor que keys em produção, mas para volumes baixos de uploads simultâneos keys é ok
-            // Aqui vamos usar um padrão conhecido
             const keys = await this.redis.keys(`storage:reserved:${projectSlug}:*`);
             if (keys.length === 0) return 0;
             
             const values = await this.redis.mget(keys);
             return values.reduce((acc, val) => acc + (parseInt(val || '0') || 0), 0);
         } catch (e) { return 0; }
+    }
+
+    // NEW: Caching methods for Storage Quota Optimization
+    public static async getProjectStorageUsage(projectSlug: string): Promise<number | null> {
+        if (!this.redis || !this.isRedisHealthy) return null;
+        try {
+            const val = await this.redis.get(`storage:usage:${projectSlug}`);
+            return val ? parseInt(val) : null;
+        } catch(e) { return null; }
+    }
+
+    public static async setProjectStorageUsage(projectSlug: string, bytes: number, ttlSeconds: number = 3600) {
+        if (!this.redis || !this.isRedisHealthy) return;
+        try {
+            await this.redis.set(`storage:usage:${projectSlug}`, bytes, 'EX', ttlSeconds);
+        } catch(e) {}
+    }
+
+    public static async invalidateProjectStorageUsage(projectSlug: string) {
+        if (!this.redis || !this.isRedisHealthy) return;
+        try {
+            await this.redis.del(`storage:usage:${projectSlug}`);
+        } catch(e) {}
     }
 
     // --- PROJECT CACHING (System Protection) ---
@@ -169,9 +188,7 @@ export class RateLimitService {
     public static async cacheProject(project: any) {
         if (!this.redis || !this.isRedisHealthy) return;
         try {
-            // Cache by Slug
-            await this.redis.set(`sys:project:slug:${project.slug}`, JSON.stringify(project), 'EX', 60); // 1 min TTL
-            // Cache by Domain if exists
+            await this.redis.set(`sys:project:slug:${project.slug}`, JSON.stringify(project), 'EX', 60); 
             if (project.custom_domain) {
                 await this.redis.set(`sys:project:domain:${project.custom_domain}`, JSON.stringify(project), 'EX', 60);
             }
@@ -252,20 +269,15 @@ export class RateLimitService {
     }
 
     private static async validateCustomKey(apiKey: string, projectSlug: string, systemPool: Pool): Promise<ApiKeyData | null> {
-        // We use a shorter TTL for key validation to catch expiration/nerf changes faster
         const memCached = this.keysCache.get(apiKey);
         if (memCached && (Date.now() - memCached.cachedAt < 30000)) return memCached.data;
 
         try {
             let row: any = null;
-
-            // 1. Attempt Lookup Strategy (Hash-based)
-            // Pattern: sk_live_<UUID>_<RANDOM>
             const parts = apiKey.split('_'); 
             if (parts.length === 4) {
-                const lookupIndex = `${parts[0]}_${parts[1]}_${parts[2]}`; // sk_live_uuid
+                const lookupIndex = `${parts[0]}_${parts[1]}_${parts[2]}`; 
                 
-                // Fetch candidate by lookup_index (Index Scan - Ultra Fast)
                 const res = await systemPool.query(
                     `SELECT id, group_id, rate_limit, burst_limit, scopes, expires_at, key_hash
                      FROM system.api_keys 
@@ -275,7 +287,6 @@ export class RateLimitService {
 
                 if (res.rows.length > 0) {
                     const candidate = res.rows[0];
-                    // Validate Bcrypt Hash (CPU Intensive - done only if Index matches)
                     const match = await bcrypt.compare(apiKey, candidate.key_hash);
                     if (match) row = candidate;
                 }
@@ -293,45 +304,36 @@ export class RateLimitService {
                 
                 let isNerfed = false;
 
-                // Check Expiration & Nerf Logic
                 if (keyData.expires_at) {
                     const now = new Date();
                     const expiry = new Date(keyData.expires_at);
                     
                     if (now > expiry) {
-                        // Key is expired. Check for Nerf Config in Group
                         if (keyData.group_id) {
                             const group = await this.getGroupData(keyData.group_id, systemPool);
                             if (group && group.nerf_config?.enabled) {
                                 const secondsSinceExpiry = (now.getTime() - expiry.getTime()) / 1000;
                                 
-                                // Phase 1: Grace Period (Within delay)
                                 if (secondsSinceExpiry < (group.nerf_config.start_delay_seconds || 0)) {
-                                     // Do nothing, treat as valid for now
-                                } 
-                                // Phase 2: Nerf Active
-                                else {
-                                    // Phase 3: Stop Dead (Hard Cap)
+                                     // Grace period
+                                } else {
                                     if (group.nerf_config.stop_after_seconds > -1 && secondsSinceExpiry > (group.nerf_config.start_delay_seconds + group.nerf_config.stop_after_seconds)) {
                                         return null; // Dead
                                     }
                                     isNerfed = true;
                                 }
                             } else {
-                                return null; // Dead (Expired and no Nerf policy)
+                                return null; 
                             }
                         } else {
-                            return null; // Dead (Expired and no group)
+                            return null;
                         }
                     }
                 }
                 
                 const finalData = { ...keyData, is_nerfed: isNerfed };
                 this.keysCache.set(apiKey, { data: finalData, cachedAt: Date.now() });
-                
-                // Fire and forget usage update
                 systemPool.query('UPDATE system.api_keys SET last_used_at = NOW() WHERE id = $1', [keyData.id]).catch(() => {});
-                
                 return finalData;
             }
         } catch (e) { }
@@ -345,7 +347,6 @@ export class RateLimitService {
         } catch (e) { this.rulesCache.set(projectSlug, []); }
     }
 
-    // --- MAIN CHECK ---
     public static async check(
         projectSlug: string, 
         logicalResource: string, 
@@ -367,7 +368,6 @@ export class RateLimitService {
         let keyGroupId: string | null = null;
         let keyCustomMessage: string | undefined = undefined;
 
-        // 1. Identify Identity
         if (authToken && authToken.startsWith('sk_')) {
             const keyData = await this.validateCustomKey(authToken, projectSlug, systemPool);
             if (keyData) {
@@ -375,7 +375,6 @@ export class RateLimitService {
                 subject = keyData.id; 
                 keyGroupId = keyData.group_id || null;
 
-                // Load Defaults from Group/Key
                 if (keyData.group_id) {
                     const gData = await this.getGroupData(keyData.group_id, systemPool);
                     if (gData) {
@@ -385,16 +384,12 @@ export class RateLimitService {
                          crudConfig = gData.crud_limits;
                          keyCustomMessage = gData.rejection_message;
 
-                         // APPLY NERF (If Active)
                          if (keyData.is_nerfed) {
-                             // Brutal Nerf: 10% of speed or minimal 1 req/sec
-                             // Sets Burst to 0 to prevent spikes
                              limit = Math.max(1, Math.floor(limit * 0.1));
                              burst = 0;
                          }
                     }
                 }
-                // Key Overrides
                 if (keyData.rate_limit && !keyData.is_nerfed) limit = keyData.rate_limit;
                 if (keyData.burst_limit && !keyData.is_nerfed) burst = keyData.burst_limit;
             }
@@ -406,7 +401,6 @@ export class RateLimitService {
             } catch (e) {}
         }
 
-        // 2. Match Specific Rule
         if (!this.rulesCache.has(projectSlug)) {
             await this.loadRules(projectSlug, systemPool);
         }
@@ -422,23 +416,19 @@ export class RateLimitService {
             return false;
         });
 
-        // 3. Apply Rule Limits (Overrides)
         if (matchedRule) {
             ruleId = matchedRule.id;
-            
             if (matchedRule.window_seconds) windowSecs = matchedRule.window_seconds;
 
             if (tier === 'custom_key' && keyGroupId && matchedRule.group_limits && matchedRule.group_limits[keyGroupId]) {
                 const gLimit = matchedRule.group_limits[keyGroupId];
                 let ruleRate = gLimit.rate;
                 let ruleBurst = gLimit.burst;
-                
                 const memCached = this.keysCache.get(authToken || '');
                 if (memCached?.data.is_nerfed) {
                     ruleRate = Math.max(1, Math.floor(ruleRate * 0.1));
                     ruleBurst = 0;
                 }
-
                 limit = ruleRate;
                 burst = ruleBurst;
                 crudConfig = gLimit.crud;
@@ -453,7 +443,6 @@ export class RateLimitService {
             }
         }
 
-        // 4. CRUD Limits Check
         let operation: keyof CrudConfig | null = null;
         if (method === 'GET') operation = 'read';
         else if (method === 'POST') operation = 'create';
@@ -475,7 +464,6 @@ export class RateLimitService {
             ruleId = `${ruleId}:${operation}`;
         }
 
-        // 5. Redis Token Bucket
         const key = `rate:${projectSlug}:${tier}:${subject}:${ruleId}`;
         try {
             const pipeline = this.redis.multi();

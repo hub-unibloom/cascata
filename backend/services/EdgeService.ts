@@ -103,27 +103,50 @@ export class EdgeService {
                 jwtSign: (payload: any, secret: string, options: any) => { const opts = { expiresIn: '1h', ...options }; const token = jwt.sign(payload, secret, opts); return new ivm.ExternalCopy(token).copyInto(); },
                 jwtVerify: (token: string, secret: string) => { try { const decoded = jwt.verify(token, secret); return new ivm.ExternalCopy(decoded).copyInto(); } catch(e) { return new ivm.ExternalCopy(null).copyInto(); } }
             }));
+            
+            // --- OPTIMIZED DB INJECTION (Stateless/Consolidated Mode) ---
             await jail.set('db', new ivm.Reference({
                 query: new ivm.Reference(async (sql: string, params: any[]) => {
                     let client;
                     try {
                         client = await projectPool.connect();
-                        await client.query('BEGIN');
-                        if (isReadOnly) await client.query('SET TRANSACTION READ ONLY');
-                        await client.query(`SET LOCAL ROLE cascata_api_role`);
-                        const claims = { 'request.jwt.claim.sub': user.sub || '', 'request.jwt.claim.role': userRole, 'request.jwt.claim.email': user.email || '' };
-                        for (const [key, value] of Object.entries(claims)) { if (value) await client.query(`SELECT set_config($1, $2, true)`, [key, String(value)]); }
-                        await client.query(`SET TIME ZONE '${timezone}'`);
-                        await client.query(`SET statement_timeout = 5000`); 
+                        
+                        // 1. Consolidated Config Setup (Single Round-Trip)
+                        // Sets transaction, role, timezone, and claims in one go.
+                        const claims = [
+                            `set_config('request.jwt.claim.sub', '${user.sub || ''}', true)`,
+                            `set_config('request.jwt.claim.role', '${userRole}', true)`,
+                            `set_config('request.jwt.claim.email', '${user.email || ''}', true)`
+                        ];
+                        
+                        const configSql = `
+                            BEGIN;
+                            ${isReadOnly ? 'SET TRANSACTION READ ONLY;' : ''}
+                            SET LOCAL ROLE cascata_api_role;
+                            SET TIME ZONE '${timezone}';
+                            SET statement_timeout = 5000;
+                            SELECT ${claims.join(', ')};
+                        `;
+                        
+                        await client.query(configSql);
+
+                        // 2. Execute User Query
                         const result = await client.query(sql, params);
+                        
+                        // 3. Commit
                         await client.query('COMMIT');
+                        
                         return new ivm.ExternalCopy(JSON.parse(JSON.stringify(result.rows))).copyInto();
                     } catch (e: any) { 
                         if (client) await client.query('ROLLBACK').catch(() => {});
                         throw e; 
-                    } finally { if (client) client.release(); }
+                    } finally { 
+                        // Aggressive release
+                        if (client) client.release(); 
+                    }
                 })
             }));
+
             const safeLookup = (hostname: string, options: any, callback: any) => {
                 dns.lookup(hostname, options, (err, address, family) => {
                     if (err) return callback(err, address, family);

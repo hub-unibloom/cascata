@@ -11,7 +11,7 @@ import { RateLimitService } from '../../services/RateLimitService.js';
 
 export class StorageController {
 
-    // Helper: Check Quota Usage with Physical Enforcement + Reservation
+    // Helper: Check Quota Usage with Logical Priority + Cache + Reservation
     private static async checkQuota(
         projectSlug: string, 
         incomingSize: number, 
@@ -22,32 +22,56 @@ export class StorageController {
             let currentUsage = 0;
             const limit = parseBytes(limitStr);
 
-            if (provider === 'local') {
-                currentUsage = await StorageService.getPhysicalDiskUsage(projectSlug);
+            // 1. Check Redis Cache (Fastest)
+            const cachedUsage = await RateLimitService.getProjectStorageUsage(projectSlug);
+            
+            if (cachedUsage !== null) {
+                currentUsage = cachedUsage;
             } else {
-                const res = await systemPool.query(
+                // 2. Cache Miss: Use Logical Sum (DB) as Source of Truth
+                const dbRes = await systemPool.query(
                     `SELECT SUM(size) as total FROM system.storage_objects WHERE project_slug = $1`,
                     [projectSlug]
                 );
-                currentUsage = parseInt(res.rows[0].total || '0');
+                let logicalSize = parseInt(dbRes.rows[0].total || '0');
+
+                // 3. Physical Check (Optional Sanity Check for Local Provider)
+                // Prevents "Zombie Files" (files on disk not in DB) from consuming infinite space.
+                // If physical usage is significantly higher, we use it. Otherwise, Logical is safer/faster.
+                if (provider === 'local') {
+                    try {
+                        const physicalSize = await StorageService.getPhysicalDiskUsage(projectSlug);
+                        if (physicalSize > logicalSize) {
+                            // Warn: Inconsistency detected, but trust physical to protect disk
+                            logicalSize = physicalSize;
+                        }
+                    } catch (physErr) {
+                        // If physical check fails (e.g., permission, timeout), ignore and stick to Logical.
+                        console.warn(`[StorageQuota] Physical check failed for ${projectSlug}, using logical.`);
+                    }
+                }
+
+                currentUsage = logicalSize;
+                
+                // 4. Update Cache (TTL 1h)
+                await RateLimitService.setProjectStorageUsage(projectSlug, currentUsage);
             }
 
-            // Soma espaço já reservado (uploads em andamento)
+            // 5. Add In-Flight Reservations (Redis)
             const reserved = await RateLimitService.getReservedStorage(projectSlug);
-            
             const totalProjected = currentUsage + reserved + incomingSize;
 
             if (totalProjected > limit) {
                 return { allowed: false };
             }
             
-            // Reserva o espaço
+            // 6. Reserve Space for this upload
             const resId = await RateLimitService.reserveStorage(projectSlug, incomingSize);
             return { allowed: true, reservationId: resId || undefined };
             
         } catch(e) {
             console.error("Quota Check Failed:", e);
-            // FAIL OPEN (Safety Net) mas com limite hardcoded pequeno
+            // FAIL OPEN (Safety Net) with small hard limit to prevent total outage on Redis/DB failure
             return { allowed: incomingSize < 50 * 1024 * 1024 }; 
         }
     }
@@ -127,21 +151,15 @@ export class StorageController {
                 return res.status(403).json({ error: 'Access denied' }); 
             }
 
-            // 1. External Provider Cleanup (Zombie Prevention)
+            // 1. External Provider Cleanup
             const storageConfig: StorageConfig = req.project.metadata?.storage_config || { provider: 'local' };
             
             if (storageConfig.provider !== 'local') {
-                console.log(`[Storage] Performing Deep Clean on external bucket: ${name} (${storageConfig.provider})`);
-                
-                // Fetch all objects linked to this bucket
                 const objects = await systemPool.query(
                     'SELECT full_path FROM system.storage_objects WHERE project_slug=$1 AND bucket=$2',
                     [projectSlug, name]
                 );
 
-                // Batch delete or iterate
-                // Note: StorageService.delete handles the provider logic (S3, Cloudinary, etc.)
-                // We use Promise.allSettled to ensure we try to delete everything even if one fails
                 const deletionPromises = objects.rows.map(row => 
                     StorageService.delete(row.full_path, storageConfig)
                         .catch(err => console.warn(`[Storage] Failed to delete orphan ${row.full_path}:`, err.message))
@@ -151,12 +169,14 @@ export class StorageController {
             }
 
             // 2. Local Cleanup (Filesystem)
-            // Even if external, we might have empty folder structures locally
             await fs.rm(bucketPath, { recursive: true, force: true });
             
-            // 3. Metadata Cleanup (Database)
+            // 3. Metadata Cleanup
             await systemPool.query('DELETE FROM system.storage_objects WHERE project_slug=$1 AND bucket=$2', [projectSlug, name]);
             
+            // 4. Invalidate Quota Cache (Force Recalculation)
+            await RateLimitService.invalidateProjectStorageUsage(projectSlug);
+
             res.json({ success: true }); 
         } catch (e: any) { 
             res.status(500).json({ error: e.message }); 
@@ -226,10 +246,6 @@ export class StorageController {
             const fullKey = path.join(relativePath, name).replace(/\\/g, '/');
 
             const result = await StorageService.createUploadUrl(fullKey, type, storageConfig);
-            
-            // Release reservation implicitly or handle via webhook callback?
-            // For signed URLs, we can't easily know when it finishes. 
-            // The reservation expires automatically (TTL).
             
             res.json({
                 strategy: result.strategy,
@@ -305,7 +321,6 @@ export class StorageController {
                 }
                 res.json({ success: true, path: dest.replace(STORAGE_ROOT, ''), provider: 'local' });
             } else {
-                // If proxy to external, cleanup local temp
                 try { await fs.unlink(req.file.path); } catch(e) {}
                 res.json({ success: true, path: resultUrl, provider: storageConfig.provider, url: resultUrl });
             }
@@ -318,7 +333,10 @@ export class StorageController {
                 provider: storageConfig.provider
             });
             
-            // Release reservation explicitly as we are done
+            // Invalidate Cache to force recount on next quota check
+            await RateLimitService.invalidateProjectStorageUsage(req.project.slug);
+            
+            // Release reservation explicitly
             if (reservationId) await RateLimitService.releaseStorage(req.project.slug, reservationId);
 
         } catch (e: any) { 
@@ -353,6 +371,7 @@ export class StorageController {
         const bucket = req.params.bucket;
         try {
             StorageIndexer.syncLocalBucket(systemPool, req.project.slug, bucket).catch(e => console.error("Sync Error", e));
+            await RateLimitService.invalidateProjectStorageUsage(req.project.slug); // Force recalculation after sync
             res.json({ success: true, message: "Synchronization started in background." });
         } catch(e: any) {
             next(e);
@@ -432,6 +451,9 @@ export class StorageController {
             
             await StorageIndexer.unindexObject(systemPool, req.project.slug, req.params.bucket, objectPath);
             
+            // Invalidate Cache to force recount
+            await RateLimitService.invalidateProjectStorageUsage(req.project.slug);
+
             res.json({ success: true });
         } catch (e: any) { next(e); }
     }
