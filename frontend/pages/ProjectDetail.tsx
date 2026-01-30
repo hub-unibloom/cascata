@@ -13,7 +13,7 @@ import {
 import ProjectSettings from './ProjectSettings';
 import ProjectIntelligence from './ProjectIntelligence';
 
-// --- TYPES ---
+// --- STRICT TYPES ---
 type TabType = 'overview' | 'intelligence' | 'settings';
 
 interface ProjectStats {
@@ -24,16 +24,26 @@ interface ProjectStats {
   throughput: Array<{ name: string; requests: number; success: number; error: number }>;
 }
 
+// Robust Metadata Interface matching DB JSONB structure
+interface ProjectMetadata {
+  external_db_url?: string;
+  timezone?: string;
+  auth_config?: {
+      site_url?: string;
+      email_confirmation?: boolean;
+      [key: string]: any;
+  };
+  ui_settings?: Record<string, any>;
+  [key: string]: any; // Allow extensibility for other JSONB fields
+}
+
 interface ProjectData {
   id: string;
   name: string;
   slug: string;
-  status: string;
+  status: string; // 'healthy' | 'degraded' | 'error'
   custom_domain?: string;
-  metadata?: {
-    external_db_url?: string;
-    timezone?: string;
-  };
+  metadata?: ProjectMetadata; // Optional as it comes from JSONB
 }
 
 // --- SUB-COMPONENTS (Hoisted for Safety) ---
@@ -115,7 +125,10 @@ const ProjectDetail: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [stats, setStats] = useState<ProjectStats | null>(null);
   const [loading, setLoading] = useState(true);
+  
+  // STRICT TYPING: projectData initialized as ProjectData | null
   const [projectData, setProjectData] = useState<ProjectData | null>(null);
+  
   const [error, setError] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
 
@@ -141,7 +154,7 @@ const ProjectDetail: React.FC<{ projectId: string }> = ({ projectId }) => {
       if (!current) throw new Error("Project not found");
 
       setStats(statsData);
-      setProjectData(current);
+      setProjectData(current); // Type compatibility assumed from API response structure
       setError(null);
       setLastRefreshed(new Date());
     } catch (err: any) {
@@ -159,13 +172,16 @@ const ProjectDetail: React.FC<{ projectId: string }> = ({ projectId }) => {
   }, [projectId]);
 
   const getBaseUrl = () => {
+      // Safe access with optional chaining
       if (projectData?.custom_domain) {
           return `https://${projectData.custom_domain}`;
       }
       return `${window.location.origin}/api/data/${projectId}`;
   };
 
+  // Guarded Metadata Access
   const isEjected = !!projectData?.metadata?.external_db_url;
+  const projectTimezone = projectData?.metadata?.timezone ?? 'UTC';
 
   // Memoized Chart Data
   const chartData = useMemo(() => {
@@ -228,16 +244,16 @@ const ProjectDetail: React.FC<{ projectId: string }> = ({ projectId }) => {
               </span>
           </div>
           <h1 className="text-5xl lg:text-6xl font-black text-slate-900 tracking-tighter leading-tight">
-            {projectData?.name || projectId}
+            {projectData?.name ?? projectId}
           </h1>
           <div className="flex items-center gap-4 mt-4">
              <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 rounded-lg border border-slate-200">
                 <Globe size={12} className="text-slate-400"/>
-                <span className="font-mono text-[10px] font-bold text-slate-600">{projectData?.slug}</span>
+                <span className="font-mono text-[10px] font-bold text-slate-600">{projectData?.slug ?? 'unknown-slug'}</span>
              </div>
              <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 rounded-lg border border-indigo-100">
                 <Clock size={12} className="text-indigo-400"/>
-                <span className="font-mono text-[10px] font-bold text-indigo-700">{projectData?.metadata?.timezone || 'UTC'}</span>
+                <span className="font-mono text-[10px] font-bold text-indigo-700">{projectTimezone}</span>
              </div>
           </div>
         </div>
@@ -275,14 +291,14 @@ const ProjectDetail: React.FC<{ projectId: string }> = ({ projectId }) => {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <StatCard 
                 title="Total Entities" 
-                value={stats?.tables?.toString() || '0'} 
+                value={stats?.tables?.toString() ?? '0'} 
                 icon={<Database size={24}/>} 
                 label="public schema" 
                 color="indigo"
               />
               <StatCard 
                 title="Identity Records" 
-                value={stats?.users?.toString() || '0'} 
+                value={stats?.users?.toString() ?? '0'} 
                 icon={<Shield size={24}/>} 
                 label="auth.users" 
                 color="emerald"
@@ -290,14 +306,14 @@ const ProjectDetail: React.FC<{ projectId: string }> = ({ projectId }) => {
               />
               <StatCard 
                 title="Volume Usage" 
-                value={stats?.size || '0 MB'} 
+                value={stats?.size ?? '0 MB'} 
                 icon={<HardDrive size={24}/>} 
                 label="physical disk" 
                 color="blue"
               />
               <StatCard 
                 title="Active Sessions" 
-                value={stats?.active_connections?.toString() || '0'} 
+                value={stats?.active_connections?.toString() ?? '0'} 
                 icon={<Network size={24}/>} 
                 label="db connections" 
                 color="amber"

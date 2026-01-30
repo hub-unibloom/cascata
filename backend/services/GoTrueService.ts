@@ -127,7 +127,8 @@ export class GoTrueService {
         jwtSecret: string,
         projectConfig?: any 
     ) {
-        if (type !== 'signup' && type !== 'recovery' && type !== 'magiclink') {
+        // Supported flows: signup (confirmation), recovery (password reset), magiclink (login), invite
+        if (!['signup', 'recovery', 'magiclink', 'invite'].includes(type)) {
             throw new Error("Invalid verification type");
         }
 
@@ -157,26 +158,66 @@ export class GoTrueService {
                     [userId]
                 );
 
-                // Send Welcome Email if configured (Delayed until verification)
+                // Send Welcome/Alerts for Signup
                 if (projectConfig?.auth_config?.send_welcome_email && userEmail) {
                     const emailConfig = projectConfig.auth_config.auth_strategies?.email || { delivery_method: 'smtp' };
                     AuthService.sendWelcomeEmail(userEmail, emailConfig, projectConfig.auth_config.email_templates, jwtSecret).catch(() => {});
                 }
 
-                // Send Login Alert if configured (Verification is a login)
-                if (projectConfig?.auth_config?.send_login_alert && userEmail) {
-                    const emailConfig = projectConfig.auth_config.auth_strategies?.email || { delivery_method: 'smtp' };
-                    AuthService.sendLoginAlert(userEmail, emailConfig, projectConfig.auth_config.email_templates, jwtSecret).catch(() => {});
+            } else if (type === 'recovery' || type === 'magiclink' || type === 'invite') {
+                // Bridge to AuthService OTP Logic
+                // 1. Hash the incoming token to match database storage
+                const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+                // 2. Lookup in auth.otp_codes (Where AuthLinks are stored)
+                // We check against provider='email' and ensure the type matches via metadata
+                const otpRes = await client.query(
+                    `SELECT * FROM auth.otp_codes 
+                     WHERE code = $1 
+                     AND provider = 'email'
+                     AND (metadata->>'type' = $2 OR metadata->>'type' IS NULL) 
+                     AND expires_at > now()`,
+                    [tokenHash, type === 'invite' ? 'invite' : (type === 'recovery' ? 'recovery' : 'magiclink')]
+                );
+
+                if (otpRes.rows.length === 0) {
+                    throw new Error("Invalid or expired verification link.");
                 }
 
-            } else if (type === 'recovery') {
-                throw new Error("Recovery verification should use otp_codes flow via AuthService.");
-            } else {
-                throw new Error("Unsupported verification type in this handler.");
-            }
+                const otpRecord = otpRes.rows[0];
+                const identifier = otpRecord.identifier; // Email
+
+                // 3. Find User
+                const userRes = await client.query(
+                    `SELECT id, raw_user_meta_data->>'email' as email FROM auth.users WHERE raw_user_meta_data->>'email' = $1`,
+                    [identifier]
+                );
+
+                if (userRes.rows.length === 0) throw new Error("User not found.");
+                
+                const user = userRes.rows[0];
+                userId = user.id;
+                userEmail = user.email;
+
+                // 4. Consume Token (One-time use)
+                await client.query(`DELETE FROM auth.otp_codes WHERE id = $1`, [otpRecord.id]);
+
+                // 5. Ensure Email is Confirmed (Implicit confirmation via magic link/recovery)
+                await client.query(
+                    `UPDATE auth.users SET email_confirmed_at = now() WHERE id = $1 AND email_confirmed_at IS NULL`,
+                    [userId]
+                );
+            } 
 
             await client.query('COMMIT');
+            
+            // Login Alert Logic (Applies to all verifications that result in a session)
+            if (projectConfig?.auth_config?.send_login_alert && userEmail && type !== 'signup') {
+                const emailConfig = projectConfig.auth_config.auth_strategies?.email || { delivery_method: 'smtp' };
+                AuthService.sendLoginAlert(userEmail, emailConfig, projectConfig.auth_config.email_templates, jwtSecret).catch(() => {});
+            }
 
+            // Create Session
             const session = await AuthService.createSession(userId, pool, jwtSecret);
             return session;
 
