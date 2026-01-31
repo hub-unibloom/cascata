@@ -103,7 +103,6 @@ export class SystemLogService {
                 let paramIdx = 1;
 
                 batch.forEach(log => {
-                    // Added 11th parameter for response_size
                     placeholders.push(`($${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++})`);
                     values.push(
                         log.project_slug, 
@@ -116,7 +115,7 @@ export class SystemLogService {
                         log.payload, 
                         log.headers, 
                         log.geo_info,
-                        log.response_size || 0 // New Field
+                        log.response_size || 0 
                     );
                 });
 
@@ -137,8 +136,17 @@ export class SystemLogService {
     }
 
     public static async shutdown() {
+        console.log('[SystemLogService] Flushing remaining audit logs...');
         if (this.flushTimer) clearInterval(this.flushTimer);
-        await this.flushAuditLogs(); 
+        
+        // Wait for final flush
+        try {
+            await this.flushAuditLogs();
+            console.log('[SystemLogService] Flush complete.');
+        } catch (e) {
+            console.error('[SystemLogService] Flush error:', e);
+        }
+        
         if (this.redis) this.redis.disconnect();
     }
 }

@@ -1,9 +1,10 @@
 
 import { Response, Request } from 'express';
-import { Client } from 'pg';
+import { Client, PoolClient } from 'pg';
 import { systemPool } from '../src/config/main.js';
 import { PushService } from './PushService.js';
 import { PoolService } from './PoolService.js';
+import { RateLimitService } from './RateLimitService.js';
 import { quoteId } from '../src/utils/index.js';
 
 interface ClientConnection {
@@ -17,13 +18,26 @@ interface ProjectListener {
     refCount: number;
     connectionString: string;
     isExternal: boolean;
+    // Cache de configurações para evitar DB hits em cada evento
+    cachedConfig?: {
+        firebase?: any;
+    };
 }
 
 // BATCHER INTERFACES
 // Map<TableName, Map<RecordID, ActionType>>
-// Stores ID and Action (INSERT/UPDATE) to preserve context
 type TableBuffer = Map<string, string>; 
 type ProjectBuffer = Map<string, TableBuffer>;
+
+// OBSERVABILITY METRICS
+interface ServiceMetrics {
+    eventsReceived: number;
+    eventsBatched: number;
+    eventsBroadcasted: number;
+    eventsDropped: number; // Circuit Breaker
+    hydrationErrors: number;
+    activeConnections: number;
+}
 
 export class RealtimeService {
     private static subscribers = new Map<string, Set<ClientConnection>>();
@@ -31,16 +45,78 @@ export class RealtimeService {
     private static MAX_CLIENTS_PER_PROJECT = 5000; 
 
     // --- HYDRATION BATCHER STATE ---
-    // Map<ProjectSlug, Map<TableName, Map<RecordId, Action>>>
     private static hydrationBuffers = new Map<string, ProjectBuffer>();
     
-    // Backpressure Lock: Set<"projectSlug:tableName">
-    // Prevents parallel fetches for the same table to save DB connection limit
-    private static activeFlushes = new Set<string>();
+    // Backpressure Lock: Map<"projectSlug:tableName", Timestamp>
+    private static activeFlushes = new Map<string, number>();
     
     private static flushInterval: NodeJS.Timeout | null = null;
-    private static readonly BATCH_TICK_MS = 50; // 50ms aggregation window
-    private static readonly MAX_BUFFER_SIZE_PER_TABLE = 5000; // Circuit breaker
+    private static readonly BATCH_TICK_MS = 50; 
+    private static readonly MAX_BUFFER_SIZE_PER_TABLE = 5000; 
+    private static readonly LOCK_TIMEOUT_MS = 30000; // 30s max para um flush
+
+    // METRICS STATE
+    public static metrics: ServiceMetrics = {
+        eventsReceived: 0,
+        eventsBatched: 0,
+        eventsBroadcasted: 0,
+        eventsDropped: 0,
+        hydrationErrors: 0,
+        activeConnections: 0
+    };
+
+    /**
+     * Inicializa o serviço de forma segura
+     */
+    public static init() {
+        try {
+            this.startBatcher();
+            console.log('[Realtime] ✅ Service initialized with Hydration Batcher V2');
+        } catch (e) {
+            console.error('[Realtime] ❌ Initialization failed', e);
+            throw e; // Falha no boot é crítica
+        }
+    }
+
+    /**
+     * Shutdown Gracioso invocado pelo servidor central
+     * Garante que buffers sejam processados antes de fechar conexões
+     */
+    public static async shutdown() {
+        console.log('[Realtime] Shutting down... flushing buffers.');
+        if (this.flushInterval) clearInterval(this.flushInterval);
+        
+        // Coleta todas as promessas de flush pendentes
+        const pendingFlushes: Promise<void>[] = [];
+
+        for (const [slug, projectBuffer] of this.hydrationBuffers.entries()) {
+            for (const [table, idMap] of projectBuffer.entries()) {
+                if (idMap.size === 0) continue;
+
+                const lockKey = `${slug}:${table}`;
+                // Atomic Swap para garantir processamento
+                const batchToProcess = new Map(idMap);
+                idMap.clear();
+
+                // Adiciona à lista de espera
+                pendingFlushes.push(
+                    this.processBatch(slug, table, batchToProcess, lockKey).catch(e => {
+                        console.error(`[Realtime] Shutdown flush error for ${lockKey}:`, e);
+                    })
+                );
+            }
+        }
+
+        // Aguarda todos os flushes terminarem ou timeout de segurança
+        await Promise.allSettled(pendingFlushes);
+        
+        // Fecha listeners do Postgres
+        for (const slug of this.activeListeners.keys()) {
+            this.forceCloseListener(slug);
+        }
+        
+        console.log('[Realtime] Shutdown complete.');
+    }
 
     public static async handleConnection(req: any, res: any) {
         const slug = req.params.slug;
@@ -52,49 +128,59 @@ export class RealtimeService {
             return;
         }
 
+        // 1. SECURITY: Panic Mode Check (Brecha Fechada)
+        const isPanic = await RateLimitService.checkPanic(slug);
+        if (isPanic) {
+            res.status(503).json({ error: 'Service Unavailable (Lockdown Mode)' });
+            return;
+        }
+
         const currentCount = this.subscribers.get(slug)?.size || 0;
         if (currentCount >= this.MAX_CLIENTS_PER_PROJECT) {
             res.status(429).json({ error: 'Too many realtime connections.' });
             return;
         }
 
-        const headers = {
+        // Headers SSE Padrão
+        res.writeHead(200, {
             'Content-Type': 'text/event-stream',
             'Connection': 'keep-alive',
             'Cache-Control': 'no-cache',
             'X-Accel-Buffering': 'no'
-        };
-        res.writeHead(200, headers);
+        });
 
         const clientId = Date.now().toString(36) + Math.random().toString(36).substr(2);
         res.write(`data: ${JSON.stringify({ type: 'connected', clientId })}\n\n`);
 
-        await this.acquireListener(project);
+        try {
+            await this.acquireListener(project);
+            
+            if (!this.subscribers.has(slug)) {
+                this.subscribers.set(slug, new Set());
+            }
+            
+            const connection: ClientConnection = { id: clientId, res, tableFilter: table as string };
+            this.subscribers.get(slug)!.add(connection);
+            this.metrics.activeConnections++;
 
-        if (!this.subscribers.has(slug)) {
-            this.subscribers.set(slug, new Set());
+            // Ensure loop is running (lazy start safety)
+            this.startBatcher();
+
+            const heartbeat = setInterval(() => {
+                if (!res.writableEnded) res.write(': ping\n\n');
+            }, 15000);
+
+            req.on('close', () => {
+                clearInterval(heartbeat);
+                this.subscribers.get(slug)?.delete(connection);
+                this.metrics.activeConnections--;
+                this.releaseListener(slug);
+            });
+
+        } catch (e) {
+            console.error(`[Realtime] Failed to setup connection for ${slug}`, e);
+            res.end(); 
         }
-        
-        const connection: ClientConnection = {
-            id: clientId,
-            res,
-            tableFilter: table as string
-        };
-        
-        this.subscribers.get(slug)!.add(connection);
-
-        // Ensure the batcher loop is alive
-        this.startBatcher();
-
-        const heartbeat = setInterval(() => {
-            if (!res.writableEnded) res.write(': ping\n\n');
-        }, 15000);
-
-        req.on('close', () => {
-            clearInterval(heartbeat);
-            this.subscribers.get(slug)?.delete(connection);
-            this.releaseListener(slug);
-        });
     }
 
     private static async acquireListener(project: any) {
@@ -129,6 +215,12 @@ export class RealtimeService {
             ssl: isExternal ? { rejectUnauthorized: false } : false
         });
 
+        // CACHE OPTIMIZATION: Carrega configs extras uma vez
+        const cachedConfig: any = {};
+        if (project.metadata?.firebase_config) {
+            cachedConfig.firebase = project.metadata.firebase_config;
+        }
+
         try {
             await client.connect();
             await client.query('LISTEN cascata_events');
@@ -143,34 +235,33 @@ export class RealtimeService {
                 client,
                 refCount: 1,
                 connectionString,
-                isExternal
+                isExternal,
+                cachedConfig
             });
 
         } catch (e: any) {
-            console.error(`[Realtime] Failed to connect listener for ${slug}`, e.message);
+            console.error(`[Realtime] Connection Failed for ${slug}`, e.message);
             throw e;
         }
     }
 
     private static releaseListener(slug: string) {
-        if (!this.activeListeners.has(slug)) return;
+        const listener = this.activeListeners.get(slug);
+        if (!listener) return;
         
-        const listener = this.activeListeners.get(slug)!;
         listener.refCount--;
-
         if (listener.refCount <= 0) {
             this.forceCloseListener(slug);
         }
     }
 
     private static forceCloseListener(slug: string) {
-        if (!this.activeListeners.has(slug)) return;
-        const listener = this.activeListeners.get(slug)!;
+        const listener = this.activeListeners.get(slug);
+        if (!listener) return;
+        
         console.log(`[Realtime] 🔴 Closing idle listener for ${slug}`);
         listener.client.end().catch(() => {});
         this.activeListeners.delete(slug);
-        
-        // Clean up buffer if exists
         this.hydrationBuffers.delete(slug);
     }
 
@@ -182,30 +273,33 @@ export class RealtimeService {
         if (msg.channel !== 'cascata_events' || !msg.payload) return;
 
         try {
+            this.metrics.eventsReceived++;
             const rawPayload = JSON.parse(msg.payload);
             
-            // HYDRATION BATCHER LOGIC
-            // Only batch if it's a lightweight payload (missing full record) AND NOT a DELETE.
-            // Deletes cannot be hydrated because the record is gone.
+            // LOGIC: Hydration Batcher
+            // Se o payload vier "seco" (sem record) e não for DELETE, bufferiza.
             if (!rawPayload.record && rawPayload.record_id && rawPayload.table && rawPayload.action !== 'DELETE') {
                 this.addToBatch(slug, rawPayload.table, rawPayload.record_id, rawPayload.action);
-                return; // Stop here, batcher will process later
+                return;
             }
 
-            // If it's a DELETE or full payload, send immediately
-            this.triggerNeuralPulse(slug, rawPayload);
-            this.broadcast(slug, rawPayload);
+            // Se for DELETE ou Payload Completo, envia direto
+            this.processSingleEvent(slug, rawPayload);
 
         } catch (e) {
             console.error(`[Realtime] Parse Error`, e);
         }
     }
 
-    // --- BATCHER CORE ---
+    private static processSingleEvent(slug: string, payload: any) {
+        this.triggerNeuralPulse(slug, payload);
+        this.broadcast(slug, payload);
+    }
+
+    // --- BATCHER CORE (10/10 Implementation) ---
 
     private static startBatcher() {
         if (this.flushInterval) return;
-        // Global Tick Loop - runs once for the entire Node process
         this.flushInterval = setInterval(() => this.flushAllBuffers(), this.BATCH_TICK_MS);
     }
 
@@ -220,134 +314,161 @@ export class RealtimeService {
         }
         const tableBuffer = projectBuffer.get(table)!;
 
-        // Circuit Breaker: Protection against Memory Overflow
+        // Circuit Breaker: Proteção contra OOM
         if (tableBuffer.size >= this.MAX_BUFFER_SIZE_PER_TABLE) {
-            // Drop event to protect process memory. 
-            // In a production system, we might want to log this metric or spill to Redis.
+            this.metrics.eventsDropped++;
             if (Math.random() < 0.01) console.warn(`[Realtime] Buffer overflow for ${slug}:${table}. Dropping updates.`);
             return;
         }
 
-        // Add to map: Last Write Wins for the action
+        // Map garante deduplicação (Last Write Wins)
         tableBuffer.set(id, action);
+        this.metrics.eventsBatched++;
     }
 
     private static flushAllBuffers() {
         if (this.hydrationBuffers.size === 0) return;
 
-        // Iterate over projects
+        // Itera sobre projetos
         for (const [slug, projectBuffer] of this.hydrationBuffers.entries()) {
             if (projectBuffer.size === 0) continue;
 
-            // Iterate over tables within project
+            // Itera sobre tabelas
             for (const [table, idMap] of projectBuffer.entries()) {
                 if (idMap.size === 0) continue;
 
-                // BACKPRESSURE CHECK:
-                // If a flush is already running for this table, SKIP this tick.
-                // This allows the buffer to accumulate more items (efficiency) and prevents
-                // opening too many DB connections if the DB is slow.
                 const lockKey = `${slug}:${table}`;
-                if (this.activeFlushes.has(lockKey)) {
-                    continue; 
+                const lastLockTime = this.activeFlushes.get(lockKey);
+                const now = Date.now();
+
+                // BACKPRESSURE & LOCK TIMEOUT
+                if (lastLockTime) {
+                    if (now - lastLockTime > this.LOCK_TIMEOUT_MS) {
+                         console.warn(`[Realtime] Lock timeout for ${lockKey}. Forcing unlock.`);
+                         this.activeFlushes.delete(lockKey);
+                    } else {
+                         // Ainda bloqueado e dentro do tempo, pula este tick
+                         continue; 
+                    }
                 }
 
-                // ATOMIC SWAP:
-                // Clone and clear immediately to unblock new inserts.
-                // We convert Map to a plain object/array for processing.
+                // ATOMIC SWAP: Clone & Clear
                 const batchToProcess = new Map(idMap);
                 idMap.clear();
 
-                // Fire and Forget (Async)
-                this.processBatch(slug, table, batchToProcess, lockKey);
+                // Fire and Forget (Catching errors internally)
+                this.processBatch(slug, table, batchToProcess, lockKey).catch(err => {
+                    console.error(`[Realtime] Uncaught batch error for ${slug}`, err);
+                    this.activeFlushes.delete(lockKey);
+                });
             }
         }
     }
 
     private static async processBatch(slug: string, table: string, idMap: Map<string, string>, lockKey: string) {
         const listener = this.activeListeners.get(slug);
-        if (!listener) return; // Project disconnected
+        if (!listener) return; // Projeto desconectou
 
-        this.activeFlushes.add(lockKey);
+        this.activeFlushes.set(lockKey, Date.now()); // Acquire Lock
 
+        let client: PoolClient | null = null;
         try {
-            // Use PoolService for the transient query
-            // We reuse the connection info from the listener, but use the pool for query efficiency
+            // Reutiliza connection string do listener mas usa PoolService para eficiência
             const pool = PoolService.get(`rt_hyd_${slug}`, { connectionString: listener.connectionString });
-            
             const ids = Array.from(idMap.keys());
             
-            // Optimized Batch Fetch: 1 Query for N rows
-            const res = await pool.query(
-                `SELECT * FROM public.${quoteId(table)} WHERE id = ANY($1::text[])`, 
-                [ids] 
-            );
+            // 2. TIMEOUT ROBUSTO (Padrão SET/RESET com Client Manual)
+            // Evita poluir o pool global se a conexão for devolvida suja
+            client = await pool.connect();
+            
+            try {
+                // Define timeout apenas para esta transação/sessão
+                await client.query("SET statement_timeout = '5000'"); 
+                
+                const res = await client.query(
+                    `SELECT * FROM public.${quoteId(table)} WHERE id = ANY($1::text[])`, 
+                    [ids]
+                );
 
-            // Fan-out results
-            // We iterate the results found. Note: Some IDs might be missing if they were deleted
-            // immediately after insert (race condition), which is fine to ignore.
-            for (const row of res.rows) {
-                const recordId = row.id;
-                const originalAction = idMap.get(recordId) || 'INSERT'; // Fallback to INSERT
+                // Fan-out: Distribui os resultados
+                for (const row of res.rows) {
+                    const recordId = row.id; 
+                    const originalAction = idMap.get(recordId) || 'INSERT';
 
-                const hydratedPayload = {
-                    table: table,
-                    schema: 'public',
-                    action: originalAction, 
-                    record: row,
-                    record_id: recordId,
-                    timestamp: new Date().toISOString()
-                };
+                    const hydratedPayload = {
+                        table: table,
+                        schema: 'public',
+                        action: originalAction, 
+                        record: row,
+                        record_id: recordId,
+                        timestamp: new Date().toISOString()
+                    };
 
-                this.triggerNeuralPulse(slug, hydratedPayload);
-                this.broadcast(slug, hydratedPayload);
+                    this.processSingleEvent(slug, hydratedPayload);
+                }
+
+            } finally {
+                // Limpeza crítica antes de devolver ao pool
+                await client.query("RESET statement_timeout").catch(() => {});
+                client.release();
             }
 
         } catch (e: any) {
-            console.error(`[Realtime] Batch hydration failed for ${slug}:${table}`, e.message);
+            this.metrics.hydrationErrors++;
+            console.error(`[Realtime] Hydration failed for ${slug}:${table}`, e.message);
         } finally {
-            // Always release the lock
-            this.activeFlushes.delete(lockKey);
+            this.activeFlushes.delete(lockKey); // Release Lock
         }
     }
 
-    // --- EXISTING HELPERS ---
+    // --- INTEGRATIONS ---
 
     private static async triggerNeuralPulse(slug: string, payload: any) {
+        const listener = this.activeListeners.get(slug);
+        if (!listener || !listener.cachedConfig?.firebase) return;
+
         try {
-            // Optimization: In Phase 3, cache this config to avoid DB hit on every event
-            const projRes = await systemPool.query('SELECT db_name, metadata FROM system.projects WHERE slug = $1', [slug]);
-            const project = projRes.rows[0];
-            
-            if (project?.metadata?.firebase_config) {
-                // If using external DB, we need the connection string, else internal pool logic
-                const connectionString = project.metadata?.external_db_url;
-                const pool = PoolService.get(project.db_name, { connectionString });
-                
-                // Fire and forget push processing
-                PushService.processEventTrigger(
-                    slug, 
-                    pool, 
-                    systemPool, 
-                    payload, 
-                    project.metadata.firebase_config
-                ).catch(() => {});
-            }
+            // Fire & Forget para não bloquear o loop de eventos
+            const pool = PoolService.get(`pulse_${slug}`, { connectionString: listener.connectionString });
+            PushService.processEventTrigger(
+                slug, 
+                pool, 
+                systemPool, 
+                payload, 
+                listener.cachedConfig.firebase
+            ).catch(() => {});
         } catch (e) {}
     }
 
     private static broadcast(slug: string, payload: any) {
         const clients = this.subscribers.get(slug);
-        if (!clients) return;
+        if (!clients || clients.size === 0) return;
         
         const message = `data: ${JSON.stringify(payload)}\n\n`;
+        let sentCount = 0;
         
         clients.forEach(client => {
             if (!client.res.writableEnded) {
                 if (!client.tableFilter || client.tableFilter === payload.table) {
                     client.res.write(message);
+                    sentCount++;
                 }
             }
         });
+        
+        this.metrics.eventsBroadcasted += sentCount;
+    }
+
+    // --- PUBLIC METRICS ACCESS ---
+    public static getMetrics() {
+        return {
+            ...this.metrics,
+            buffers: this.hydrationBuffers.size,
+            listeners: this.activeListeners.size,
+            subscribers: this.subscribers.size
+        };
     }
 }
+
+// Inicialização Estática (Controlada pelo server.ts agora)
+// RealtimeService.init();

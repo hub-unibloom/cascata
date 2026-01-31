@@ -16,7 +16,8 @@ import { MigrationService } from './services/MigrationService.js';
 import { QueueService } from './services/QueueService.js';
 import { RateLimitService } from './services/RateLimitService.js';
 import { PoolService } from './services/PoolService.js';
-import { SystemLogService } from './services/SystemLogService.js'; // NEW
+import { SystemLogService } from './services/SystemLogService.js'; 
+import { RealtimeService } from './services/RealtimeService.js'; // NEW Import
 
 // --- ROUTES ---
 import mainRouter from './src/routes/index.js';
@@ -32,8 +33,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const MIGRATIONS_ROOT = path.resolve(__dirname, '../migrations');
 
-// --- INITIALIZE SYSTEM LOGGING (OBSERVABILITY) ---
+// --- INITIALIZE SERVICES ---
 SystemLogService.init();
+RealtimeService.init(); // Explicit Init
 
 // --- WORKER MODE (SCALE-OUT) ---
 if (process.env.SERVICE_MODE === 'WORKER') {
@@ -47,6 +49,7 @@ if (process.env.SERVICE_MODE === 'WORKER') {
             
             process.on('SIGTERM', async () => {
                 console.log('[Worker] Shutting down...');
+                await SystemLogService.shutdown();
                 await systemPool.end();
                 process.exit(0);
             });
@@ -198,20 +201,38 @@ else {
       }
     })();
 
-    // --- GRACEFUL SHUTDOWN ---
+    // --- GRACEFUL SHUTDOWN (ORCHESTRATED) ---
     const gracefulShutdown = async (signal: string) => {
-        console.log(`[System] Received ${signal}. Shutting down gracefully...`);
+        console.log(`[System] Received ${signal}. Starting graceful shutdown sequence...`);
+        
+        // 1. Stop accepting new requests
         server.close(async () => {
             console.log('[System] HTTP server closed.');
+            
             try {
+                // 2. Flush Application Buffers (Realtime Hydration)
+                // Deve ocorrer antes de fechar os pools de dados.
+                await RealtimeService.shutdown();
+                
+                // 3. Flush System Logs (Audit)
+                // Deve ocorrer antes de fechar o systemPool.
+                await SystemLogService.shutdown();
+
+                // 4. Close Tenant Pools
                 await PoolService.closeAll(); 
+                
+                // 5. Close System Pool
                 await systemPool.end();
+                
+                console.log('[System] Shutdown complete. Goodbye.');
                 process.exit(0);
             } catch (e) {
                 console.error('[System] Error during shutdown:', e);
                 process.exit(1);
             }
         });
+
+        // Force exit if hanging
         setTimeout(() => {
             console.error('[System] Forced shutdown due to timeout.');
             process.exit(1);
