@@ -142,6 +142,47 @@ export class BackupService {
         }
     }
 
+    /**
+     * Specialized Streamer for System Logs (Observability)
+     * Uses PSQL COPY TO STDOUT to avoid disk IO on the database container.
+     */
+    public static async getLogExportStream(projectSlug: string): Promise<Readable> {
+        // Connection details for SYSTEM DB
+        const host = process.env.DB_DIRECT_HOST || 'db';
+        const port = process.env.DB_DIRECT_PORT || '5432';
+        const user = process.env.DB_USER || 'cascata_admin';
+        const pass = process.env.DB_PASS || 'secure_pass';
+        const db = process.env.DB_NAME || 'cascata_system';
+
+        // Sanitize Slug to prevent SQL Injection in the literal query string
+        const safeSlug = projectSlug.replace(/[^a-z0-9-_]/gi, '');
+
+        // Copy command
+        const query = `COPY (SELECT * FROM system.api_logs WHERE project_slug = '${safeSlug}' ORDER BY created_at DESC) TO STDOUT WITH CSV HEADER`;
+
+        const env = { ...process.env, PGPASSWORD: pass };
+        const args = ['-h', host, '-p', port, '-U', user, '-d', db, '-c', query];
+
+        // Spawn psql process
+        const child = spawn('psql', args, { env });
+
+        // Monitor for errors (stderr)
+        child.stderr.on('data', (d) => {
+            const errText = d.toString();
+            if (!errText.includes('NOTICE')) { // Ignore notices
+                console.error('[BackupService] Log Export Error:', errText);
+            }
+        });
+
+        child.on('error', (err) => {
+            console.error('[BackupService] Failed to spawn psql:', err);
+            throw err;
+        });
+
+        // The stdout IS the data stream
+        return child.stdout;
+    }
+
     public static async executePolicyJob(policyId: string) {
         console.log(`[BackupJob] Starting policy ${policyId}`);
         

@@ -334,11 +334,10 @@ export class AdminController {
         } catch (e: any) { if (!res.headersSent) res.status(500).json({ error: e.message }); }
     }
     
-    // NEW: Cloud Export for Logs
+    // NEW: Cloud Export for Logs using Streaming (No Disk)
     static async exportLogsToCloud(req: CascataRequest, res: any, next: any) {
         const { slug } = req.params;
-        const tempFile = path.join(TEMP_UPLOAD_ROOT, `logs_${slug}_${Date.now()}.csv`);
-
+        
         try {
             // 1. Fetch available backup policy to use credentials
             const policyRes = await systemPool.query(
@@ -358,19 +357,20 @@ export class AdminController {
             const policy = policyRes.rows[0];
             const config = JSON.parse(policy.config_str);
 
-            // 2. Dump Logs to CSV
-            await systemPool.query(`COPY (SELECT * FROM system.api_logs WHERE project_slug = '${slug}') TO '${tempFile}' WITH CSV HEADER`);
-
-            // 3. Upload
+            // 2. Obtain Read Stream directly from Database via child process (psql COPY TO STDOUT)
+            // This avoids creating a temp file in the Node container (which failed previously)
+            // AND avoids creating a temp file in the DB container (no shared volume needed).
+            const logStream = await BackupService.getLogExportStream(slug);
             const fileName = `logs_${slug}_${new Date().toISOString().split('T')[0]}.csv`;
-            const fileStream = fs.createReadStream(tempFile);
+            
             let downloadUrl = '';
 
+            // 3. Pipe stream to Cloud Provider
             if (policy.provider === 'gdrive') {
-                const result = await GDriveService.uploadStream(fileStream, fileName, 'text/csv', config);
+                const result = await GDriveService.uploadStream(logStream, fileName, 'text/csv', config);
                 downloadUrl = result.webViewLink;
             } else if (['s3', 'b2', 'r2', 'wasabi', 'aws'].includes(policy.provider)) {
-                const result = await S3BackupService.uploadStream(fileStream, fileName, 'text/csv', config);
+                const result = await S3BackupService.uploadStream(logStream, fileName, 'text/csv', config);
                 // Generate temporary signed URL for immediate download
                 downloadUrl = await S3BackupService.getSignedDownloadUrl(result.id, config);
             } else {
@@ -382,8 +382,6 @@ export class AdminController {
         } catch (e: any) {
             console.error("Log Export Failed", e);
             res.status(500).json({ error: "Falha na exportação de logs: " + e.message });
-        } finally {
-            if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
         }
     }
 
