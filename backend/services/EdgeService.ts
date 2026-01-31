@@ -50,6 +50,7 @@ export class EdgeService {
         }
         await validateTargetUrl(url);
         try {
+            // Secure Fetch for Modules
             const res = await axios.get(url, { responseType: 'text', timeout: 5000, maxContentLength: MAX_MODULE_SIZE });
             const source = res.data;
             addToCache(url, source);
@@ -69,24 +70,31 @@ export class EdgeService {
             await jail.set('global', jail.derefInto());
             const user = context.user || {};
             const userRole = user.role || (user.sub ? 'authenticated' : 'anon');
+            
+            // Console Hardening: Prevent buffer overflow attacks via logs
             const safeLog = (type: string, ...args: any[]) => {
                 const msg = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
-                const truncated = msg.length > 2000 ? msg.substring(0, 2000) + '...' : msg;
+                const truncated = msg.length > 2000 ? msg.substring(0, 2000) + '... [TRUNCATED]' : msg;
                 if (type === 'log') console.log(`[EDGE:${projectSlug}]`, truncated);
                 else console.error(`[EDGE:${projectSlug}]`, truncated);
             };
+
             await jail.set('console', new ivm.Reference({
                 log: new ivm.Callback((...args: any[]) => safeLog('log', ...args)),
                 error: new ivm.Callback((...args: any[]) => safeLog('error', ...args)),
                 warn: new ivm.Callback((...args: any[]) => safeLog('log', ...args))
             }));
+
             const projectRes = await systemPool.query('SELECT metadata FROM system.projects WHERE slug = $1', [projectSlug]);
             const metadata = projectRes.rows[0]?.metadata || {};
             const timezone = metadata.timezone || 'UTC';
             const governance = metadata.ai_governance || {};
             const isReadOnly = governance.mode === 'read_only';
+            
+            // Env Security
             const enhancedEnv = { ...envVars, TZ: timezone };
             await jail.set('env', new ivm.ExternalCopy(enhancedEnv).copyInto());
+
             await jail.set('_crypto_proxy', new ivm.Reference({
                 randomUUID: () => crypto.randomUUID(),
                 randomBytes: (size: number) => { const buf = crypto.randomBytes(size); return new ivm.ExternalCopy(buf.toString('hex')).copyInto(); }
@@ -104,15 +112,17 @@ export class EdgeService {
                 jwtVerify: (token: string, secret: string) => { try { const decoded = jwt.verify(token, secret); return new ivm.ExternalCopy(decoded).copyInto(); } catch(e) { return new ivm.ExternalCopy(null).copyInto(); } }
             }));
             
-            // --- OPTIMIZED DB INJECTION (Stateless/Consolidated Mode) ---
+            // --- OPTIMIZED DB INJECTION (Hardened) ---
             await jail.set('db', new ivm.Reference({
                 query: new ivm.Reference(async (sql: string, params: any[]) => {
                     let client;
                     try {
                         client = await projectPool.connect();
                         
-                        // 1. Consolidated Config Setup (Single Round-Trip)
-                        // Sets transaction, role, timezone, and claims in one go.
+                        // Safety Buffer: DB Timeout is 500ms less than Function Timeout
+                        // This allows Postgres to cancel the query cleanly before the Isolate is killed.
+                        const dbTimeout = Math.max(1000, timeoutMs - 500);
+
                         const claims = [
                             `set_config('request.jwt.claim.sub', '${user.sub || ''}', true)`,
                             `set_config('request.jwt.claim.role', '${userRole}', true)`,
@@ -124,45 +134,87 @@ export class EdgeService {
                             ${isReadOnly ? 'SET TRANSACTION READ ONLY;' : ''}
                             SET LOCAL ROLE cascata_api_role;
                             SET TIME ZONE '${timezone}';
-                            SET statement_timeout = 5000;
+                            SET statement_timeout = ${dbTimeout};
                             SELECT ${claims.join(', ')};
                         `;
                         
                         await client.query(configSql);
 
-                        // 2. Execute User Query
                         const result = await client.query(sql, params);
-                        
-                        // 3. Commit
                         await client.query('COMMIT');
                         
+                        // CRITICAL FIX: Check if isolate is dead BEFORE copying back to avoid Process Crash
+                        if (isolate.isDisposed) {
+                            throw new Error("Execution aborted: Isolate disposed during DB query.");
+                        }
+
                         return new ivm.ExternalCopy(JSON.parse(JSON.stringify(result.rows))).copyInto();
                     } catch (e: any) { 
                         if (client) await client.query('ROLLBACK').catch(() => {});
-                        throw e; 
+                        // Ensure we don't leak DB errors that contain sensitive info or stack traces
+                        if (isolate.isDisposed) throw new Error("Execution Timeout");
+                        throw new Error(e.message || "Database Error");
                     } finally { 
-                        // Aggressive release
                         if (client) client.release(); 
                     }
                 })
             }));
 
+            // --- NETWORK HARDENING (SSRF Protection) ---
+            // Custom DNS Lookup to block private IPs at the socket level
             const safeLookup = (hostname: string, options: any, callback: any) => {
                 dns.lookup(hostname, options, (err, address, family) => {
                     if (err) return callback(err, address, family);
-                    if (typeof address === 'string' && isPrivateIP(address)) return callback(new Error(`DNS Block: ${hostname}`), address, family);
+                    if (typeof address === 'string' && isPrivateIP(address)) {
+                        return callback(new Error(`DNS Block: ${hostname} resolves to private IP ${address}`), address, family);
+                    }
                     callback(null, address, family);
                 });
             };
             const httpAgent = new HttpAgent({ lookup: safeLookup });
             const httpsAgent = new HttpsAgent({ lookup: safeLookup });
+
+            // Dynamic Network Timeout: Allow fetch to run as long as the function allows (-500ms buffer)
+            const netTimeout = Math.max(1000, timeoutMs - 500);
+
             await jail.set('fetch', new ivm.Reference(async (url: string, initStr: any) => {
                 let init = {}; try { init = initStr ? JSON.parse(initStr) : {}; } catch(e) {}
+                
+                // Pre-flight check (Regex based)
                 await validateTargetUrl(url); 
-                const response = await axios.request({ url, method: (init as any).method || 'GET', headers: (init as any).headers || {}, data: (init as any).body, maxRedirects: 3, validateStatus: () => true, httpAgent, httpsAgent, responseType: 'arraybuffer', timeout: 4000 });
-                const headers: Record<string, string> = {};
-                Object.keys(response.headers).forEach(k => { const val = response.headers[k]; if (val) headers[k] = String(val); });
-                return new ivm.ExternalCopy({ status: response.status, statusText: response.statusText, headers, text: response.data.toString('utf-8') }).copyInto();
+
+                // SSRF Hardening: Disable auto-redirects to prevent bypassing validateTargetUrl via 302
+                // Force use of safe agents
+                try {
+                    const response = await axios.request({ 
+                        url, 
+                        method: (init as any).method || 'GET', 
+                        headers: (init as any).headers || {}, 
+                        data: (init as any).body, 
+                        maxRedirects: 0, // SECURITY: Manual redirect handling required
+                        validateStatus: () => true, 
+                        httpAgent, 
+                        httpsAgent, 
+                        responseType: 'arraybuffer', 
+                        timeout: netTimeout // SYNCED TIMEOUT
+                    });
+                    
+                    if (isolate.isDisposed) throw new Error("Isolate disposed during fetch");
+
+                    const headers: Record<string, string> = {};
+                    Object.keys(response.headers).forEach(k => { const val = response.headers[k]; if (val) headers[k] = String(val); });
+
+                    return new ivm.ExternalCopy({ 
+                        status: response.status, 
+                        statusText: response.statusText, 
+                        headers, 
+                        text: response.data.toString('utf-8') 
+                    }).copyInto();
+
+                } catch (e: any) {
+                    if (isolate.isDisposed) throw new Error("Isolate disposed during fetch");
+                    throw new Error(`Network Error: ${e.message}`);
+                }
             }));
 
             const polyfills = `

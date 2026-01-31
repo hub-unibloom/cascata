@@ -5,7 +5,8 @@ import {
   ChevronRight, Circle, Clock, Database, Globe, Loader2,
   Search, ShieldAlert, Trash2, Download, X, Eye, 
   Settings2, Calendar, Lock, Globe2, Cpu, ArrowRight,
-  CheckCircle2, Code, ShieldCheck, EyeOff, AlertTriangle, Zap, AlertCircle, Cloud
+  CheckCircle2, Code, ShieldCheck, EyeOff, AlertTriangle, Zap, AlertCircle, Cloud,
+  HardDrive
 } from 'lucide-react';
 
 const ProjectLogs: React.FC<{ projectId: string }> = ({ projectId }) => {
@@ -66,6 +67,14 @@ const ProjectLogs: React.FC<{ projectId: string }> = ({ projectId }) => {
      try {
        return new Date(isoString).toLocaleDateString(undefined, { timeZone: tz });
      } catch { return new Date(isoString).toLocaleDateString(); }
+  };
+
+  const formatBytes = (bytes: number) => {
+      if (!bytes || bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   };
 
   const handleBlockIp = async (ip: string, isInternal: boolean) => {
@@ -278,7 +287,7 @@ const ProjectLogs: React.FC<{ projectId: string }> = ({ projectId }) => {
                   <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Action</th>
                   <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Identity</th>
                   <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Status</th>
-                  <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Latency</th>
+                  <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Data Out</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
@@ -294,6 +303,8 @@ const ProjectLogs: React.FC<{ projectId: string }> = ({ projectId }) => {
                   // More aggressive highlighting for 401/403
                   const isAuthFail = log.status_code === 401 || log.status_code === 403;
                   const isError = log.status_code >= 400;
+                  // Exfiltration Alert: Large responses (> 1MB) get red text
+                  const isLarge = log.response_size > 1024 * 1024;
                   
                   return (
                     <tr 
@@ -333,9 +344,12 @@ const ProjectLogs: React.FC<{ projectId: string }> = ({ projectId }) => {
                         </div>
                       </td>
                       <td className="px-8 py-5 text-right">
-                         <span className={`text-xs font-mono font-black ${log.duration_ms > 100 ? 'text-amber-500' : 'text-emerald-500'}`}>
-                           {log.duration_ms}ms
-                         </span>
+                         <div className="flex flex-col items-end">
+                             <span className={`text-xs font-mono font-black ${isLarge ? 'text-rose-600' : 'text-slate-600'}`}>
+                                {formatBytes(log.response_size)}
+                             </span>
+                             <span className="text-[9px] text-slate-400 font-bold">{log.duration_ms}ms</span>
+                         </div>
                       </td>
                     </tr>
                   );
@@ -392,18 +406,18 @@ const ProjectLogs: React.FC<{ projectId: string }> = ({ projectId }) => {
 
               {/* Rich Metadata Sections */}
               <div className="space-y-8">
+                <DetailSection icon={<HardDrive size={16}/>} label="Data Transfer">
+                   <div className="grid grid-cols-2 gap-4">
+                     <InfoBox label="Response Size" value={formatBytes(selectedLog.response_size)} />
+                     <InfoBox label="Latency" value={`${selectedLog.duration_ms}ms`} />
+                   </div>
+                </DetailSection>
+
                 <DetailSection icon={<Globe2 size={16}/>} label="Security Context">
                    <div className="grid grid-cols-2 gap-4">
                      <InfoBox label="Auth Result" value={selectedLog.status_code >= 400 ? 'DENIED' : 'GRANTED'} />
                      <InfoBox label="Resolved Role" value={selectedLog.user_role || 'NONE'} />
                    </div>
-                </DetailSection>
-
-                <DetailSection icon={<Globe2 size={16}/>} label="Origin Insights">
-                  <div className="grid grid-cols-2 gap-4">
-                    <InfoBox label="Client IP" value={selectedLog.client_ip} />
-                    <InfoBox label="Latency" value={`${selectedLog.duration_ms}ms`} />
-                  </div>
                 </DetailSection>
 
                 <DetailSection icon={<Code size={16}/>} label="Request Payload">

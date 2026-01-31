@@ -12,14 +12,11 @@ export class SystemLogService {
     
     // Audit Log Batching (Firehose)
     private static auditBuffer: any[] = [];
-    private static FLUSH_INTERVAL_MS = 5000; // 5 segundos
+    private static FLUSH_INTERVAL_MS = 5000; 
     private static BATCH_SIZE = 100;
     private static flushTimer: NodeJS.Timeout | null = null;
 
     public static init() {
-        // CORREÇÃO 4.1: Logging de Workers Habilitado
-        // Removido o 'return' prematuro para que workers também loguem.
-        
         try {
             this.redis = new Redis({
                 host: process.env.REDIS_HOST || 'redis',
@@ -29,7 +26,6 @@ export class SystemLogService {
             this.redis.connect().catch(() => {});
             this.hookConsole();
             
-            // Inicia o Firehose de Audit Logs
             this.startAuditFirehose();
         } catch (e) { console.error("Failed to init SystemLogService", e); }
     }
@@ -60,7 +56,7 @@ export class SystemLogService {
         const logEntry = JSON.stringify({
             ts: new Date().toISOString(),
             lvl: level,
-            svc: tag, // Tagging para identificar Worker vs Control vs Data
+            svc: tag, 
             msg: message.toString().trim()
         });
 
@@ -79,7 +75,6 @@ export class SystemLogService {
     }
 
     // --- AUDIT LOGS (Postgres Batching) ---
-    // CORREÇÃO 1.2: Gargalo de Escrita (Write Amplification)
 
     private static startAuditFirehose() {
         if (this.flushTimer) clearInterval(this.flushTimer);
@@ -97,7 +92,7 @@ export class SystemLogService {
         if (this.auditBuffer.length === 0) return;
 
         const batch = [...this.auditBuffer];
-        this.auditBuffer = []; // Clear immediate buffer
+        this.auditBuffer = []; 
 
         try {
             const client = await systemPool.connect();
@@ -108,7 +103,8 @@ export class SystemLogService {
                 let paramIdx = 1;
 
                 batch.forEach(log => {
-                    placeholders.push(`($${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++})`);
+                    // Added 11th parameter for response_size
+                    placeholders.push(`($${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++})`);
                     values.push(
                         log.project_slug, 
                         log.method, 
@@ -119,32 +115,30 @@ export class SystemLogService {
                         log.user_role, 
                         log.payload, 
                         log.headers, 
-                        log.geo_info
+                        log.geo_info,
+                        log.response_size || 0 // New Field
                     );
                 });
 
                 const query = `
                     INSERT INTO system.api_logs 
-                    (project_slug, method, path, status_code, client_ip, duration_ms, user_role, payload, headers, geo_info) 
+                    (project_slug, method, path, status_code, client_ip, duration_ms, user_role, payload, headers, geo_info, response_size) 
                     VALUES ${placeholders.join(', ')}
                 `;
 
                 await client.query(query, values);
-                // console.log(`[SystemLogService] Flushed ${batch.length} audit logs to DB.`);
 
             } finally {
                 client.release();
             }
         } catch (e) {
             console.error('[SystemLogService] Failed to flush audit logs:', e);
-            // Optional: Re-queue failed logs or fallback to Redis if critical
-            // this.auditBuffer.push(...batch); // Caution: Infinite loop risk
         }
     }
 
     public static async shutdown() {
         if (this.flushTimer) clearInterval(this.flushTimer);
-        await this.flushAuditLogs(); // Last flush
+        await this.flushAuditLogs(); 
         if (this.redis) this.redis.disconnect();
     }
 }

@@ -186,7 +186,13 @@ export class AdminController {
                     const localPass = process.env.DB_PASS || 'secure_pass';
                     
                     const localConnStr = `postgresql://${localUser}@${localHost}:${localPort}/${dbName}`;
-                    const env = { ...process.env, PGPASSWORD: localPass };
+
+                    // SECURITY FIX: Avoid exposing PGPASSWORD in environment variables
+                    const pgPassFile = path.join(TEMP_UPLOAD_ROOT, `.pgpass_${req.params.slug}_${Date.now()}`);
+                    const pgPassContent = `${localHost}:${localPort}:${dbName}:${localUser}:${localPass}\n`;
+                    fs.writeFileSync(pgPassFile, pgPassContent, { mode: 0o600 });
+                    
+                    const env = { ...process.env, PGPASSFILE: pgPassFile };
 
                     console.log(`[Admin] Piping data...`);
                     
@@ -228,6 +234,8 @@ export class AdminController {
                         console.log(`[Admin] ✅ Data Migration Completed Successfully.`);
                     } catch (migrationErr: any) {
                         return res.status(500).json({ error: `Data Migration Failed: ${migrationErr.message}` });
+                    } finally {
+                        if (fs.existsSync(pgPassFile)) fs.unlinkSync(pgPassFile);
                     }
                 }
             }
@@ -280,7 +288,7 @@ export class AdminController {
             await Promise.all(['projects','assets','webhooks','api_logs','ui_settings','rate_limits','doc_pages','ai_history', 'ai_sessions'].map(t => systemPool.query(`DELETE FROM system.${t} WHERE ${t === 'projects' ? 'slug' : 'project_slug'} = $1`, [slug])));
             const storagePath = path.join(STORAGE_ROOT, slug);
             if (fs.existsSync(storagePath)) fs.rmSync(storagePath, { recursive: true, force: true });
-            try { await axios.delete(`${qdrantUrl}/collections/${slug}`); } catch (qE) {}
+            try { await axios.delete(`${qdrantUrl}/collections/${slug}`); } catch (qError) {}
             await CertificateService.rebuildNginxConfigs(systemPool);
             res.json({ success: true });
         } catch (e: any) { next(e); }
@@ -358,8 +366,6 @@ export class AdminController {
             const config = JSON.parse(policy.config_str);
 
             // 2. Obtain Read Stream directly from Database via child process (psql COPY TO STDOUT)
-            // This avoids creating a temp file in the Node container (which failed previously)
-            // AND avoids creating a temp file in the DB container (no shared volume needed).
             const logStream = await BackupService.getLogExportStream(slug);
             const fileName = `logs_${slug}_${new Date().toISOString().split('T')[0]}.csv`;
             

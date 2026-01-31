@@ -5,7 +5,7 @@ import { Readable } from 'stream';
 import fs from 'fs';
 import path from 'path';
 import { pipeline } from 'stream/promises';
-import { TEMP_UPLOAD_ROOT } from '../src/config/main.js';
+import { Buffer } from 'buffer';
 
 interface ServiceAccountConfig {
     client_email: string;
@@ -13,11 +13,16 @@ interface ServiceAccountConfig {
     root_folder_id?: string;
 }
 
+/**
+ * GDriveService v4.0 (Enterprise Zero-Disk Edition)
+ * Implementa Upload Resumable com Chunking em Memória.
+ * Elimina a necessidade de arquivos temporários em disco.
+ */
 export class GDriveService {
     
-    /**
-     * Gera Token JWT para Service Account do Google.
-     */
+    // GDrive exige chunks múltiplos de 256KB. Usaremos 5MB (256 * 20) para eficiência de rede.
+    private static readonly CHUNK_SIZE = 5 * 1024 * 1024; 
+
     private static getAccessToken(config: ServiceAccountConfig): string {
         const now = Math.floor(Date.now() / 1000);
         const claim = {
@@ -40,7 +45,7 @@ export class GDriveService {
             return res.data.access_token;
         } catch (e: any) {
             if (e.response && e.response.data && e.response.data.error === 'invalid_grant') {
-                throw new Error("Credenciais Inválidas: Verifique se a Chave Privada e o Email do Cliente estão corretos no JSON.");
+                throw new Error("Credenciais Inválidas: Verifique a Chave Privada e o Email.");
             }
             throw e;
         }
@@ -51,7 +56,7 @@ export class GDriveService {
             const token = await this.getGoogleToken(config);
             
             if (!config.root_folder_id) {
-                return { valid: true, message: "Conexão com Google API estabelecida (Raiz)." };
+                return { valid: true, message: "Conexão Google API estabelecida (Raiz)." };
             }
 
             const metadata = {
@@ -70,10 +75,10 @@ export class GDriveService {
                 await axios.delete(`https://www.googleapis.com/drive/v3/files/${createRes.data.id}`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
-                return { valid: true, message: "Permissão de ESCRITA confirmada na pasta." };
+                return { valid: true, message: "Permissão de ESCRITA confirmada." };
             }
             
-            return { valid: false, message: "Falha desconhecida ao testar escrita." };
+            return { valid: false, message: "Falha ao testar escrita." };
 
         } catch (e: any) {
             if (e.response?.status === 404) return { valid: false, message: "Pasta não encontrada (404)." };
@@ -82,6 +87,10 @@ export class GDriveService {
         }
     }
 
+    /**
+     * Upload via Stream com Chunking em Memória.
+     * Não toca no disco. Usa buffers rotativos para enviar chunks de 5MB.
+     */
     public static async uploadStream(
         stream: Readable, 
         fileName: string, 
@@ -90,57 +99,102 @@ export class GDriveService {
     ): Promise<{ id: string, webViewLink: string, size: string }> {
         
         const token = await this.getGoogleToken(config);
-        
-        // GDrive precisa do tamanho exato para upload resumable.
-        // Bufferizamos em disco temporário para calcular.
-        const tempPath = path.join(TEMP_UPLOAD_ROOT, `backup_buffer_${Date.now()}_${Math.random().toString(36).substr(2)}.tmp`);
-        const writeStream = fs.createWriteStream(tempPath);
 
-        await pipeline(stream, writeStream);
+        // 1. Iniciar Sessão de Upload Resumable (Sem tamanho definido inicialmente)
+        const metadata = {
+            name: fileName,
+            mimeType: mimeType,
+            parents: config.root_folder_id ? [config.root_folder_id] : undefined
+        };
 
-        const stats = fs.statSync(tempPath);
-        const fileSize = stats.size;
-        const fileStream = fs.createReadStream(tempPath);
-
-        try {
-            const metadata = {
-                name: fileName,
-                mimeType: mimeType,
-                parents: config.root_folder_id ? [config.root_folder_id] : undefined
-            };
-
-            const initRes = await axios.post(
-                'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable',
-                metadata,
-                {
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json',
-                        'X-Upload-Content-Length': fileSize.toString()
-                    }
-                }
-            );
-
-            const uploadUrl = initRes.headers.location;
-            if (!uploadUrl) throw new Error("GDrive Resumable Upload failed to initialize.");
-
-            const uploadRes = await axios.put(uploadUrl, fileStream, {
+        const initRes = await axios.post(
+            'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable',
+            metadata,
+            {
                 headers: {
-                    'Content-Type': mimeType,
-                    'Content-Length': fileSize.toString()
-                },
-                maxBodyLength: Infinity,
-                maxContentLength: Infinity
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        const uploadUrl = initRes.headers.location;
+        if (!uploadUrl) throw new Error("GDrive falhou ao iniciar sessão de upload.");
+
+        // 2. Processamento de Stream em Chunks
+        let buffer = Buffer.alloc(0);
+        let offset = 0;
+        let finalResponse: any = null;
+
+        for await (const chunk of stream) {
+            buffer = Buffer.concat([buffer, chunk]);
+
+            // Enquanto tivermos mais que o tamanho do chunk, envia
+            while (buffer.length >= this.CHUNK_SIZE) {
+                const part = buffer.slice(0, this.CHUNK_SIZE);
+                buffer = buffer.slice(this.CHUNK_SIZE);
+                
+                await this.uploadChunk(uploadUrl, part, offset, offset + this.CHUNK_SIZE - 1, '*');
+                offset += this.CHUNK_SIZE;
+            }
+        }
+
+        // 3. Enviar o restante (Finalização)
+        const remaining = buffer.length;
+        const totalSize = offset + remaining;
+        
+        // Se o arquivo for vazio ou sobrar algo
+        if (totalSize === 0) {
+            // Caso especial arquivo vazio
+             finalResponse = await axios.put(uploadUrl, '', {
+                headers: { 'Content-Range': `bytes */0` }
             });
+        } else {
+            // Último chunk define o tamanho total
+            finalResponse = await this.uploadChunk(
+                uploadUrl, 
+                buffer, 
+                offset, 
+                offset + remaining - 1, 
+                totalSize.toString()
+            );
+        }
 
-            return {
-                id: uploadRes.data.id,
-                webViewLink: uploadRes.data.webViewLink,
-                size: uploadRes.data.size
-            };
+        if (!finalResponse || !finalResponse.data || !finalResponse.data.id) {
+             throw new Error("Upload finalizado mas sem resposta de ID do Google.");
+        }
 
-        } finally {
-            if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+        return {
+            id: finalResponse.data.id,
+            webViewLink: finalResponse.data.webViewLink,
+            size: finalResponse.data.size || totalSize.toString()
+        };
+    }
+
+    private static async uploadChunk(url: string, data: Buffer, start: number, end: number, total: string) {
+        // Retry logic simples para estabilidade de rede
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                const res = await axios.put(url, data, {
+                    headers: {
+                        'Content-Range': `bytes ${start}-${end}/${total}`,
+                        'Content-Type': 'application/octet-stream' // Importante para chunks binários
+                    },
+                    maxBodyLength: Infinity,
+                    maxContentLength: Infinity
+                });
+                
+                // 308 Resume Incomplete é esperado para chunks intermediários
+                if (res.status === 308 || res.status === 200 || res.status === 201) {
+                    return res;
+                }
+            } catch (e: any) {
+                // Se for o último chunk e der sucesso, axios pode lançar erro se não esperar JSON
+                if (e.response && (e.response.status === 200 || e.response.status === 201)) return e.response;
+                
+                if (attempt === 3) throw new Error(`Falha no upload do chunk bytes ${start}-${end}: ${e.message}`);
+                await new Promise(r => setTimeout(r, 1000 * attempt)); // Backoff
+            }
         }
     }
 
@@ -164,21 +218,23 @@ export class GDriveService {
 
     public static async enforceRetention(config: ServiceAccountConfig, retentionCount: number, filePrefix: string) {
         if (!config.root_folder_id || retentionCount <= 0) return;
-        const token = await this.getGoogleToken(config);
-        const q = `'${config.root_folder_id}' in parents and name contains '${filePrefix}' and trashed = false`;
-        
-        const listRes = await axios.get('https://www.googleapis.com/drive/v3/files', {
-            headers: { 'Authorization': `Bearer ${token}` },
-            params: { q, orderBy: 'createdTime desc', fields: 'files(id, name, createdTime)' }
-        });
+        try {
+            const token = await this.getGoogleToken(config);
+            const q = `'${config.root_folder_id}' in parents and name contains '${filePrefix}' and trashed = false`;
+            
+            const listRes = await axios.get('https://www.googleapis.com/drive/v3/files', {
+                headers: { 'Authorization': `Bearer ${token}` },
+                params: { q, orderBy: 'createdTime desc', fields: 'files(id, name, createdTime)' }
+            });
 
-        const files = listRes.data.files || [];
-        
-        if (files.length > retentionCount) {
-            const toDelete = files.slice(retentionCount);
-            for (const file of toDelete) {
-                try { await this.deleteFile(file.id, config); } catch (e) { console.warn(`[GDrive] Prune error:`, e); }
+            const files = listRes.data.files || [];
+            
+            if (files.length > retentionCount) {
+                const toDelete = files.slice(retentionCount);
+                for (const file of toDelete) {
+                    await this.deleteFile(file.id, config).catch(() => {});
+                }
             }
-        }
+        } catch (e) { console.warn("[GDrive] Retention Prune Warning:", e); }
     }
 }

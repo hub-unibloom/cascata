@@ -8,6 +8,7 @@ import { systemPool } from '../src/config/main.js';
 import { PoolService } from './PoolService.js';
 import { PushProcessor } from './PushProcessor.js';
 import { BackupService } from './BackupService.js';
+import process from 'process';
 
 const REDIS_CONFIG = {
     connection: {
@@ -40,26 +41,35 @@ export class QueueService {
     public static init() {
         console.log('[QueueService] Initializing Queues with Redis (Dragonfly Mode)...');
 
-        // 1. Webhook Queue
+        // ALWAYS Initialize Producers (Queues) so API can dispatch events
         this.webhookQueue = new Queue('cascata-webhooks', {
             ...REDIS_CONFIG,
             defaultJobOptions: { attempts: 5, backoff: { type: 'exponential', delay: 1000 } }
         });
 
-        // 2. Push Notification Queue
         this.pushQueue = new Queue('cascata-push', {
             ...REDIS_CONFIG,
             defaultJobOptions: { removeOnComplete: 100, removeOnFail: 500 }
         });
 
-        // 3. Backup Scheduler Queue
         this.backupQueue = new Queue('cascata-backups', { ...REDIS_CONFIG });
 
-        // 4. Maintenance Queue (System cleanup)
         this.maintenanceQueue = new Queue('cascata-maintenance', { ...REDIS_CONFIG });
 
-        // --- WORKERS ---
+        // CONDITIONALLY Initialize Consumers (Workers)
+        // Only if SERVICE_MODE is 'WORKER' or undefined (Monolith default).
+        // If SERVICE_MODE is 'CONTROL_PLANE' or 'DATA_PLANE', we skip workers to save resources/avoid conflicts.
+        const shouldRunWorkers = process.env.SERVICE_MODE === 'WORKER' || !process.env.SERVICE_MODE;
 
+        if (shouldRunWorkers) {
+            console.log('[QueueService] Starting Workers (Consumer Mode)...');
+            this.startWorkers();
+        } else {
+            console.log('[QueueService] API Mode: Workers skipped (Producer Only).');
+        }
+    }
+
+    private static startWorkers() {
         // Push Worker
         this.pushWorker = new Worker('cascata-push', async (job: Job) => {
             const { projectSlug, userId, notification, fcmConfig, dbName, externalDbUrl } = job.data;
@@ -111,7 +121,7 @@ export class QueueService {
             }
         }, { ...REDIS_CONFIG });
 
-        // Schedule Maintenance Jobs (Daily at 4 AM)
+        // Schedule Maintenance Jobs (Daily at 4 AM) - Idempotent add
         this.maintenanceQueue.add('purge-logs', {}, {
             repeat: { pattern: '0 4 * * *' },
             jobId: 'system-log-purge'

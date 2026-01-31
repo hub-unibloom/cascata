@@ -35,17 +35,13 @@ export const detectSemanticAction = (method: string, path: string): string | nul
     return null;
 };
 
-// Safe Stringify Implementation (Basic)
-// Prevents circular structure crash and limits output size
+// Safe Stringify Implementation
 const safeStringify = (obj: any, limit: number = 2000): string => {
     try {
         const cache = new Set();
         const str = JSON.stringify(obj, (key, value) => {
             if (typeof value === 'object' && value !== null) {
-                if (cache.has(value)) {
-                    // Circular reference found, discard key
-                    return;
-                }
+                if (cache.has(value)) return;
                 cache.add(value);
             }
             return value;
@@ -63,79 +59,103 @@ const safeStringify = (obj: any, limit: number = 2000): string => {
 export const auditLogger: RequestHandler = (req: any, res: any, next: any) => {
   const start = Date.now();
   const oldJson = res.json;
+  const oldWrite = res.write;
+  const oldEnd = res.end;
   const r = req as CascataRequest;
+  
+  // Track response size
+  let responseSize = 0;
 
   if (req.path.includes('/realtime')) return next();
 
+  // Hook write to count bytes
+  res.write = function (chunk: any, ...args: any[]) {
+      if (chunk) responseSize += Buffer.byteLength(chunk);
+      return oldWrite.apply(res, [chunk, ...args]);
+  };
+
+  // Hook end to count bytes and finalize log
+  res.end = function (chunk: any, ...args: any[]) {
+      if (chunk) responseSize += Buffer.byteLength(chunk);
+      return oldEnd.apply(res, [chunk, ...args]);
+  };
+
+  // Hook json to capture body for webhook (legacy support)
   (res as any).json = function(data: any) {
-    if (r.project) {
-       const duration = Date.now() - start;
-       const forwarded = req.headers['x-forwarded-for'];
-       const realIp = req.headers['x-real-ip'];
-       const socketIp = (req as any).socket?.remoteAddress;
-       let clientIp = (realIp as string) || (forwarded ? (forwarded as string).split(',')[0].trim() : socketIp) || '';
-       clientIp = clientIp.replace('::ffff:', '');
-       const isInternal = req.headers['x-cascata-client'] === 'dashboard' || r.isSystemRequest;
-       const semanticAction = detectSemanticAction(req.method, req.path);
-       const geoInfo = { is_internal: isInternal, auth_status: res.statusCode >= 400 ? 'SECURITY_ALERT' : 'GRANTED', semantic_action: semanticAction };
-
-       // Request Payload Check (Security Fix: OOM Prevention)
-       const isUpload = req.headers['content-type']?.includes('multipart/form-data');
-       let inputPayload: any = {};
-       
-       const contentLength = parseInt(req.headers['content-length'] || '0');
-       if (contentLength > 50000) { // If payload > 50KB, truncate strictly before parsing/stringify logic if possible, or just mark as large
-           inputPayload = { type: 'large_payload_truncated', size: contentLength };
-       } else {
-           inputPayload = isUpload ? { type: 'binary_upload', file: req.file?.originalname } : req.body;
-       }
-
-       // Security: Auto Block 401
-       if (res.statusCode === 401 && r.project.metadata?.security?.auto_block_401) {
-          const isSafeIp = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp.startsWith('172.') || clientIp.startsWith('10.') || clientIp.startsWith('192.168.'); 
-          if (!isSafeIp && !r.project.blocklist?.includes(clientIp)) {
-             systemPool.query('UPDATE system.projects SET blocklist = array_append(blocklist, $1) WHERE slug = $2', [clientIp, r.project.slug]).catch(err => console.error("Auto-block failed", err));
-          }
-       }
-
-       // 1. Audit Log Insert via Firehose (Optimized)
-       SystemLogService.bufferAuditLog({
-           project_slug: r.project.slug,
-           method: req.method,
-           path: req.path,
-           status_code: res.statusCode,
-           client_ip: clientIp,
-           duration_ms: duration,
-           user_role: r.userRole || 'unauthorized',
-           payload: safeStringify(inputPayload),
-           headers: safeStringify({ referer: req.headers.referer, userAgent: req.headers['user-agent'] }),
-           geo_info: JSON.stringify(geoInfo)
-       });
-       
-       // 2. Webhook Dispatch (ONLY on Success 2xx)
-       if (res.statusCode >= 200 && res.statusCode < 300 && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
-           let tableName = '*';
-           if (req.path.includes('/tables/')) { 
-               const parts = req.path.split('/tables/'); 
-               if (parts[1]) tableName = parts[1].split('/')[0]; 
-           } else if (req.path.includes('/rest/v1/')) {
-               const parts = req.path.split('/rest/v1/'); 
-               if (parts[1]) tableName = parts[1].split('/')[0];
-           }
-
-           const webhookPayload = data; 
-
-           WebhookService.dispatch(
-               r.project.slug, 
-               tableName, 
-               semanticAction || req.method, 
-               webhookPayload, 
-               systemPool, 
-               r.project.jwt_secret
-           );
-       }
+    // We defer the logging to 'finish' event to ensure size is calculated correctly from all streams
+    // But we need to capture data for webhook here
+    if (r.project && res.statusCode >= 200 && res.statusCode < 300 && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
+         let tableName = '*';
+         if (req.path.includes('/tables/')) { 
+             const parts = req.path.split('/tables/'); 
+             if (parts[1]) tableName = parts[1].split('/')[0]; 
+         } else if (req.path.includes('/rest/v1/')) {
+             const parts = req.path.split('/rest/v1/'); 
+             if (parts[1]) tableName = parts[1].split('/')[0];
+         }
+         
+         const semanticAction = detectSemanticAction(req.method, req.path);
+         WebhookService.dispatch(
+             r.project.slug, 
+             tableName, 
+             semanticAction || req.method, 
+             data, 
+             systemPool, 
+             r.project.jwt_secret
+         ).catch(e => console.error("Webhook Dispatch Error", e));
     }
     return oldJson.apply(res, arguments as any);
-  }
+  };
+
+  // Finalize Log on Response Finish
+  res.on('finish', () => {
+      if (r.project) {
+        const duration = Date.now() - start;
+        const forwarded = req.headers['x-forwarded-for'];
+        const realIp = req.headers['x-real-ip'];
+        const socketIp = (req as any).socket?.remoteAddress;
+        let clientIp = (realIp as string) || (forwarded ? (forwarded as string).split(',')[0].trim() : socketIp) || '';
+        clientIp = clientIp.replace('::ffff:', '');
+        const isInternal = req.headers['x-cascata-client'] === 'dashboard' || r.isSystemRequest;
+        const semanticAction = detectSemanticAction(req.method, req.path);
+        const geoInfo = { is_internal: isInternal, auth_status: res.statusCode >= 400 ? 'SECURITY_ALERT' : 'GRANTED', semantic_action: semanticAction };
+
+        // Request Payload Size Check
+        const isUpload = req.headers['content-type']?.includes('multipart/form-data');
+        let inputPayload: any = {};
+        const contentLength = parseInt(req.headers['content-length'] || '0');
+        
+        if (contentLength > 50000) { 
+            inputPayload = { type: 'large_payload_truncated', size: contentLength };
+        } else {
+            // Body might be consumed already, be careful accessing req.body
+            inputPayload = isUpload ? { type: 'binary_upload', file: req.file?.originalname } : req.body;
+        }
+
+        // Auto Block logic
+        if (res.statusCode === 401 && r.project.metadata?.security?.auto_block_401) {
+            const isSafeIp = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp.startsWith('172.') || clientIp.startsWith('10.') || clientIp.startsWith('192.168.'); 
+            if (!isSafeIp && !r.project.blocklist?.includes(clientIp)) {
+                systemPool.query('UPDATE system.projects SET blocklist = array_append(blocklist, $1) WHERE slug = $2', [clientIp, r.project.slug]).catch(err => console.error("Auto-block failed", err));
+            }
+        }
+
+        // Firehose Buffer
+        SystemLogService.bufferAuditLog({
+            project_slug: r.project.slug,
+            method: req.method,
+            path: req.path,
+            status_code: res.statusCode,
+            client_ip: clientIp,
+            duration_ms: duration,
+            user_role: r.userRole || 'unauthorized',
+            payload: safeStringify(inputPayload),
+            headers: safeStringify({ referer: req.headers.referer, userAgent: req.headers['user-agent'] }),
+            geo_info: JSON.stringify(geoInfo),
+            response_size: responseSize // NEW TELEMETRY
+        });
+      }
+  });
+
   next();
 };

@@ -218,15 +218,19 @@ export class PostgrestService {
     }
 
     private static parseFilter(key: string, value: string, paramIndex: number): { clause: string, val: any } {
-        const parts = value.split('.');
-        const column = `"${key}"`; // key is already sanitized in caller
+        const column = `"${key}"`; 
 
-        if (parts.length < 2) {
+        // ROBUST PARSER FIX: Split only on the first dot
+        // This preserves values like "user.name@domain.com"
+        const dotIndex = value.indexOf('.');
+        
+        if (dotIndex === -1) {
+            // Implicit Equality (no operator)
             return { clause: `${column} = $${paramIndex}`, val: value };
         }
 
-        const op = parts[0];
-        const rawVal = parts.slice(1).join('.');
+        const op = value.substring(0, dotIndex);
+        const rawVal = value.substring(dotIndex + 1);
 
         switch (op) {
             case 'eq': return { clause: `${column} = $${paramIndex}`, val: rawVal };
@@ -246,6 +250,7 @@ export class PostgrestService {
                 let cleanVal = rawVal;
                 if (cleanVal.startsWith('(') && cleanVal.endsWith(')')) cleanVal = cleanVal.slice(1, -1);
                 if (!cleanVal.trim()) return { clause: '1 = 0', val: undefined };
+                // Simple CSV splitter
                 const arr = cleanVal.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
                 return { clause: `${column} = ANY($${paramIndex})`, val: arr };
             case 'cs': return { clause: `${column} @> $${paramIndex}`, val: rawVal };
