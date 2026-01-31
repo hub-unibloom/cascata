@@ -4,6 +4,7 @@ import { CascataRequest } from '../types.js';
 import { systemPool } from '../config/main.js';
 import { WebhookService } from '../../services/WebhookService.js';
 import { SystemLogService } from '../../services/SystemLogService.js';
+import { Buffer } from 'buffer';
 
 export const detectSemanticAction = (method: string, path: string): string | null => {
     if (path.includes('/tables') && method === 'POST' && path.endsWith('/rows')) return 'INSERT_ROWS';
@@ -35,11 +36,34 @@ export const detectSemanticAction = (method: string, path: string): string | nul
     return null;
 };
 
+// HELPER: PII Scrubbing
+const SENSITIVE_KEYS = ['password', 'token', 'secret', 'key', 'access_token', 'refresh_token', 'authorization', 'api_key', 'apikey'];
+
+const scrubPayload = (obj: any): any => {
+    if (typeof obj !== 'object' || obj === null) return obj;
+    if (Array.isArray(obj)) return obj.map(scrubPayload);
+    
+    const scrubbed: any = {};
+    for (const key in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
+            const lowerKey = key.toLowerCase();
+            if (SENSITIVE_KEYS.some(k => lowerKey.includes(k))) {
+                scrubbed[key] = '***REDACTED***';
+            } else {
+                scrubbed[key] = scrubPayload(obj[key]);
+            }
+        }
+    }
+    return scrubbed;
+};
+
 // Safe Stringify Implementation
 const safeStringify = (obj: any, limit: number = 2000): string => {
     try {
         const cache = new Set();
-        const str = JSON.stringify(obj, (key, value) => {
+        const cleaned = scrubPayload(obj);
+        
+        const str = JSON.stringify(cleaned, (key, value) => {
             if (typeof value === 'object' && value !== null) {
                 if (cache.has(value)) return;
                 cache.add(value);
@@ -129,7 +153,8 @@ export const auditLogger: RequestHandler = (req: any, res: any, next: any) => {
             inputPayload = { type: 'large_payload_truncated', size: contentLength };
         } else {
             // Body might be consumed already, be careful accessing req.body
-            inputPayload = isUpload ? { type: 'binary_upload', file: req.file?.originalname } : req.body;
+            // VULNERABILITY FIX: Scrub payload before logging
+            inputPayload = isUpload ? { type: 'binary_upload', file: req.file?.originalname } : scrubPayload(req.body);
         }
 
         // Auto Block logic
@@ -149,7 +174,7 @@ export const auditLogger: RequestHandler = (req: any, res: any, next: any) => {
             client_ip: clientIp,
             duration_ms: duration,
             user_role: r.userRole || 'unauthorized',
-            payload: safeStringify(inputPayload),
+            payload: safeStringify(inputPayload), // Now uses the scrubbed inputPayload
             headers: safeStringify({ referer: req.headers.referer, userAgent: req.headers['user-agent'] }),
             geo_info: JSON.stringify(geoInfo),
             response_size: responseSize // NEW TELEMETRY

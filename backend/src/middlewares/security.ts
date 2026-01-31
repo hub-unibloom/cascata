@@ -31,8 +31,11 @@ export const dynamicCors: RequestHandler = (req: any, res: any, next: any) => {
     const safeOrigins = allowedOrigins.map((o: any) => typeof o === 'string' ? o : o.url);
     
     if (safeOrigins.length === 0) {
-        // MODO PÚBLICO (Dev): Permite localhost
-        if (origin && (origin.includes('localhost') || origin.includes('127.0.0.1'))) {
+        // MODO PÚBLICO (Dev): Permite localhost de forma ESTRITA
+        // Regex fixa para evitar 'evil-localhost.com'
+        const isLocalhost = /^http:\/\/localhost(:\d+)?$/.test(origin) || /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin);
+        
+        if (isLocalhost) {
              res.setHeader('Access-Control-Allow-Origin', origin);
         }
     } 

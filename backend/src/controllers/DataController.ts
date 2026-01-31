@@ -162,11 +162,14 @@ export class DataController {
 
     static async executeRpc(req: CascataRequest, res: any, next: any) {
         const params = req.body || {};
-        const placeholders = Object.keys(params).map((_, i) => `$${i + 1}`).join(', ');
+        // DATA INTEGRITY FIX: Use Named Notation "key => $1" instead of positional.
+        // This ensures JSON key order doesn't break SQL parameter mapping.
+        const namedPlaceholders = Object.keys(params).map((k, i) => `${quoteId(k)} => $${i + 1}`).join(', ');
         const values = Object.values(params);
+        
         try {
             const rows = await queryWithRLS(req, async (client) => {
-                const result = await client.query(`SELECT * FROM public.${quoteId(req.params.name)}(${placeholders})`, values);
+                const result = await client.query(`SELECT * FROM public.${quoteId(req.params.name)}(${namedPlaceholders})`, values);
                 return result.rows;
             });
             res.json(rows);
