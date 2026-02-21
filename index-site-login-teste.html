@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Unibloom (Cascata)</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .login-container {
+            background: white;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 500px;
+            width: 100%;
+            text-align: center;
+        }
+
+        .logo {
+            font-size: 32px;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .google-btn {
+            width: 100%;
+            padding: 14px 20px;
+            border: none;
+            border-radius: 8px;
+            background: white;
+            color: #333;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            border: 1px solid #dadce0;
+            transition: all 0.3s ease;
+        }
+
+        .google-btn:hover:not(:disabled) {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            transform: translateY(-1px);
+        }
+
+        .google-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .google-icon {
+            width: 20px;
+            height: 20px;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            display: block;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            display: block;
+        }
+
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            display: block;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+            display: none;
+        }
+
+        .spinner.active {
+            display: block;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .user-info {
+            margin-top: 20px;
+            padding: 20px;
+            background: linear-gradient(135deg, #e7f3ff 0%, #f0e7ff 100%);
+            border-radius: 12px;
+            display: none;
+            text-align: left;
+        }
+
+        .user-info.active {
+            display: block;
+        }
+
+        .user-detail {
+            margin: 8px 0;
+            font-size: 14px;
+        }
+
+        .user-detail strong {
+            color: #667eea;
+            display: inline-block;
+            width: 120px;
+        }
+
+        .token-display {
+            margin-top: 15px;
+            padding: 12px;
+            background: rgba(255,255,255,0.8);
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 11px;
+            word-break: break-all;
+            max-height: 120px;
+            overflow-y: auto;
+        }
+
+        .logout-btn {
+            width: 100%;
+            margin-top: 15px;
+            padding: 10px;
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .logout-btn:hover {
+            background: #c82333;
+        }
+
+        .debug-panel {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            text-align: left;
+            max-height: 250px;
+            overflow-y: auto;
+            display: none;
+        }
+
+        .debug-panel.active {
+            display: block;
+        }
+
+        .debug-entry {
+            font-size: 11px;
+            font-family: monospace;
+            padding: 4px 0;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .debug-entry:last-child {
+            border-bottom: none;
+        }
+
+        .debug-time {
+            color: #6c757d;
+            margin-right: 8px;
+        }
+
+        .debug-error {
+            color: #dc3545;
+        }
+
+        .debug-success {
+            color: #28a745;
+        }
+
+        .debug-info {
+            color: #17a2b8;
+        }
+
+        .toggle-debug {
+            margin-top: 15px;
+            padding: 8px 16px;
+            background: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .api-test {
+            margin-top: 20px;
+            padding: 15px;
+            background: #fff3cd;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .api-test.active {
+            display: block;
+        }
+
+        .test-btn {
+            margin-top: 10px;
+            padding: 8px 16px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .test-btn:hover {
+            background: #5568d3;
+        }
+
+        .tip {
+            margin-top: 20px;
+            padding: 12px;
+            background: #fff3cd;
+            border-radius: 8px;
+            font-size: 12px;
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="logo">🌸 Unibloom</div>
+        <div class="subtitle">Teste de Autenticação Cascata</div>
+        
+        <button class="google-btn" id="loginBtn">
+            <svg class="google-icon" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"></path>
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"></path>
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"></path>
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"></path>
+            </svg>
+            Entrar com Google
+        </button>
+
+        <div class="tip">
+            💡 Clique para testar o login OAuth com Google via Cascata
+        </div>
+
+        <div class="spinner" id="spinner"></div>
+        <div class="status" id="status"></div>
+        
+        <div class="user-info" id="userInfo">
+            <h3 style="margin-bottom: 15px; color: #667eea;">✅ Login Bem Sucedido!</h3>
+            <div class="user-detail">
+                <strong>User ID:</strong>
+                <span id="userId"></span>
+            </div>
+            <div class="user-detail">
+                <strong>Email:</strong>
+                <span id="userEmail"></span>
+            </div>
+            <div class="user-detail">
+                <strong>Provider:</strong>
+                <span id="userProvider"></span>
+            </div>
+            <div class="user-detail">
+                <strong>Token expira em:</strong>
+                <span id="tokenExpiry"></span>
+            </div>
+            <div class="token-display">
+                <strong>Access Token:</strong><br>
+                <span id="accessToken"></span>
+            </div>
+            <button class="logout-btn" id="logoutBtn">Fazer Logout</button>
+        </div>
+
+        <div class="api-test" id="apiTest">
+            <h4 style="margin-bottom: 10px; color: #667eea;">🧪 Teste de API Autenticada</h4>
+            <p style="font-size: 13px; margin-bottom: 10px;">Teste se o token funciona fazendo uma chamada autenticada:</p>
+            <button class="test-btn" id="testApiBtn">Testar GET /auth/v1/user</button>
+            <div id="apiResult" style="margin-top: 10px; font-size: 12px;"></div>
+        </div>
+
+        <button class="toggle-debug" id="toggleDebug">Mostrar Debug Console</button>
+        
+        <div class="debug-panel" id="debugPanel"></div>
+    </div>
+
+    <script>
+        // ============================================
+        // CONFIGURAÇÃO DA API CASCATA
+        // ============================================
+        const API_BASE = 'https://api.unibloom.shop';
+        const PROJECT_SLUG = 'imaginarium'; // Slug do projeto
+        const ANON_KEY = '300e49c69fa000e0a9d10fc9f540df5c9a1198663d49b52b22858d4d69a5c0d1';
+        const REDIRECT_URI = 'https://entrar.unibloom.shop';
+
+        // ============================================
+        // ELEMENTOS DA UI
+        // ============================================
+        const loginBtn = document.getElementById('loginBtn');
+        const spinner = document.getElementById('spinner');
+        const status = document.getElementById('status');
+        const userInfo = document.getElementById('userInfo');
+        const apiTest = document.getElementById('apiTest');
+        const debugPanel = document.getElementById('debugPanel');
+        const toggleDebugBtn = document.getElementById('toggleDebug');
+
+        // ============================================
+        // FUNÇÕES DE DEBUG
+        // ============================================
+        function addDebug(message, type = 'info') {
+            const time = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `debug-entry debug-${type}`;
+            entry.innerHTML = `<span class="debug-time">[${time}]</span>${message}`;
+            debugPanel.appendChild(entry);
+            debugPanel.scrollTop = debugPanel.scrollHeight;
+            console.log(`[${type.toUpperCase()}]`, message);
+        }
+
+        toggleDebugBtn.addEventListener('click', () => {
+            debugPanel.classList.toggle('active');
+            toggleDebugBtn.textContent = debugPanel.classList.contains('active') 
+                ? 'Esconder Debug Console' 
+                : 'Mostrar Debug Console';
+        });
+
+        // ============================================
+        // FUNÇÕES DE STATUS
+        // ============================================
+        function showStatus(message, type) {
+            status.textContent = message;
+            status.className = `status ${type}`;
+        }
+
+        function showLoading(show) {
+            spinner.classList.toggle('active', show);
+            loginBtn.disabled = show;
+        }
+
+        // ============================================
+        // GERENCIAMENTO DE SESSÃO (LocalStorage)
+        // ============================================
+        function saveSession(tokens) {
+            localStorage.setItem('cascata_session', JSON.stringify(tokens));
+            addDebug('✅ Sessão salva no localStorage', 'success');
+        }
+
+        function getSession() {
+            const data = localStorage.getItem('cascata_session');
+            return data ? JSON.parse(data) : null;
+        }
+
+        function clearSession() {
+            localStorage.removeItem('cascata_session');
+            addDebug('🗑️ Sessão removida do localStorage', 'info');
+        }
+
+        // ============================================
+        // FUNÇÕES DE AUTENTICAÇÃO
+        // ============================================
+        async function startGoogleLogin() {
+            try {
+                addDebug('🚀 Iniciando fluxo OAuth com Google...', 'info');
+                showLoading(true);
+
+                const authUrl = `${API_BASE}/api/data/${PROJECT_SLUG}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(REDIRECT_URI)}`;
+                
+                addDebug(`📍 URL de autorização: ${authUrl}`, 'info');
+                addDebug('🌐 Redirecionando para Google...', 'info');
+
+                // Redirecionar para o Google
+                window.location.href = authUrl;
+
+            } catch (error) {
+                addDebug(`❌ ERRO: ${error.message}`, 'error');
+                showStatus('Erro ao iniciar login: ' + error.message, 'error');
+                showLoading(false);
+            }
+        }
+
+        async function handleCallback() {
+            const hash = window.location.hash.substring(1);
+            const params = new URLSearchParams(hash);
+
+            const accessToken = params.get('access_token');
+            const refreshToken = params.get('refresh_token');
+            const expiresIn = params.get('expires_in');
+            const error = params.get('error');
+
+            if (error) {
+                addDebug(`❌ Erro no callback: ${params.get('error_description') || error}`, 'error');
+                showStatus('Erro: ' + (params.get('error_description') || error), 'error');
+                return;
+            }
+
+            if (accessToken) {
+                addDebug('✅ Tokens recebidos no hash!', 'success');
+                addDebug(`📝 Access Token: ${accessToken.substring(0, 30)}...`, 'info');
+                addDebug(`🔄 Refresh Token: ${refreshToken ? refreshToken.substring(0, 30) + '...' : 'N/A'}`, 'info');
+                addDebug(`⏱️ Expira em: ${expiresIn}s`, 'info');
+
+                const tokens = {
+                    access_token: accessToken,
+                    refresh_token: refreshToken,
+                    expires_in: parseInt(expiresIn),
+                    expires_at: Date.now() + (parseInt(expiresIn) * 1000)
+                };
+
+                saveSession(tokens);
+                
+                // Limpar hash da URL
+                window.history.replaceState(null, '', window.location.pathname);
+
+                await loadUserProfile(tokens);
+            }
+        }
+
+        async function loadUserProfile(tokens) {
+            try {
+                addDebug('👤 Carregando perfil do usuário...', 'info');
+                showLoading(true);
+
+                const response = await fetch(`${API_BASE}/api/data/${PROJECT_SLUG}/auth/v1/user`, {
+                    headers: {
+                        'Authorization': `Bearer ${tokens.access_token}`,
+                        'apikey': ANON_KEY
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+                }
+
+                const user = await response.json();
+                addDebug(`✅ Perfil carregado: ${user.email}`, 'success');
+
+                displayUserInfo(user, tokens);
+                showStatus('Login realizado com sucesso!', 'success');
+                showLoading(false);
+
+            } catch (error) {
+                addDebug(`❌ Erro ao carregar perfil: ${error.message}`, 'error');
+                showStatus('Erro ao carregar perfil: ' + error.message, 'error');
+                showLoading(false);
+            }
+        }
+
+        function displayUserInfo(user, tokens) {
+            document.getElementById('userId').textContent = user.id;
+            document.getElementById('userEmail').textContent = user.email || 'N/A';
+            document.getElementById('userProvider').textContent = user.app_metadata?.provider || 'email';
+            
+            const expiryDate = new Date(tokens.expires_at);
+            document.getElementById('tokenExpiry').textContent = expiryDate.toLocaleString();
+            document.getElementById('accessToken').textContent = tokens.access_token.substring(0, 60) + '...';
+
+            userInfo.classList.add('active');
+            apiTest.classList.add('active');
+            loginBtn.style.display = 'none';
+        }
+
+        async function logout() {
+            try {
+                addDebug('🚪 Fazendo logout...', 'info');
+                const session = getSession();
+
+                if (session) {
+                    await fetch(`${API_BASE}/api/data/${PROJECT_SLUG}/auth/v1/logout`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${session.access_token}`,
+                            'apikey': ANON_KEY
+                        }
+                    });
+                }
+
+                clearSession();
+                userInfo.classList.remove('active');
+                apiTest.classList.remove('active');
+                loginBtn.style.display = 'flex';
+                showStatus('Logout realizado com sucesso', 'info');
+                addDebug('✅ Logout concluído', 'success');
+
+            } catch (error) {
+                addDebug(`❌ Erro no logout: ${error.message}`, 'error');
+            }
+        }
+
+        // ============================================
+        // TESTE DE API AUTENTICADA
+        // ============================================
+        async function testAuthenticatedAPI() {
+            const session = getSession();
+            if (!session) {
+                showStatus('Nenhuma sessão ativa', 'error');
+                return;
+            }
+
+            const resultDiv = document.getElementById('apiResult');
+            resultDiv.innerHTML = '<em>Testando...</em>';
+
+            try {
+                addDebug('🧪 Testando chamada autenticada...', 'info');
+
+                const response = await fetch(`${API_BASE}/api/data/${PROJECT_SLUG}/auth/v1/user`, {
+                    headers: {
+                        'Authorization': `Bearer ${session.access_token}`,
+                        'apikey': ANON_KEY
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    resultDiv.innerHTML = `<strong style="color: #28a745;">✅ Sucesso!</strong><br>
+                        <pre style="margin-top: 8px; background: white; padding: 8px; border-radius: 4px; text-align: left;">${JSON.stringify(data, null, 2)}</pre>`;
+                    addDebug('✅ API respondeu corretamente', 'success');
+                } else {
+                    resultDiv.innerHTML = `<strong style="color: #dc3545;">❌ Erro ${response.status}</strong><br>${JSON.stringify(data)}`;
+                    addDebug(`❌ API retornou erro ${response.status}`, 'error');
+                }
+
+            } catch (error) {
+                resultDiv.innerHTML = `<strong style="color: #dc3545;">❌ Erro de rede:</strong><br>${error.message}`;
+                addDebug(`❌ Erro na chamada: ${error.message}`, 'error');
+            }
+        }
+
+        // ============================================
+        // EVENT LISTENERS
+        // ============================================
+        loginBtn.addEventListener('click', startGoogleLogin);
+        document.getElementById('logoutBtn').addEventListener('click', logout);
+        document.getElementById('testApiBtn').addEventListener('click', testAuthenticatedAPI);
+
+        // ============================================
+        // INICIALIZAÇÃO
+        // ============================================
+        (async () => {
+            addDebug('🔧 Inicializando aplicação...', 'info');
+            addDebug(`📡 API Base: ${API_BASE}`, 'info');
+            addDebug(`🎯 Project: ${PROJECT_SLUG}`, 'info');
+            addDebug(`🔐 Anon Key: ${ANON_KEY.substring(0, 20)}...`, 'info');
+
+            // Verificar se há tokens no hash (callback do OAuth)
+            if (window.location.hash.includes('access_token')) {
+                addDebug('🔍 Tokens detectados no hash da URL', 'info');
+                await handleCallback();
+            } 
+            // Verificar se há sessão salva
+            else {
+                const session = getSession();
+                if (session) {
+                    addDebug('🔍 Sessão encontrada no localStorage', 'info');
+                    
+                    // Verificar se ainda é válida
+                    if (session.expires_at > Date.now()) {
+                        addDebug('✅ Sessão ainda válida', 'success');
+                        await loadUserProfile(session);
+                    } else {
+                        addDebug('⚠️ Sessão expirada', 'error');
+                        clearSession();
+                        showStatus('Sessão expirada, faça login novamente', 'info');
+                    }
+                } else {
+                    addDebug('ℹ️ Nenhuma sessão ativa', 'info');
+                }
+            }
+        })();
+    </script>
+</body>
+</html>

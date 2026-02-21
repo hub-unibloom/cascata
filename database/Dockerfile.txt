@@ -1,0 +1,7 @@
+
+# Usamos a imagem oficial do pgvector que já contém o Postgres + Extensão compilada.
+# Isso resolve o erro "extension vector is not available".
+FROM pgvector/pgvector:pg16
+
+# Instala extensões adicionais se necessário, mas pgvector e pgcrypto já vêm nativos.
+# O pgvector oficial é baseado em Debian/Alpine e é a forma mais segura.

@@ -1,0 +1,7 @@
+{
+  "name": "Cascata orquestrador BaaS production last dance finalGo",
+  "description": "Plataforma de infraestrutura de dados multi-tenant auto-hospedada e isolamento físico de database com postgress.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
