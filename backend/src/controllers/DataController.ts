@@ -39,14 +39,45 @@ export class DataController {
         if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         const { name, enable } = req.body;
 
-        // Validação básica de segurança
+        // Básica
         if (!/^[a-zA-Z0-9_]+$/.test(name)) {
             return res.status(400).json({ error: 'Invalid extension name.' });
         }
 
         try {
             if (enable) {
-                // CASCADE é perigoso em DROP, mas necessário para dependências em CREATE
+                // Cascata Phantom Injection Logic
+                // Aqui nós interceptamos se a extensão é Node/TLE e fazemos o spawn do Provider
+                const isNodeExtension = ['postgis', 'postgis_tiger_geocoder', 'postgis_topology', 'pgrouting', 'timescaledb'].includes(name);
+
+                if (isNodeExtension) {
+                    console.log(`[ExtensionMesh] Tier 3 (Node) requested: ${name}. Spawning Provider Container...`);
+                    // Em produção as imagens do provider deverão existir no hub Registry 
+                    // ou construídas dinamicamente via github actions. Para o MVP, mockamos o log de docker run.
+
+                    const { spawnSync } = require('child_process');
+
+                    // The command expects the system administrator to have prepared an image 
+                    // matching 'cascata-ext-NAME-provider' 
+                    // e.g: docker run --rm -v cascata_cascata_extensions:/cascata_extensions cascata-ext-postgis-provider
+                    const containerNameParam = `cascata-ext-${name}-provider`;
+                    const volumeParam = `${process.env.COMPOSE_PROJECT_NAME || 'cascata'}_extension_payloads:/cascata_extensions`;
+
+                    console.log(`[ExtensionMesh] Executing Injection: docker run --rm -v ${volumeParam} ${containerNameParam}`);
+
+                    // We run async but wait for it to finish because we need the files to be linked before CREATE EXTENSION
+                    const spawnRes = spawnSync('docker', ['run', '--rm', '-v', volumeParam, containerNameParam]);
+
+                    if (spawnRes.status !== 0) {
+                        console.warn(`[ExtensionMesh] Provider container failed or not found for ${name}. If this is a fresh setup, ensure the Provider image is built.`);
+                        // We do NOT throw here immediately during beta, because the user might have installed it manually.
+                        // We just rely on standard PG error catch below.
+                    } else {
+                        console.log(`[ExtensionMesh] Files injected. Waiting 2s for Phantom Linker to symlink...`);
+                        await new Promise(r => setTimeout(r, 2000));
+                    }
+                }
+
                 await req.projectPool!.query(`CREATE EXTENSION IF NOT EXISTS "${name}" SCHEMA public CASCADE`);
             } else {
                 await req.projectPool!.query(`DROP EXTENSION IF EXISTS "${name}" CASCADE`);
@@ -409,7 +440,7 @@ export class DataController {
                     tables: parseInt(tables.rows[0].count),
                     users: parseInt(users.rows[0].count),
                     size: size.rows[0].pg_size_pretty,
-                    throughput: logsRes.rows.map(r => ({
+                    throughput: logsRes.rows.map((r: any) => ({
                         name: r.name,
                         requests: parseInt(r.requests),
                         success: parseInt(r.success),

@@ -9,7 +9,7 @@ export interface ExtensionMeta {
 export const EXTENSIONS_CATALOG: ExtensionMeta[] = [
     // --- AI & VECTOR ---
     { name: 'vector', category: 'AI', description: 'Store and query vector embeddings. Essential for AI/RAG applications.', featured: true },
-    
+
     // --- GEO ---
     { name: 'postgis', category: 'Geo', description: 'Spatial and geographic objects for PostgreSQL.', featured: true },
     { name: 'postgis_tiger_geocoder', category: 'Geo', description: 'Tiger Geocoder for PostGIS.' },
@@ -68,7 +68,7 @@ export const EXTENSIONS_CATALOG: ExtensionMeta[] = [
     { name: 'moddatetime', category: 'Util', description: 'Functions for tracking last modification time.' },
     { name: 'autoinc', category: 'Util', description: 'Functions for autoincrementing fields.' },
     { name: 'insert_username', category: 'Util', description: 'Functions for tracking who changed a table.' },
-    
+
     // --- LANGUAGES ---
     { name: 'plpgsql', category: 'Lang', description: 'PL/pgSQL procedural language.' },
     { name: 'plv8', category: 'Lang', description: 'PL/JavaScript (v8) trusted procedural language.' },
@@ -78,9 +78,9 @@ export const EXTENSIONS_CATALOG: ExtensionMeta[] = [
 
 export const getExtensionMeta = (name: string): ExtensionMeta => {
     const found = EXTENSIONS_CATALOG.find(e => e.name === name);
-    return found || { 
-        name, 
-        category: 'Util', 
-        description: 'No description available for this extension.' 
+    return found || {
+        name,
+        category: 'Util',
+        description: 'No description available for this extension.'
     };
 };

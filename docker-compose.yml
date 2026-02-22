@@ -192,7 +192,9 @@ services:
     restart: always
 
   db:
-    image: postgres:17-alpine
+    build:
+      context: ./database
+      dockerfile: Dockerfile.txt
     container_name: cascata-db
     restart: always
     # Habilita escuta externa explicitamente para funcionamento com Firewall AWS
@@ -205,7 +207,8 @@ services:
       POSTGRES_DB: ${DB_NAME:-cascata_system}
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./database/init.sql.txt:/docker-entrypoint-initdb.d/init.sql
+      - extension_payloads:/cascata_extensions
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-cascata_admin} -d ${DB_NAME:-cascata_system}" ]
       interval: 5s
@@ -272,3 +275,4 @@ volumes:
   temp_data:
   nginx_dynamic:
   redis_data:
+  extension_payloads:
