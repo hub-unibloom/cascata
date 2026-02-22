@@ -1,7 +1,39 @@
 
-# Usamos a imagem oficial do pgvector que já contém o Postgres + Extensão compilada.
-# Isso resolve o erro "extension vector is not available".
-FROM pgvector/pgvector:pg16
+# ============================================================
+# Cascata Orchestrator — PostgreSQL 17 Alpine + Phantom Injection
+# ============================================================
+# Tier 0: Imagem base ultra-leve (~180MB) com extensões que
+# EXIGEM shared_preload_libraries (são obrigatórias no boot).
+# Todas as demais extensões são injetadas em runtime pelo
+# Phantom Linker (zero downtime, zero bloat).
+# ============================================================
 
-# Instala extensões adicionais se necessário, mas pgvector e pgcrypto já vêm nativos.
-# O pgvector oficial é baseado em Debian/Alpine e é a forma mais segura.
+FROM postgres:17-alpine
+
+# Tier 0: Extensões que exigem shared_preload_libraries
+# pg_cron: Job scheduler (precisa estar no boot para registrar o background worker)
+# pg_stat_statements: Tracking de queries (precisa interceptar desde o boot)
+# inotify-tools: Para o Phantom Linker detectar novas extensões em tempo real (~50KB)
+RUN apk add --no-cache \
+    postgresql17-pg_cron \
+    inotify-tools
+
+# Phantom Injection: Diretório de staging para extensões injetadas em runtime
+# lib/ = arquivos .so (shared objects)
+# share/ = arquivos .control + .sql (metadados de extensão)
+RUN mkdir -p /cascata_extensions/lib /cascata_extensions/share
+
+# Copiar scripts customizados
+COPY docker-entrypoint-cascata.sh /usr/local/bin/docker-entrypoint-cascata.sh
+COPY phantom_linker.sh /usr/local/bin/phantom_linker.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint-cascata.sh /usr/local/bin/phantom_linker.sh
+
+# Entrypoint customizado: inicia Phantom Linker em background e delega ao entrypoint oficial
+ENTRYPOINT ["docker-entrypoint-cascata.sh"]
+
+# CMD com shared_preload_libraries para extensões que exigem boot-time loading
+# cron.database_name: Define em qual database o pg_cron opera
+CMD ["postgres", \
+    "-c", "shared_preload_libraries=pg_cron,pg_stat_statements", \
+    "-c", "listen_addresses=*", \
+    "-c", "cron.database_name=cascata_system"]

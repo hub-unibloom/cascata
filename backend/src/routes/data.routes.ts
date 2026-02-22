@@ -7,8 +7,8 @@ import { EdgeController } from '../controllers/EdgeController.js';
 import { SecurityController } from '../controllers/SecurityController.js';
 import { DataAuthController } from '../controllers/DataAuthController.js';
 import { VectorController } from '../controllers/VectorController.js';
-import { McpController } from '../controllers/McpController.js'; 
-import { BranchController } from '../controllers/BranchController.js'; 
+import { McpController } from '../controllers/McpController.js';
+import { BranchController } from '../controllers/BranchController.js';
 import { upload } from '../config/main.js';
 import { cascataAuth } from '../middlewares/core.js';
 import { dynamicBodyParser, dynamicRateLimiter } from '../middlewares/security.js';
@@ -26,7 +26,7 @@ router.use(cascataAuth as any);
 // ENVIRONMENT BRANCHING & SNAPSHOTS
 router.get('/branch/status', BranchController.getStatus as any);
 router.post('/branch/create', BranchController.createDraft as any);
-router.post('/branch/sync', BranchController.syncFromLive as any); 
+router.post('/branch/sync', BranchController.syncFromLive as any);
 router.delete('/branch/draft', BranchController.deleteDraft as any);
 router.post('/branch/deploy', BranchController.deployDraft as any);
 router.get('/branch/diff', BranchController.getDiff as any);
@@ -47,7 +47,7 @@ router.all('/vector/*', VectorController.proxy as any);
 router.all('/vector', VectorController.proxy as any);
 
 // Tables CRUD
-router.get('/tables', DataController.listTables as any); 
+router.get('/tables', DataController.listTables as any);
 router.post('/tables', DataController.createTable as any);
 router.get('/tables/:tableName/data', DataController.queryRows as any);
 router.post('/tables/:tableName/rows', DataController.insertRows as any);
@@ -66,9 +66,11 @@ router.get('/functions', DataController.listFunctions as any);
 router.get('/triggers', DataController.listTriggers as any);
 router.get('/rpc/:name/definition', DataController.getFunctionDefinition as any);
 
-// EXTENSIONS (NEW)
+// EXTENSIONS (Phantom Injection Architecture)
 router.get('/extensions', DataController.listExtensions as any);
-router.post('/extensions', DataController.toggleExtension as any);
+router.post('/extensions/install', DataController.installExtension as any);
+router.post('/extensions/uninstall', DataController.uninstallExtension as any);
+router.get('/extensions/status/:name', DataController.getExtensionInstallStatus as any);
 
 // Raw Query (Service Role Only)
 router.post('/query', DataController.runRawQuery as any);
@@ -81,9 +83,9 @@ router.delete('/storage/buckets/:name', StorageController.deleteBucket as any);
 
 // Storage Objects & Folders
 router.post('/storage/:bucket/sign', StorageController.signUpload as any);
-router.post('/storage/:bucket/folder', StorageController.createFolder as any); 
+router.post('/storage/:bucket/folder', StorageController.createFolder as any);
 router.post('/storage/:bucket/upload', upload.single('file') as any, StorageController.uploadFile as any);
-router.get('/storage/:bucket/list', StorageController.listFiles as any); 
+router.get('/storage/:bucket/list', StorageController.listFiles as any);
 router.get('/storage/search', StorageController.search as any);
 router.get('/storage/:bucket/object/*', StorageController.serveFile as any);
 router.post('/storage/move', StorageController.moveFiles as any);
@@ -129,7 +131,7 @@ router.delete('/security/key-groups/:id', SecurityController.deleteKeyGroup as a
 // API Keys
 router.get('/api-keys', SecurityController.listApiKeys as any);
 router.post('/api-keys', SecurityController.createApiKey as any);
-router.patch('/api-keys/:id', SecurityController.updateApiKey as any); 
+router.patch('/api-keys/:id', SecurityController.updateApiKey as any);
 router.post('/api-keys/:id/migrate', SecurityController.migrateApiKey as any);
 router.delete('/api-keys/:id', SecurityController.deleteApiKey as any);
 

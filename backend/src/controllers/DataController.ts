@@ -5,6 +5,7 @@ import { queryWithRLS, quoteId } from '../utils/index.js';
 import { DatabaseService } from '../../services/DatabaseService.js';
 import { PostgrestService } from '../../services/PostgrestService.js';
 import { OpenApiService } from '../../services/OpenApiService.js';
+import { ExtensionService } from '../../services/ExtensionService.js';
 import { systemPool } from '../config/main.js';
 
 export class DataController {
@@ -20,38 +21,89 @@ export class DataController {
         return false;
     }
 
-    // --- EXTENSIONS MANAGEMENT ---
+    // --- EXTENSIONS MANAGEMENT (Phantom Injection Architecture) ---
+
+    /**
+     * Lists ALL extensions with enriched metadata:
+     * - Native extensions (available in Alpine base image)
+     * - Preloaded extensions (installed via Dockerfile)
+     * - Phantom extensions (injectable from Docker images)
+     * - Installed status per project
+     * - Tier classification and source image info
+     */
     static async listExtensions(req: CascataRequest, res: any, next: any) {
         if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         try {
-            // Lista TODAS as extensões disponíveis no container Postgres
-            // installed_version não nulo significa que está ativa
-            const result = await req.projectPool!.query(`
-                SELECT name, default_version, installed_version, comment 
-                FROM pg_available_extensions 
-                ORDER BY (installed_version IS NOT NULL) DESC, name ASC
-            `);
-            res.json(result.rows);
+            const enriched = await ExtensionService.listAvailableEnriched(req.projectPool!);
+            res.json(enriched);
         } catch (e: any) { next(e); }
     }
 
-    static async toggleExtension(req: CascataRequest, res: any, next: any) {
+    /**
+     * Install an extension. For phantom extensions, this triggers
+     * Docker image extraction first, then CREATE EXTENSION.
+     * For native extensions, goes straight to CREATE EXTENSION.
+     */
+    static async installExtension(req: CascataRequest, res: any, next: any) {
         if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
-        const { name, enable } = req.body;
+        const { name, schema } = req.body;
 
-        // Validação básica de segurança
-        if (!/^[a-zA-Z0-9_]+$/.test(name)) {
+        if (!name || !/^[a-zA-Z0-9_-]+$/.test(name)) {
             return res.status(400).json({ error: 'Invalid extension name.' });
         }
 
         try {
-            if (enable) {
-                // CASCADE é perigoso em DROP, mas necessário para dependências em CREATE
-                await req.projectPool!.query(`CREATE EXTENSION IF NOT EXISTS "${name}" SCHEMA public CASCADE`);
-            } else {
-                await req.projectPool!.query(`DROP EXTENSION IF EXISTS "${name}" CASCADE`);
-            }
-            res.json({ success: true });
+            const result = await ExtensionService.installExtension(
+                req.projectPool!,
+                req.project.slug,
+                name,
+                schema || 'public'
+            );
+            res.json(result);
+        } catch (e: any) {
+            res.status(400).json({ error: e.message });
+        }
+    }
+
+    /**
+     * Uninstall an extension from a project.
+     */
+    static async uninstallExtension(req: CascataRequest, res: any, next: any) {
+        if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
+        const { name, cascade } = req.body;
+
+        if (!name || !/^[a-zA-Z0-9_-]+$/.test(name)) {
+            return res.status(400).json({ error: 'Invalid extension name.' });
+        }
+
+        try {
+            const result = await ExtensionService.uninstallExtension(
+                req.projectPool!,
+                req.project.slug,
+                name,
+                cascade === true
+            );
+            res.json(result);
+        } catch (e: any) {
+            res.status(400).json({ error: e.message });
+        }
+    }
+
+    /**
+     * Get real-time status of an extension installation (polling endpoint).
+     * Used by the frontend to track Phantom Injection progress.
+     */
+    static async getExtensionInstallStatus(req: CascataRequest, res: any, next: any) {
+        if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
+        const { name } = req.params;
+
+        if (!name || !/^[a-zA-Z0-9_-]+$/.test(name)) {
+            return res.status(400).json({ error: 'Invalid extension name.' });
+        }
+
+        try {
+            const status = ExtensionService.getInstallStatus(name);
+            res.json(status);
         } catch (e: any) { next(e); }
     }
 

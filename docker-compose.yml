@@ -89,6 +89,8 @@ services:
       - storage_data:/cascata/storage
       - temp_data:/cascata/temp
       - nginx_dynamic:/etc/nginx/conf.d/dynamic
+      - /var/run/docker.sock:/var/run/docker.sock
+      - extension_payloads:/cascata_extensions:ro
     depends_on:
       db:
         condition: service_healthy
@@ -192,11 +194,11 @@ services:
     restart: always
 
   db:
-    image: postgres:17-alpine
+    build:
+      context: ./database
     container_name: cascata-db
     restart: always
-    # Habilita escuta externa explicitamente para funcionamento com Firewall AWS
-    command: postgres -c "listen_addresses=*"
+    # CMD definido no Dockerfile inclui shared_preload_libraries e listen_addresses
     ports:
       - "5432:5432"
     environment:
@@ -206,6 +208,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - extension_payloads:/cascata_extensions
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-cascata_admin} -d ${DB_NAME:-cascata_system}" ]
       interval: 5s
@@ -272,3 +275,4 @@ volumes:
   temp_data:
   nginx_dynamic:
   redis_data:
+  extension_payloads:
