@@ -8,7 +8,7 @@ export interface ExtensionMeta {
 
 export const EXTENSIONS_CATALOG: ExtensionMeta[] = [
     // --- AI & VECTOR ---
-    { name: 'vector', category: 'AI', description: 'Store and query vector embeddings. Essential for AI/RAG applications.', featured: true },
+    { name: 'vector', category: 'AI', description: 'Store and query vector embeddings. Deploys via Smart Extension Node.', featured: true },
 
     // --- GEO ---
     { name: 'postgis', category: 'Geo', description: 'Spatial and geographic objects for PostgreSQL.', featured: true },

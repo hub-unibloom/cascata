@@ -48,7 +48,7 @@ export class DataController {
             if (enable) {
                 // Cascata Phantom Injection Logic
                 // Aqui nós interceptamos se a extensão é Node/TLE e fazemos o spawn do Provider
-                const isNodeExtension = ['postgis', 'postgis_tiger_geocoder', 'postgis_topology', 'pgrouting', 'timescaledb'].includes(name);
+                const isNodeExtension = ['postgis', 'postgis_tiger_geocoder', 'postgis_topology', 'pgrouting', 'timescaledb', 'vector'].includes(name);
 
                 if (isNodeExtension) {
                     console.log(`[ExtensionMesh] Tier 3 (Node) requested: ${name}. Spawning Provider Container...`);

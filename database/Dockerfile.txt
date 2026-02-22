@@ -1,29 +1,7 @@
-# Cascata Phantom Injection - Tier 1 Core Image
-# Base: PostgreSQL 17 Alpine + pgvector (180MB)
-FROM postgres:17-alpine AS builder
-
-# Install build dependencies for pgvector
-RUN apk add --no-cache \
-    build-base \
-    clang15 \
-    llvm15 \
-    git \
-    coreutils
-
-# Download and compile pgvector (Tier 1 core requirement for AI)
-RUN mkdir -p /tmp/build && \
-    cd /tmp/build && \
-    git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git && \
-    cd pgvector && \
-    make && \
-    make install
-
-# Final Stage: Lean Alpine Image
+# Cascata Phantom Injection - Pure Core Image
+# Base: PostgreSQL 17 Alpine (~180MB)
+# (Zero C++ Compilation / Ultra-Stable Build)
 FROM postgres:17-alpine
-
-# Copy pgvector from builder
-COPY --from=builder /usr/local/share/postgresql/extension/vector* /usr/local/share/postgresql/extension/
-COPY --from=builder /usr/local/lib/postgresql/vector.so /usr/local/lib/postgresql/
 
 # Copy the Phantom Linker
 COPY phantom_linker.sh /usr/local/bin/phantom_linker
