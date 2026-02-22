@@ -46,35 +46,46 @@ export class DataController {
 
         try {
             if (enable) {
-                // Cascata Phantom Injection Logic
-                // Aqui nós interceptamos se a extensão é Node/TLE e fazemos o spawn do Provider
-                const isNodeExtension = ['postgis', 'postgis_tiger_geocoder', 'postgis_topology', 'pgrouting', 'timescaledb', 'vector'].includes(name);
+                // Cascata True Phantom Injection Logic
+                // We map extensions to their Official Alpine images
+                const OFFICIAL_IMAGES: Record<string, string> = {
+                    'postgis': 'postgis/postgis:17-3.4-alpine',
+                    'postgis_tiger_geocoder': 'postgis/postgis:17-3.4-alpine',
+                    'postgis_topology': 'postgis/postgis:17-3.4-alpine',
+                    'address_standardizer': 'postgis/postgis:17-3.4-alpine',
+                    'address_standardizer_data_us': 'postgis/postgis:17-3.4-alpine',
+                    'pgrouting': 'pgrouting/pgrouting:17-3.4-alpine'
+                };
+
+                const isNodeExtension = ['postgis', 'postgis_tiger_geocoder', 'postgis_topology', 'pgrouting', 'timescaledb', 'vector', 'address_standardizer', 'address_standardizer_data_us'].includes(name);
 
                 if (isNodeExtension) {
-                    console.log(`[ExtensionMesh] Tier 3 (Node) requested: ${name}. Spawning Provider Container...`);
-                    // Em produção as imagens do provider deverão existir no hub Registry 
-                    // ou construídas dinamicamente via github actions. Para o MVP, mockamos o log de docker run.
+                    // Try to find official image, default to a custom one that DevOps could build
+                    const targetImage = OFFICIAL_IMAGES[name] || `cascata-ext-${name}-provider:latest`;
+                    console.log(`[ExtensionMesh] Tier 3 (Node) requested: ${name}. Extracting from ${targetImage}...`);
 
                     const { spawnSync } = require('child_process');
-
-                    // The command expects the system administrator to have prepared an image 
-                    // matching 'cascata-ext-NAME-provider' 
-                    // e.g: docker run --rm -v cascata_cascata_extensions:/cascata_extensions cascata-ext-postgis-provider
-                    const containerNameParam = `cascata-ext-${name}-provider`;
                     const volumeParam = `${process.env.COMPOSE_PROJECT_NAME || 'cascata'}_extension_payloads:/cascata_extensions`;
 
-                    console.log(`[ExtensionMesh] Executing Injection: docker run --rm -v ${volumeParam} ${containerNameParam}`);
+                    // The True Phantom extraction command:
+                    // We run the official image, override the entrypoint, and steal its .so and .sql files to our volume.
+                    const shellCmd = `cp -rn /usr/local/lib/postgresql/* /cascata_extensions/ 2>/dev/null || true && cp -rn /usr/local/share/postgresql/extension/* /cascata_extensions/ 2>/dev/null || true && echo "Extraction OK"`;
 
-                    // We run async but wait for it to finish because we need the files to be linked before CREATE EXTENSION
-                    const spawnRes = spawnSync('docker', ['run', '--rm', '-v', volumeParam, containerNameParam]);
+                    console.log(`[ExtensionMesh] Executing Injection: docker run --rm -v ${volumeParam} --entrypoint sh ${targetImage} -c "..."`);
+
+                    const spawnRes = spawnSync('docker', [
+                        'run', '--rm',
+                        '-v', volumeParam,
+                        '--entrypoint', 'sh',
+                        targetImage,
+                        '-c', shellCmd
+                    ]);
 
                     if (spawnRes.status !== 0) {
-                        console.warn(`[ExtensionMesh] Provider container failed or not found for ${name}. If this is a fresh setup, ensure the Provider image is built.`);
-                        // We do NOT throw here immediately during beta, because the user might have installed it manually.
-                        // We just rely on standard PG error catch below.
+                        console.warn(`[ExtensionMesh] Failed to extract from ${targetImage}. Missing image or network issue. Error: ${spawnRes.stderr?.toString()}`);
                     } else {
-                        console.log(`[ExtensionMesh] Files injected. Waiting 2s for Phantom Linker to symlink...`);
-                        await new Promise(r => setTimeout(r, 2000));
+                        console.log(`[ExtensionMesh] Files extracted successfully. Waiting 3s for Phantom Linker to symlink...`);
+                        await new Promise(r => setTimeout(r, 3000));
                     }
                 }
 

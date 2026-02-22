@@ -1,0 +1,98 @@
+Algumas coisas aqui não estão sendo isntalavéis:
+AI & Vector
+vector
+Store and query vector embeddings. Deploys via Smart Extension Node.
+
+AI
+Not Installed
+
+----
+
+
+
+postgis
+Spatial and geographic objects for PostgreSQL.
+
+Geo
+Not Installed
+
+address_standardizer
+Parse addresses into elements. Useful for geocoding normalization.
+
+Geo
+Not Installed
+
+address_standardizer_data_us
+US dataset for address standardizer.
+
+Geo
+Not Installed
+
+pgrouting
+Geospatial routing functionality.
+
+Geo
+Not Installed
+
+postgis_tiger_geocoder
+Tiger Geocoder for PostGIS.
+
+Geo
+Not Installed
+
+----
+
+anon
+Data anonymization tools.
+
+Crypto
+Not Installed
+
+pgjwt
+JSON Web Token API for PostgreSQL.
+
+Crypto
+Not Installed
+
+pgsodium
+Modern cryptography using libsodium (encryption, signatures, hashing).
+
+Crypto
+Not Installed
+
+
+----
+
+pgroonga
+Fast full text search for all languages based on Groonga.
+
+Search
+Not Installed
+
+
+----
+
+http
+HTTP client for PostgreSQL, allows retrieving web pages.
+
+Net
+Not Installed
+
+pg_net
+Async HTTP client (GET, POST) directly from SQL.
+
+Net
+Not Installed
+
+----
+
+pg_repack
+Reorganize tables in PostgreSQL databases with minimal locks.
+
+Admin
+Not Installed
+
+----  
+
+Estão extensẽos estão sendo lsitaas no moal extensões, mas estaas lsitas não funcionam....
+Achei estranho que podemos ter conjobs mas ao emsmo tempo não temos como ter cronjobs....achei muito estranho.
