@@ -66,9 +66,11 @@ export const EXTENSIONS_CATALOG: ExtensionMeta[] = [
     { name: 'seg', category: 'DataType', description: 'Data type for line segments or floating point intervals.', origin: 'native', tier: 0 },
     { name: 'intarray', category: 'DataType', description: 'Functions, operators, and indexes for 1-D arrays of integers.', origin: 'native', tier: 0 },
 
-    // ─── UTILITY & ADMIN (Tier 0/Preloaded) ───────────────────
-    { name: 'pg_cron', category: 'Util', description: 'Job scheduler for PostgreSQL (run SQL on a schedule).', featured: true, origin: 'preloaded', tier: 0 },
-    { name: 'pg_stat_statements', category: 'Audit', description: 'Track execution statistics of all SQL statements executed.', origin: 'preloaded', tier: 0 },
+    // ─── UTILITY & ADMIN (Tier 0/Preloaded) ──────────────────────
+    // pg_cron: compilado no Dockerfile multi-stage contra PG17 + shared_preload_libraries.
+    // pg_stat_statements: contrib nativo, ativado via shared_preload_libraries.
+    { name: 'pg_cron', category: 'Util', description: 'Job scheduler for PostgreSQL (run SQL on a cron schedule).', featured: true, origin: 'preloaded', tier: 0 },
+    { name: 'pg_stat_statements', category: 'Audit', description: 'Track execution statistics of all SQL statements executed.', origin: 'native', tier: 0 },
     { name: 'pgaudit', category: 'Audit', description: 'Provide auditing functionality.', origin: 'native', tier: 0 },
     { name: 'postgres_fdw', category: 'Admin', description: 'Foreign-data wrapper for remote PostgreSQL servers.', origin: 'native', tier: 0 },
     { name: 'dblink', category: 'Admin', description: 'Connect to other PostgreSQL databases from within a database.', origin: 'native', tier: 0 },

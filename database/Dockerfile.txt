@@ -2,56 +2,68 @@
 # ============================================================
 # Cascata Orchestrator — PostgreSQL 17 Alpine + Phantom Injection
 # ============================================================
-# The official postgres:17-alpine image compiles PostgreSQL from
-# source to /usr/local/. Alpine's apk packages install to
-# /usr/lib/postgresql17/, making them INCOMPATIBLE.
-# Therefore, pg_cron MUST be compiled from source.
+# Stage 1 (builder): compila pg_cron contra o PG17-alpine.
+# Stage 2 (runtime): copia apenas o .so e os arquivos de extensão,
+#                    instala inotify-tools, configura o Phantom Linker.
+#
+# pg_cron: usa shared_preload_libraries → precisa estar no boot.
+#          Não tem pacote APK para PG17, então compilamos do source.
+#          Build time: ~2min (cache do Docker na 2ª build).
+# inotify-tools: permite ao Phantom Linker detectar novas extensões
+#                em tempo real via eventos inotify do kernel.
 # ============================================================
 
+# ---------- Stage 1: compilar pg_cron ----------
 FROM postgres:17-alpine AS builder
 
-# Install build dependencies for pg_cron
+# Ferramentas de compilação (apenas no stage builder, não na imagem final)
 RUN apk add --no-cache \
-    build-base \
-    clang15 \
-    llvm15 \
     git \
+    gcc \
+    make \
+    musl-dev \
+    clang \
+    llvm \
     postgresql-dev
 
-# Clone and build pg_cron
-RUN git clone --branch v1.6.5 --depth 1 https://github.com/citusdata/pg_cron.git /tmp/pg_cron \
+# Compilar pg_cron v1.6.x contra PostgreSQL 17
+# USE_PGXS=1 garante que compile contra o PG instalado em /usr/local
+RUN git clone --branch v1.6.4 --depth 1 \
+    https://github.com/citusdata/pg_cron.git /tmp/pg_cron \
     && cd /tmp/pg_cron \
-    && make \
-    && make install
+    && USE_PGXS=1 make -j$(nproc) \
+    && USE_PGXS=1 make install
 
-# ============================================================
-# Final image: lightweight with only the compiled artifacts
-# ============================================================
+# ---------- Stage 2: imagem final de produção ----------
 FROM postgres:17-alpine
 
-# Copy compiled pg_cron from builder stage
-COPY --from=builder /usr/local/lib/postgresql/pg_cron.so /usr/local/lib/postgresql/
-COPY --from=builder /usr/local/share/postgresql/extension/pg_cron* /usr/local/share/postgresql/extension/
-
-# Install inotify-tools for the Phantom Linker (~50KB)
+# inotify-tools: Phantom Linker usa para detectar novas extensões em RT
 RUN apk add --no-cache inotify-tools
 
-# Phantom Injection: Staging directory for runtime-injected extensions
-# lib/ = .so files (compiled extension shared objects)
-# share/ = .control + .sql files (extension metadata)
+# Copiar pg_cron compilado do stage builder
+COPY --from=builder /usr/local/lib/postgresql/pg_cron.so \
+    /usr/local/lib/postgresql/pg_cron.so
+COPY --from=builder /usr/local/share/postgresql/extension/pg_cron.control \
+    /usr/local/share/postgresql/extension/pg_cron.control
+COPY --from=builder /usr/local/share/postgresql/extension/pg_cron--1.6.sql \
+    /usr/local/share/postgresql/extension/pg_cron--1.6.sql
+
+# Diretórios de staging para Phantom Injection em runtime
 RUN mkdir -p /cascata_extensions/lib /cascata_extensions/share
 
-# Copy custom scripts
+# Scripts do sistema Phantom Injection
 COPY docker-entrypoint-cascata.sh /usr/local/bin/docker-entrypoint-cascata.sh
 COPY phantom_linker.sh /usr/local/bin/phantom_linker.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint-cascata.sh /usr/local/bin/phantom_linker.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint-cascata.sh \
+    /usr/local/bin/phantom_linker.sh
 
-# Custom entrypoint: starts Phantom Linker daemon then delegates to official PG entrypoint
+# Entrypoint customizado: inicia Phantom Linker em background
+# e delega ao entrypoint oficial do PostgreSQL
 ENTRYPOINT ["docker-entrypoint-cascata.sh"]
 
-# CMD with shared_preload_libraries for boot-time extensions
-# pg_cron requires being loaded at startup to register its background worker
-# cron.database_name: defines which database pg_cron operates on
+# pg_stat_statements: contrib nativo do postgres:17-alpine, ativado aqui.
+# pg_cron: compilado acima, precisa estar em shared_preload_libraries.
+# cron.database_name: database onde pg_cron registra os jobs.
 CMD ["postgres", \
     "-c", "shared_preload_libraries=pg_cron,pg_stat_statements", \
     "-c", "listen_addresses=*", \

@@ -50,15 +50,18 @@ const NATIVE_EXTENSIONS = new Set([
     'plpgsql', 'pgcrypto', 'uuid-ossp', 'pg_trgm', 'citext', 'hstore',
     'ltree', 'btree_gin', 'btree_gist', 'fuzzystrmatch', 'unaccent',
     'intarray', 'earthdistance', 'cube', 'seg', 'isn', 'dict_int',
-    'dict_xsyn', 'pg_stat_statements', 'postgres_fdw', 'dblink',
+    'dict_xsyn', 'postgres_fdw', 'dblink',
     'amcheck', 'pageinspect', 'pg_buffercache', 'pg_freespacemap',
     'pg_visibility', 'pg_walinspect', 'moddatetime', 'autoinc',
     'insert_username', 'pgaudit', 'plpython3u'
 ]);
 
-// Extensions installed via Alpine packages in the Dockerfile (Tier 0)
+// Extensions compiled/installed in the Dockerfile (Tier 0).
+// pg_cron: compilado do source no Dockerfile multi-stage (PG17 compativel).
+// pg_stat_statements: contrib nativo, ativado via shared_preload_libraries.
 const PRELOADED_EXTENSIONS = new Set([
-    'pg_cron'
+    'pg_cron',
+    'pg_stat_statements'
 ]);
 
 // Build a reverse lookup: extension name -> phantom source
