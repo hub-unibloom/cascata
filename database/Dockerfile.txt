@@ -2,37 +2,56 @@
 # ============================================================
 # Cascata Orchestrator — PostgreSQL 17 Alpine + Phantom Injection
 # ============================================================
-# Tier 0: Imagem base ultra-leve (~180MB) com extensões que
-# EXIGEM shared_preload_libraries (são obrigatórias no boot).
-# Todas as demais extensões são injetadas em runtime pelo
-# Phantom Linker (zero downtime, zero bloat).
+# The official postgres:17-alpine image compiles PostgreSQL from
+# source to /usr/local/. Alpine's apk packages install to
+# /usr/lib/postgresql17/, making them INCOMPATIBLE.
+# Therefore, pg_cron MUST be compiled from source.
 # ============================================================
 
+FROM postgres:17-alpine AS builder
+
+# Install build dependencies for pg_cron
+RUN apk add --no-cache \
+    build-base \
+    clang15 \
+    llvm15 \
+    git \
+    postgresql-dev
+
+# Clone and build pg_cron
+RUN git clone --branch v1.6.5 --depth 1 https://github.com/citusdata/pg_cron.git /tmp/pg_cron \
+    && cd /tmp/pg_cron \
+    && make \
+    && make install
+
+# ============================================================
+# Final image: lightweight with only the compiled artifacts
+# ============================================================
 FROM postgres:17-alpine
 
-# Tier 0: Extensões que exigem shared_preload_libraries
-# pg_cron: Job scheduler (precisa estar no boot para registrar o background worker)
-# pg_stat_statements: Tracking de queries (precisa interceptar desde o boot)
-# inotify-tools: Para o Phantom Linker detectar novas extensões em tempo real (~50KB)
-RUN apk add --no-cache \
-    postgresql17-pg_cron \
-    inotify-tools
+# Copy compiled pg_cron from builder stage
+COPY --from=builder /usr/local/lib/postgresql/pg_cron.so /usr/local/lib/postgresql/
+COPY --from=builder /usr/local/share/postgresql/extension/pg_cron* /usr/local/share/postgresql/extension/
 
-# Phantom Injection: Diretório de staging para extensões injetadas em runtime
-# lib/ = arquivos .so (shared objects)
-# share/ = arquivos .control + .sql (metadados de extensão)
+# Install inotify-tools for the Phantom Linker (~50KB)
+RUN apk add --no-cache inotify-tools
+
+# Phantom Injection: Staging directory for runtime-injected extensions
+# lib/ = .so files (compiled extension shared objects)
+# share/ = .control + .sql files (extension metadata)
 RUN mkdir -p /cascata_extensions/lib /cascata_extensions/share
 
-# Copiar scripts customizados
+# Copy custom scripts
 COPY docker-entrypoint-cascata.sh /usr/local/bin/docker-entrypoint-cascata.sh
 COPY phantom_linker.sh /usr/local/bin/phantom_linker.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint-cascata.sh /usr/local/bin/phantom_linker.sh
 
-# Entrypoint customizado: inicia Phantom Linker em background e delega ao entrypoint oficial
+# Custom entrypoint: starts Phantom Linker daemon then delegates to official PG entrypoint
 ENTRYPOINT ["docker-entrypoint-cascata.sh"]
 
-# CMD com shared_preload_libraries para extensões que exigem boot-time loading
-# cron.database_name: Define em qual database o pg_cron opera
+# CMD with shared_preload_libraries for boot-time extensions
+# pg_cron requires being loaded at startup to register its background worker
+# cron.database_name: defines which database pg_cron operates on
 CMD ["postgres", \
     "-c", "shared_preload_libraries=pg_cron,pg_stat_statements", \
     "-c", "listen_addresses=*", \

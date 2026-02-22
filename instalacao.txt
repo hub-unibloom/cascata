@@ -34,9 +34,9 @@
 			  mv backend/migrations/027_auth_fingerprint.sql.txt backend/migrations/027_auth_fingerprint.sql
 			  mv backend/migrations/028_async_ops.sql.txt backend/migrations/028_async_ops.sql
 			  mv backend/migrations/029_extension_registry.sql.txt backend/migrations/029_extension_registry.sql
-		  mv database/Dockerfile.txt database/Dockerfile
-		  mv database/phantom_linker.sh.txt database/phantom_linker.sh
-		  mv database/docker-entrypoint-cascata.sh.txt database/docker-entrypoint-cascata.sh
+		      mv database/Dockerfile.txt database/Dockerfile
+		      mv database/phantom_linker.sh.txt database/phantom_linker.sh
+		      mv database/docker-entrypoint-cascata.sh.txt database/docker-entrypoint-cascata.sh
 			  mv frontend/Dockerfile.txt frontend/Dockerfile
 			  mv frontend/nginx.conf.txt frontend/nginx.conf
 			  mv nginx-controller/Dockerfile.txt nginx-controller/Dockerfile
