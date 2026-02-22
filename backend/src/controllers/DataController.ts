@@ -366,7 +366,20 @@ export class DataController {
             res.json({ success: true });
         } catch (e: any) { next(e); }
     }
-    static async getAssetHistory(req: CascataRequest, res: any, next: any) { try { const result = await systemPool.query('SELECT id, created_at, created_by, metadata FROM system.asset_history WHERE asset_id = $1 ORDER BY created_at DESC LIMIT 50', [req.params.id]); res.json(result.rows); } catch (e: any) { next(e); } }
+    static async getAssetHistory(req: CascataRequest, res: any, next: any) {
+        try {
+            // SECURITY FIX: Join to assets to enforce project_slug isolation (prevents IDOR)
+            const result = await systemPool.query(
+                `SELECT h.id, h.created_at, h.created_by, h.metadata 
+                 FROM system.asset_history h
+                 INNER JOIN system.assets a ON a.id = h.asset_id
+                 WHERE h.asset_id = $1 AND a.project_slug = $2
+                 ORDER BY h.created_at DESC LIMIT 50`,
+                [req.params.id, req.project.slug]
+            );
+            res.json(result.rows);
+        } catch (e: any) { next(e); }
+    }
 
     static async getStats(req: CascataRequest, res: any, next: any) {
         try {

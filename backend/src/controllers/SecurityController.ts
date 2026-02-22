@@ -8,20 +8,20 @@ import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 
 export class SecurityController {
-    
+
     static async getStatus(req: CascataRequest, res: any, next: any) {
-        try { 
-            const panicMode = await RateLimitService.checkPanic(req.project.slug); 
+        try {
+            const panicMode = await RateLimitService.checkPanic(req.project.slug);
             const currentRps = await RateLimitService.getCurrentRPS(req.project.slug);
-            res.json({ current_rps: currentRps, panic_mode: panicMode }); 
+            res.json({ current_rps: currentRps, panic_mode: panicMode });
         } catch (e: any) { next(e); }
     }
 
     static async togglePanic(req: CascataRequest, res: any, next: any) {
-        try { 
-            await RateLimitService.setPanic(req.project.slug, req.body.enabled); 
-            await systemPool.query("UPDATE system.projects SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{security,panic_mode}', $1) WHERE slug = $2", [JSON.stringify(req.body.enabled), req.project.slug]); 
-            res.json({ success: true, panic_mode: req.body.enabled }); 
+        try {
+            await RateLimitService.setPanic(req.project.slug, req.body.enabled);
+            await systemPool.query("UPDATE system.projects SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{security,panic_mode}', $1) WHERE slug = $2", [JSON.stringify(req.body.enabled), req.project.slug]);
+            res.json({ success: true, panic_mode: req.body.enabled });
         } catch (e: any) { next(e); }
     }
 
@@ -31,20 +31,20 @@ export class SecurityController {
     }
 
     static async createRateLimit(req: CascataRequest, res: any, next: any) {
-        const { 
+        const {
             route_pattern, method, window_seconds, message_anon, message_auth,
-            rate_limit_anon, burst_limit_anon, 
+            rate_limit_anon, burst_limit_anon,
             rate_limit_auth, burst_limit_auth,
-            crud_limits, group_limits 
+            crud_limits, group_limits
         } = req.body;
-        
+
         // Fallback for legacy fields
         const rateAnon = rate_limit_anon || req.body.rate_limit || 10;
         const burstAnon = burst_limit_anon || req.body.burst_limit || 5;
         const rateAuth = rate_limit_auth || (rateAnon * 2);
         const burstAuth = burst_limit_auth || (burstAnon * 2);
 
-        try { 
+        try {
             const result = await systemPool.query(`
                 INSERT INTO system.rate_limits 
                 (project_slug, route_pattern, method, 
@@ -65,19 +65,19 @@ export class SecurityController {
                     crud_limits = EXCLUDED.crud_limits,
                     group_limits = EXCLUDED.group_limits,
                     updated_at = NOW() 
-                RETURNING *`, 
+                RETURNING *`,
                 [req.project.slug, route_pattern, method, rateAnon, burstAnon, rateAuth, burstAuth, window_seconds || 1, message_anon, message_auth, crud_limits || {}, group_limits || {}]
-            ); 
-            RateLimitService.clearRules(req.project.slug); 
-            res.json(result.rows[0]); 
+            );
+            RateLimitService.clearRules(req.project.slug);
+            res.json(result.rows[0]);
         } catch (e: any) { next(e); }
     }
 
     static async deleteRateLimit(req: CascataRequest, res: any, next: any) {
-        try { 
-            await systemPool.query('DELETE FROM system.rate_limits WHERE id = $1 AND project_slug = $2', [req.params.id, req.project.slug]); 
-            RateLimitService.clearRules(req.project.slug); 
-            res.json({ success: true }); 
+        try {
+            await systemPool.query('DELETE FROM system.rate_limits WHERE id = $1 AND project_slug = $2', [req.params.id, req.project.slug]);
+            RateLimitService.clearRules(req.project.slug);
+            res.json({ success: true });
         } catch (e: any) { next(e); }
     }
 
@@ -115,9 +115,9 @@ export class SecurityController {
                 WHERE id = $7 AND project_slug = $8
                 RETURNING *
             `, [name, rate_limit, burst_limit, window_seconds, rejection_message, nerf_config, id, req.project.slug]);
-            
+
             if (result.rows.length === 0) return res.status(404).json({ error: "Group not found" });
-            
+
             RateLimitService.invalidateGroup(id);
             res.json(result.rows[0]);
         } catch (e: any) { next(e); }
@@ -158,19 +158,19 @@ export class SecurityController {
             // SECURE GENERATION: sk_live_UUID_RANDOM
             const uuid = crypto.randomUUID().replace(/-/g, '');
             const random = crypto.randomBytes(12).toString('hex');
-            
+
             const rawKey = `sk_live_${uuid}_${random}`;
             const lookupIndex = `sk_live_${uuid}`; // Safe non-secret part for lookup
-            
+
             // Hash the FULL raw key
             const hashedKey = await bcrypt.hash(rawKey, 10);
-            
+
             let expiresAt = null;
             if (expires_in_days) {
                 expiresAt = new Date();
                 expiresAt.setDate(expiresAt.getDate() + parseInt(expires_in_days));
             }
-            
+
             const result = await systemPool.query(`
                 INSERT INTO system.api_keys 
                 (project_slug, name, key_hash, lookup_index, prefix, scopes, rate_limit, burst_limit, expires_at, group_id)
@@ -191,23 +191,23 @@ export class SecurityController {
             let idx = 1;
             if (expires_at !== undefined) { updates.push(`expires_at = $${idx++}`); values.push(expires_at); }
             if (is_active !== undefined) { updates.push(`is_active = $${idx++}`); values.push(is_active); }
-            
+
             if (updates.length === 0) return res.json({ success: true });
-            
+
             values.push(req.params.id);
             values.push(req.project.slug);
-            
+
             await systemPool.query(
                 `UPDATE system.api_keys SET ${updates.join(', ')} WHERE id = $${idx++} AND project_slug = $${idx++}`,
                 values
             );
             res.json({ success: true });
-        } catch(e: any) { next(e); }
+        } catch (e: any) { next(e); }
     }
 
     static async migrateApiKey(req: CascataRequest, res: any, next: any) {
         const { password, group_id } = req.body;
-        
+
         try {
             // 1. Verify Admin Password
             const admin = (await systemPool.query('SELECT password_hash FROM system.admin_users LIMIT 1')).rows[0];
@@ -219,9 +219,9 @@ export class SecurityController {
                 `UPDATE system.api_keys SET group_id = $1 WHERE id = $2 AND project_slug = $3`,
                 [group_id, req.params.id, req.project.slug]
             );
-            
+
             res.json({ success: true });
-        } catch(e: any) { next(e); }
+        } catch (e: any) { next(e); }
     }
 
     static async deleteApiKey(req: CascataRequest, res: any, next: any) {
@@ -237,10 +237,27 @@ export class SecurityController {
     }
 
     static async createPolicy(req: CascataRequest, res: any, next: any) {
+        // SECURITY: this endpoint executes raw SQL expressions (USING / WITH CHECK).
+        // Only the authenticated dashboard (isSystemRequest) is allowed to use it.
+        if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized: Dashboard only.' });
+
+        const VALID_COMMANDS = new Set(['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'ALL']);
+        const VALID_ROLES = new Set(['anon', 'authenticated', 'service_role']);
+
         const { name, table, command, role, using, withCheck } = req.body;
-        try { 
-            await req.projectPool!.query(`CREATE POLICY ${quoteId(name)} ON public.${quoteId(table)} FOR ${command} TO ${role} USING (${using}) ${withCheck ? `WITH CHECK (${withCheck})` : ''}`); 
-            res.json({ success: true }); 
+
+        if (!VALID_COMMANDS.has((command || '').toUpperCase())) {
+            return res.status(400).json({ error: 'Invalid policy command.' });
+        }
+        if (!VALID_ROLES.has(role)) {
+            return res.status(400).json({ error: 'Invalid policy role.' });
+        }
+
+        try {
+            await req.projectPool!.query(
+                `CREATE POLICY ${quoteId(name)} ON public.${quoteId(table)} FOR ${command.toUpperCase()} TO ${role} USING (${using}) ${withCheck ? `WITH CHECK (${withCheck})` : ''}`
+            );
+            res.json({ success: true });
         } catch (e: any) { next(e); }
     }
 
