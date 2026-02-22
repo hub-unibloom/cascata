@@ -39,56 +39,14 @@ export class DataController {
         if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         const { name, enable } = req.body;
 
-        // Básica
+        // Validação básica de segurança
         if (!/^[a-zA-Z0-9_]+$/.test(name)) {
             return res.status(400).json({ error: 'Invalid extension name.' });
         }
 
         try {
             if (enable) {
-                // Cascata True Phantom Injection Logic
-                // We map extensions to their Official Alpine images
-                const OFFICIAL_IMAGES: Record<string, string> = {
-                    'postgis': 'postgis/postgis:17-3.4-alpine',
-                    'postgis_tiger_geocoder': 'postgis/postgis:17-3.4-alpine',
-                    'postgis_topology': 'postgis/postgis:17-3.4-alpine',
-                    'address_standardizer': 'postgis/postgis:17-3.4-alpine',
-                    'address_standardizer_data_us': 'postgis/postgis:17-3.4-alpine',
-                    'pgrouting': 'pgrouting/pgrouting:17-3.4-alpine'
-                };
-
-                const isNodeExtension = ['postgis', 'postgis_tiger_geocoder', 'postgis_topology', 'pgrouting', 'timescaledb', 'vector', 'address_standardizer', 'address_standardizer_data_us'].includes(name);
-
-                if (isNodeExtension) {
-                    // Try to find official image, default to a custom one that DevOps could build
-                    const targetImage = OFFICIAL_IMAGES[name] || `cascata-ext-${name}-provider:latest`;
-                    console.log(`[ExtensionMesh] Tier 3 (Node) requested: ${name}. Extracting from ${targetImage}...`);
-
-                    const { spawnSync } = require('child_process');
-                    const volumeParam = `${process.env.COMPOSE_PROJECT_NAME || 'cascata'}_extension_payloads:/cascata_extensions`;
-
-                    // The True Phantom extraction command:
-                    // We run the official image, override the entrypoint, and steal its .so and .sql files to our volume.
-                    const shellCmd = `cp -rn /usr/local/lib/postgresql/* /cascata_extensions/ 2>/dev/null || true && cp -rn /usr/local/share/postgresql/extension/* /cascata_extensions/ 2>/dev/null || true && echo "Extraction OK"`;
-
-                    console.log(`[ExtensionMesh] Executing Injection: docker run --rm -v ${volumeParam} --entrypoint sh ${targetImage} -c "..."`);
-
-                    const spawnRes = spawnSync('docker', [
-                        'run', '--rm',
-                        '-v', volumeParam,
-                        '--entrypoint', 'sh',
-                        targetImage,
-                        '-c', shellCmd
-                    ]);
-
-                    if (spawnRes.status !== 0) {
-                        console.warn(`[ExtensionMesh] Failed to extract from ${targetImage}. Missing image or network issue. Error: ${spawnRes.stderr?.toString()}`);
-                    } else {
-                        console.log(`[ExtensionMesh] Files extracted successfully. Waiting 3s for Phantom Linker to symlink...`);
-                        await new Promise(r => setTimeout(r, 3000));
-                    }
-                }
-
+                // CASCADE é perigoso em DROP, mas necessário para dependências em CREATE
                 await req.projectPool!.query(`CREATE EXTENSION IF NOT EXISTS "${name}" SCHEMA public CASCADE`);
             } else {
                 await req.projectPool!.query(`DROP EXTENSION IF EXISTS "${name}" CASCADE`);
@@ -451,7 +409,7 @@ export class DataController {
                     tables: parseInt(tables.rows[0].count),
                     users: parseInt(users.rows[0].count),
                     size: size.rows[0].pg_size_pretty,
-                    throughput: logsRes.rows.map((r: any) => ({
+                    throughput: logsRes.rows.map(r => ({
                         name: r.name,
                         requests: parseInt(r.requests),
                         success: parseInt(r.success),

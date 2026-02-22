@@ -1,21 +1,7 @@
-# Cascata Phantom Injection - Pure Core Image
-# Base: PostgreSQL 17 Alpine (~180MB)
-# (Zero C++ Compilation / Ultra-Stable Build)
-FROM postgres:17-alpine
 
-# Install essential pre-loaded extensions that cannot be hot-swapped
-RUN apk add --no-cache postgresql17-pg_cron postgresql17-pg_stat_statements
+# Usamos a imagem oficial do pgvector que já contém o Postgres + Extensão compilada.
+# Isso resolve o erro "extension vector is not available".
+FROM pgvector/pgvector:pg16
 
-# Copy the Phantom Linker
-COPY phantom_linker.sh /usr/local/bin/phantom_linker
-RUN chmod +x /usr/local/bin/phantom_linker
-
-# Custom Entrypoint Wrapper
-COPY docker-entrypoint-wrapper.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint-wrapper.sh
-
-# The main extension payload volume
-VOLUME ["/cascata_extensions"]
-
-ENTRYPOINT ["docker-entrypoint-wrapper.sh"]
-CMD ["postgres", "-c", "listen_addresses=*"]
+# Instala extensões adicionais se necessário, mas pgvector e pgcrypto já vêm nativos.
+# O pgvector oficial é baseado em Debian/Alpine e é a forma mais segura.
