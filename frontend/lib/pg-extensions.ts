@@ -30,11 +30,11 @@ export const EXTENSIONS_CATALOG: ExtensionMeta[] = [
     { name: 'vector', category: 'AI', description: 'Store and query vector embeddings. Essential for AI/RAG applications.', featured: true, origin: 'phantom', tier: 1, sourceImage: 'pgvector/pgvector:0.8.0-pg17', estimateMB: 5 },
 
     // ─── GEO (Tier 2 — Phantom) ───────────────────────────────
-    { name: 'postgis', category: 'Geo', description: 'Spatial and geographic objects for PostgreSQL.', featured: true, origin: 'phantom', tier: 2, sourceImage: 'postgis/postgis:17-3.5-alpine', estimateMB: 80 },
-    { name: 'postgis_tiger_geocoder', category: 'Geo', description: 'Tiger Geocoder for PostGIS.', origin: 'phantom', tier: 2, sourceImage: 'postgis/postgis:17-3.5-alpine', estimateMB: 0 },
-    { name: 'postgis_topology', category: 'Geo', description: 'Topology spatial types and functions.', origin: 'phantom', tier: 2, sourceImage: 'postgis/postgis:17-3.5-alpine', estimateMB: 0 },
-    { name: 'address_standardizer', category: 'Geo', description: 'Parse addresses into elements. Useful for geocoding normalization.', origin: 'phantom', tier: 2, sourceImage: 'postgis/postgis:17-3.5-alpine', estimateMB: 0 },
-    { name: 'address_standardizer_data_us', category: 'Geo', description: 'US dataset for address standardizer.', origin: 'phantom', tier: 2, sourceImage: 'postgis/postgis:17-3.5-alpine', estimateMB: 0 },
+    { name: 'postgis', category: 'Geo', description: 'Spatial and geographic objects for PostgreSQL.', featured: true, origin: 'phantom', tier: 2, sourceImage: 'postgis/postgis:18-3.6-alpine', estimateMB: 80 },
+    { name: 'postgis_tiger_geocoder', category: 'Geo', description: 'Tiger Geocoder for PostGIS.', origin: 'phantom', tier: 2, sourceImage: 'postgis/postgis:18-3.6-alpine', estimateMB: 0 },
+    { name: 'postgis_topology', category: 'Geo', description: 'Topology spatial types and functions.', origin: 'phantom', tier: 2, sourceImage: 'postgis/postgis:18-3.6-alpine', estimateMB: 0 },
+    { name: 'address_standardizer', category: 'Geo', description: 'Parse addresses into elements. Useful for geocoding normalization.', origin: 'phantom', tier: 2, sourceImage: 'postgis/postgis:18-3.6-alpine', estimateMB: 0 },
+    { name: 'address_standardizer_data_us', category: 'Geo', description: 'US dataset for address standardizer.', origin: 'phantom', tier: 2, sourceImage: 'postgis/postgis:18-3.6-alpine', estimateMB: 0 },
 
     // ─── TIME SERIES (Tier 3 — Phantom) ───────────────────────
     { name: 'timescaledb', category: 'Time', description: 'Scalable inserts and complex queries for time-series data.', featured: true, origin: 'phantom', tier: 3, sourceImage: 'timescale/timescaledb-ha:pg17', estimateMB: 35 },

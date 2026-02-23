@@ -26,26 +26,26 @@ interface PhantomSource {
 // Each image can provide multiple extensions
 const PHANTOM_SOURCES: PhantomSource[] = [
     {
-        image: 'pgvector/pgvector:0.8.0-pg17',
+        image: 'pgvector/pgvector:0.8.0-pg18',
         provides: ['vector'],
         estimateMB: 5,
         description: 'pgvector — AI/RAG vector embeddings'
     },
     {
-        image: 'postgis/postgis:17-3.5-alpine',
+        image: 'postgis/postgis:18-3.6-alpine',
         provides: ['postgis', 'postgis_tiger_geocoder', 'postgis_topology', 'address_standardizer', 'address_standardizer_data_us'],
         estimateMB: 80,
         description: 'PostGIS — Geospatial functions'
     },
     {
-        image: 'timescale/timescaledb-ha:pg17',
+        image: 'timescale/timescaledb-ha:pg18',
         provides: ['timescaledb'],
         estimateMB: 35,
         description: 'TimescaleDB — Time-series data'
     }
 ];
 
-// Extensions that are native to postgres:17-alpine (always available)
+// Extensions that are native to postgres:18-alpine (always available)
 const NATIVE_EXTENSIONS = new Set([
     'plpgsql', 'pgcrypto', 'uuid-ossp', 'pg_trgm', 'citext', 'hstore',
     'ltree', 'btree_gin', 'btree_gist', 'fuzzystrmatch', 'unaccent',

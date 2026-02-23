@@ -46,7 +46,8 @@ router.post('/mcp/message', McpController.handleMessage as any);
 router.all('/vector/*', VectorController.proxy as any);
 router.all('/vector', VectorController.proxy as any);
 
-// Tables CRUD
+// Schema & Tables CRUD
+router.get('/schemas', DataController.getSchemas as any);
 router.get('/tables', DataController.listTables as any);
 router.post('/tables', DataController.createTable as any);
 router.get('/tables/:tableName/data', DataController.queryRows as any);

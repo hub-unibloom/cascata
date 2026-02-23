@@ -17,7 +17,7 @@ const getUUID = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     try { return crypto.randomUUID(); } catch (e) { /* ignore */ }
   }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c: any) => {
     const r = (Math.random() * 16) | 0;
     const v = c === 'x' ? r : (r & 0x3) | 0x8;
     return v.toString(16);
@@ -63,8 +63,10 @@ const getDefaultSuggestions = (type: string) => {
 const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   // --- STATE ---
   const [activeSchema, setActiveSchema] = useState('public');
+  const [schemas, setSchemas] = useState<string[]>(['public']);
   const [activeTab, setActiveTab] = useState<'tables' | 'query'>('tables');
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  const [openTabs, setOpenTabs] = useState<string[]>([]);
   const [tables, setTables] = useState<any[]>([]);
   const [recycleBin, setRecycleBin] = useState<any[]>([]);
   const [tableData, setTableData] = useState<any[]>([]);
@@ -73,6 +75,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [dataLoading, setDataLoading] = useState(false);
   const [isRealtimeActive, setIsRealtimeActive] = useState(false);
   const [pageStart, setPageStart] = useState(0);
+  const [sortConfig, setSortConfig] = useState<{ column: string, direction: 'asc' | 'desc' } | null>(null);
 
   // Additional Features State
   const [showExportMenu, setShowExportMenu] = useState(false);
@@ -163,6 +166,16 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   }, []);
 
   // --- DATA LOADERS ---
+  const fetchSchemas = async () => {
+    try {
+      const data = await fetchWithAuth(`/api/data/${projectId}/schemas`);
+      const mapped = data.map((s: any) => s.name);
+      setSchemas(mapped.length > 0 ? mapped : ['public']);
+    } catch (e) {
+      console.error('Failed to load schemas', e);
+    }
+  };
+
   const fetchTables = async () => {
     try {
       const [data, recycle] = await Promise.all([
@@ -187,8 +200,11 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
     setDataLoading(true);
     if (!keepSelection) setSelectedRows(new Set());
     try {
+      let url = `/api/data/${projectId}/tables/${tableName}/data?limit=100&offset=${pageStart}&schema=${activeSchema}`;
+      if (sortConfig) url += `&sortColumn=${sortConfig.column}&sortDirection=${sortConfig.direction}`;
+
       const [rows, cols, settings] = await Promise.all([
-        fetchWithAuth(`/api/data/${projectId}/tables/${tableName}/data?limit=100&offset=${pageStart}&schema=${activeSchema}`),
+        fetchWithAuth(url),
         fetchWithAuth(`/api/data/${projectId}/tables/${tableName}/columns?schema=${activeSchema}`),
         fetchWithAuth(`/api/data/${projectId}/ui-settings/${tableName}?schema=${activeSchema}`)
       ]);
@@ -262,6 +278,141 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
       fetchTables();
     } catch (err: any) { setError(translateError(err)); }
     finally { setExecuting(false); }
+  };
+
+  const inferType = (values: any[]): string => {
+    let isInt = true;
+    let isFloat = true;
+    let isBool = true;
+    let isDate = true;
+    let isUuid = true;
+    let hasData = false;
+
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    for (const v of values) {
+      if (v === null || v === undefined || v === '') continue;
+      hasData = true;
+      const str = String(v).trim();
+
+      if (isUuid && !uuidRegex.test(str)) isUuid = false;
+      if (isBool && !['true', 'false', '1', '0', 'yes', 'no'].includes(str.toLowerCase())) isBool = false;
+
+      if (isDate) {
+        const d = Date.parse(str);
+        if (isNaN(d) || !str.match(/\d/)) isDate = false;
+      }
+
+      if (!isNaN(Number(str))) {
+        if (isInt && !Number.isInteger(Number(str))) isInt = false;
+      } else {
+        isInt = false;
+        isFloat = false;
+      }
+    }
+
+    if (!hasData) return 'text';
+    if (isUuid) return 'uuid';
+    if (isBool) return 'bool';
+    if (isInt) return 'int4';
+    if (isFloat) return 'numeric';
+    if (isDate) return 'timestamptz';
+    return 'text';
+  };
+
+  const inferSchemaAndOpenModal = (data: any[], fileName: string) => {
+    const headers = Object.keys(data[0]);
+    const sample = data.slice(0, 50);
+
+    const inferredCols: ColumnDef[] = [];
+    inferredCols.push({ id: getUUID(), name: 'id', type: 'uuid', defaultValue: 'gen_random_uuid()', isPrimaryKey: true, isNullable: false, isUnique: true, isArray: false, description: 'ID' });
+
+    headers.forEach(h => {
+      const colValues = sample.map((r: any) => r[h]);
+      const inferredType = inferType(colValues);
+
+      inferredCols.push({
+        id: getUUID(),
+        name: sanitizeName(h),
+        sourceHeader: h,
+        type: inferredType,
+        defaultValue: '',
+        isPrimaryKey: false,
+        isNullable: true,
+        isUnique: false,
+        isArray: false,
+        description: 'Imported ' + h
+      });
+    });
+
+    setNewTableName(sanitizeName(fileName));
+    setNewTableCols(inferredCols);
+    setImportPendingData(data);
+    setImportPreview(data.slice(0, 5));
+    setShowCreateTable(true);
+  };
+
+  const handleGlobalDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingOver(false);
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      setImportFile(files[0]);
+      setShowImportModal(true);
+    }
+  };
+
+  const handleImport = async () => {
+    if (!importFile) return;
+    setExecuting(true);
+    try {
+      const reader = new FileReader();
+      reader.readAsArrayBuffer(importFile);
+      reader.onload = async (e: any) => {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        let json: any[] = [];
+        const fileName = importFile.name.split('.')[0];
+        const ext = importFile.name.split('.').pop()?.toLowerCase();
+
+        if (ext === 'json') {
+          try {
+            const text = new TextDecoder("utf-8").decode(data);
+            json = JSON.parse(text);
+          } catch (e) { alert("Invalid JSON"); return; }
+        } else if (['csv', 'xlsx'].includes(ext || '')) {
+          const wb = window.XLSX.read(data, { type: 'array' });
+          const wsName = wb.SheetNames[0];
+          json = window.XLSX.utils.sheet_to_json(wb.Sheets[wsName]);
+        }
+
+        if (createTableFromImport) {
+          inferSchemaAndOpenModal(json, fileName);
+          setShowImportModal(false);
+          setExecuting(false);
+          return;
+        }
+
+        let targetTable = selectedTable;
+        if (!targetTable) throw new Error("No target table selected");
+
+        const chunkSize = 100;
+        for (let i = 0; i < json.length; i += chunkSize) {
+          const chunk = json.slice(i, i + chunkSize);
+          await fetchWithAuth(`/api/data/${projectId}/tables/${targetTable}/rows`, {
+            method: 'POST',
+            body: JSON.stringify({ data: chunk })
+          });
+        }
+        setSuccessMsg(`Imported to ${targetTable}.`);
+        setShowImportModal(false);
+        fetchTables();
+        if (targetTable) { setSelectedTable(targetTable); fetchTableData(targetTable); }
+        setExecuting(false);
+      };
+    } catch (e: any) {
+      setError(translateError(e));
+      setExecuting(false);
+    }
   };
 
   const handleExport = (format: 'csv' | 'json' | 'sql' | 'xlsx' | 'pdf', sourceData?: any[]) => {
@@ -378,14 +529,15 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   };
 
   // --- EFFECT HOOKS ---
+  useEffect(() => { fetchSchemas(); }, [projectId]);
   useEffect(() => { fetchTables(); }, [projectId, activeSchema]);
 
-  // Refetch data when table changes OR pagination changes
+  // Refetch data when table changes OR pagination changes OR sort changes
   useEffect(() => {
     if (selectedTable && activeTab === 'tables') {
       fetchTableData(selectedTable);
     }
-  }, [selectedTable, activeTab, pageStart]);
+  }, [selectedTable, activeTab, pageStart, sortConfig]);
   useEffect(() => { if (showExtensions) fetchExtensions(); }, [showExtensions]);
 
   // Realtime
@@ -400,7 +552,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
 
       eventSource = new EventSource(url);
       eventSource.onopen = () => setIsRealtimeActive(true);
-      eventSource.onmessage = (e) => {
+      eventSource.onmessage = (e: any) => {
         try {
           const payload = JSON.parse(e.data);
           if (payload.type === 'connected') return;
@@ -603,13 +755,10 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
             </div>
             <select
               value={activeSchema}
-              onChange={(e) => { setActiveSchema(e.target.value); setPageStart(0); }}
+              onChange={(e: any) => { setActiveSchema(e.target.value); setPageStart(0); setOpenTabs([]); setSelectedTable(null); }}
               className="text-sm font-black text-slate-900 tracking-tight bg-transparent border-none outline-none cursor-pointer appearance-none pl-1 pr-6"
             >
-              <option value="public">public</option>
-              <option value="extensions">extensions</option>
-              <option value="auth">auth</option>
-              <option value="storage">storage</option>
+              {schemas.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
             <ChevronDown size={14} className="text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none group-hover:text-indigo-500" />
           </div>
@@ -636,8 +785,13 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
         {tables.map(table => (
           <div
             key={table.name}
-            onClick={() => { setActiveTab('tables'); setSelectedTable(table.name); setPageStart(0); }}
-            onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, table: table.name }); }}
+            onClick={() => {
+              setActiveTab('tables');
+              setSelectedTable(table.name);
+              setOpenTabs(prev => prev.includes(table.name) ? prev : [...prev, table.name]);
+              setPageStart(0);
+            }}
+            onContextMenu={(e: any) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, table: table.name }); }}
             className={`
                           group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition-all border border-transparent
                           ${selectedTable === table.name && activeTab === 'tables' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'text-slate-600 hover:bg-slate-50'}
@@ -679,9 +833,9 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
 
   return (
     <div
-      className={`flex h-full flex-col bg-[#F8FAFC] text-slate-900 overflow-hidden font-sans relative transition-colors ${isDraggingOver ? 'bg-indigo-50/50' : ''}`}
+      className={`flex h-full flex-row bg-[#F8FAFC] text-slate-900 overflow-hidden font-sans relative transition-colors ${isDraggingOver ? 'bg-indigo-50/50' : ''}`}
       onDrop={handleGlobalDrop}
-      onDragOver={(e) => { e.preventDefault(); setIsDraggingOver(true); }}
+      onDragOver={(e: any) => { e.preventDefault(); setIsDraggingOver(true); }}
       onDragLeave={() => setIsDraggingOver(false)}
     >
       {/* Drag Overlay */}
@@ -707,6 +861,27 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
       {renderSidebar()}
 
       <main className="flex-1 overflow-hidden relative flex flex-col bg-white">
+        {activeTab === 'tables' && openTabs.length > 0 && (
+          <div className="flex items-center px-4 pt-2 bg-slate-50 border-b border-slate-200 overflow-x-auto gap-1 shrink-0 scrollbar-hide">
+            {openTabs.map(tab => (
+              <div key={tab} className={`group flex items-center gap-2 px-4 py-2 rounded-t-lg border border-b-0 cursor-pointer select-none transition-colors ${selectedTable === tab ? 'bg-white border-slate-200 text-indigo-700 shadow-[0_1px_0_white]' : 'bg-slate-100 border-transparent text-slate-500 hover:bg-slate-200'}`} style={{ marginBottom: '-1px' }} onClick={() => { setSelectedTable(tab); setPageStart(0); }}>
+                <TableIcon size={14} className={selectedTable === tab ? 'text-indigo-600' : 'text-slate-400'} />
+                <span className="text-xs font-bold truncate max-w-[150px]">{tab}</span>
+                <button className={`p-0.5 rounded-md transition-colors ${selectedTable === tab ? 'opacity-100 hover:bg-indigo-50 text-indigo-400 hover:text-indigo-600' : 'opacity-0 group-hover:opacity-100 hover:bg-slate-300 text-slate-400 hover:text-slate-600'}`} onClick={(e: any) => {
+                  e.stopPropagation();
+                  const newTabs = openTabs.filter(t => t !== tab);
+                  setOpenTabs(newTabs);
+                  if (selectedTable === tab) {
+                    setSelectedTable(newTabs.length > 0 ? newTabs[newTabs.length - 1] : null);
+                  }
+                }}>
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {activeTab === 'tables' && selectedTable ? (
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* TOOLBAR */}
@@ -726,7 +901,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                 {isRealtimeActive && <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-50 rounded-full border border-amber-100"><div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></div><span className="text-[9px] font-black text-amber-600 uppercase">Live</span></div>}
               </div>
               <div className="flex items-center gap-3 relative">
-                <button onClick={(e) => { e.stopPropagation(); setShowExportMenu(!showExportMenu); }} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-50 text-slate-600 hover:bg-slate-100 text-[10px] font-black uppercase tracking-widest"><Download size={12} /> Export</button>
+                <button onClick={(e: any) => { e.stopPropagation(); setShowExportMenu(!showExportMenu); }} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-50 text-slate-600 hover:bg-slate-100 text-[10px] font-black uppercase tracking-widest"><Download size={12} /> Export</button>
                 {showExportMenu && (
                   <div className="absolute top-12 right-24 w-40 bg-white rounded-xl shadow-2xl border border-slate-200 z-50 p-2 animate-in fade-in zoom-in-95">
                     {['csv', 'xlsx', 'json', 'sql', 'pdf'].map(fmt => (
@@ -746,19 +921,32 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                 <thead className="sticky top-0 bg-white shadow-sm z-20">
                   <tr>
                     <th className="w-12 border-b border-r border-slate-200 bg-slate-50 sticky left-0 z-30">
-                      <div className="flex items-center justify-center h-full"><input type="checkbox" onChange={(e) => setSelectedRows(e.target.checked ? new Set(tableData.map(r => r[pkCol])) : new Set())} checked={selectedRows.size > 0 && selectedRows.size === tableData.length} className="rounded border-slate-300" /></div>
+                      <div className="flex items-center justify-center h-full"><input type="checkbox" onChange={(e: any) => setSelectedRows(e.target.checked ? new Set(tableData.map(r => r[pkCol])) : new Set())} checked={selectedRows.size > 0 && selectedRows.size === tableData.length} className="rounded border-slate-300" /></div>
                     </th>
                     {displayColumns.map((col: any) => (
                       <th
                         key={col.name}
-                        className="px-4 py-3 text-left border-b border-r border-slate-200 bg-slate-50 relative group select-none"
+                        className="px-4 py-3 text-left border-b border-r border-slate-200 bg-slate-50 relative group select-none whitespace-nowrap cursor-pointer hover:bg-slate-100"
                         style={{ width: columnWidths[col.name] || 200 }}
+                        onClick={() => {
+                          let nextDir: 'asc' | 'desc' | null = 'asc';
+                          if (sortConfig?.column === col.name) {
+                            if (sortConfig.direction === 'asc') nextDir = 'desc';
+                            else nextDir = null;
+                          }
+                          setSortConfig(nextDir ? { column: col.name, direction: nextDir } : null);
+                        }}
                       >
                         <div className="flex items-center gap-2">
-                          {col.isPrimaryKey && <Key size={10} className="text-amber-500" />}
-                          <span className="text-[10px] font-black text-slate-700 uppercase tracking-tight truncate">{col.name}</span>
+                          {col.isPrimaryKey && <Key size={10} className="text-amber-500 shrink-0" />}
+                          <span className="text-[10px] font-black text-slate-700 uppercase tracking-tight truncate flex-1">{col.name}</span>
+                          {sortConfig?.column === col.name && (
+                            <div className="flex flex-col items-center justify-center shrink-0">
+                              {sortConfig.direction === 'asc' ? <ChevronUp size={12} className="text-indigo-600 font-bold" /> : <ChevronDown size={12} className="text-indigo-600 font-bold" />}
+                            </div>
+                          )}
                         </div>
-                        <div className="absolute right-0 top-0 w-1 h-full cursor-col-resize hover:bg-indigo-400 z-10" onMouseDown={(e) => {
+                        <div className="absolute right-0 top-0 w-1 h-full cursor-col-resize hover:bg-indigo-400 z-10" onClick={(e: any) => e.stopPropagation()} onMouseDown={(e: any) => {
                           e.preventDefault();
                           const startX = e.clientX;
                           const startWidth = columnWidths[col.name] || 200;
@@ -783,10 +971,10 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                           <input
                             ref={idx === 0 ? firstInputRef : undefined}
                             value={inlineNewRow[col.name]}
-                            onChange={(e) => setInlineNewRow({ ...inlineNewRow, [col.name]: e.target.value })}
+                            onChange={(e: any) => setInlineNewRow({ ...inlineNewRow, [col.name]: e.target.value })}
                             className="w-full bg-transparent outline-none text-xs font-medium text-slate-700 h-full px-2 placeholder:text-slate-300"
                             placeholder={getSmartPlaceholder(col)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleInlineSave()}
+                            onKeyDown={(e: any) => e.key === 'Enter' && handleInlineSave()}
                           />
                         </div>
                       </td>
@@ -804,7 +992,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                         const isEditing = editingCell?.rowId === row[pkCol] && editingCell?.col === col.name;
                         return (
                           <td key={col.name} onDoubleClick={() => { setEditingCell({ rowId: row[pkCol], col: col.name }); setEditValue(String(row[col.name])); }} className="border-b border-r border-slate-100 px-4 py-2.5 text-xs text-slate-700 font-medium truncate cursor-text relative">
-                            {isEditing ? <input autoFocus value={editValue} onChange={(e) => setEditValue(e.target.value)} onBlur={() => handleUpdateCell(row, col.name, editValue)} onKeyDown={(e) => e.key === 'Enter' && handleUpdateCell(row, col.name, editValue)} className="absolute inset-0 w-full h-full px-4 bg-white outline-none border-2 border-indigo-500 shadow-lg z-10" /> : (row[col.name] === null ? <span className="text-slate-300 italic">null</span> : String(row[col.name]))}
+                            {isEditing ? <input autoFocus value={editValue} onChange={(e: any) => setEditValue(e.target.value)} onBlur={() => handleUpdateCell(row, col.name, editValue)} onKeyDown={(e: any) => e.key === 'Enter' && handleUpdateCell(row, col.name, editValue)} className="absolute inset-0 w-full h-full px-4 bg-white outline-none border-2 border-indigo-500 shadow-lg z-10" /> : (row[col.name] === null ? <span className="text-slate-300 italic">null</span> : String(row[col.name]))}
                           </td>
                         );
                       })}
@@ -833,8 +1021,8 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
         </div>
         <div className="flex-1 overflow-y-auto p-6 space-y-8">
           <div className="space-y-4">
-            <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Table Name</label><input autoFocus value={newTableName} onChange={(e) => setNewTableName(sanitizeName(e.target.value))} placeholder="public.users" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-4 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500/20" /></div>
-            <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Description (for AI)</label><input value={newTableDesc} onChange={(e) => setNewTableDesc(e.target.value)} placeholder="e.g. Stores registered users." className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-4 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-600" /></div>
+            <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Table Name</label><input autoFocus value={newTableName} onChange={(e: any) => setNewTableName(sanitizeName(e.target.value))} placeholder="public.users" className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-4 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500/20" /></div>
+            <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Description (for AI)</label><input value={newTableDesc} onChange={(e: any) => setNewTableDesc(e.target.value)} placeholder="e.g. Stores registered users." className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-4 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-600" /></div>
           </div>
           <div className="space-y-4">
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Column Definitions</label>
@@ -844,11 +1032,11 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                   <div className="flex gap-3 mb-3">
                     <input
                       value={col.name}
-                      onChange={(e) => handleColumnChange(col.id, 'name', sanitizeName(e.target.value))}
+                      onChange={(e: any) => handleColumnChange(col.id, 'name', sanitizeName(e.target.value))}
                       placeholder="column_name"
                       className="flex-[2] bg-slate-50 border-none rounded-lg px-3 py-2 text-xs font-bold outline-none"
                     />
-                    <select value={col.type} onChange={(e) => handleColumnChange(col.id, 'type', e.target.value)} className="flex-1 bg-slate-100 border-none rounded-lg px-2 py-2 text-[10px] font-black uppercase text-slate-600 outline-none cursor-pointer">
+                    <select value={col.type} onChange={(e: any) => handleColumnChange(col.id, 'type', e.target.value)} className="flex-1 bg-slate-100 border-none rounded-lg px-2 py-2 text-[10px] font-black uppercase text-slate-600 outline-none cursor-pointer">
                       <optgroup label="Numbers"><option value="int8">int8 (BigInt)</option><option value="int4">int4 (Integer)</option><option value="numeric">numeric</option><option value="float8">float8</option></optgroup>
                       <optgroup label="Text"><option value="text">text</option><option value="varchar">varchar</option><option value="uuid">uuid</option></optgroup>
                       <optgroup label="Date/Time"><option value="timestamptz">timestamptz</option><option value="date">date</option><option value="time">time</option></optgroup>
@@ -858,12 +1046,12 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                     <button onClick={() => handleRemoveColumnItem(col.id)} className="p-2 text-slate-300 hover:text-rose-500 transition-colors"><X size={14} /></button>
                   </div>
                   <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-lg relative">
-                    <input list={`defaults-${col.id}`} value={col.defaultValue} onChange={(e) => handleColumnChange(col.id, 'defaultValue', e.target.value)} placeholder="Default Value (NULL)" className="flex-1 bg-transparent border-none text-[10px] font-mono text-slate-600 outline-none placeholder:text-slate-300" />
+                    <input list={`defaults-${col.id}`} value={col.defaultValue} onChange={(e: any) => handleColumnChange(col.id, 'defaultValue', e.target.value)} placeholder="Default Value (NULL)" className="flex-1 bg-transparent border-none text-[10px] font-mono text-slate-600 outline-none placeholder:text-slate-300" />
                     <datalist id={`defaults-${col.id}`}>{getDefaultSuggestions(col.type).map(s => <option key={s} value={s} />)}</datalist>
                     <div className="h-4 w-[1px] bg-slate-200"></div>
                     <div className="flex items-center gap-2">
                       <div title="Primary Key" onClick={() => handleColumnChange(col.id, 'isPrimaryKey', !col.isPrimaryKey)} className={`px-1.5 py-1 rounded text-[9px] font-black cursor-pointer select-none transition-colors ${col.isPrimaryKey ? 'bg-amber-100 text-amber-700' : 'text-slate-300 hover:bg-slate-200'}`}>PK</div>
-                      <div title="Foreign Key" onClick={(e) => { e.stopPropagation(); setActiveFkEditor(activeFkEditor === col.id ? null : col.id); }} className={`px-1.5 py-1 rounded cursor-pointer select-none transition-colors flex items-center ${col.foreignKey ? 'bg-blue-100 text-blue-700' : 'text-slate-300 hover:bg-slate-200'}`}><LinkIcon size={12} strokeWidth={4} /></div>
+                      <div title="Foreign Key" onClick={(e: any) => { e.stopPropagation(); setActiveFkEditor(activeFkEditor === col.id ? null : col.id); }} className={`px-1.5 py-1 rounded cursor-pointer select-none transition-colors flex items-center ${col.foreignKey ? 'bg-blue-100 text-blue-700' : 'text-slate-300 hover:bg-slate-200'}`}><LinkIcon size={12} strokeWidth={4} /></div>
                       <div title="Array" onClick={() => handleColumnChange(col.id, 'isArray', !col.isArray)} className={`px-1.5 py-1 rounded text-[9px] font-black cursor-pointer select-none transition-colors ${col.isArray ? 'bg-indigo-100 text-indigo-700' : 'text-slate-300 hover:bg-slate-200'}`}>LIST</div>
                       <div title="Nullable" onClick={() => handleColumnChange(col.id, 'isNullable', !col.isNullable)} className={`px-1.5 py-1 rounded text-[9px] font-black cursor-pointer select-none transition-colors ${col.isNullable ? 'bg-emerald-100 text-emerald-700' : 'text-slate-300 hover:bg-slate-200'}`}>NULL</div>
                       <div title="Unique" onClick={() => handleColumnChange(col.id, 'isUnique', !col.isUnique)} className={`px-1.5 py-1 rounded text-[9px] font-black cursor-pointer select-none transition-colors ${col.isUnique ? 'bg-purple-100 text-purple-700' : 'text-slate-300 hover:bg-slate-200'}`}>UNIQ</div>
@@ -871,11 +1059,11 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                   </div>
                   {/* FK EDITOR */}
                   {activeFkEditor === col.id && (
-                    <div onClick={(e) => e.stopPropagation()} className="absolute z-50 top-full right-0 mt-2 w-64 bg-white border border-slate-200 shadow-xl rounded-xl p-4 animate-in fade-in zoom-in-95">
+                    <div onClick={(e: any) => e.stopPropagation()} className="absolute z-50 top-full right-0 mt-2 w-64 bg-white border border-slate-200 shadow-xl rounded-xl p-4 animate-in fade-in zoom-in-95">
                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Link to Table</h4>
                       <div className="space-y-3">
-                        <select value={col.foreignKey?.table || ''} onChange={(e) => handleSetForeignKey(col.id, e.target.value, '')} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-xs font-bold text-slate-700 outline-none"><option value="">Select Target Table...</option>{tables.filter(t => t.name !== newTableName).map(t => (<option key={t.name} value={t.name}>{t.name}</option>))}</select>
-                        {col.foreignKey?.table && (<div className="flex items-center gap-2"><span className="text-xs text-slate-400">Column:</span>{fkLoading ? <Loader2 size={12} className="animate-spin text-indigo-500" /> : (<select value={col.foreignKey.column} onChange={(e) => handleSetForeignKey(col.id, col.foreignKey!.table, e.target.value)} className="flex-1 bg-slate-50 border-none rounded-lg py-1 px-2 text-xs font-mono font-bold outline-none"><option value="">Select Column...</option>{fkTargetColumns.map(c => <option key={c} value={c}>{c}</option>)}</select>)}</div>)}
+                        <select value={col.foreignKey?.table || ''} onChange={(e: any) => handleSetForeignKey(col.id, e.target.value, '')} className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-xs font-bold text-slate-700 outline-none"><option value="">Select Target Table...</option>{tables.filter(t => t.name !== newTableName).map(t => (<option key={t.name} value={t.name}>{t.name}</option>))}</select>
+                        {col.foreignKey?.table && (<div className="flex items-center gap-2"><span className="text-xs text-slate-400">Column:</span>{fkLoading ? <Loader2 size={12} className="animate-spin text-indigo-500" /> : (<select value={col.foreignKey.column} onChange={(e: any) => handleSetForeignKey(col.id, col.foreignKey!.table, e.target.value)} className="flex-1 bg-slate-50 border-none rounded-lg py-1 px-2 text-xs font-mono font-bold outline-none"><option value="">Select Column...</option>{fkTargetColumns.map(c => <option key={c} value={c}>{c}</option>)}</select>)}</div>)}
                         <div className="flex justify-end pt-2"><button onClick={() => { handleSetForeignKey(col.id, '', ''); setActiveFkEditor(null); }} className="text-[10px] font-bold text-rose-500 hover:underline">Remove Link</button></div>
                       </div>
                     </div>
@@ -900,7 +1088,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
             <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-8">Data Import</h3>
             <div className="space-y-6">
               <div className="border-4 border-dashed border-slate-100 rounded-[2.5rem] p-10 text-center hover:border-emerald-300 hover:bg-emerald-50/10 transition-all cursor-pointer relative group">
-                <input type="file" accept=".csv, .xlsx, .json" onChange={(e) => setImportFile(e.target.files?.[0] || null)} className="absolute inset-0 opacity-0 cursor-pointer" />
+                <input type="file" accept=".csv, .xlsx, .json" onChange={(e: any) => setImportFile(e.target.files?.[0] || null)} className="absolute inset-0 opacity-0 cursor-pointer" />
                 {importFile ? <span className="font-bold text-slate-900">{importFile.name}</span> : <div className="flex flex-col items-center text-slate-300 group-hover:text-emerald-500"><Upload size={40} className="mb-2" /><span className="font-bold text-sm">Drop file here</span></div>}
               </div>
             </div>
@@ -920,13 +1108,16 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
 
       {/* CONTEXT MENU */}
       {contextMenu && (
-        <div className="fixed z-[100] bg-white border border-slate-200 shadow-2xl rounded-2xl p-2 w-56 animate-in fade-in zoom-in-95" style={{ top: contextMenu.y, left: contextMenu.x }}>
-          <button onClick={() => { handleRenameTable(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Edit size={14} /> Rename</button>
-          <button onClick={() => { handleDuplicateTable(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Layers size={14} /> Duplicate</button>
-          <button onClick={() => { handleCopyStructure(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Code size={14} /> Copy SQL</button>
-          <div className="h-[1px] bg-slate-100 my-1"></div>
-          <button onClick={() => { handleDeleteTable(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-all"><Trash2 size={14} /> Delete Table</button>
-        </div>
+        <>
+          <div className="fixed inset-0 z-[90]" onClick={() => setContextMenu(null)} />
+          <div className="fixed z-[100] bg-white border border-slate-200 shadow-2xl rounded-2xl p-2 w-56 animate-in fade-in zoom-in-95" style={{ top: contextMenu.y, left: contextMenu.x }}>
+            <button onClick={() => { handleRenameTable(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Edit size={14} /> Rename</button>
+            <button onClick={() => { handleDuplicateTable(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Layers size={14} /> Duplicate</button>
+            <button onClick={() => { handleCopyStructure(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Code size={14} /> Copy SQL</button>
+            <div className="h-[1px] bg-slate-100 my-1"></div>
+            <button onClick={() => { handleDeleteTable(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-all"><Trash2 size={14} /> Delete Table</button>
+          </div>
+        </>
       )}
 
       {/* ADD COLUMN MODAL (ENHANCED) */}
@@ -1004,7 +1195,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                     <label className="text-[9px] font-black text-blue-400 uppercase tracking-widest ml-1">Target Table</label>
                     <select
                       value={newColumn.foreignKey.table}
-                      onChange={async (e) => {
+                      onChange={async (e: any) => {
                         const tbl = e.target.value;
                         setNewColumn(prev => ({ ...prev, foreignKey: { table: tbl, column: '' } }));
                         if (tbl) {
@@ -1031,7 +1222,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                       {fkLoading ? <div className="py-2 flex justify-center"><Loader2 size={14} className="animate-spin text-blue-500" /></div> : (
                         <select
                           value={newColumn.foreignKey.column}
-                          onChange={(e) => setNewColumn(prev => ({ ...prev, foreignKey: { ...prev.foreignKey!, column: e.target.value } }))}
+                          onChange={(e: any) => setNewColumn(prev => ({ ...prev, foreignKey: { ...prev.foreignKey!, column: e.target.value } }))}
                           className="w-full bg-white border border-blue-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-700 outline-none"
                         >
                           {fkTargetColumns.map(c => <option key={c} value={c}>{c}</option>)}
@@ -1072,7 +1263,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
           <div className="bg-white rounded-[3rem] w-full max-w-sm p-12 shadow-2xl border border-slate-100 relative">
             <h3 className="text-xl font-black text-slate-900 mb-6">Duplicate Table</h3>
             <div className="space-y-4 mb-6">
-              <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">New Table Name</label><input autoFocus value={duplicateConfig.newName} onChange={(e) => setDuplicateConfig({ ...duplicateConfig, newName: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-bold text-sm outline-none" placeholder={duplicateConfig.source + '_copy'} /></div>
+              <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">New Table Name</label><input autoFocus value={duplicateConfig.newName} onChange={(e: any) => setDuplicateConfig({ ...duplicateConfig, newName: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-bold text-sm outline-none" placeholder={duplicateConfig.source + '_copy'} /></div>
               <div className="flex items-center gap-3 p-2 cursor-pointer" onClick={() => setDuplicateConfig({ ...duplicateConfig, withData: !duplicateConfig.withData })}><div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${duplicateConfig.withData ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>{duplicateConfig.withData && <Check size={14} className="text-white" />}</div><span className="text-xs font-bold text-slate-600">Copy Data Rows</span></div>
             </div>
             <button onClick={handleDuplicateTableSubmit} disabled={executing || !duplicateConfig.newName} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all mb-3">{executing ? <Loader2 className="animate-spin mx-auto" /> : 'Duplicate'}</button>
@@ -1111,7 +1302,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
               </div>
 
               <div className="border-4 border-dashed border-slate-100 rounded-[2.5rem] p-10 text-center hover:border-emerald-300 hover:bg-emerald-50/10 transition-all cursor-pointer relative group">
-                <input type="file" accept=".csv, .xlsx, .json" onChange={(e) => setImportFile(e.target.files?.[0] || null)} className="absolute inset-0 opacity-0 cursor-pointer" />
+                <input type="file" accept=".csv, .xlsx, .json" onChange={(e: any) => setImportFile(e.target.files?.[0] || null)} className="absolute inset-0 opacity-0 cursor-pointer" />
                 {importFile ? <span className="font-bold text-slate-900">{importFile.name}</span> : <div className="flex flex-col items-center text-slate-300 group-hover:text-emerald-500"><Upload size={40} className="mb-2" /><span className="font-bold text-sm">Drop file here</span></div>}
               </div>
 

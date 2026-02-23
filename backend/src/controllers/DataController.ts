@@ -109,6 +109,25 @@ export class DataController {
 
     // --- DATA OPERATIONS ---
 
+    static async getSchemas(req: CascataRequest, res: any, next: any) {
+        if (!DataController.checkSchemaAccess(req)) {
+            return res.status(403).json({ error: 'Schema access disabled. Enable "Schema Exposure" in settings.' });
+        }
+        try {
+            const result = await queryWithRLS(req, async (client) => {
+                return await client.query(`
+                    SELECT schema_name as name 
+                    FROM information_schema.schemata 
+                    WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+                      AND schema_name NOT LIKE 'pg_temp_%'
+                      AND schema_name NOT LIKE 'pg_toast_temp_%'
+                    ORDER BY schema_name
+                `);
+            });
+            res.json(result.rows);
+        } catch (e: any) { next(e); }
+    }
+
     static async listTables(req: CascataRequest, res: any, next: any) {
         if (!DataController.checkSchemaAccess(req)) {
             return res.status(403).json({ error: 'Schema access disabled. Enable "Schema Exposure" in settings.' });
@@ -137,8 +156,15 @@ export class DataController {
             const safeTable = quoteId(req.params.tableName);
             const limit = Math.min(parseInt(req.query.limit as string) || 100, 1000);
             const offset = parseInt(req.query.offset as string) || 0;
+            const sortColumn = req.query.sortColumn as string;
+            const sortDirection = req.query.sortDirection as string === 'desc' ? 'DESC' : 'ASC';
+
+            let query = `SELECT * FROM ${safeSchema}.${safeTable}`;
+            if (sortColumn) query += ` ORDER BY "${sortColumn}" ${sortDirection}`;
+            query += ` LIMIT $1 OFFSET $2`;
+
             const result = await queryWithRLS(req, async (client) => {
-                return await client.query(`SELECT * FROM ${safeSchema}.${safeTable} LIMIT $1 OFFSET $2`, [limit, offset]);
+                return await client.query(query, [limit, offset]);
             });
             res.json(result.rows);
         } catch (e: any) { next(e); }
