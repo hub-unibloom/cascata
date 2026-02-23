@@ -14,10 +14,10 @@
 # ============================================================
 
 # ---------- Stage 1: compilar pg_cron ----------
-FROM postgres:17-alpine AS builder
+FROM postgres:18-alpine AS builder
 
 # Ferramentas de compilação (apenas no stage builder, não na imagem final)
-# PostgreSQL 17 foi compilado em Alpine utilizando explicitamente as ferramentas LLVM 19
+# PostgreSQL 18 foi compilado em Alpine utilizando explicitamente as ferramentas LLVM 19
 RUN apk add --no-cache \
     git \
     gcc \
@@ -41,7 +41,7 @@ RUN git clone --branch v1.6.4 --depth 1 \
     && USE_PGXS=1 make install
 
 # ---------- Stage 2: imagem final de produção ----------
-FROM postgres:17-alpine
+FROM postgres:18-alpine
 
 # inotify-tools: Phantom Linker usa para detectar novas extensões em RT
 RUN apk add --no-cache inotify-tools

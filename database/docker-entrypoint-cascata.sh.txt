@@ -16,7 +16,7 @@ set -e
 
 echo "============================================================"
 echo "  Cascata PostgreSQL — True Phantom Injection Engine"
-echo "  Postgres 17 Alpine + Dynamic Extension Loading"
+echo "  Postgres 18 Alpine + Dynamic Extension Loading"
 echo "============================================================"
 
 # Inicia o Phantom Extension Linker em background
