@@ -135,6 +135,7 @@ services:
     volumes:
       - storage_data:/cascata/storage
       - temp_data:/cascata/temp
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       db:
         condition: service_healthy
