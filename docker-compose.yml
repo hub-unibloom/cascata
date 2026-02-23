@@ -1,0 +1,279 @@
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: cascata-nginx
+    ports:
+      - "${APP_HTTP_PORT:-80}:80"
+      - "${APP_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - acme_challenge:/var/www/html
+      - certs:/etc/letsencrypt
+      - nginx_dynamic:/etc/nginx/conf.d/dynamic
+    depends_on:
+      - backend_control
+      - backend_data
+      - frontend
+    networks:
+      - cascata_public
+      - cascata_app
+    restart: always
+
+  nginx_controller:
+    build:
+      context: ./nginx-controller
+      dockerfile: Dockerfile
+    container_name: cascata-nginx-controller
+    environment:
+      - NGINX_CONTAINER_NAME=cascata-nginx
+      - INTERNAL_CTRL_SECRET=${INTERNAL_CTRL_SECRET}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - cascata_app
+    restart: always
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: cascata-pgbouncer
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=${DB_USER:-cascata_admin}
+      - DB_PASSWORD=${DB_PASS:-secure_pass}
+      - LISTEN_PORT=6432
+      - POOL_MODE=transaction
+      - MAX_CLIENT_CONN=10000
+      - DEFAULT_POOL_SIZE=20
+      - ADMIN_USERS=${DB_USER:-cascata_admin}
+      - AUTH_TYPE=scram-sha-256
+      - AUTH_QUERY=SELECT usename, passwd FROM pg_shadow WHERE usename=$1
+      - IGNORE_STARTUP_PARAMETERS=extra_float_digits,binary_as_text
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - cascata_data
+    restart: always
+
+  # --- BACKEND SERVICES ---
+
+  backend_control:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cascata-backend-control
+    environment:
+      - SERVICE_MODE=CONTROL_PLANE
+      - SYSTEM_DATABASE_URL=postgresql://${DB_USER}:${DB_PASS}@db:5432/${DB_NAME}
+      - SYSTEM_JWT_SECRET=${SYSTEM_JWT_SECRET}
+      - INTERNAL_CTRL_SECRET=${INTERNAL_CTRL_SECRET}
+      - PORT=3000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - DB_DIRECT_HOST=db
+      - DB_DIRECT_PORT=5432
+      - DB_POOL_HOST=pgbouncer
+      - DB_POOL_PORT=6432
+      - DB_USER=${DB_USER}
+      - DB_PASS=${DB_PASS}
+      - STORAGE_ROOT=/cascata/storage
+      - MIGRATIONS_ROOT=/app/migrations
+      - TEMP_UPLOAD_ROOT=/cascata/temp
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - API_KEY=${GEMINI_API_KEY}
+    volumes:
+      - acme_challenge:/var/www/html
+      - certs:/etc/letsencrypt
+      - storage_data:/cascata/storage
+      - temp_data:/cascata/temp
+      - nginx_dynamic:/etc/nginx/conf.d/dynamic
+      - /var/run/docker.sock:/var/run/docker.sock
+      - extension_payloads:/cascata_extensions:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_started
+      nginx_controller:
+        condition: service_started
+    networks:
+      - cascata_app
+      - cascata_data
+    restart: always
+
+  backend_data:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cascata-backend-data
+    environment:
+      - SERVICE_MODE=DATA_PLANE
+      - SYSTEM_DATABASE_URL=postgresql://${DB_USER}:${DB_PASS}@db:5432/${DB_NAME}
+      - SYSTEM_JWT_SECRET=${SYSTEM_JWT_SECRET}
+      - PORT=3000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - DB_DIRECT_HOST=db
+      - DB_DIRECT_PORT=5432
+      - DB_POOL_HOST=pgbouncer
+      - DB_POOL_PORT=6432
+      - DB_USER=${DB_USER}
+      - DB_PASS=${DB_PASS}
+      - STORAGE_ROOT=/cascata/storage
+      - MIGRATIONS_ROOT=/app/migrations
+      - TEMP_UPLOAD_ROOT=/cascata/temp
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - API_KEY=${GEMINI_API_KEY}
+      - ENGINE_URL=http://backend_engine:3000
+    volumes:
+      - storage_data:/cascata/storage
+      - temp_data:/cascata/temp
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_started
+      backend_engine:
+        condition: service_started
+    networks:
+      - cascata_app
+      - cascata_data
+    restart: always
+
+  # NOVO: Isolamento de Runtime (O "Airbag")
+  backend_engine:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cascata-backend-engine
+    environment:
+      - SERVICE_MODE=ENGINE
+      - SYSTEM_DATABASE_URL=postgresql://${DB_USER}:${DB_PASS}@db:5432/${DB_NAME}
+      - SYSTEM_JWT_SECRET=${SYSTEM_JWT_SECRET}
+      - PORT=3000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - DB_DIRECT_HOST=db
+      - DB_DIRECT_PORT=5432
+      - DB_USER=${DB_USER}
+      - DB_PASS=${DB_PASS}
+    # Sem volumes de storage (Engine é stateless para arquivos)
+    # Limite rígido de memória para conter scripts maliciosos
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - cascata_app # Precisa receber requisições do Data Plane
+      - cascata_data # Precisa acessar o Banco para executar queries
+    restart: always
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: cascata-frontend
+    networks:
+      - cascata_public
+    restart: always
+
+  db:
+    build:
+      context: ./database
+    container_name: cascata-db
+    restart: always
+    # CMD definido no Dockerfile inclui shared_preload_libraries e listen_addresses
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${DB_USER:-cascata_admin}
+      POSTGRES_PASSWORD: ${DB_PASS:-secure_pass}
+      POSTGRES_DB: ${DB_NAME:-cascata_system}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - extension_payloads:/cascata_extensions
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-cascata_admin} -d ${DB_NAME:-cascata_system}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cascata_data
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: cascata-qdrant
+    restart: always
+    environment:
+      - QDRANT__TELEMETRY_DISABLED=true
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    healthcheck:
+      test: [ "CMD-SHELL", "sleep 3; exit 0" ]
+      interval: 5s
+      timeout: 5s
+      retries: 1
+      start_period: 2s
+    networks:
+      - cascata_data
+
+  redis:
+    image: redis:alpine
+    container_name: cascata-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cascata_data
+
+networks:
+  cascata_public:
+    driver: bridge
+  cascata_app:
+    driver: bridge
+  cascata_data:
+    driver: bridge
+    internal: true
+
+volumes:
+  pgdata:
+  qdrant_storage:
+  acme_challenge:
+  certs:
+  storage_data:
+  temp_data:
+  nginx_dynamic:
+  redis_data:
+  extension_payloads:
+    name: cascata_extension_payloads

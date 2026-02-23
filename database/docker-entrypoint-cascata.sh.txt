@@ -1,0 +1,41 @@
+#!/bin/sh
+# ============================================================
+# Cascata Custom PostgreSQL Entrypoint
+# ============================================================
+# 1. Inicia o Phantom Extension Linker em background
+# 2. Delega para o entrypoint oficial do PostgreSQL
+#
+# O entrypoint oficial do PostgreSQL (docker-entrypoint.sh)
+# cuida de:
+# - Inicializar o data directory (initdb) se necessário
+# - Executar scripts em /docker-entrypoint-initdb.d/
+# - Iniciar o servidor PostgreSQL
+# ============================================================
+
+set -e
+
+echo "============================================================"
+echo "  Cascata PostgreSQL — True Phantom Injection Engine"
+echo "  Postgres 17 Alpine + Dynamic Extension Loading"
+echo "============================================================"
+
+# Inicia o Phantom Extension Linker em background
+# O linker monitora /cascata_extensions e cria symlinks
+# no diretório oficial do PostgreSQL para extensões injetadas
+echo "[Cascata] Starting Phantom Extension Linker daemon..."
+/usr/local/bin/phantom_linker.sh &
+LINKER_PID=$!
+echo "[Cascata] Phantom Linker started (PID: $LINKER_PID)"
+
+# Trap para garantir que o linker é terminado quando o container para
+cleanup() {
+    echo "[Cascata] Shutting down Phantom Linker (PID: $LINKER_PID)..."
+    kill $LINKER_PID 2>/dev/null || true
+    wait $LINKER_PID 2>/dev/null || true
+    echo "[Cascata] Cleanup complete."
+}
+trap cleanup TERM INT QUIT
+
+# Delega para o entrypoint oficial do PostgreSQL
+# Isso garante compatibilidade total com atualizações da imagem base
+exec docker-entrypoint.sh "$@"

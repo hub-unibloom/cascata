@@ -1,0 +1,139 @@
+
+# 🔐 CASCATA AUTHENTICATION ARCHITECTURE: DEEP DIVE
+
+Este documento detalha clinicamente como o sistema de autenticação do Cascata funciona, desde a estrutura de dados até a injeção de contexto no PostgreSQL para RLS.
+
+## 1. O Conceito: Identidade Concatenada (1:N)
+
+O Cascata não trata "Login com Google" e "Login com Senha" como coisas distintas na camada de aplicação. Ele opera com uma separação estrita entre **O Usuário (A Alma)** e **A Credencial (A Chave)**.
+
+### A Estrutura Dual
+
+1.  **auth.users (A Alma / O Âncora)**
+    *   Este é o `UUID` real do usuário.
+    *   É aqui que o RLS (Row Level Security) se amarra.
+    *   Se o usuário trocar de e-mail, perder a senha ou desconectar o Google, este UUID **nunca muda**.
+    *   Contém metadados globais (`raw_user_meta_data`).
+
+2.  **auth.identities (As Chaves / O Concatenador)**
+    *   É aqui que a mágica da "concatenação" acontece.
+    *   Um registro em `auth.users` pode ter **várias** entradas em `auth.identities`.
+    *   **Exemplo Prático:**
+        *   Entrada 1: Provider `email`, Identifier `joao@gmail.com` -> Aponta para User UUID `A1`
+        *   Entrada 2: Provider `google`, Identifier `1234567890` -> Aponta para User UUID `A1`
+        *   Entrada 3: Provider `phone`, Identifier `+551199999999` -> Aponta para User UUID `A1`
+    *   Isso permite que você crie sistemas onde o usuário começa com E-mail e depois "Linka" o Google, sem criar duas contas separadas.
+
+---
+
+## 2. O Schema do Banco de Dados (Isolamento Físico)
+
+Cada projeto Cascata tem seu próprio schema `auth` isolado. Nada é compartilhado entre projetos.
+
+```sql
+-- Resumo da Tabela auth.users
+CREATE TABLE auth.users (
+    id UUID PRIMARY KEY,           -- O "auth.uid()" retorna isso
+    email_confirmed_at TIMESTAMPTZ, -- Trava de segurança
+    banned BOOLEAN,                -- Kill-switch instantâneo
+    ...
+);
+
+-- Resumo da Tabela auth.identities
+CREATE TABLE auth.identities (
+    provider TEXT,    -- 'email', 'google', 'github', 'cpf'
+    identifier TEXT,  -- O valor único naquele provider
+    user_id UUID,     -- Link para auth.users
+    password_hash,    -- Só existe se provider == 'email'
+    ...
+    UNIQUE(provider, identifier)
+);
+```
+
+**Por que isso é nativo?**
+Mesmo o login padrão (E-mail/Senha) é tratado apenas como mais um *provider* na tabela de identidades. Não existe tratamento especial para senha na tabela de usuários. Isso torna o sistema agnóstico a método de login.
+
+---
+
+## 3. O Fluxo de Vida de uma Requisição (Como o RLS funciona)
+
+Aqui está o segredo de como o `auth.uid()` funciona sem que o banco saiba de sessões. Ocorre uma **Troca de Contexto** a cada milissegundo.
+
+### Passo 1: O Passaporte (JWT)
+Quando o usuário loga (seja por Google, Senha ou Magic Link), o Backend (Node.js) valida a credencial na tabela `auth.identities`. Se válido, ele assina um **JWT (JSON Web Token)** usando a `JWT_SECRET` do projeto.
+
+O JWT contém:
+```json
+{
+  "sub": "uuid-do-auth-users",  <-- O Âncora
+  "role": "authenticated",      <-- O Papel
+  "email": "user@email.com",
+  "exp": 1715000000
+}
+```
+
+### Passo 2: A Chegada no Data Plane
+O usuário faz um request: `GET /rest/v1/todos`.
+Ele envia o header: `Authorization: Bearer <JWT>`.
+
+O Backend (Express/Middleware):
+1.  Verifica a assinatura do JWT (garante que não foi falsificado).
+2.  Extrai o `sub` (UUID) e `role`.
+3.  Pega uma conexão do Pool do banco de dados (que é genérica, usada por todos).
+
+### Passo 3: A Injeção de Contexto (A Mágica)
+Antes de rodar a query do usuário, o Backend executa comandos de sessão local no Postgres **dentro da mesma transação**:
+
+```sql
+-- O Backend roda isso invisivelmente:
+BEGIN;
+-- Define a role do banco para limitar poderes gerais
+SET LOCAL ROLE cascata_api_role; 
+
+-- Injeta variáveis de configuração de sessão (GUCs)
+SELECT set_config('request.jwt.claim.sub', 'uuid-do-usuario', true);
+SELECT set_config('request.jwt.claim.role', 'authenticated', true);
+SELECT set_config('request.jwt.claim.email', 'email-do-usuario', true);
+
+-- AGORA roda a query do usuário
+SELECT * FROM public.todos;
+
+-- Limpa tudo antes de devolver a conexão para o Pool
+COMMIT;
+```
+
+### Passo 4: A Função auth.uid()
+Agora faz sentido as funções que criei na migration `013`.
+Quando o Postgres está rodando o `SELECT` acima e encontra uma política RLS:
+
+```sql
+CREATE POLICY "Meus Dados" ON public.todos
+USING ( user_id = auth.uid() );
+```
+
+A função `auth.uid()` faz exatamente isto:
+```sql
+-- Ele lê a variável que injetamos no Passo 3
+SELECT current_setting('request.jwt.claim.sub', true)::uuid;
+```
+
+### Resultado
+O PostgreSQL "pensa" que aquela conexão pertence àquele usuário específico apenas durante aqueles milissegundos da execução. Isso garante isolamento total de dados entre usuários, mesmo usando um Pool de conexões compartilhado.
+
+---
+
+## 4. Onde a "Revolução" Acontece
+
+O seu conceito de "Concatenação" é poderoso porque desacopla a **Autenticação** (provar quem sou) da **Autorização** (o que meu UUID pode fazer).
+
+1.  **Multi-Factor Nativo:** Como as identidades são uma lista (`1:N`), você pode exigir no futuro que um usuário tenha *duas* identidades validadas (ex: Senha + SMS) antes de emitir o JWT.
+2.  **Identidades Corporativas:** Você pode vincular um Login Google Workspace E um Login Microsoft AD ao mesmo UUID. O usuário vê os mesmos dados independente de por onde entrou.
+3.  **Migração Invisível:** Se você quiser migrar de Auth0 para Cascata, basta criar as entradas em `auth.identities` mantendo os UUIDs em `auth.users`. O usuário nem percebe.
+
+## 5. Resumo Clínico
+
+*   **Front-end:** Envia credenciais -> Recebe JWT.
+*   **Back-end:** Valida Credencial -> Emite JWT -> Recebe Request -> Injeta Variáveis no SQL -> Executa Query.
+*   **Database:** Não sabe de nada, apenas lê `current_setting('request.jwt.claim.sub')` via `auth.uid()` e filtra as linhas.
+
+Esta arquitetura é "Stateless" (sem estado) no servidor, infinitamente escalável e extremamente segura, pois a regra de segurança vive junto com o dado (no banco), não no código Javascript.

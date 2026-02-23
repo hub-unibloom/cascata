@@ -1,0 +1,3 @@
+-- DEPRECATED: n8n support removed from core platform.
+-- This file is kept empty to preserve migration numbering history.
+-- DO NOT ADD LOGIC HERE.

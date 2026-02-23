@@ -1,0 +1,78 @@
+🛡️ CASCATA SECURITY PROTOCOL (AUTO-PROMPT)
+A Regra Suprema (Security First + Zero Regression):
+
+Contexto: Você está atuando no núcleo do Cascata, um BaaS Multi-tenant Open Source.
+O sistema opera em dois planos: Control Plane (Admin do Sistema) e Data Plane (Dados dos Tenants).
+A Regra Suprema (Security First + Zero Regression):
+Ao corrigir uma vulnerabilidade, você NÃO PODE quebrar a funcionalidade existente, nem introduzir novas falhas lógicas de nenhum tipo!
+O intuito da correção é upgrade com zero regressão.
+
+
+Se você tocar em um arquivo, devolva-o *completo e corrigido*. Se a correção exigir alterar a lógica de negócio (ex: mudar o fluxo de Link Identity), explique o motivo de segurança (ex: "Prevenção de Sequestro de Conta").
+
+
+
+Pontos chave:
+Contexto do Tenant
+Input Hostil
+Recursos Finitos
+Segurança em Profundidade
+
+NUNCA JAMAIS EDITE UM ARQUIVO SEM ME DIZER O PORQUE E EU DAR A PERMISSÃO ANTES.
+
+REGRAS FUNDAMENTAIS DO SISTEMA (OBRIGATÓRIAS)
+Regra nº 1 — Fundamental (absoluta)
+Respeitar integralmente a nomenclatura dos arquivos e todas as referências a eles.
+Nenhum arquivo pode ser renomeado, movido ou referenciado de forma diferente.
+Essa regra não admite exceções, em nenhuma alteração.
+Regra nº 2 — Preservação do que já funciona
+Ao adicionar, ajustar ou melhorar qualquer coisa (rota, tabela, serviço ou funcionalidade):
+❌ É proibido remover, quebrar ou regredir partes essenciais já funcionais.
+✅ Se algo estiver fora do novo padrão, deve ser atualizado ou migrado, nunca eliminado.
+A evolução do sistema não pode reduzir:
+completude
+estabilidade
+capacidade funcional
+Tudo que já existia deve continuar existindo no mesmo nível ou melhor.
+📁 REGRA DE ARQUIVOS SENSÍVEIS (PLATAFORMA)
+Arquivos sensíveis NÃO devem ser criados com o nome final real.
+Eles DEVEM ser escritos com .txt no final.
+Forma correta de criação
+.env.txt
+nginx/nginx.conf.txt
+database/init.sql.txt
+backend/Dockerfile.txt
+frontend/Dockerfile.txt
+frontend/nginx.conf.txt
+⚠️ Motivo: o ambiente (Studio / app.new) buga esses arquivos.
+O sistema final será enviado ao GitHub e aplicado manualmente em VPS.
+Aplicação real no servidor
+Após baixar o projeto:
+mv .env.txt .env
+mv nginx/nginx.conf.txt nginx/nginx.conf
+mv database/init.sql.txt database/init.sql
+mv backend/Dockerfile.txt backend/Dockerfile
+mv frontend/Dockerfile.txt frontend/Dockerfile
+mv frontend/nginx.conf.txt frontend/nginx.conf
+docker compose up -d --build
+🧠 REGRA NÍVEL MESTRE — server.ts
+ABSOLUTA
+Sempre que editar, corrigir ou adicionar algo em server.ts:
+❌ PROIBIDO remover partes existentes para “simplificar”
+❌ PROIBIDO entregar versões parciais
+✅ OBRIGATÓRIO reescrever o arquivo inteiro, mantendo:
+todas as rotas
+todas as funções
+todas as integrações existentes
+Exemplo prático
+O server.ts tem 1.800+ linhas
+Você precisa corrigir ou adicionar algo.
+➡️ Você deve devolver o arquivo completo, com:
+o novo padrão aplicado
+o erro corrigido
+todas as funcionalidades antigas preservadas ou atualizadas e não simplesmente excluir.
+Nunca excluir conteúdo para ganhar velocidade.
+
+
+
+NUNCA JAMAIS EDITE UM ARQUIVO SEM ME DIZER O PORQUE E EU DAR A PERMISSÃO ANTES.
