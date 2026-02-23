@@ -452,19 +452,21 @@ export class ExtensionService {
             // The magic command: extract extension files from the official image
             // into our shared deterministic volume. The --rm flag ensures zero leftover containers.
             //
-            // We copy from two locations inside the official image:
+            // We copy from three locations inside the official image:
             // 1. /usr/local/lib/postgresql/ → .so files (compiled extensions)
             // 2. /usr/local/share/postgresql/extension/ → .control + .sql files
+            // 3. /usr/lib/ → OS native libraries (libgeos, libproj, libpcre2) vital for extensions like PostGIS
             const extractCmd = [
                 `docker run --rm`,
                 `-v ${volumeName}:/cascata_extensions`,
                 `--entrypoint sh`,
                 source.image,
                 `-c "`,
-                `mkdir -p /cascata_extensions/lib /cascata_extensions/share`,
+                `mkdir -p /cascata_extensions/lib /cascata_extensions/share /cascata_extensions/os_lib`,
                 `&& cp -rn /usr/local/lib/postgresql/*.so /cascata_extensions/lib/ 2>/dev/null || true`,
                 `&& cp -rn /usr/local/lib/postgresql/*.so.* /cascata_extensions/lib/ 2>/dev/null || true`,
                 `&& cp -rn /usr/local/share/postgresql/extension/* /cascata_extensions/share/ 2>/dev/null || true`,
+                `&& cp -n /usr/lib/*.so* /cascata_extensions/os_lib/ 2>/dev/null || true`,
                 `&& echo PHANTOM_INJECT_OK`,
                 `"`
             ].join(' ');
