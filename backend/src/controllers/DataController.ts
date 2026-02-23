@@ -114,15 +114,16 @@ export class DataController {
             return res.status(403).json({ error: 'Schema access disabled. Enable "Schema Exposure" in settings.' });
         }
         try {
+            const schema = req.query.schema || 'public';
             const result = await queryWithRLS(req, async (client) => {
                 return await client.query(`
                     SELECT table_name as name, table_schema as schema 
                     FROM information_schema.tables 
-                    WHERE table_schema = 'public' 
+                    WHERE table_schema = $1 
                     AND table_type = 'BASE TABLE' 
-                    AND table_name NOT LIKE '_deleted_%'
+                    AND table_name NOT LIKE '\\_deleted\\_%'
                     ORDER BY table_name
-                `);
+                `, [schema]);
             });
             res.json(result.rows);
         } catch (e: any) { next(e); }
@@ -131,11 +132,13 @@ export class DataController {
     static async queryRows(req: CascataRequest, res: any, next: any) {
         try {
             if (!req.params.tableName) throw new Error("Table name required");
+            const schema = req.query.schema || 'public';
+            const safeSchema = quoteId(schema as string);
             const safeTable = quoteId(req.params.tableName);
             const limit = Math.min(parseInt(req.query.limit as string) || 100, 1000);
             const offset = parseInt(req.query.offset as string) || 0;
             const result = await queryWithRLS(req, async (client) => {
-                return await client.query(`SELECT * FROM public.${safeTable} LIMIT $1 OFFSET $2`, [limit, offset]);
+                return await client.query(`SELECT * FROM ${safeSchema}.${safeTable} LIMIT $1 OFFSET $2`, [limit, offset]);
             });
             res.json(result.rows);
         } catch (e: any) { next(e); }
@@ -176,8 +179,11 @@ export class DataController {
                 throw new Error("Batch too large. Reduce rows or columns.");
             }
 
+            const schema = req.query.schema || 'public';
+            const safeSchema = quoteId(schema as string);
+
             const result = await queryWithRLS(req, async (client) => {
-                return await client.query(`INSERT INTO public.${safeTable} (${columns}) VALUES ${valuesPlaceholder} RETURNING *`, flatValues);
+                return await client.query(`INSERT INTO ${safeSchema}.${safeTable} (${columns}) VALUES ${valuesPlaceholder} RETURNING *`, flatValues);
             });
             res.status(201).json(result.rows);
         } catch (e: any) { next(e); }
@@ -185,6 +191,8 @@ export class DataController {
 
     static async updateRows(req: CascataRequest, res: any, next: any) {
         try {
+            const schema = req.query.schema || 'public';
+            const safeSchema = quoteId(schema as string);
             const safeTable = quoteId(req.params.tableName);
             const { data, pkColumn, pkValue } = req.body;
             if (!data || !pkColumn || pkValue === undefined) throw new Error("Missing data or PK");
@@ -192,7 +200,7 @@ export class DataController {
             const values = Object.values(data);
             const pkValIndex = values.length + 1;
             const result = await queryWithRLS(req, async (client) => {
-                return await client.query(`UPDATE public.${safeTable} SET ${updates} WHERE ${quoteId(pkColumn)} = $${pkValIndex} RETURNING *`, [...values, pkValue]);
+                return await client.query(`UPDATE ${safeSchema}.${safeTable} SET ${updates} WHERE ${quoteId(pkColumn)} = $${pkValIndex} RETURNING *`, [...values, pkValue]);
             });
             res.json(result.rows);
         } catch (e: any) { next(e); }
@@ -200,6 +208,8 @@ export class DataController {
 
     static async deleteRows(req: CascataRequest, res: any, next: any) {
         try {
+            const schema = req.query.schema || 'public';
+            const safeSchema = quoteId(schema as string);
             const tableName = req.params.tableName;
             const safeTable = quoteId(tableName);
             const { ids } = req.body;
@@ -213,11 +223,11 @@ export class DataController {
                   ON kcu.constraint_name = tco.constraint_name
                   AND kcu.constraint_schema = tco.constraint_schema
                 WHERE tco.constraint_type = 'PRIMARY KEY'
-                  AND tco.table_schema = 'public'
-                  AND tco.table_name = $1
+                  AND tco.table_schema = $1
+                  AND tco.table_name = $2
             `;
 
-            const pkRes = await req.projectPool!.query(pkQuery, [tableName]);
+            const pkRes = await req.projectPool!.query(pkQuery, [schema, tableName]);
 
             if (pkRes.rows.length === 0) {
                 return res.status(400).json({ error: "Safety Block: Table has no Primary Key. Use SQL Editor." });
@@ -232,7 +242,7 @@ export class DataController {
             const realPkColumn = pkRes.rows[0].column_name;
 
             const result = await queryWithRLS(req, async (client) => {
-                return await client.query(`DELETE FROM public.${safeTable} WHERE ${quoteId(realPkColumn)} = ANY($1) RETURNING *`, [ids]);
+                return await client.query(`DELETE FROM ${safeSchema}.${safeTable} WHERE ${quoteId(realPkColumn)} = ANY($1) RETURNING *`, [ids]);
             });
             res.json(result.rows);
         } catch (e: any) { next(e); }
@@ -241,13 +251,15 @@ export class DataController {
     // --- RPC & FUNCTIONS ---
 
     static async executeRpc(req: CascataRequest, res: any, next: any) {
+        const schema = req.query.schema || 'public';
+        const safeSchema = quoteId(schema as string);
         const params = req.body || {};
         const namedPlaceholders = Object.keys(params).map((k, i) => `${quoteId(k)} => $${i + 1}`).join(', ');
         const values = Object.values(params);
 
         try {
             const rows = await queryWithRLS(req, async (client) => {
-                const result = await client.query(`SELECT * FROM public.${quoteId(req.params.name)}(${namedPlaceholders})`, values);
+                const result = await client.query(`SELECT * FROM ${safeSchema}.${quoteId(req.params.name)}(${namedPlaceholders})`, values);
                 return result.rows;
             });
             res.json(rows);
@@ -259,7 +271,8 @@ export class DataController {
             return res.status(403).json({ error: 'Schema access disabled.' });
         }
         try {
-            const result = await req.projectPool!.query(`SELECT routine_name as name FROM information_schema.routines WHERE routine_schema = 'public' AND routine_name NOT LIKE 'uuid_%' AND routine_name NOT LIKE 'pgp_%'`);
+            const schema = req.query.schema || 'public';
+            const result = await req.projectPool!.query(`SELECT routine_name as name FROM information_schema.routines WHERE routine_schema = $1 AND routine_name NOT LIKE 'uuid_%' AND routine_name NOT LIKE 'pgp_%'`, [schema]);
             res.json(result.rows);
         } catch (e: any) { next(e); }
     }
@@ -279,8 +292,9 @@ export class DataController {
             return res.status(403).json({ error: 'Schema access disabled.' });
         }
         try {
-            const defResult = await req.projectPool!.query("SELECT pg_get_functiondef(oid) as def FROM pg_proc WHERE proname = $1", [req.params.name]);
-            const argsResult = await req.projectPool!.query(`SELECT parameter_name as name, data_type as type, parameter_mode as mode FROM information_schema.parameters WHERE specific_name = (SELECT specific_name FROM information_schema.routines WHERE routine_name = $1 LIMIT 1) ORDER BY ordinal_position ASC`, [req.params.name]);
+            const schema = req.query.schema || 'public';
+            const defResult = await req.projectPool!.query("SELECT pg_get_functiondef(p.oid) as def FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid WHERE p.proname = $1 AND n.nspname = $2", [req.params.name, schema]);
+            const argsResult = await req.projectPool!.query(`SELECT parameter_name as name, data_type as type, parameter_mode as mode FROM information_schema.parameters WHERE specific_name = (SELECT specific_name FROM information_schema.routines WHERE routine_name = $1 AND routine_schema = $2 LIMIT 1) ORDER BY ordinal_position ASC`, [req.params.name, schema]);
             if (defResult.rows.length === 0) return res.status(404).json({ error: 'Function not found' });
             res.json({ definition: defResult.rows[0].def, args: argsResult.rows });
         } catch (e: any) { next(e); }
@@ -293,7 +307,8 @@ export class DataController {
             return res.status(403).json({ error: 'Schema access disabled.' });
         }
         try {
-            const result = await req.projectPool!.query(`SELECT column_name as name, data_type as type, is_nullable, column_default as "defaultValue", EXISTS (SELECT 1 FROM information_schema.key_column_usage kcu WHERE kcu.table_name = $1 AND kcu.column_name = c.column_name) as "isPrimaryKey" FROM information_schema.columns c WHERE table_schema = 'public' AND table_name = $1`, [req.params.tableName]);
+            const schema = req.query.schema || 'public';
+            const result = await req.projectPool!.query(`SELECT column_name as name, data_type as type, is_nullable, column_default as "defaultValue", EXISTS (SELECT 1 FROM information_schema.key_column_usage kcu WHERE kcu.table_name = $1 AND kcu.table_schema = $2 AND kcu.column_name = c.column_name) as "isPrimaryKey" FROM information_schema.columns c WHERE table_schema = $2 AND table_name = $1`, [req.params.tableName, schema]);
             res.json(result.rows);
         } catch (e: any) { next(e); }
     }
@@ -321,6 +336,8 @@ export class DataController {
     static async createTable(req: CascataRequest, res: any, next: any) {
         if (!req.isSystemRequest) { res.status(403).json({ error: 'Only Dashboard can create tables.' }); return; }
         const { name, columns, description } = req.body;
+        const schema = req.query.schema || 'public';
+        const safeSchema = quoteId(schema as string);
         try {
             if (req.projectPool) await DatabaseService.validateTableDefinition(req.projectPool, name, columns);
             const safeName = quoteId(name);
@@ -333,11 +350,11 @@ export class DataController {
                 if (c.foreignKey) def += ` REFERENCES ${quoteId(c.foreignKey.table)}(${quoteId(c.foreignKey.column)})`;
                 return def;
             }).join(', ');
-            const sql = `CREATE TABLE public.${safeName} (${colDefs});`;
+            const sql = `CREATE TABLE ${safeSchema}.${safeName} (${colDefs});`;
             await req.projectPool!.query(sql);
-            await req.projectPool!.query(`ALTER TABLE public.${safeName} ENABLE ROW LEVEL SECURITY`);
-            await req.projectPool!.query(`CREATE TRIGGER ${name}_changes AFTER INSERT OR UPDATE OR DELETE ON public.${safeName} FOR EACH ROW EXECUTE FUNCTION public.notify_changes();`);
-            if (description) await req.projectPool!.query(`COMMENT ON TABLE public.${safeName} IS $1`, [description]);
+            await req.projectPool!.query(`ALTER TABLE ${safeSchema}.${safeName} ENABLE ROW LEVEL SECURITY`);
+            await req.projectPool!.query(`CREATE TRIGGER ${name}_changes AFTER INSERT OR UPDATE OR DELETE ON ${safeSchema}.${safeName} FOR EACH ROW EXECUTE FUNCTION public.notify_changes();`);
+            if (description) await req.projectPool!.query(`COMMENT ON TABLE ${safeSchema}.${safeName} IS $1`, [description]);
             res.json({ success: true });
         } catch (e: any) { next(e); }
     }
@@ -347,13 +364,15 @@ export class DataController {
     static async deleteTable(req: CascataRequest, res: any, next: any) {
         if (!req.isSystemRequest) { res.status(403).json({ error: 'Only Dashboard can delete tables.' }); return; }
         const { mode } = req.body;
+        const schema = req.query.schema || 'public';
+        const safeSchema = quoteId(schema as string);
         try {
             if (mode === 'CASCADE' || mode === 'RESTRICT') {
                 const cascadeSql = mode === 'CASCADE' ? 'CASCADE' : '';
-                await req.projectPool!.query(`DROP TABLE public.${quoteId(req.params.table)} ${cascadeSql}`);
+                await req.projectPool!.query(`DROP TABLE ${safeSchema}.${quoteId(req.params.table)} ${cascadeSql}`);
             } else {
                 const deletedName = `_deleted_${Date.now()}_${req.params.table}`;
-                await req.projectPool!.query(`ALTER TABLE public.${quoteId(req.params.table)} RENAME TO ${quoteId(deletedName)}`);
+                await req.projectPool!.query(`ALTER TABLE ${safeSchema}.${quoteId(req.params.table)} RENAME TO ${quoteId(deletedName)}`);
             }
             res.json({ success: true });
         } catch (e: any) { next(e); }
@@ -362,7 +381,8 @@ export class DataController {
     static async listRecycleBin(req: CascataRequest, res: any, next: any) {
         if (!req.isSystemRequest) { res.status(403).json({ error: 'Unauthorized' }); return; }
         try {
-            const result = await req.projectPool!.query("SELECT table_name as name FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE '_deleted_%'");
+            const schema = req.query.schema || 'public';
+            const result = await req.projectPool!.query("SELECT table_name as name FROM information_schema.tables WHERE table_schema = $1 AND table_name LIKE '\\_deleted\\_%'", [schema]);
             res.json(result.rows);
         } catch (e: any) { next(e); }
     }
@@ -370,8 +390,10 @@ export class DataController {
     static async restoreTable(req: CascataRequest, res: any, next: any) {
         if (!req.isSystemRequest) { res.status(403).json({ error: 'Unauthorized' }); return; }
         try {
+            const schema = req.query.schema || 'public';
+            const safeSchema = quoteId(schema as string);
             const originalName = req.params.table.replace(/^_deleted_\d+_/, '');
-            await req.projectPool!.query(`ALTER TABLE public.${quoteId(req.params.table)} RENAME TO ${quoteId(originalName)}`);
+            await req.projectPool!.query(`ALTER TABLE ${safeSchema}.${quoteId(req.params.table)} RENAME TO ${quoteId(originalName)}`);
             res.json({ success: true, restoredName: originalName });
         } catch (e: any) { next(e); }
     }

@@ -257,7 +257,7 @@ export class ExtensionService {
         projectPool: Pool,
         projectSlug: string,
         extensionName: string,
-        targetSchema: string = 'public'
+        targetSchema: string = 'extensions'
     ): Promise<{ success: boolean; message: string; requiresPhantom: boolean }> {
         // Validate extension name (security)
         if (!/^[a-zA-Z0-9_-]+$/.test(extensionName)) {
@@ -287,10 +287,28 @@ export class ExtensionService {
                     `CREATE EXTENSION IF NOT EXISTS "pg_cron" SCHEMA public CASCADE`
                 );
             } else {
+                const safeSchema = targetSchema === 'public' ? 'public' : `"${targetSchema}"`;
+
+                // Create the isolated schema if it doesn't exist
+                if (targetSchema !== 'public') {
+                    await projectPool.query(`CREATE SCHEMA IF NOT EXISTS ${safeSchema};`);
+                }
+
                 // Use safe quoting — extension names are validated above
                 await projectPool.query(
-                    `CREATE EXTENSION IF NOT EXISTS "${extensionName}" SCHEMA ${targetSchema === 'public' ? 'public' : '"' + targetSchema + '"'} CASCADE`
+                    `CREATE EXTENSION IF NOT EXISTS "${extensionName}" SCHEMA ${safeSchema} CASCADE`
                 );
+
+                // Supabase-style: Add schema to search path so types (like geometry) are globally accessible
+                if (targetSchema !== 'public') {
+                    await projectPool.query(`
+                        DO $$
+                        BEGIN
+                            EXECUTE format('ALTER DATABASE %I SET search_path TO "$user", public, %I', current_database(), '${targetSchema}');
+                        END
+                        $$;
+                    `);
+                }
             }
 
             // Record in project_extensions registry

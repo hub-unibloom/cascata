@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Database, Search, Table as TableIcon, Loader2, AlertCircle, Plus, X,
-  Terminal, Trash2, Download, Upload, Copy,
+  Terminal, Trash2, Download, Upload, Copy, ChevronLeft, ChevronRight, ChevronDown,
   CheckCircle2, Save, Key, RefreshCw, Puzzle, FileType, FileSpreadsheet, FileJson,
   RotateCcw, GripVertical, MousePointer2, Layers, AlertTriangle, Check, Link as LinkIcon, Code, Eye, Edit
 } from 'lucide-react';
@@ -62,6 +62,7 @@ const getDefaultSuggestions = (type: string) => {
 // Main Component
 const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   // --- STATE ---
+  const [activeSchema, setActiveSchema] = useState('public');
   const [activeTab, setActiveTab] = useState<'tables' | 'query'>('tables');
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [tables, setTables] = useState<any[]>([]);
@@ -71,6 +72,27 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [loading, setLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
   const [isRealtimeActive, setIsRealtimeActive] = useState(false);
+  const [pageStart, setPageStart] = useState(0);
+
+  // Additional Features State
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [restoreTarget, setRestoreTarget] = useState<string | null>(null);
+
+  // --- NEW: ADD COLUMN MODAL ---
+  const [showAddColumn, setShowAddColumn] = useState(false);
+  const [newColumn, setNewColumn] = useState<{
+    name: string;
+    type: string;
+    isNullable: boolean;
+    defaultValue: string;
+    isUnique: boolean;
+    description: string;
+    foreignKey?: { table: string, column: string };
+  }>({
+    name: '', type: 'text', isNullable: true, defaultValue: '', isUnique: false, description: ''
+  });
+  const [fkTargetColumns, setFkTargetColumns] = useState<string[]>([]);
+  const [fkLoading, setFkLoading] = useState(false);
 
   // UI State
   const [selectedRows, setSelectedRows] = useState<Set<any>>(new Set());
@@ -102,6 +124,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [importPreview, setImportPreview] = useState<any[]>([]);
   const [showImportModal, setShowImportModal] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
+  const [createTableFromImport, setCreateTableFromImport] = useState(false);
 
   // Feedback
   const [executing, setExecuting] = useState(false);
@@ -119,6 +142,10 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   // Drag State
   const [draggedTable, setDraggedTable] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, table: string } | null>(null);
+
+  // --- NEW: DUPLICATE MODAL ---
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [duplicateConfig, setDuplicateConfig] = useState({ source: '', newName: '', withData: false });
 
   // Refs for Sql Console State Lifting
   const [sqlInitial, setSqlInitial] = useState('');
@@ -141,12 +168,19 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   const fetchTables = async () => {
     try {
       const [data, recycle] = await Promise.all([
-        fetchWithAuth(`/api/data/${projectId}/tables`),
-        fetchWithAuth(`/api/data/${projectId}/recycle-bin`)
+        fetchWithAuth(`/api/data/${projectId}/tables?schema=${activeSchema}`),
+        fetchWithAuth(`/api/data/${projectId}/recycle-bin?schema=${activeSchema}`)
       ]);
       setTables(data);
       setRecycleBin(recycle);
-      if (data.length > 0 && !selectedTable) setSelectedTable(data[0].name);
+
+      // Auto select first table if current is wiped
+      if (data.length > 0 && !data.find((t: any) => t.name === selectedTable)) {
+        setSelectedTable(data[0].name);
+      } else if (data.length === 0) {
+        setSelectedTable(null);
+        setTableData([]);
+      }
     } catch (err: any) { setError(err.message); }
     finally { setLoading(false); }
   };
@@ -156,9 +190,9 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
     if (!keepSelection) setSelectedRows(new Set());
     try {
       const [rows, cols, settings] = await Promise.all([
-        fetchWithAuth(`/api/data/${projectId}/tables/${tableName}/data?limit=100`),
-        fetchWithAuth(`/api/data/${projectId}/tables/${tableName}/columns`),
-        fetchWithAuth(`/api/data/${projectId}/ui-settings/${tableName}`)
+        fetchWithAuth(`/api/data/${projectId}/tables/${tableName}/data?limit=100&offset=${pageStart}&schema=${activeSchema}`),
+        fetchWithAuth(`/api/data/${projectId}/tables/${tableName}/columns?schema=${activeSchema}`),
+        fetchWithAuth(`/api/data/${projectId}/ui-settings/${tableName}?schema=${activeSchema}`)
       ]);
 
       setTableData(rows);
@@ -220,9 +254,140 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
     finally { setExtensionLoadingName(null); }
   };
 
+  const handleRestoreTable = async () => {
+    if (!restoreTarget) return;
+    setExecuting(true);
+    try {
+      await fetchWithAuth(`/api/data/${projectId}/recycle-bin/${restoreTarget}/restore?schema=${activeSchema}`, { method: 'POST' });
+      setSuccessMsg(`Table restored.`);
+      setRestoreTarget(null);
+      fetchTables();
+    } catch (err: any) { setError(translateError(err)); }
+    finally { setExecuting(false); }
+  };
+
+  const handleExport = (format: 'csv' | 'json' | 'sql' | 'xlsx' | 'pdf', sourceData?: any[]) => {
+    const rows = sourceData || (selectedRows.size > 0 ? tableData.filter(r => selectedRows.has(r[pkCol])) : tableData);
+
+    const sanitized = rows.map(r => {
+      const clean: any = {};
+      Object.keys(r).forEach(k => clean[k] = sanitizeForCSV(r[k]));
+      return clean;
+    });
+    const fileName = `${sourceData ? 'query_result' : selectedTable}_${Date.now()}`;
+
+    if (format === 'json') {
+      const blob = new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `${fileName}.json`; a.click();
+    }
+    else if (format === 'pdf') {
+      const doc = new (window as any).jsPDF();
+      doc.autoTable({
+        head: [Object.keys(sanitized[0] || {})],
+        body: sanitized.map((r: any) => Object.values(r)),
+      });
+      doc.save(`${fileName}.pdf`);
+    }
+    else if (format === 'sql') {
+      const sql = sanitized.map((row: any) => {
+        const keys = Object.keys(row);
+        const vals = keys.map(k => typeof row[k] === 'string' ? `'${row[k].replace(/'/g, "''")}'` : row[k]);
+        return `INSERT INTO "${selectedTable || 'export_table'}" (${keys.map(k => `"${k}"`).join(',')}) VALUES (${vals.join(',')});`;
+      }).join('\n');
+      const blob = new Blob([sql], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `${fileName}.sql`; a.click();
+    }
+    else if ((window as any).XLSX) {
+      const ws = (window as any).XLSX.utils.json_to_sheet(sanitized);
+      if (format === 'csv') {
+        const csv = (window as any).XLSX.utils.sheet_to_csv(ws);
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = `${fileName}.csv`; a.click();
+      } else {
+        const wb = (window as any).XLSX.utils.book_new();
+        (window as any).XLSX.utils.book_append_sheet(wb, ws, "Data");
+        (window as any).XLSX.writeFile(wb, `${fileName}.xlsx`);
+      }
+    }
+  };
+
+  const handleExportRecycled = async (tableName: string, format: 'sql' | 'csv') => {
+    setExecuting(true);
+    try {
+      const res = await fetchWithAuth(`/api/data/${projectId}/query?schema=${activeSchema}`, {
+        method: 'POST',
+        body: JSON.stringify({ sql: `SELECT * FROM ${activeSchema}."${tableName}" LIMIT 1000` })
+      });
+      if (!res.rows) throw new Error("No data found");
+      handleExport(format, res.rows);
+      setSuccessMsg("Export initiated.");
+    } catch (e: any) { setError(translateError(e)); }
+    finally { setExecuting(false); }
+  };
+
+  const getDefaultSuggestions = (type: string) => {
+    const t = type.toLowerCase();
+    if (t.includes('timestamp') || t.includes('date')) return ['now()', "timezone('utc', now())", 'current_date'];
+    if (t === 'uuid') return ['gen_random_uuid()'];
+    if (t.includes('bool')) return ['true', 'false'];
+    if (t.includes('int') || t.includes('numeric')) return ['0', '1'];
+    if (t.includes('json')) return ["'{}'::jsonb", "'[]'::jsonb"];
+    return [];
+  };
+
+  const sanitizeColName = (name: string) => name.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+
+  const handleAddColumn = async () => {
+    if (!newColumn.name || !selectedTable) return;
+    setExecuting(true);
+    try {
+      // GENERATE SQL FOR ALTER TABLE
+      let sql = `ALTER TABLE ${activeSchema}."${selectedTable}" ADD COLUMN "${sanitizeColName(newColumn.name)}" ${newColumn.type}`;
+
+      if (!newColumn.isNullable) sql += ' NOT NULL';
+      if (newColumn.defaultValue) sql += ` DEFAULT ${newColumn.defaultValue}`;
+      if (newColumn.isUnique) sql += ' UNIQUE';
+
+      if (newColumn.foreignKey) {
+        sql += ` REFERENCES ${activeSchema}."${newColumn.foreignKey.table}"("${newColumn.foreignKey.column}")`;
+      }
+
+      // Execute via Query Endpoint
+      await fetchWithAuth(`/api/data/${projectId}/query?schema=${activeSchema}`, {
+        method: 'POST',
+        body: JSON.stringify({ sql })
+      });
+
+      // Add Comment/Description if provided
+      if (newColumn.description) {
+        await fetchWithAuth(`/api/data/${projectId}/query?schema=${activeSchema}`, {
+          method: 'POST',
+          body: JSON.stringify({
+            sql: `COMMENT ON COLUMN ${activeSchema}."${selectedTable}"."${sanitizeColName(newColumn.name)}" IS '${newColumn.description.replace(/'/g, "''")}'`
+          })
+        });
+      }
+
+      setSuccessMsg("Column added.");
+      setShowAddColumn(false);
+      setNewColumn({ name: '', type: 'text', isNullable: true, defaultValue: '', isUnique: false, description: '' });
+      fetchTableData(selectedTable);
+    } catch (e: any) { setError(translateError(e)); }
+    finally { setExecuting(false); }
+  };
+
   // --- EFFECT HOOKS ---
-  useEffect(() => { fetchTables(); }, [projectId]);
-  useEffect(() => { if (selectedTable && activeTab === 'tables') fetchTableData(selectedTable); }, [selectedTable, activeTab]);
+  useEffect(() => { fetchTables(); }, [projectId, activeSchema]);
+
+  // Refetch data when table changes OR pagination changes
+  useEffect(() => {
+    if (selectedTable && activeTab === 'tables') {
+      fetchTableData(selectedTable);
+    }
+  }, [selectedTable, activeTab, pageStart]);
   useEffect(() => { if (showExtensions) fetchExtensions(); }, [showExtensions]);
 
   // Realtime
@@ -330,16 +495,30 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
     } catch (e: any) { setError(e.message); }
   };
 
-  const handleDuplicateTable = async (source: string) => {
+  const handleDuplicateTable = (source: string) => {
+    setDuplicateConfig({ source, newName: `${source}_copy`, withData: false });
+    setShowDuplicateModal(true);
+    setContextMenu(null);
+  };
+
+  const handleDuplicateTableSubmit = async () => {
+    if (!duplicateConfig.newName || !duplicateConfig.source) return;
+    setExecuting(true);
     try {
-      const newName = `${source}_copy_${Date.now().toString().slice(-4)}`;
-      await fetchWithAuth(`/api/data/${projectId}/query`, {
+      const withDataSql = duplicateConfig.withData ? '' : 'WITH NO DATA';
+      const sql = `CREATE TABLE ${activeSchema}."${sanitizeColName(duplicateConfig.newName)}" AS TABLE ${activeSchema}."${duplicateConfig.source}" ${withDataSql};`;
+
+      await fetchWithAuth(`/api/data/${projectId}/query?schema=${activeSchema}`, {
         method: 'POST',
-        body: JSON.stringify({ sql: `CREATE TABLE "${newName}" AS TABLE "${source}" WITH NO DATA;` })
+        body: JSON.stringify({ sql })
       });
-      setSuccessMsg(`Duplicated to ${newName}`);
+
+      setSuccessMsg(`Table duplicated to ${duplicateConfig.newName}`);
+      setShowDuplicateModal(false);
+      setDuplicateConfig({ source: '', newName: '', withData: false });
       fetchTables();
     } catch (e: any) { setError(e.message); }
+    finally { setExecuting(false); }
   };
 
   const handleDeleteTable = async (tableName: string) => {
@@ -420,11 +599,21 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
     <aside className="bg-white border-r border-slate-200 flex flex-col shrink-0 relative z-10" style={{ width: sidebarWidth }}>
       <div className="p-6 border-b border-slate-100 bg-white sticky top-0 z-10">
         <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-200">
-              <Database size={20} />
+          <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100 transition-colors p-1.5 pr-3 rounded-xl border border-slate-200/60 cursor-pointer relative group">
+            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white shadow-lg shadow-indigo-200">
+              <Database size={16} />
             </div>
-            <h2 className="text-lg font-black text-slate-900 tracking-tight">Explorer</h2>
+            <select
+              value={activeSchema}
+              onChange={(e) => { setActiveSchema(e.target.value); setPageStart(0); }}
+              className="text-sm font-black text-slate-900 tracking-tight bg-transparent border-none outline-none cursor-pointer appearance-none pl-1 pr-6"
+            >
+              <option value="public">public</option>
+              <option value="extensions">extensions</option>
+              <option value="auth">auth</option>
+              <option value="storage">storage</option>
+            </select>
+            <ChevronDown size={14} className="text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none group-hover:text-indigo-500" />
           </div>
           <button onClick={() => setShowExtensions(true)} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-purple-600 transition-colors" title="Manage Extensions">
             <Puzzle size={20} />
@@ -439,7 +628,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
 
       <div className="flex-1 overflow-y-auto p-3 space-y-1 custom-scrollbar">
         <div className="flex items-center justify-between mb-4 px-2">
-          <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">Public Tables</h2>
+          <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">{activeSchema} Tables</h2>
           <div className="flex gap-1">
             <button onClick={fetchTables} className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-indigo-600"><RefreshCw size={14} /></button>
             <button onClick={() => setShowCreateTable(true)} className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-indigo-600"><Plus size={14} /></button>
@@ -449,7 +638,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
         {tables.map(table => (
           <div
             key={table.name}
-            onClick={() => { setActiveTab('tables'); setSelectedTable(table.name); }}
+            onClick={() => { setActiveTab('tables'); setSelectedTable(table.name); setPageStart(0); }}
             onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, table: table.name }); }}
             className={`
                           group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition-all border border-transparent
@@ -491,7 +680,22 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   };
 
   return (
-    <div className="flex h-full bg-[#F8FAFC] text-slate-900 overflow-hidden font-sans">
+    <div
+      className={`flex h-full flex-col bg-[#F8FAFC] text-slate-900 overflow-hidden font-sans relative transition-colors ${isDraggingOver ? 'bg-indigo-50/50' : ''}`}
+      onDrop={handleGlobalDrop}
+      onDragOver={(e) => { e.preventDefault(); setIsDraggingOver(true); }}
+      onDragLeave={() => setIsDraggingOver(false)}
+    >
+      {/* Drag Overlay */}
+      {isDraggingOver && (
+        <div className="absolute inset-0 z-[1000] border-8 border-indigo-500 border-dashed bg-indigo-50/80 flex items-center justify-center p-8 pointer-events-none">
+          <div className="bg-white rounded-3xl p-10 shadow-2xl text-indigo-600 flex flex-col items-center animate-bounce">
+            <Upload size={64} className="mb-4" />
+            <h2 className="text-3xl font-black uppercase tracking-tighter">Drop to Import</h2>
+            <p className="text-indigo-400 font-bold mt-2">CSV, JSON, or XLSX files supported.</p>
+          </div>
+        </div>
+      )}
 
       {/* Notifications */}
       {(successMsg || error) && (
@@ -511,11 +715,29 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
             <div className="px-8 py-4 border-b border-slate-200 bg-white flex items-center justify-between shrink-0">
               <div className="flex items-center gap-6">
                 <h3 className="text-xl font-black text-slate-900 tracking-tight">{selectedTable}</h3>
-                <span className="text-xs font-bold text-slate-400">{tableData.length} records</span>
+
+                {/* PAGINATION */}
+                <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1 shadow-inner shadow-slate-100/50">
+                  <button disabled={pageStart === 0} onClick={() => setPageStart(Math.max(0, pageStart - 100))} className="p-1 px-2 text-slate-400 hover:text-indigo-600 hover:bg-white rounded shadow-sm disabled:opacity-30 disabled:shadow-none disabled:bg-transparent transition-all"><ChevronLeft size={14} /></button>
+                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest min-w-[90px] text-center select-none">
+                    {pageStart} - {pageStart + tableData.length}
+                  </span>
+                  <button disabled={tableData.length < 100} onClick={() => setPageStart(pageStart + 100)} className="p-1 px-2 text-slate-400 hover:text-indigo-600 hover:bg-white rounded shadow-sm disabled:opacity-30 disabled:shadow-none disabled:bg-transparent transition-all"><ChevronRight size={14} /></button>
+                </div>
+
                 {isRealtimeActive && <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-50 rounded-full border border-amber-100"><div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></div><span className="text-[9px] font-black text-amber-600 uppercase">Live</span></div>}
               </div>
-              <div className="flex items-center gap-3">
-                <button className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-50 text-slate-600 hover:bg-slate-100 text-[10px] font-black uppercase tracking-widest"><Download size={12} /> Export</button>
+              <div className="flex items-center gap-3 relative">
+                <button onClick={(e) => { e.stopPropagation(); setShowExportMenu(!showExportMenu); }} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-50 text-slate-600 hover:bg-slate-100 text-[10px] font-black uppercase tracking-widest"><Download size={12} /> Export</button>
+                {showExportMenu && (
+                  <div className="absolute top-12 right-24 w-40 bg-white rounded-xl shadow-2xl border border-slate-200 z-50 p-2 animate-in fade-in zoom-in-95">
+                    {['csv', 'xlsx', 'json', 'sql', 'pdf'].map(fmt => (
+                      <button key={fmt} onClick={() => { handleExport(fmt as any); setShowExportMenu(false); }} className="w-full text-left px-3 py-2 hover:bg-slate-50 text-xs font-bold uppercase text-slate-600 rounded-lg flex items-center gap-2">
+                        {fmt === 'pdf' ? <FileType size={12} /> : fmt === 'xlsx' ? <FileSpreadsheet size={12} /> : fmt === 'json' ? <FileJson size={12} /> : <Code size={12} />} {fmt.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <button onClick={() => setShowImportModal(true)} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-50 text-slate-600 hover:bg-slate-100 text-[10px] font-black uppercase tracking-widest"><Upload size={12} /> Import</button>
               </div>
             </div>
@@ -709,6 +931,199 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
         </div>
       )}
 
+      {/* ADD COLUMN MODAL (ENHANCED) */}
+      {showAddColumn && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+          <div className="bg-white rounded-[3rem] p-10 max-w-sm w-full shadow-2xl border border-slate-200 text-center">
+            <h3 className="text-xl font-black text-slate-900 mb-6">Add New Column</h3>
+            <div className="space-y-4 mb-6 text-left">
+
+              {/* Name */}
+              <div className="space-y-1">
+                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Column Name</label>
+                <input
+                  value={newColumn.name}
+                  onChange={e => setNewColumn({ ...newColumn, name: sanitizeColName(e.target.value) })}
+                  placeholder="column_name"
+                  autoFocus
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500/20"
+                />
+              </div>
+
+              {/* Description */}
+              <div className="space-y-1">
+                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Description</label>
+                <input
+                  value={newColumn.description}
+                  onChange={e => setNewColumn({ ...newColumn, description: e.target.value })}
+                  placeholder="Semantic hint for AI..."
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-medium text-sm outline-none text-slate-600"
+                />
+              </div>
+
+              {/* Smart Type Selector */}
+              <div className="space-y-1">
+                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Data Type</label>
+                <select
+                  value={newColumn.type}
+                  onChange={e => setNewColumn({ ...newColumn, type: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-bold text-sm outline-none cursor-pointer"
+                >
+                  <optgroup label="Numbers"><option value="int8">int8 (BigInt)</option><option value="int4">int4 (Integer)</option><option value="numeric">numeric</option><option value="float8">float8</option></optgroup>
+                  <optgroup label="Text"><option value="text">text</option><option value="varchar">varchar</option><option value="uuid">uuid</option></optgroup>
+                  <optgroup label="Date/Time"><option value="timestamptz">timestamptz</option><option value="date">date</option><option value="time">time</option></optgroup>
+                  <optgroup label="JSON"><option value="jsonb">jsonb</option><option value="json">json</option></optgroup>
+                  <optgroup label="Other"><option value="bool">boolean</option><option value="bytea">bytea</option></optgroup>
+                </select>
+              </div>
+
+              {/* Toggles & Options */}
+              <div className="flex items-center justify-between bg-slate-50 p-2 rounded-2xl border border-slate-100">
+                <div className="flex items-center gap-2">
+                  <div title="Nullable" onClick={() => setNewColumn({ ...newColumn, isNullable: !newColumn.isNullable })} className={`px-2 py-1.5 rounded-xl text-[10px] font-black cursor-pointer select-none transition-all ${newColumn.isNullable ? 'bg-emerald-100 text-emerald-700' : 'text-slate-400 hover:bg-slate-200'}`}>NULL</div>
+                  <div title="Unique" onClick={() => setNewColumn({ ...newColumn, isUnique: !newColumn.isUnique })} className={`px-2 py-1.5 rounded-xl text-[10px] font-black cursor-pointer select-none transition-all ${newColumn.isUnique ? 'bg-purple-100 text-purple-700' : 'text-slate-400 hover:bg-slate-200'}`}>UNIQ</div>
+                </div>
+
+                {/* Foreign Key Toggle */}
+                <div
+                  onClick={async () => {
+                    if (!newColumn.foreignKey) {
+                      setNewColumn({ ...newColumn, foreignKey: { table: '', column: '' } });
+                    } else {
+                      setNewColumn({ ...newColumn, foreignKey: undefined });
+                    }
+                  }}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-[10px] font-black cursor-pointer select-none transition-all ${newColumn.foreignKey ? 'bg-blue-100 text-blue-700 shadow-sm' : 'text-slate-400 hover:bg-slate-200'}`}
+                >
+                  <LinkIcon size={12} strokeWidth={3} /> {newColumn.foreignKey ? 'LINKED' : 'LINK'}
+                </div>
+              </div>
+
+              {/* Foreign Key Configuration (Conditional) */}
+              {newColumn.foreignKey && (
+                <div className="space-y-3 bg-blue-50/50 p-3 rounded-2xl border border-blue-100 animate-in slide-in-from-top-2">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-blue-400 uppercase tracking-widest ml-1">Target Table</label>
+                    <select
+                      value={newColumn.foreignKey.table}
+                      onChange={async (e) => {
+                        const tbl = e.target.value;
+                        setNewColumn(prev => ({ ...prev, foreignKey: { table: tbl, column: '' } }));
+                        if (tbl) {
+                          setFkLoading(true);
+                          try {
+                            const res = await fetchWithAuth(`/api/data/${projectId}/tables/${tbl}/columns?schema=${activeSchema}`);
+                            setFkTargetColumns(res.map((c: any) => c.name));
+                            if (res.length > 0) {
+                              const defaultCol = res.find((c: any) => c.name === 'id') ? 'id' : res[0].name;
+                              setNewColumn(prev => ({ ...prev, foreignKey: { ...prev.foreignKey!, table: tbl, column: defaultCol } }));
+                            }
+                          } catch (err) { } finally { setFkLoading(false); }
+                        }
+                      }}
+                      className="w-full bg-white border border-blue-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-700 outline-none"
+                    >
+                      <option value="">Select Table...</option>
+                      {tables.filter(t => t.name !== selectedTable).map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
+                    </select>
+                  </div>
+                  {newColumn.foreignKey.table && (
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-black text-blue-400 uppercase tracking-widest ml-1">Target Column</label>
+                      {fkLoading ? <div className="py-2 flex justify-center"><Loader2 size={14} className="animate-spin text-blue-500" /></div> : (
+                        <select
+                          value={newColumn.foreignKey.column}
+                          onChange={(e) => setNewColumn(prev => ({ ...prev, foreignKey: { ...prev.foreignKey!, column: e.target.value } }))}
+                          className="w-full bg-white border border-blue-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-700 outline-none"
+                        >
+                          {fkTargetColumns.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Smart Default Value */}
+              <div className="space-y-1">
+                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Default Value</label>
+                <input
+                  list="modal-defaults"
+                  value={newColumn.defaultValue}
+                  onChange={e => setNewColumn({ ...newColumn, defaultValue: e.target.value })}
+                  placeholder="NULL (Optional)"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-mono text-xs font-medium text-slate-600 outline-none focus:ring-2 focus:ring-indigo-500/20"
+                />
+                <datalist id="modal-defaults">
+                  {getDefaultSuggestions(newColumn.type).map(s => <option key={s} value={s} />)}
+                </datalist>
+              </div>
+
+            </div>
+            <button onClick={handleAddColumn} disabled={executing} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2">
+              {executing ? <Loader2 className="animate-spin" size={16} /> : 'Create Column'}
+            </button>
+            <button onClick={() => setShowAddColumn(false)} className="mt-4 text-xs font-bold text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* NEW: DUPLICATE TABLE MODAL */}
+      {showDuplicateModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+          <div className="bg-white rounded-[3rem] w-full max-w-sm p-12 shadow-2xl border border-slate-100 relative">
+            <h3 className="text-xl font-black text-slate-900 mb-6">Duplicate Table</h3>
+            <div className="space-y-4 mb-6">
+              <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">New Table Name</label><input autoFocus value={duplicateConfig.newName} onChange={(e) => setDuplicateConfig({ ...duplicateConfig, newName: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-bold text-sm outline-none" placeholder={duplicateConfig.source + '_copy'} /></div>
+              <div className="flex items-center gap-3 p-2 cursor-pointer" onClick={() => setDuplicateConfig({ ...duplicateConfig, withData: !duplicateConfig.withData })}><div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${duplicateConfig.withData ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>{duplicateConfig.withData && <Check size={14} className="text-white" />}</div><span className="text-xs font-bold text-slate-600">Copy Data Rows</span></div>
+            </div>
+            <button onClick={handleDuplicateTableSubmit} disabled={executing || !duplicateConfig.newName} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all mb-3">{executing ? <Loader2 className="animate-spin mx-auto" /> : 'Duplicate'}</button>
+            <button onClick={() => setShowDuplicateModal(false)} className="w-full py-2 text-xs font-bold text-slate-400 hover:text-slate-600">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* RESTORE MODAL */}
+      {restoreTarget && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[200]">
+          <div className="bg-white p-6 rounded-2xl w-[400px] shadow-2xl border border-slate-200">
+            <h3 className="text-lg font-black mb-4">Restore Table</h3>
+            <p className="text-sm text-slate-500 mb-6 font-medium">Are you sure you want to restore <strong className="text-slate-900 px-1 py-0.5 bg-slate-100 rounded">"{restoreTarget}"</strong> back to public?</p>
+            <div className="flex gap-3">
+              <button disabled={executing} onClick={() => setRestoreTarget(null)} className="flex-1 px-4 py-2 font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all">Cancel</button>
+              <button disabled={executing} onClick={handleRestoreTable} className="flex-1 px-4 py-2 font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-md">{executing ? <Loader2 size={16} className="animate-spin mx-auto" /> : 'Restore'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* IMPORT MODAL */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[250] flex items-center justify-center p-8 animate-in zoom-in-95">
+          <div className="bg-white rounded-[3.5rem] w-full max-w-lg p-12 shadow-2xl border border-slate-100 relative">
+            <button onClick={() => setShowImportModal(false)} className="absolute top-8 right-8 text-slate-300 hover:text-slate-900 transition-colors"><X size={24} /></button>
+            <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-8">Data Import</h3>
+            <div className="space-y-6">
+              {/* RESTORED TOGGLE */}
+              <div className="flex items-center justify-between bg-slate-50 p-4 rounded-2xl">
+                <span className="text-xs font-bold text-slate-700">Create new table from file</span>
+                <button onClick={() => setCreateTableFromImport(!createTableFromImport)} className={`w-12 h-7 rounded-full p-1 transition-colors ${createTableFromImport ? 'bg-indigo-600' : 'bg-slate-200'}`}>
+                  <div className={`w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${createTableFromImport ? 'translate-x-5' : ''}`}></div>
+                </button>
+              </div>
+
+              <div className="border-4 border-dashed border-slate-100 rounded-[2.5rem] p-10 text-center hover:border-emerald-300 hover:bg-emerald-50/10 transition-all cursor-pointer relative group">
+                <input type="file" accept=".csv, .xlsx, .json" onChange={(e) => setImportFile(e.target.files?.[0] || null)} className="absolute inset-0 opacity-0 cursor-pointer" />
+                {importFile ? <span className="font-bold text-slate-900">{importFile.name}</span> : <div className="flex flex-col items-center text-slate-300 group-hover:text-emerald-500"><Upload size={40} className="mb-2" /><span className="font-bold text-sm">Drop file here</span></div>}
+              </div>
+
+              <button onClick={handleImport} disabled={!importFile || executing} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl flex items-center justify-center gap-3 disabled:opacity-50">
+                {executing ? <Loader2 className="animate-spin" size={18} /> : 'Start Ingestion'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
