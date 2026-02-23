@@ -1,0 +1,199 @@
+Cloning into 'cascata'...
+remote: Enumerating objects: 195, done.
+remote: Counting objects: 100% (195/195), done.
+remote: Compressing objects: 100% (165/165), done.
+remote: Total 195 (delta 28), reused 191 (delta 24), pack-reused 0 (from 0)
+Receiving objects: 100% (195/195), 445.19 KiB | 15.90 MiB/s, done.
+Resolving deltas: 100% (28/28), done.
+[+] up 38/38
+ ✔ Image nginx:alpine             Pulled                                                                                                                 37.6s
+ ✔ Image qdrant/qdrant:latest     Pulled                                                                                                                 30.9s
+ ✔ Image edoburu/pgbouncer:latest Pulled                                                                                                                 17.1s
+ ✔ Image redis:alpine             Pulled                                                                                                                 6.1ss
+[+] Building 63.0s (45/49)                                                                                                                                    
+ => [internal] load local bake definitions                                                                                                               0.0s
+ => => reading from stdin 2.76kB                                                                                                                         0.0s
+ => [db internal] load build definition from Dockerfile                                                                                                  0.1s
+ => => transferring dockerfile: 3.26kB                                                                                                                   0.0s
+ => [backend_engine internal] load build definition from Dockerfile                                                                                      0.0s
+ => => transferring dockerfile: 688B                                                                                                                     0.0s
+ => [frontend internal] load build definition from Dockerfile                                                                                            0.0s
+ => => transferring dockerfile: 438B                                                                                                                     0.0s
+ => WARN: FromAsCasing: 'as' and 'FROM' keywords' casing do not match (line 3)                                                                           0.0s
+ => [nginx_controller internal] load build definition from Dockerfile                                                                                    0.1s
+ => => transferring dockerfile: 259B                                                                                                                     0.0s
+ => [frontend internal] load metadata for docker.io/library/node:20-alpine                                                                               0.4s
+ => [frontend internal] load metadata for docker.io/library/nginx:alpine                                                                                 0.0s
+ => [db internal] load metadata for docker.io/library/postgres:17-alpine                                                                                 2.6s
+ => [nginx_controller internal] load .dockerignore                                                                                                       0.0s
+ => => transferring context: 2B                                                                                                                          0.0s
+ => [backend_engine internal] load .dockerignore                                                                                                         0.0s
+ => => transferring context: 2B                                                                                                                          0.0s
+ => [frontend internal] load .dockerignore                                                                                                               0.0s
+ => => transferring context: 2B                                                                                                                          0.0s
+ => [backend_control 1/6] FROM docker.io/library/node:20-alpine@sha256:09e2b3d9726018aecf269bd35325f46bf75046a643a66d28360ec71132750ec8                  7.9s
+ => => resolve docker.io/library/node:20-alpine@sha256:09e2b3d9726018aecf269bd35325f46bf75046a643a66d28360ec71132750ec8                                  0.0s
+ => => sha256:e31b2016552274339ed88ed4a438d78bf37e0f6bdf328d02207b2a598c1ef86d 445B / 445B                                                               0.0s
+ => => sha256:eb87f4721c91769ed5206f34a9ab6ec98fc1d5235c12c2fc956665b1155e9ecb 1.26MB / 1.26MB                                                           7.5s
+ => => sha256:ad6d96c196e3198e14ea37df8bba4f54bf92fb525eb65e49fa4027c7dee13f80 42.78MB / 42.78MB                                                         0.6s
+ => => extracting sha256:ad6d96c196e3198e14ea37df8bba4f54bf92fb525eb65e49fa4027c7dee13f80                                                                1.7s
+ => => extracting sha256:eb87f4721c91769ed5206f34a9ab6ec98fc1d5235c12c2fc956665b1155e9ecb                                                                0.1s
+ => => extracting sha256:e31b2016552274339ed88ed4a438d78bf37e0f6bdf328d02207b2a598c1ef86d                                                                0.0s
+ => [backend_data internal] load build context                                                                                                           0.1s
+ => => transferring context: 626.63kB                                                                                                                    0.0s
+ => [nginx_controller internal] load build context                                                                                                       0.0s
+ => => transferring context: 1.71kB                                                                                                                      0.0s
+ => [frontend internal] load build context                                                                                                               0.1s
+ => => transferring context: 1.04MB                                                                                                                      0.0s
+ => [frontend stage-1 1/3] FROM docker.io/library/nginx:alpine@sha256:1d13701a5f9f3fb01aaa88cef2344d65b6b5bf6b7d9fa4cf0dca557a8d7702ba                   0.5s
+ => => resolve docker.io/library/nginx:alpine@sha256:1d13701a5f9f3fb01aaa88cef2344d65b6b5bf6b7d9fa4cf0dca557a8d7702ba                                    0.1s
+ => [db internal] load .dockerignore                                                                                                                     0.0s
+ => => transferring context: 2B                                                                                                                          0.0s
+ => [db builder 1/3] FROM docker.io/library/postgres:17-alpine@sha256:3430fe182f5065a6ea505c3d432d2c7fff18fbab954df8f277c1dbf4c70124af                   8.2s
+ => => resolve docker.io/library/postgres:17-alpine@sha256:3430fe182f5065a6ea505c3d432d2c7fff18fbab954df8f277c1dbf4c70124af                              0.2s
+ => => sha256:9fb1cbcfa21c0d24948e071dfee0fc0990bee600ca0f9d4812cd28badf42e184 186B / 186B                                                               0.0s
+ => => sha256:16f07d5deae17ef272aea41d54b84f2069abb74f9f70b054c44cf499ee3960ad 5.84kB / 5.84kB                                                           0.0s
+ => => sha256:3425e8ffb0b2cbf189218a2aedd4be9b36267e108d5b5aebdcef420c9c9c91f1 129B / 129B                                                               0.0s
+ => => sha256:0ac9eb4a0b703a65c631959f07815331a604f1a1e797796b6066ddb26c8b945a 9.95kB / 9.95kB                                                           0.0s
+ => => sha256:5fb50af9cbd763b0170c2a31cc8c08e2f988c0616f575582d895866c175d9796 116B / 116B                                                               0.0s
+ => => sha256:3e4fbd179479e8df1cc439972133e7777e28f2067c4f60a2350567477e5097b1 171B / 171B                                                               7.7s
+ => => sha256:7d192cc6f965c88079433668cfb3b5afa52064b7a6dd96f2464e3acb9e4497a4 922.94kB / 922.94kB                                                       0.1s
+ => => sha256:81508c53255d40cd4b2d0dfefb08a9046c57721a94e2f887d9828fd7b97b90ac 106.28MB / 106.28MB                                                       1.4s
+ => => sha256:cc9b94d45575d6cf12bd115415c7fd327244cf859a4839c59a49233a94d31814 974B / 974B                                                               0.1s
+ => => extracting sha256:cc9b94d45575d6cf12bd115415c7fd327244cf859a4839c59a49233a94d31814                                                                0.0s
+ => => extracting sha256:7d192cc6f965c88079433668cfb3b5afa52064b7a6dd96f2464e3acb9e4497a4                                                                0.1s
+ => => extracting sha256:5fb50af9cbd763b0170c2a31cc8c08e2f988c0616f575582d895866c175d9796                                                                0.0s
+ => => extracting sha256:81508c53255d40cd4b2d0dfefb08a9046c57721a94e2f887d9828fd7b97b90ac                                                                2.9s
+ => => extracting sha256:0ac9eb4a0b703a65c631959f07815331a604f1a1e797796b6066ddb26c8b945a                                                                0.0s
+ => => extracting sha256:3425e8ffb0b2cbf189218a2aedd4be9b36267e108d5b5aebdcef420c9c9c91f1                                                                0.0s
+ => => extracting sha256:3e4fbd179479e8df1cc439972133e7777e28f2067c4f60a2350567477e5097b1                                                                0.0s
+ => => extracting sha256:16f07d5deae17ef272aea41d54b84f2069abb74f9f70b054c44cf499ee3960ad                                                                0.0s
+ => => extracting sha256:9fb1cbcfa21c0d24948e071dfee0fc0990bee600ca0f9d4812cd28badf42e184                                                                0.0s
+ => [db internal] load build context                                                                                                                     0.1s
+ => => transferring context: 7.09kB                                                                                                                      0.0s
+ => [backend_data 2/6] WORKDIR /app                                                                                                                      0.1s
+ => [frontend build 3/6] COPY package*.json ./                                                                                                           0.1s
+ => [nginx_controller 3/6] RUN apk add --no-cache docker-cli                                                                                             2.8s
+ => [backend_control 3/7] RUN apk add --no-cache certbot openssl docker-cli postgresql-client python3 make g++ tzdata zip unzip                         12.0s
+ => [frontend build 4/6] RUN npm install                                                                                                                48.1s
+ => [db builder 2/3] RUN apk add --no-cache     git     gcc     make     musl-dev     clang19     llvm19     llvm19-dev     postgresql-dev     && ln -  21.4s
+ => [db stage-1 2/9] RUN apk add --no-cache inotify-tools                                                                                                3.3s
+ => [nginx_controller 4/6] COPY package.json .                                                                                                           0.1s
+ => [nginx_controller 5/6] RUN npm install                                                                                                              13.2s
+ => [backend_engine 4/7] COPY package*.json ./                                                                                                           0.3s
+ => CANCELED [backend_engine 5/7] RUN npm install                                                                                                       41.9s
+ => [nginx_controller 6/6] COPY index.js .                                                                                                               0.1s
+ => [nginx_controller] exporting to image                                                                                                                7.6s
+ => => exporting layers                                                                                                                                  6.0s
+ => => exporting manifest sha256:b64e8b8f15e2f9e29f16a733f3417895233bf1f5608c7656fd15f9f181243cd6                                                        0.0s
+ => => exporting config sha256:0571fdf652894000cffdf01181f77e282faf05c895e0369903d9d75954939191                                                          0.0s
+ => => exporting attestation manifest sha256:16e9bc7c03c71d39bfeb069f249ed6cdae2282dabcec7ceb3cb724d9bd52baca                                            0.0s
+ => => exporting manifest list sha256:956a5855784b0f83818bef9e97b1abcfc0e868b3085ff569b0c7cc44fefb8077                                                   0.0s
+ => => naming to docker.io/library/cascata-nginx_controller:latest                                                                                       0.0s
+ => => unpacking to docker.io/library/cascata-nginx_controller:latest                                                                                    1.3s
+ => [db builder 3/3] RUN git clone --branch v1.6.4 --depth 1     https://github.com/citusdata/pg_cron.git /tmp/pg_cron     && cd /tmp/pg_cron     && US  5.7s
+ => [nginx_controller] resolving provenance for metadata file                                                                                            0.0s
+ => [db stage-1 3/9] COPY --from=builder /usr/local/lib/postgresql/pg_cron.so     /usr/local/lib/postgresql/pg_cron.so                                   0.1s
+ => [db stage-1 4/9] COPY --from=builder /usr/local/share/postgresql/extension/pg_cron*     /usr/local/share/postgresql/extension/                       0.1s
+ => [db stage-1 5/9] COPY --from=builder /usr/local/lib/postgresql/bitcode/pg_cron*     /usr/local/lib/postgresql/bitcode/                               0.1s
+ => [db stage-1 6/9] RUN mkdir -p /cascata_extensions/lib /cascata_extensions/share                                                                      0.4s
+ => [db stage-1 7/9] COPY docker-entrypoint-cascata.sh /usr/local/bin/docker-entrypoint-cascata.sh                                                       0.1s
+ => [db stage-1 8/9] COPY phantom_linker.sh /usr/local/bin/phantom_linker.sh                                                                             0.1s
+ => [db stage-1 9/9] RUN chmod +x /usr/local/bin/docker-entrypoint-cascata.sh     /usr/local/bin/phantom_linker.sh                                       0.4s
+ => [db] exporting to image                                                                                                                              0.8s
+ => => exporting layers                                                                                                                                  0.4s
+ => => exporting manifest sha256:6ba7d2c340fcc0b2cdcae5ad0a7e4b4bb6ff2be5118d15c8df1cee2477ae4f18                                                        0.0s
+ => => exporting config sha256:663bdfef20d75db8795fbfb08a67383dbd55173b5acb16da8b5f0c3b1ab7fdf4                                                          0.0s
+ => => exporting attestation manifest sha256:0c37b13e59fa134c35946dbe9d25f06a76fe941dbdd6241b2f858e226c79900a                                            0.0s
+ => => exporting manifest list sha256:51cc776c8233691cc11a2d422b28f19e821f5d4d8c94fc1f5b07422bfc2e2a88                                                   0.0s
+ => => naming to docker.io/library/cascata-db:latest                                                                                                     0.0s
+ => => unpacking to docker.io/library/cascata-db:latest                                                                                                  0.2s
+ => [db] resolving provenance for metadata file                                                                                                          0.0s
+ => [frontend build 5/6] COPY . .                                                                                                                        0.2s
+ => ERROR [frontend build 6/6] RUN npm run build                                                                                                         5.6s
+------
+ > [frontend build 6/6] RUN npm run build:
+0.481 
+0.481 > cascata-frontend@1.0.0 build
+0.481 > vite build
+0.481 
+0.920 vite v5.4.21 building for production...
+1.721 transforming...
+5.427 ✓ 18 modules transformed.
+5.434 x Build failed in 3.79s
+5.434 error during build:
+5.434 [vite:esbuild] Transform failed with 4 errors:
+5.434 /app/pages/DatabaseExplorer.tsx:119:8: ERROR: The symbol "fkTargetColumns" has already been declared
+5.434 /app/pages/DatabaseExplorer.tsx:119:8: ERROR: The symbol "setFkTargetColumns" has already been declared
+5.434 /app/pages/DatabaseExplorer.tsx:120:8: ERROR: The symbol "fkLoading" has already been declared
+5.434 /app/pages/DatabaseExplorer.tsx:120:8: ERROR: The symbol "setFkLoading" has already been declared
+5.434 file: /app/pages/DatabaseExplorer.tsx:119:8
+5.434 
+5.434 The symbol "fkTargetColumns" has already been declared
+5.434 117|    ]);
+5.434 118|    const [activeFkEditor, setActiveFkEditor] = useState<string | null>(null);
+5.434 119|    const [fkTargetColumns, setFkTargetColumns] = useState<string[]>([]);
+5.434    |          ^
+5.434 120|    const [fkLoading, setFkLoading] = useState(false);
+5.434 121|  
+5.434 
+5.434 The symbol "setFkTargetColumns" has already been declared
+5.434 117|    ]);
+5.434 118|    const [activeFkEditor, setActiveFkEditor] = useState<string | null>(null);
+5.434 119|    const [fkTargetColumns, setFkTargetColumns] = useState<string[]>([]);
+5.434    |          ^
+5.434 120|    const [fkLoading, setFkLoading] = useState(false);
+5.434 121|  
+5.434 
+5.434 The symbol "fkLoading" has already been declared
+5.434 118|    const [activeFkEditor, setActiveFkEditor] = useState<string | null>(null);
+5.434 119|    const [fkTargetColumns, setFkTargetColumns] = useState<string[]>([]);
+5.434 120|    const [fkLoading, setFkLoading] = useState(false);
+5.434    |          ^
+5.434 121|  
+5.434 122|    // --- IMPORT STATE ---
+5.434 
+5.434 The symbol "setFkLoading" has already been declared
+5.434 118|    const [activeFkEditor, setActiveFkEditor] = useState<string | null>(null);
+5.434 119|    const [fkTargetColumns, setFkTargetColumns] = useState<string[]>([]);
+5.434 120|    const [fkLoading, setFkLoading] = useState(false);
+5.434    |          ^
+5.434 121|  
+5.434 122|    // --- IMPORT STATE ---
+5.434 
+5.434     at failureErrorWithLog (/app/node_modules/esbuild/lib/main.js:1472:15)
+5.434     at /app/node_modules/esbuild/lib/main.js:755:50
+5.434     at responseCallbacks.<computed> (/app/node_modules/esbuild/lib/main.js:622:9)
+5.434     at handleIncomingPacket (/app/node_modules/esbuild/lib/main.js:677:12)
+5.434     at Socket.readFromStdout (/app/node_modules/esbuild/lib/main.js:600:7)
+5.434     at Socket.emit (node:events:524:28)
+[+] up 38/44 addChunk (node:internal/streams/readable:561:12)
+ ✔ Image nginx:alpine             Pulled                                                                                                                 37.6s
+ ✔ Image qdrant/qdrant:latest     Pulled                                                                                                                 30.9s
+ ✔ Image edoburu/pgbouncer:latest Pulled                                                                                                                 17.1s
+ ✔ Image redis:alpine             Pulled                                                                                                                 6.1s
+ ⠙ Image cascata-db               Building                                                                                                               63.1s
+ ⠙ Image cascata-backend_data     Building                                                                                                               63.1s
+ ⠙ Image cascata-frontend         Building                                                                                                               63.1s
+ ⠙ Image cascata-backend_engine   Building                                                                                                               63.1s
+ ⠙ Image cascata-backend_control  Building                                                                                                               63.1s
+ ⠙ Image cascata-nginx_controller Building                                                                                                               63.1s
+Dockerfile:9
+
+--------------------
+
+   7 |     RUN npm install
+
+   8 |     COPY . .
+
+   9 | >>> RUN npm run build
+
+  10 |     
+
+  11 |     # Production Stage
+
+--------------------
+
+target frontend: failed to solve: process "/bin/sh -c npm run build" did not complete successfully: exit code: 1
+
+ubuntu@ip-172-26-5-140:~/cascata$ 

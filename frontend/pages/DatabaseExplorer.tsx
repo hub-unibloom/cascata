@@ -116,8 +116,6 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
     { id: '2', name: 'created_at', type: 'timestamptz', defaultValue: 'now()', isPrimaryKey: false, isNullable: false, isUnique: false, isArray: false },
   ]);
   const [activeFkEditor, setActiveFkEditor] = useState<string | null>(null);
-  const [fkTargetColumns, setFkTargetColumns] = useState<string[]>([]);
-  const [fkLoading, setFkLoading] = useState(false);
 
   // --- IMPORT STATE ---
   const [importPendingData, setImportPendingData] = useState<any[] | null>(null);
