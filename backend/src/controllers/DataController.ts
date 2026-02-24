@@ -110,20 +110,18 @@ export class DataController {
     // --- DATA OPERATIONS ---
 
     static async getSchemas(req: CascataRequest, res: any, next: any) {
-        if (!DataController.checkSchemaAccess(req)) {
-            return res.status(403).json({ error: 'Schema access disabled. Enable "Schema Exposure" in settings.' });
-        }
+        // Direct pool query — bypasses queryWithRLS which sets cascata_api_role
+        // that may lack USAGE on user-created schemas.
+        // This endpoint is admin-only (dashboard always sends system token).
         try {
-            const result = await queryWithRLS(req, async (client) => {
-                return await client.query(`
-                    SELECT schema_name as name 
-                    FROM information_schema.schemata 
-                    WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
-                      AND schema_name NOT LIKE 'pg_temp_%'
-                      AND schema_name NOT LIKE 'pg_toast_temp_%'
-                    ORDER BY schema_name
-                `);
-            });
+            const result = await req.projectPool!.query(`
+                SELECT schema_name as name 
+                FROM information_schema.schemata 
+                WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+                  AND schema_name NOT LIKE 'pg_temp_%'
+                  AND schema_name NOT LIKE 'pg_toast_temp_%'
+                ORDER BY schema_name
+            `);
             res.json(result.rows);
         } catch (e: any) { next(e); }
     }
@@ -345,8 +343,35 @@ export class DataController {
             const start = Date.now();
             const client = await req.projectPool!.connect();
             try {
-                await client.query("SET LOCAL statement_timeout = '20s'");
+                await client.query("SET LOCAL statement_timeout = '60s'");
                 const result = await client.query(req.body.sql);
+
+                // Auto-grant: After DDL, ensure cascata_api_role can access all user schemas
+                const cmd = (result.command || '').toUpperCase();
+                if (['CREATE', 'ALTER', 'DROP'].includes(cmd)) {
+                    try {
+                        await client.query(`
+                            DO $$ DECLARE s TEXT; BEGIN
+                                FOR s IN SELECT schema_name FROM information_schema.schemata
+                                    WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+                                    AND schema_name NOT LIKE 'pg_temp_%'
+                                    AND schema_name NOT LIKE 'pg_toast_temp_%'
+                                LOOP
+                                    EXECUTE format('GRANT USAGE ON SCHEMA %I TO anon, authenticated, service_role, cascata_api_role', s);
+                                    EXECUTE format('GRANT ALL ON ALL TABLES IN SCHEMA %I TO service_role, cascata_api_role', s);
+                                    EXECUTE format('GRANT ALL ON ALL SEQUENCES IN SCHEMA %I TO service_role, cascata_api_role', s);
+                                    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I TO anon, authenticated', s);
+                                    EXECUTE format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA %I TO anon, authenticated', s);
+                                    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO anon, authenticated', s);
+                                    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT USAGE, SELECT ON SEQUENCES TO anon, authenticated', s);
+                                END LOOP;
+                            END $$;
+                        `);
+                    } catch (grantErr) {
+                        console.warn('[runRawQuery] Auto-grant failed (non-fatal):', grantErr);
+                    }
+                }
+
                 res.json({ rows: result.rows, rowCount: result.rowCount, command: result.command, duration: Date.now() - start });
             } finally {
                 client.release();

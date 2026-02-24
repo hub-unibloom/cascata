@@ -29,11 +29,18 @@ const SqlConsole: React.FC<SqlConsoleProps> = ({ onExecute, onFix, onClose, init
         try {
             const data = await onExecute(query);
             setResult(data);
-            setHistory(prev => [query, ...prev.slice(0, 9)]);
+            setHistory(prev => [query, ...prev.slice(0, 19)]);
         } catch (e: any) {
             setError(e.message || "Query failed");
         } finally {
             setExecuting(false);
+        }
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            handleRun();
         }
     };
 
@@ -60,18 +67,18 @@ const SqlConsole: React.FC<SqlConsoleProps> = ({ onExecute, onFix, onClose, init
             <div className="h-14 bg-slate-900 border-b border-white/10 flex items-center justify-between px-6 shrink-0">
                 <div className="flex items-center gap-3">
                     <div className="w-8 h-8 bg-indigo-500/10 rounded-lg flex items-center justify-center text-indigo-400">
-                        <Terminal size={16}/>
+                        <Terminal size={16} />
                     </div>
                     <span className="font-bold text-sm">SQL Console v2</span>
                 </div>
                 <div className="flex items-center gap-3">
                     {error && (
                         <button onClick={handleFix} disabled={isFixing} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-500/20 text-indigo-300 rounded-lg text-xs font-bold hover:bg-indigo-500/30 transition-all border border-indigo-500/30">
-                            {isFixing ? <Loader2 size={12} className="animate-spin"/> : <Sparkles size={12}/>} Fix with AI
+                            {isFixing ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} Fix with AI
                         </button>
                     )}
                     <button onClick={handleRun} disabled={executing} className="flex items-center gap-2 px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-emerald-900/20 disabled:opacity-50">
-                        {executing ? <Loader2 size={14} className="animate-spin"/> : <Play size={14}/>} Run
+                        {executing ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />} Run
                     </button>
                 </div>
             </div>
@@ -79,27 +86,29 @@ const SqlConsole: React.FC<SqlConsoleProps> = ({ onExecute, onFix, onClose, init
             {/* Main Area */}
             <div className="flex-1 flex overflow-hidden">
                 <div className="flex-1 flex flex-col min-w-0">
-                    <textarea 
+                    <textarea
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
+                        onKeyDown={handleKeyDown}
                         className="flex-1 bg-[#0B0F19] text-emerald-400 font-mono text-sm p-6 outline-none resize-none leading-relaxed"
-                        placeholder="SELECT * FROM users..."
+                        placeholder="SELECT * FROM users...  (Ctrl+Enter to run)"
                         spellCheck="false"
                     />
-                    
+
                     {/* Result Panel - Height fixed at 50% for split view effect */}
                     {(result || error) && (
                         <div className="h-1/2 border-t border-white/10 bg-[#0F172A] flex flex-col animate-in slide-in-from-bottom-10">
                             {error ? (
                                 <div className="p-6 text-rose-400 font-mono text-xs overflow-auto">
-                                    <div className="flex items-center gap-2 mb-2 font-bold uppercase tracking-widest"><X size={14}/> Query Error</div>
+                                    <div className="flex items-center gap-2 mb-2 font-bold uppercase tracking-widest"><X size={14} /> Query Error</div>
                                     {error}
                                 </div>
                             ) : (
                                 <>
                                     <div className="px-6 py-3 border-b border-white/5 flex justify-between items-center bg-slate-900/50 shrink-0">
                                         <div className="flex gap-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                            <span>{result.rowCount} rows</span>
+                                            {result.command && <span className="text-emerald-400">{result.command}</span>}
+                                            <span>{result.rowCount ?? 0} rows</span>
                                             <span>{result.duration}ms</span>
                                         </div>
                                     </div>
@@ -124,7 +133,11 @@ const SqlConsole: React.FC<SqlConsoleProps> = ({ onExecute, onFix, onClose, init
                                                 </tbody>
                                             </table>
                                         ) : (
-                                            <div className="p-6 text-slate-500 text-xs italic">No results returned.</div>
+                                            <div className="p-6 flex flex-col items-center justify-center gap-2">
+                                                <CheckCircle2 size={24} className="text-emerald-500" />
+                                                <p className="text-emerald-400 text-xs font-bold">{result.command ? `${result.command} executed successfully` : 'Query executed — no rows returned.'}</p>
+                                                {result.rowCount !== null && result.rowCount !== undefined && <p className="text-slate-500 text-[10px]">{result.rowCount} row(s) affected</p>}
+                                            </div>
                                         )}
                                     </div>
                                 </>
@@ -136,12 +149,12 @@ const SqlConsole: React.FC<SqlConsoleProps> = ({ onExecute, onFix, onClose, init
                 {/* History Sidebar */}
                 <div className="w-64 border-l border-white/10 bg-[#0B0F19] flex flex-col shrink-0">
                     <div className="p-4 border-b border-white/5 font-bold text-xs text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                        <History size={12}/> History
+                        <History size={12} /> History
                     </div>
                     <div className="flex-1 overflow-y-auto p-2 space-y-1">
                         {history.map((h, i) => (
-                            <button 
-                                key={i} 
+                            <button
+                                key={i}
                                 onClick={() => setQuery(h)}
                                 className="w-full text-left p-3 rounded-lg hover:bg-white/5 text-[10px] font-mono text-slate-500 hover:text-emerald-400 transition-colors truncate border border-transparent hover:border-white/5"
                             >

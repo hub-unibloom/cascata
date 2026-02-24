@@ -669,10 +669,17 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   };
 
   const handleExecuteSql = async (sql: string) => {
-    return await fetchWithAuth(`/api/data/${projectId}/query`, {
+    const result = await fetchWithAuth(`/api/data/${projectId}/query?schema=${activeSchema}`, {
       method: 'POST',
       body: JSON.stringify({ sql })
     });
+    // Smart refresh: detect DDL and refresh sidebar automatically
+    const cmd = (result.command || '').toUpperCase();
+    if (['CREATE', 'ALTER', 'DROP'].includes(cmd)) {
+      fetchSchemas();
+      fetchTables();
+    }
+    return result;
   };
 
   const handleRenameTable = async (oldName: string) => {
