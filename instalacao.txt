@@ -41,4 +41,19 @@
 				mv frontend/nginx.conf.txt frontend/nginx.conf
 				mv nginx-controller/Dockerfile.txt nginx-controller/Dockerfile
 				nano .env
-				docker compose up -d --build
+			mkdir -p /cascata-data/pg /cascata-data/qdrant /cascata-data/redis
+			docker compose up -d --build
+
+# ═══════════════════════════════════════════════════════
+#  ⚠️  ATUALIZAÇÃO SEGURA (NUNCA use docker compose down -v)
+# ═══════════════════════════════════════════════════════
+#  O flag -v DESTRÓI os dados! Para atualizar, use:
+#
+#     chmod +x safe-update.sh
+#     ./safe-update.sh
+#
+#  Ou manualmente:
+#     docker compose down          (SEM -v!)
+#     git pull
+#     docker compose up -d --build
+# ═══════════════════════════════════════════════════════

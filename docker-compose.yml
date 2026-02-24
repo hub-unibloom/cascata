@@ -207,7 +207,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASS:-secure_pass}
       POSTGRES_DB: ${DB_NAME:-cascata_system}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ${CASCATA_DATA_DIR:-/cascata-data}/pg:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
       - extension_payloads:/cascata_extensions
     healthcheck:
@@ -228,7 +228,7 @@ services:
       - "6333:6333"
       - "6334:6334"
     volumes:
-      - qdrant_storage:/qdrant/storage
+      - ${CASCATA_DATA_DIR:-/cascata-data}/qdrant:/qdrant/storage
     ulimits:
       memlock:
         soft: -1
@@ -249,7 +249,7 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - redis_data:/data
+      - ${CASCATA_DATA_DIR:-/cascata-data}/redis:/data
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
@@ -268,13 +268,10 @@ networks:
     internal: true
 
 volumes:
-  pgdata:
-  qdrant_storage:
   acme_challenge:
   certs:
   storage_data:
   temp_data:
   nginx_dynamic:
-  redis_data:
   extension_payloads:
     name: cascata_extension_payloads
