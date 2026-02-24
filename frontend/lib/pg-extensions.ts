@@ -2,7 +2,7 @@
 // ============================================================
 // PostgreSQL Extension Catalog — Realistic Enterprise Grade
 // ============================================================
-// Only extensions that ACTUALLY WORK on postgres:17-alpine are listed.
+// Only extensions that ACTUALLY WORK on postgres:18-alpine are listed.
 // Fictitious extensions (plv8, pljava, pgsodium, pgjwt, pg_net,
 // pg_graphql, pg_jsonschema, rum, pgroonga, anon, pg_hashids)
 // have been removed — they never worked on this image.
@@ -67,7 +67,7 @@ export const EXTENSIONS_CATALOG: ExtensionMeta[] = [
     { name: 'intarray', category: 'DataType', description: 'Functions, operators, and indexes for 1-D arrays of integers.', origin: 'native', tier: 0 },
 
     // ─── UTILITY & ADMIN (Tier 0/Preloaded) ──────────────────────
-    // pg_cron: compilado no Dockerfile multi-stage contra PG17 + shared_preload_libraries.
+    // pg_cron: compilado no Dockerfile multi-stage contra PG18 + shared_preload_libraries.
     // pg_stat_statements: contrib nativo, ativado via shared_preload_libraries.
     { name: 'pg_cron', category: 'Util', description: 'Job scheduler for PostgreSQL (run SQL on a cron schedule).', featured: true, origin: 'preloaded', tier: 0 },
     { name: 'pg_stat_statements', category: 'Audit', description: 'Track execution statistics of all SQL statements executed.', origin: 'native', tier: 0 },

@@ -57,7 +57,7 @@ const NATIVE_EXTENSIONS = new Set([
 ]);
 
 // Extensions compiled/installed in the Dockerfile (Tier 0).
-// pg_cron: compilado do source no Dockerfile multi-stage (PG17 compativel).
+// pg_cron: compilado do source no Dockerfile multi-stage (PG18 compatível).
 // pg_stat_statements: contrib nativo, ativado via shared_preload_libraries.
 const PRELOADED_EXTENSIONS = new Set([
     'pg_cron',
