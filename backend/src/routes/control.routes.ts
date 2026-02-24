@@ -4,7 +4,7 @@ import express from 'express';
 import { AdminController } from '../controllers/AdminController.js';
 import { BackupController } from '../controllers/BackupController.js';
 import { SecretsController } from '../controllers/SecretsController.js';
-import { McpController } from '../controllers/McpController.js'; 
+import { McpController } from '../controllers/McpController.js';
 import { backupUpload } from '../config/main.js';
 import { cascataAuth } from '../middlewares/core.js';
 import { controlPlaneFirewall } from '../middlewares/security.js';
@@ -46,6 +46,7 @@ router.get('/projects', AdminController.listProjects as any);
 router.post('/projects', AdminController.createProject as any);
 router.patch('/projects/:slug', AdminController.updateProject as any);
 router.delete('/projects/:slug', AdminController.deleteProject as any);
+router.post('/projects/recover', AdminController.recoverProject as any);
 router.get('/projects/:slug/export', AdminController.exportProject as any);
 
 // Security
@@ -55,7 +56,7 @@ router.post('/projects/:slug/secrets', AdminController.updateSecrets as any);
 router.post('/projects/:slug/block-ip', AdminController.blockIp as any);
 router.delete('/projects/:slug/blocklist/:ip', AdminController.unblockIp as any);
 router.delete('/projects/:slug/logs', AdminController.purgeLogs as any);
-router.post('/projects/:slug/logs/export-cloud', AdminController.exportLogsToCloud as any); 
+router.post('/projects/:slug/logs/export-cloud', AdminController.exportLogsToCloud as any);
 router.get('/projects/operations/:id', AdminController.getOperationStatus as any);
 
 // BACKUP POLICIES

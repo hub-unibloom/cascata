@@ -75,7 +75,8 @@ export class AdminController {
 
     static async listProjects(req: CascataRequest, res: any, next: any) {
         try {
-            const result = await systemPool.query(`SELECT id, name, slug, db_name, custom_domain, ssl_certificate_source, blocklist, status, created_at, '******' as jwt_secret, pgp_sym_decrypt(anon_key::bytea, $1::text) as anon_key, '******' as service_key, (metadata - 'secrets') as metadata FROM system.projects ORDER BY created_at DESC`, [SYS_SECRET]);
+            // Safe decrypt: COALESCE prevents a single corrupted project from crashing the entire listing
+            const result = await systemPool.query(`SELECT id, name, slug, db_name, custom_domain, ssl_certificate_source, blocklist, status, created_at, '******' as jwt_secret, COALESCE(pgp_sym_decrypt(anon_key::bytea, $1::text), '(decrypt-error)') as anon_key, '******' as service_key, (metadata - 'secrets') as metadata FROM system.projects ORDER BY created_at DESC`, [SYS_SECRET]);
             res.json(result.rows);
         } catch (e: any) { next(e); }
     }
@@ -103,9 +104,47 @@ export class AdminController {
             await CertificateService.rebuildNginxConfigs(systemPool);
             res.json({ ...insertRes.rows[0], anon_key: keys.anon, service_key: keys.service, jwt_secret: keys.jwt });
         } catch (e: any) {
+            // SAFETY: Clean up BOTH the project record AND the orphan database
+            // This prevents the deadly scenario where DB exists but record is gone
             await systemPool.query('DELETE FROM system.projects WHERE slug = $1', [safeSlug]).catch(() => { });
+            await systemPool.query(`DROP DATABASE IF EXISTS "${dbName}"`).catch(() => { });
             next(e);
         }
+    }
+
+    /**
+     * Recover an orphan project: database exists but project record was lost.
+     * This creates a new project record pointing to the existing database.
+     */
+    static async recoverProject(req: CascataRequest, res: any, next: any) {
+        const { slug, name } = req.body;
+        if (!slug || !name) return res.status(400).json({ error: 'slug and name are required.' });
+
+        const safeSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '');
+        const dbName = `cascata_db_${safeSlug.replace(/-/g, '_')}`;
+
+        try {
+            // 1. Check if project record already exists
+            const existing = await systemPool.query('SELECT 1 FROM system.projects WHERE slug = $1', [safeSlug]);
+            if (existing.rows.length > 0) return res.status(409).json({ error: 'Project record already exists. Use normal access.' });
+
+            // 2. Check if orphan database exists
+            const dbCheck = await systemPool.query('SELECT 1 FROM pg_database WHERE datname = $1', [dbName]);
+            if (dbCheck.rows.length === 0) return res.status(404).json({ error: `No orphan database "${dbName}" found.` });
+
+            // 3. Recreate project record with fresh keys
+            const keys = { anon: await generateKey(), service: await generateKey(), jwt: await generateKey() };
+            const insertRes = await systemPool.query(
+                "INSERT INTO system.projects (name, slug, db_name, anon_key, service_key, jwt_secret, metadata) VALUES ($1, $2, $3, pgp_sym_encrypt($4, $7), pgp_sym_encrypt($5, $7), pgp_sym_encrypt($6, $7), $8) RETURNING *",
+                [name, safeSlug, dbName, keys.anon, keys.service, keys.jwt, SYS_SECRET, JSON.stringify({ recovered: true, recovered_at: new Date().toISOString() })]
+            );
+
+            // 4. Rebuild nginx configs
+            await CertificateService.rebuildNginxConfigs(systemPool);
+
+            console.log(`[AdminController] Recovered orphan project: ${safeSlug} → ${dbName}`);
+            res.json({ ...insertRes.rows[0], anon_key: keys.anon, service_key: keys.service, jwt_secret: keys.jwt, recovered: true });
+        } catch (e: any) { next(e); }
     }
 
     static async updateProject(req: CascataRequest, res: any, next: any) {

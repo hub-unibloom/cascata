@@ -84,7 +84,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [schemas, setSchemas] = useState<string[]>(['public']);
   const [activeTab, setActiveTab] = useState<'tables' | 'query'>('tables');
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
-  const [openTabs, setOpenTabs] = useState<string[]>([]);
+  const [openTabs, setOpenTabs] = useState<{ schema: string, table: string }[]>([]);
   const [tables, setTables] = useState<any[]>([]);
   const [recycleBin, setRecycleBin] = useState<any[]>([]);
   const [tableData, setTableData] = useState<any[]>([]);
@@ -859,7 +859,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
             </div>
             <select
               value={activeSchema}
-              onChange={(e: any) => { setActiveSchema(e.target.value); setPageStart(0); setOpenTabs([]); setSelectedTable(null); }}
+              onChange={(e: any) => { setActiveSchema(e.target.value); setPageStart(0); setSelectedTable(null); }}
               className="text-sm font-black text-slate-900 tracking-tight bg-transparent border-none outline-none cursor-pointer appearance-none pl-1 pr-6"
             >
               {schemas.map(s => <option key={s} value={s}>{s}</option>)}
@@ -908,7 +908,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
             onClick={() => {
               setActiveTab('tables');
               setSelectedTable(table.name);
-              setOpenTabs(prev => prev.includes(table.name) ? prev : [...prev, table.name]);
+              setOpenTabs(prev => prev.some(t => t.schema === activeSchema && t.table === table.name) ? prev : [...prev, { schema: activeSchema, table: table.name }]);
               setPageStart(0);
             }}
             onContextMenu={(e: any) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, table: table.name }); }}
@@ -985,16 +985,23 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
       <main className="flex-1 overflow-hidden relative flex flex-col bg-white">
         {activeTab === 'tables' && openTabs.length > 0 && (
           <div className="flex items-center px-4 pt-2 bg-slate-50 border-b border-slate-200 overflow-x-auto gap-1 shrink-0 scrollbar-hide">
-            {openTabs.map(tab => (
-              <div key={tab} className={`group flex items-center gap-2 px-4 py-2 rounded-t-lg border border-b-0 cursor-pointer select-none transition-colors ${selectedTable === tab ? 'bg-white border-slate-200 text-indigo-700 shadow-[0_1px_0_white]' : 'bg-slate-100 border-transparent text-slate-500 hover:bg-slate-200'}`} style={{ marginBottom: '-1px' }} onClick={() => { setSelectedTable(tab); setPageStart(0); }}>
-                <TableIcon size={14} className={selectedTable === tab ? 'text-indigo-600' : 'text-slate-400'} />
-                <span className="text-xs font-bold truncate max-w-[150px]">{tab}</span>
-                <button className={`p-0.5 rounded-md transition-colors ${selectedTable === tab ? 'opacity-100 hover:bg-indigo-50 text-indigo-400 hover:text-indigo-600' : 'opacity-0 group-hover:opacity-100 hover:bg-slate-300 text-slate-400 hover:text-slate-600'}`} onClick={(e: any) => {
+            {openTabs.map((tab, idx) => (
+              <div key={`${tab.schema}.${tab.table}`} className={`group flex items-center gap-2 px-4 py-2 rounded-t-lg border border-b-0 cursor-pointer select-none transition-colors ${selectedTable === tab.table && activeSchema === tab.schema ? 'bg-white border-slate-200 text-indigo-700 shadow-[0_1px_0_white]' : 'bg-slate-100 border-transparent text-slate-500 hover:bg-slate-200'}`} style={{ marginBottom: '-1px' }} onClick={() => { if (tab.schema !== activeSchema) setActiveSchema(tab.schema); setSelectedTable(tab.table); setPageStart(0); }}>
+                <TableIcon size={14} className={selectedTable === tab.table && activeSchema === tab.schema ? 'text-indigo-600' : 'text-slate-400'} />
+                {tab.schema !== activeSchema && <span className="text-[9px] font-bold uppercase tracking-wider bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">{tab.schema}</span>}
+                <span className="text-xs font-bold truncate max-w-[150px]">{tab.table}</span>
+                <button className={`p-0.5 rounded-md transition-colors ${selectedTable === tab.table && activeSchema === tab.schema ? 'opacity-100 hover:bg-indigo-50 text-indigo-400 hover:text-indigo-600' : 'opacity-0 group-hover:opacity-100 hover:bg-slate-300 text-slate-400 hover:text-slate-600'}`} onClick={(e: any) => {
                   e.stopPropagation();
-                  const newTabs = openTabs.filter(t => t !== tab);
+                  const newTabs = openTabs.filter((_, i) => i !== idx);
                   setOpenTabs(newTabs);
-                  if (selectedTable === tab) {
-                    setSelectedTable(newTabs.length > 0 ? newTabs[newTabs.length - 1] : null);
+                  if (selectedTable === tab.table && activeSchema === tab.schema) {
+                    if (newTabs.length > 0) {
+                      const last = newTabs[newTabs.length - 1];
+                      setActiveSchema(last.schema);
+                      setSelectedTable(last.table);
+                    } else {
+                      setSelectedTable(null);
+                    }
                   }
                 }}>
                   <X size={12} />

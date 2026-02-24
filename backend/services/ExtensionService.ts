@@ -308,6 +308,22 @@ export class ExtensionService {
                         END
                         $$;
                     `);
+
+                    // AUTO-GRANT: Ensure all Cascata roles can access extension objects
+                    // This solves the "permission denied for schema extensions" problem
+                    // that plagues even Supabase users
+                    await projectPool.query(`
+                        GRANT USAGE ON SCHEMA ${safeSchema} TO anon, authenticated, service_role, cascata_api_role;
+                        GRANT SELECT ON ALL TABLES IN SCHEMA ${safeSchema} TO anon, authenticated, service_role, cascata_api_role;
+                        GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ${safeSchema} TO anon, authenticated, service_role, cascata_api_role;
+                        GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA ${safeSchema} TO anon, authenticated, service_role, cascata_api_role;
+                        ALTER DEFAULT PRIVILEGES IN SCHEMA ${safeSchema}
+                            GRANT SELECT ON TABLES TO anon, authenticated, service_role, cascata_api_role;
+                        ALTER DEFAULT PRIVILEGES IN SCHEMA ${safeSchema}
+                            GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role, cascata_api_role;
+                        ALTER DEFAULT PRIVILEGES IN SCHEMA ${safeSchema}
+                            GRANT USAGE, SELECT ON SEQUENCES TO anon, authenticated, service_role, cascata_api_role;
+                    `);
                 }
             }
 
