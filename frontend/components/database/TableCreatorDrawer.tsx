@@ -5,8 +5,8 @@ import { X, Plus, Loader2, Link as LinkIcon, Shield, ShieldOff } from 'lucide-re
 // ============================================================
 // TableCreatorDrawer — Enterprise Schema Designer
 // ============================================================
-// Extracted from DatabaseExplorer for clean separation.
 // Generates idempotent, conflict-free SQL with professional formatting.
+// Smart quoting: text defaults auto-wrapped, functions/numbers stay bare.
 // ============================================================
 
 interface ColumnDef {
@@ -35,7 +35,7 @@ interface TableCreatorDrawerProps {
     initialColumns?: ColumnDef[];
 }
 
-// Helpers
+// --- Helpers ---
 const getUUID = () => {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
         try { return crypto.randomUUID(); } catch (e) { /* ignore */ }
@@ -50,14 +50,52 @@ const getUUID = () => {
 const sanitizeName = (val: string) =>
     val.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9_]/g, "_").replace(/_+/g, "_").replace(/^[0-9]/, "_$&");
 
-const getDefaultSuggestions = (type: string) => {
+// Expanded default suggestions per type
+const getDefaultSuggestions = (type: string): string[] => {
     const t = type.toLowerCase();
-    if (t.includes('timestamp') || t.includes('date')) return ['now()', "timezone('utc', now())", 'current_date'];
     if (t === 'uuid') return ['gen_random_uuid()'];
+    if (t.includes('timestamp') || t === 'date') return ['now()', 'current_timestamp', 'current_date', "timezone('utc', now())"];
+    if (t === 'time') return ['current_time', 'localtime'];
     if (t.includes('bool')) return ['true', 'false'];
-    if (t.includes('int') || t.includes('numeric')) return ['0', '1'];
-    if (t.includes('json')) return ["'{}'::jsonb", "'[]'::jsonb"];
+    if (t.includes('int') || t.includes('numeric') || t.includes('float')) return ['0', '1'];
+    if (t.includes('json')) return ["'{}'::jsonb", "'[]'::jsonb", "'null'::jsonb"];
+    if (t === 'text' || t === 'varchar') return ["''"];
+    if (t === 'bytea') return ["'\\x'::bytea"];
     return [];
+};
+
+// Smart quoting: wraps raw text defaults in single quotes,
+// leaves functions, numbers, booleans, casts, and already-quoted values bare.
+const BARE_PATTERNS = [
+    /^gen_random_uuid\(\)$/i,
+    /^now\(\)$/i,
+    /^current_(timestamp|date|time)$/i,
+    /^localtime$/i,
+    /^timezone\(/i,
+    /^nextval\(/i,
+    /^true$/i,
+    /^false$/i,
+    /^null$/i,
+];
+
+const formatDefaultValue = (type: string, raw: string): string => {
+    const v = raw.trim();
+    if (!v) return '';
+    // Already single-quoted → pass through
+    if (v.startsWith("'") && v.endsWith("'")) return v;
+    // Type casts (e.g. '{}'::jsonb) → pass through
+    if (v.includes('::')) return v;
+    // Known SQL functions/keywords → bare
+    if (BARE_PATTERNS.some(p => p.test(v))) return v;
+    // Contains parens (function call) → bare
+    if (v.includes('(') && v.includes(')')) return v;
+    // Numeric types + valid number → bare
+    const tn = type.toLowerCase();
+    if (/^(int|float|numeric|real|double|serial|bigserial)/.test(tn) && !isNaN(Number(v))) return v;
+    // Boolean types + bool value → bare
+    if (/bool/.test(tn) && ['true', 'false'].includes(v.toLowerCase())) return v;
+    // Everything else = string literal → wrap in single quotes
+    return `'${v.replace(/'/g, "''")}'`;
 };
 
 const DEFAULT_COLUMNS: ColumnDef[] = [
@@ -87,6 +125,10 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
     const scrollRef = useRef<HTMLDivElement>(null);
     const lastAddedIdRef = useRef<string | null>(null);
     const columnInputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
+
+    // Validation: all columns must have names
+    const hasEmptyColumn = columns.some(c => !c.name.trim());
+    const canGenerate = !!tableName && !hasEmptyColumn;
 
     // Sync initial values when props change
     useEffect(() => {
@@ -152,7 +194,6 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
                 const res = await fetchWithAuth(`/api/data/${projectId}/tables/${table}/columns?schema=${activeSchema}`);
                 const cols = res.map((c: any) => c.name);
                 setFkTargetColumns(cols);
-                // Auto-select 'id' or first column
                 const defaultCol = cols.includes('id') ? 'id' : cols[0] || '';
                 setColumns(prev => prev.map(c =>
                     c.id === id ? { ...c, foreignKey: { table, column: defaultCol } } : c
@@ -164,7 +205,7 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
 
     // --- Enterprise SQL Generator ---
     const generateSQL = useCallback(() => {
-        if (!tableName) return;
+        if (!canGenerate) return;
         const safeName = sanitizeName(tableName);
         const schema = activeSchema || 'public';
 
@@ -173,7 +214,7 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
         const maxNameLen = Math.max(...colNames.map(n => n.length), 10);
 
         // Build column definitions
-        const colDefs = columns.map((c, idx) => {
+        const colDefs = columns.map((c) => {
             const name = sanitizeName(c.name || 'unnamed');
             const paddedName = name.padEnd(maxNameLen);
             const type = c.isArray ? `${c.type}[]` : c.type;
@@ -184,10 +225,10 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
             if (!c.isNullable && !c.isPrimaryKey) constraints.push('NOT NULL');
             if (c.isUnique && !c.isPrimaryKey) constraints.push('UNIQUE');
 
-            // Default value — only wrap in quotes if it looks like a literal string
-            // Functions like gen_random_uuid(), now(), etc stay bare
+            // Smart quoting for DEFAULT values
             if (c.defaultValue && c.defaultValue.trim()) {
-                constraints.push(`DEFAULT ${c.defaultValue.trim()}`);
+                const formatted = formatDefaultValue(c.type, c.defaultValue);
+                constraints.push(`DEFAULT ${formatted}`);
             }
 
             // Foreign key constraint
@@ -224,7 +265,7 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
         const sql = lines.join('\n');
         onSqlGenerated(sql);
         onClose();
-    }, [tableName, tableDesc, columns, enableRLS, activeSchema, onSqlGenerated, onClose]);
+    }, [tableName, tableDesc, columns, enableRLS, activeSchema, onSqlGenerated, onClose, canGenerate]);
 
     // Click outside handler for FK editor
     useEffect(() => {
@@ -282,14 +323,15 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Column Definitions</label>
                     <div className="space-y-3">
                         {columns.map((col) => (
-                            <div key={col.id} className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm hover:shadow-md transition-all group relative">
+                            <div key={col.id} className={`bg-white border rounded-xl p-3 shadow-sm hover:shadow-md transition-all group relative ${!col.name.trim() ? 'border-amber-300 bg-amber-50/30' : 'border-slate-200'}`}>
                                 <div className="flex gap-3 mb-3">
                                     <input
                                         ref={(el) => { if (el) columnInputRefs.current.set(col.id, el); }}
                                         value={col.name}
                                         onChange={(e: any) => handleColumnChange(col.id, 'name', sanitizeName(e.target.value))}
+                                        onKeyDown={(e: any) => { if (e.key === 'Enter') { e.preventDefault(); handleAddColumn(); } }}
                                         placeholder="column_name"
-                                        className="flex-[2] bg-slate-50 border-none rounded-lg px-3 py-2 text-xs font-bold outline-none"
+                                        className={`flex-[2] bg-slate-50 border-none rounded-lg px-3 py-2 text-xs font-bold outline-none ${!col.name.trim() ? 'placeholder:text-amber-400' : ''}`}
                                     />
                                     <select
                                         value={col.type}
@@ -406,12 +448,19 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
                 <button onClick={onClose} className="flex-1 py-3 text-xs font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">Cancel</button>
                 <button
                     onClick={generateSQL}
-                    disabled={!tableName}
-                    className="flex-[2] bg-indigo-600 text-white py-3 rounded-xl text-xs font-black uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                    disabled={!canGenerate}
+                    className="flex-[2] bg-indigo-600 text-white py-3 rounded-xl text-xs font-black uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     Generate & Execute SQL
                 </button>
             </div>
+
+            {/* Validation hint */}
+            {hasEmptyColumn && tableName && (
+                <div className="px-6 pb-4 -mt-2">
+                    <p className="text-[10px] font-bold text-amber-600 text-center">⚠ All columns must have a name</p>
+                </div>
+            )}
         </div>
     );
 };

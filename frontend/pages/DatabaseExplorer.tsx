@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Database, Search, Table as TableIcon, Loader2, AlertCircle, Plus, X,
-  Terminal, Trash2, Download, Upload, Copy, ChevronLeft, ChevronRight, ChevronDown,
+  Terminal, Trash2, Download, Upload, Copy, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   CheckCircle2, Save, Key, RefreshCw, Puzzle, FileType, FileSpreadsheet, FileJson,
   RotateCcw, GripVertical, MousePointer2, Layers, AlertTriangle, Check, Link as LinkIcon, Code, Eye, Edit
 } from 'lucide-react';
@@ -12,6 +12,8 @@ import 'jspdf-autotable';
 import ExtensionsModal from '../components/database/ExtensionsModal';
 import SqlConsole from '../components/database/SqlConsole';
 import TableCreatorDrawer from '../components/database/TableCreatorDrawer';
+import ColumnImpactModal from '../components/database/ColumnImpactModal';
+import { scanColumnDependencies, DependencyItem } from '../lib/ColumnImpactScanner';
 
 // Helper Functions
 const getUUID = () => {
@@ -96,6 +98,19 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   // Additional Features State
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [restoreTarget, setRestoreTarget] = useState<string | null>(null);
+  const [searchFilter, setSearchFilter] = useState('');
+  const [columnContextMenu, setColumnContextMenu] = useState<{ x: number; y: number; col: string } | null>(null);
+  const [dragOverCol, setDragOverCol] = useState<string | null>(null);
+  const [dragOverTable, setDragOverTable] = useState<string | null>(null);
+
+  // Protocolo Cascata — Impact Scan State
+  const [impactScan, setImpactScan] = useState<{
+    action: 'rename' | 'delete';
+    column: string;
+    newName?: string;
+    dependencies: DependencyItem[];
+    isScanning: boolean;
+  } | null>(null);
 
   // --- NEW: ADD COLUMN MODAL ---
   const [showAddColumn, setShowAddColumn] = useState(false);
@@ -426,8 +441,26 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
     }
   };
 
-  const handleExport = (format: 'csv' | 'json' | 'sql' | 'xlsx' | 'pdf', sourceData?: any[]) => {
-    const rows = sourceData || (selectedRows.size > 0 ? tableData.filter(r => selectedRows.has(r[pkCol])) : tableData);
+  const handleExport = async (format: 'csv' | 'json' | 'sql' | 'xlsx' | 'pdf', sourceData?: any[]) => {
+    let rows = sourceData;
+    if (!rows) {
+      if (selectedRows.size > 0) {
+        rows = tableData.filter(r => selectedRows.has(r[pkCol]));
+      } else if (selectedTable) {
+        // P10: Fetch ALL rows for complete export
+        try {
+          const res = await fetchWithAuth(`/api/data/${projectId}/query?schema=${activeSchema}`, {
+            method: 'POST',
+            body: JSON.stringify({ sql: `SELECT * FROM ${activeSchema}."${selectedTable}"` })
+          });
+          rows = res.rows || tableData;
+        } catch (e) {
+          rows = tableData; // Fallback to page
+        }
+      } else {
+        rows = tableData;
+      }
+    }
 
     const sanitized = rows.map(r => {
       const clean: any = {};
@@ -713,12 +746,97 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
       });
       setSuccessMsg('Table created successfully.');
       fetchTables();
+      fetchSchemas(); // P6: refresh schemas after table creation
     } catch (e: any) {
       // If auto-execute fails, send to console for manual review
       setSqlInitial(sql);
       setActiveTab('query');
       setError(`Auto-execute failed: ${e.message}. SQL sent to console.`);
     }
+  };
+
+  // --- PROTOCOLO CASCATA — Column Operations with Impact Analysis ---
+  const startCascadeProtocol = async (action: 'rename' | 'delete', colName: string) => {
+    if (!selectedTable) return;
+    setColumnContextMenu(null);
+
+    let newName: string | undefined;
+    if (action === 'rename') {
+      const input = prompt(`Rename column "${colName}" to:`, colName);
+      if (!input || input === colName) return;
+      newName = input.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    }
+
+    // Phase 1: Start scanning — show modal with spinner
+    setImpactScan({ action, column: colName, newName, dependencies: [], isScanning: true });
+
+    // Phase 2: Run 7 catalog queries
+    const deps = await scanColumnDependencies(
+      fetchWithAuth, projectId, activeSchema, selectedTable, colName, action, newName
+    );
+
+    // Phase 3: Show results in modal
+    setImpactScan({ action, column: colName, newName, dependencies: deps, isScanning: false });
+  };
+
+  const executeCascade = async (sql: string) => {
+    if (!selectedTable) return;
+    try {
+      setExecuting(true);
+      await fetchWithAuth(`/api/data/${projectId}/query?schema=${activeSchema}`, {
+        method: 'POST',
+        body: JSON.stringify({ sql })
+      });
+      const action = impactScan?.action;
+      const col = impactScan?.column;
+      const newN = impactScan?.newName;
+      setImpactScan(null);
+      setSuccessMsg(
+        action === 'rename'
+          ? `Column renamed: ${col} → ${newN}`
+          : `Column "${col}" deleted with cascade.`
+      );
+      fetchTableData(selectedTable);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setExecuting(false);
+    }
+  };
+
+  const handleColumnDrop = (targetCol: string) => {
+    if (!draggingColumn || draggingColumn === targetCol) { setDragOverCol(null); return; }
+    const newOrder = [...columnOrder];
+    const fromIdx = newOrder.indexOf(draggingColumn);
+    const toIdx = newOrder.indexOf(targetCol);
+    if (fromIdx === -1 || toIdx === -1) return;
+    newOrder.splice(fromIdx, 1);
+    newOrder.splice(toIdx, 0, draggingColumn);
+    setColumnOrder(newOrder);
+    setDraggingColumn(null);
+    setDragOverCol(null);
+    // Persist column order
+    if (selectedTable) {
+      fetchWithAuth(`/api/data/${projectId}/ui-settings/${selectedTable}?schema=${activeSchema}`, {
+        method: 'PUT',
+        body: JSON.stringify({ columns: newOrder.map(n => ({ name: n, width: columnWidths[n] || 200 })) })
+      }).catch(() => { });
+    }
+  };
+
+  const handleTableDrop = (targetTable: string) => {
+    if (!draggedTable || draggedTable === targetTable) { setDragOverTable(null); return; }
+    setTables(prev => {
+      const newList = [...prev];
+      const fromIdx = newList.findIndex(t => t.name === draggedTable);
+      const toIdx = newList.findIndex(t => t.name === targetTable);
+      if (fromIdx === -1 || toIdx === -1) return prev;
+      const [moved] = newList.splice(fromIdx, 1);
+      newList.splice(toIdx, 0, moved);
+      return newList;
+    });
+    setDraggedTable(null);
+    setDragOverTable(null);
   };
 
   // --- RENDER HELPERS ---
@@ -748,7 +866,17 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
 
         <div className="relative group">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-          <input placeholder="Search tables..." className="w-full bg-slate-50 border border-slate-100 rounded-xl pl-10 pr-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500/20" />
+          <input
+            value={searchFilter}
+            onChange={(e: any) => setSearchFilter(e.target.value)}
+            placeholder="Search tables..."
+            className="w-full bg-slate-50 border border-slate-100 rounded-xl pl-10 pr-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500/20"
+          />
+          {searchFilter && (
+            <button onClick={() => setSearchFilter('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-600">
+              <X size={14} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -761,9 +889,15 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
           </div>
         </div>
 
-        {tables.map(table => (
+        {tables.filter(t => !searchFilter || t.name.toLowerCase().includes(searchFilter.toLowerCase())).map(table => (
           <div
             key={table.name}
+            draggable
+            onDragStart={() => setDraggedTable(table.name)}
+            onDragOver={(e: any) => { e.preventDefault(); setDragOverTable(table.name); }}
+            onDragLeave={() => setDragOverTable(null)}
+            onDrop={(e: any) => { e.preventDefault(); handleTableDrop(table.name); }}
+            onDragEnd={() => { setDraggedTable(null); setDragOverTable(null); }}
             onClick={() => {
               setActiveTab('tables');
               setSelectedTable(table.name);
@@ -772,11 +906,13 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
             }}
             onContextMenu={(e: any) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, table: table.name }); }}
             className={`
-                          group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition-all border border-transparent
+                          group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition-all border
+                          ${dragOverTable === table.name ? 'border-indigo-400 bg-indigo-50' : 'border-transparent'}
                           ${selectedTable === table.name && activeTab === 'tables' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'text-slate-600 hover:bg-slate-50'}
                       `}
           >
             <div className="flex items-center gap-3 overflow-hidden">
+              <GripVertical size={12} className={`opacity-0 group-hover:opacity-60 shrink-0 ${selectedTable === table.name && activeTab === 'tables' ? 'text-white' : 'text-slate-300'}`} />
               <TableIcon size={16} className={selectedTable === table.name && activeTab === 'tables' ? 'text-white' : 'text-slate-400'} />
               <span className="font-bold text-xs truncate">{table.name}</span>
             </div>
@@ -905,7 +1041,13 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                     {displayColumns.map((col: any) => (
                       <th
                         key={col.name}
-                        className="px-4 py-3 text-left border-b border-r border-slate-200 bg-slate-50 relative group select-none whitespace-nowrap cursor-pointer hover:bg-slate-100"
+                        draggable
+                        onDragStart={() => setDraggingColumn(col.name)}
+                        onDragOver={(e: any) => { e.preventDefault(); setDragOverCol(col.name); }}
+                        onDragLeave={() => setDragOverCol(null)}
+                        onDrop={(e: any) => { e.preventDefault(); handleColumnDrop(col.name); }}
+                        onDragEnd={() => { setDraggingColumn(null); setDragOverCol(null); }}
+                        className={`px-4 py-3 text-left border-b border-r border-slate-200 bg-slate-50 relative group select-none whitespace-nowrap cursor-pointer hover:bg-slate-100 ${dragOverCol === col.name ? 'bg-indigo-100 border-indigo-400' : ''} ${draggingColumn === col.name ? 'opacity-50' : ''}`}
                         style={{ width: columnWidths[col.name] || 200 }}
                         onClick={() => {
                           let nextDir: 'asc' | 'desc' | null = 'asc';
@@ -915,8 +1057,13 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                           }
                           setSortConfig(nextDir ? { column: col.name, direction: nextDir } : null);
                         }}
+                        onContextMenu={(e: any) => {
+                          e.preventDefault(); e.stopPropagation();
+                          setColumnContextMenu({ x: e.clientX, y: e.clientY, col: col.name });
+                        }}
                       >
                         <div className="flex items-center gap-2">
+                          <GripVertical size={10} className="text-slate-300 opacity-0 group-hover:opacity-60 shrink-0 cursor-grab" />
                           {col.isPrimaryKey && <Key size={10} className="text-amber-500 shrink-0" />}
                           <span className="text-[10px] font-black text-slate-700 uppercase tracking-tight truncate flex-1">{col.name}</span>
                           {sortConfig?.column === col.name && (
@@ -936,8 +1083,8 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                         }} />
                       </th>
                     ))}
-                    <th className="w-16 border-b border-slate-200 bg-slate-50 text-center hover:bg-slate-100 cursor-pointer">
-                      <Plus size={16} className="mx-auto text-slate-400" />
+                    <th className="w-16 border-b border-slate-200 bg-slate-50 text-center hover:bg-slate-100 cursor-pointer" onClick={() => setShowAddColumn(true)}>
+                      <Plus size={16} className="mx-auto text-slate-400 hover:text-indigo-600 transition-colors" />
                     </th>
                   </tr>
 
@@ -1044,6 +1191,33 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
           </div>
         </>
       )}
+
+      {/* COLUMN CONTEXT MENU */}
+      {columnContextMenu && (
+        <>
+          <div className="fixed inset-0 z-[90]" onClick={() => setColumnContextMenu(null)} />
+          <div className="fixed z-[100] bg-white border border-slate-200 shadow-2xl rounded-2xl p-2 w-52 animate-in fade-in zoom-in-95" style={{ top: columnContextMenu.y, left: columnContextMenu.x }}>
+            <button onClick={() => { startCascadeProtocol('rename', columnContextMenu.col); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Edit size={14} /> Rename Column</button>
+            <button onClick={() => { copyToClipboard(columnContextMenu.col); setSuccessMsg('Column name copied'); setColumnContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Copy size={14} /> Copy Name</button>
+            <div className="h-[1px] bg-slate-100 my-1"></div>
+            <button onClick={() => { startCascadeProtocol('delete', columnContextMenu.col); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-all"><Trash2 size={14} /> Delete Column</button>
+          </div>
+        </>
+      )}
+
+      {/* PROTOCOLO CASCATA — Impact Modal */}
+      <ColumnImpactModal
+        isOpen={!!impactScan}
+        action={impactScan?.action || 'rename'}
+        schema={activeSchema}
+        table={selectedTable || ''}
+        column={impactScan?.column || ''}
+        newName={impactScan?.newName}
+        dependencies={impactScan?.dependencies || []}
+        isScanning={impactScan?.isScanning || false}
+        onClose={() => setImpactScan(null)}
+        onExecute={executeCascade}
+      />
 
       {/* ADD COLUMN MODAL (ENHANCED) */}
       {showAddColumn && (
