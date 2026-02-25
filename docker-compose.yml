@@ -7,9 +7,9 @@ services:
       - "${APP_HTTPS_PORT:-443}:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - acme_challenge:/var/www/html
-      - certs:/etc/letsencrypt
-      - nginx_dynamic:/etc/nginx/conf.d/dynamic
+      - ${CASCATA_DATA_DIR:-/cascata-data}/acme_challenge:/var/www/html
+      - ${CASCATA_DATA_DIR:-/cascata-data}/certs:/etc/letsencrypt
+      - ${CASCATA_DATA_DIR:-/cascata-data}/nginx_dynamic:/etc/nginx/conf.d/dynamic
     depends_on:
       - backend_control
       - backend_data
@@ -84,11 +84,11 @@ services:
       - QDRANT_PORT=6333
       - API_KEY=${GEMINI_API_KEY}
     volumes:
-      - acme_challenge:/var/www/html
-      - certs:/etc/letsencrypt
+      - ${CASCATA_DATA_DIR:-/cascata-data}/acme_challenge:/var/www/html
+      - ${CASCATA_DATA_DIR:-/cascata-data}/certs:/etc/letsencrypt
       - ${CASCATA_DATA_DIR:-/cascata-data}/storage:/cascata/storage
       - temp_data:/cascata/temp
-      - nginx_dynamic:/etc/nginx/conf.d/dynamic
+      - ${CASCATA_DATA_DIR:-/cascata-data}/nginx_dynamic:/etc/nginx/conf.d/dynamic
       - /var/run/docker.sock:/var/run/docker.sock
       - extension_payloads:/cascata_extensions:ro
     depends_on:
@@ -269,9 +269,6 @@ networks:
     internal: true
 
 volumes:
-  acme_challenge:
-  certs:
   temp_data:
-  nginx_dynamic:
   extension_payloads:
     name: cascata_extension_payloads
