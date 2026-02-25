@@ -88,9 +88,10 @@ export class AdminController {
         const reserved = ['system', 'control', 'api', 'dashboard', 'assets', 'auth', 'health'];
         if (reserved.includes(safeSlug)) return res.status(400).json({ error: "Reserved project slug." });
 
+        const dbName = `cascata_db_${safeSlug.replace(/-/g, '_')}`;
+
         try {
             const keys = { anon: await generateKey(), service: await generateKey(), jwt: await generateKey() };
-            const dbName = `cascata_db_${safeSlug.replace(/-/g, '_')}`;
             const insertRes = await systemPool.query(
                 "INSERT INTO system.projects (name, slug, db_name, anon_key, service_key, jwt_secret, metadata) VALUES ($1, $2, $3, pgp_sym_encrypt($4, $7), pgp_sym_encrypt($5, $7), pgp_sym_encrypt($6, $7), $8) RETURNING *",
                 [name, safeSlug, dbName, keys.anon, keys.service, keys.jwt, SYS_SECRET, JSON.stringify({ timezone: timezone || 'UTC' })]
