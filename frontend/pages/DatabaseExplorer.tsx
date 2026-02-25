@@ -129,7 +129,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
     }
   }, [clipboardFallbackSQL]);
 
-  // Auth/Init logicycleBin, setRecycleBin] = useState<any[]>([]);
+  // Auth/Init logic
   const [tables, setTables] = useState<any[]>([]);
   const [recycleBin, setRecycleBin] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -142,7 +142,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [pageStart, setPageStart] = useState(0);
   const [sortConfig, setSortConfig] = useState<{ column: string, direction: 'asc' | 'desc' } | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
-  const [selectedRows, setSelectedRows] = new Set());
+  const [selectedRows, setSelectedRows] = useState<Set<any>>(new Set());
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [draggingColumn, setDraggingColumn] = useState<string | null>(null);
