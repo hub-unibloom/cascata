@@ -209,6 +209,18 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   const pkCol = columns.find(c => c.isPrimaryKey)?.name || columns[0]?.name;
   const displayColumns = columnOrder.length > 0 ? columnOrder.map(name => columns.find(c => c.name === name)).filter(Boolean) : columns;
 
+  // --- ATOMIC SCHEMA SWITCH ---
+  // This MUST be used everywhere instead of raw setActiveSchema to prevent 404 race conditions.
+  // It clears all table-related state in the SAME React batch as the schema change,
+  // so no render ever has newSchema + oldTable.
+  const switchSchema = useCallback((newSchema: string) => {
+    if (newSchema === activeSchema) return;
+    setSelectedTable(null);
+    setPinnedTables([]);
+    setPageStart(0);
+    setActiveSchema(newSchema);
+  }, [activeSchema]);
+
   // --- API HELPER ---
   const fetchWithAuth = useCallback(async (url: string, options: any = {}) => {
     const token = localStorage.getItem('cascata_token');
@@ -484,7 +496,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
     }
   };
 
-  const handleExport = async (format: 'csv' | 'json' | 'sql' | 'xlsx' | 'pdf', sourceData?: any[]) => {
+  const handleExport = async (format: string, sourceData?: any[]) => {
     let rows = sourceData;
     if (!rows) {
       if (selectedRows.size > 0) {
@@ -517,11 +529,14 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a'); a.href = url; a.download = `${fileName}.json`; a.click();
     }
-    else if (format === 'pdf') {
-      const doc = new jsPDF();
+    else if (format === 'pdf' || format.startsWith('pdf-')) {
+      const orient = format === 'pdf-landscape' ? 'landscape' : 'portrait';
+      const doc = new jsPDF({ orientation: orient as any });
       doc.autoTable({
         head: [Object.keys(sanitized[0] || {})],
         body: sanitized.map((r: any) => Object.values(r)),
+        styles: { fontSize: orient === 'landscape' ? 7 : 8, cellPadding: 2 },
+        margin: { top: 10, left: 5, right: 5 },
       });
       doc.save(`${fileName}.pdf`);
     }
@@ -650,21 +665,15 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
 
   // --- EFFECT HOOKS ---
   useEffect(() => { fetchSchemas(); }, [projectId]);
-  useEffect(() => {
-    // Clear stale selection BEFORE fetchTables, preventing race with TablePanel
-    setSelectedTable(null);
-    setPinnedTables([]);
-    setOpenTabs([]);
-    fetchTables();
-  }, [projectId, activeSchema]);
+  // fetchTables when schema changes — switchSchema already cleared stale state atomically
+  useEffect(() => { fetchTables(); }, [projectId, activeSchema]);
 
-  // Refetch data when table changes OR pagination changes OR sort changes
-  // Guard: only fire when selectedTable is valid AND tables are loaded
+  // Refetch parent data when table changes (for modals/export that still use parent state)
   useEffect(() => {
     if (selectedTable && activeTab === 'tables' && tables.length > 0 && tables.some((t: any) => t.name === selectedTable)) {
       fetchTableData(selectedTable);
     }
-  }, [selectedTable, activeTab, pageStart, sortConfig]);
+  }, [selectedTable, activeTab, pageStart, sortConfig, tables]);
 
   useEffect(() => { if (showExtensions) fetchExtensions(); }, [showExtensions]);
 
@@ -928,7 +937,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
             </div>
             <select
               value={activeSchema}
-              onChange={(e: any) => { setActiveSchema(e.target.value); setPageStart(0); setSelectedTable(null); }}
+              onChange={(e: any) => switchSchema(e.target.value)}
               className="text-sm font-black text-slate-900 tracking-tight bg-transparent border-none outline-none cursor-pointer appearance-none pl-1 pr-6"
             >
               {schemas.map(s => <option key={s} value={s}>{s}</option>)}
@@ -1070,7 +1079,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                   // Shift+click on tab: toggle pinned
                   setPinnedTables(prev => prev.includes(tab.table) ? (prev.length > 1 ? prev.filter(t => t !== tab.table) : prev) : [...prev, tab.table]);
                 } else {
-                  if (tab.schema !== activeSchema) setActiveSchema(tab.schema);
+                  if (tab.schema !== activeSchema) switchSchema(tab.schema);
                   setSelectedTable(tab.table);
                   setPinnedTables([tab.table]);
                 }
@@ -1086,7 +1095,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                   if (selectedTable === tab.table && activeSchema === tab.schema) {
                     if (newTabs.length > 0) {
                       const last = newTabs[newTabs.length - 1];
-                      setActiveSchema(last.schema);
+                      switchSchema(last.schema);
                       setSelectedTable(last.table);
                       setPinnedTables([last.table]);
                     } else {

@@ -400,12 +400,20 @@ const TablePanel = forwardRef<TablePanelHandle, TablePanelProps>(({
                         <div className="relative" ref={exportMenuRef}>
                             <button onClick={(e: any) => { e.stopPropagation(); setShowExportMenu(!showExportMenu); }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 text-slate-600 hover:bg-slate-100 text-[10px] font-black uppercase tracking-widest"><Download size={11} /> Export</button>
                             {showExportMenu && (
-                                <div className="absolute top-10 right-0 w-40 bg-white rounded-xl shadow-2xl border border-slate-200 z-50 p-1.5 animate-in fade-in zoom-in-95">
-                                    {['csv', 'xlsx', 'json', 'sql', 'pdf'].map(fmt => (
+                                <div className="absolute top-10 right-0 w-48 bg-white rounded-xl shadow-2xl border border-slate-200 z-50 p-1.5 animate-in fade-in zoom-in-95">
+                                    {['csv', 'xlsx', 'json', 'sql'].map(fmt => (
                                         <button key={fmt} onClick={() => { onExport(tableName, tableData, fmt); setShowExportMenu(false); }} className="w-full text-left px-3 py-2 hover:bg-slate-50 text-xs font-bold uppercase text-slate-600 rounded-lg flex items-center gap-2">
-                                            {fmt === 'pdf' ? <FileType size={12} /> : fmt === 'xlsx' ? <FileSpreadsheet size={12} /> : fmt === 'json' ? <FileJson size={12} /> : <Code size={12} />} {fmt.toUpperCase()}
+                                            {fmt === 'xlsx' ? <FileSpreadsheet size={12} /> : fmt === 'json' ? <FileJson size={12} /> : <Code size={12} />} {fmt.toUpperCase()}
                                         </button>
                                     ))}
+                                    <div className="h-[1px] bg-slate-100 my-1"></div>
+                                    <div className="px-3 py-1.5 text-[9px] font-black text-slate-400 uppercase tracking-widest">PDF Orientation</div>
+                                    <button onClick={() => { onExport(tableName, tableData, 'pdf-portrait'); setShowExportMenu(false); }} className="w-full text-left px-3 py-2 hover:bg-slate-50 text-xs font-bold text-slate-600 rounded-lg flex items-center gap-2">
+                                        <FileType size={12} /> PDF — Portrait
+                                    </button>
+                                    <button onClick={() => { onExport(tableName, tableData, 'pdf-landscape'); setShowExportMenu(false); }} className="w-full text-left px-3 py-2 hover:bg-slate-50 text-xs font-bold text-slate-600 rounded-lg flex items-center gap-2">
+                                        <FileType size={12} /> PDF — Landscape
+                                    </button>
                                 </div>
                             )}
                         </div>
