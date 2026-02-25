@@ -30,7 +30,23 @@ const getUUID = () => {
 };
 
 const copyToClipboard = async (text: string) => {
-  try { await navigator.clipboard.writeText(text); return true; } catch (err) { return false; }
+  // Try modern Clipboard API first (requires HTTPS / secure context)
+  if (navigator.clipboard && window.isSecureContext) {
+    try { await navigator.clipboard.writeText(text); return true; } catch { /* fall through */ }
+  }
+  // Fallback for HTTP contexts (VPS without HTTPS)
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return ok;
+  } catch { return false; }
 };
 
 const sanitizeName = (val: string) => {
@@ -101,6 +117,19 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [activeTab, setActiveTab] = useState<'tables' | 'query'>('tables');
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [openTabs, setOpenTabs] = useState<{ schema: string, table: string }[]>([]);
+  const [dbInfo, setDbInfo] = useState<any>(null);
+  const [clipboardFallbackSQL, setClipboardFallbackSQL] = useState<string | null>(null);
+
+  // Focus and select textarea text automatically when the fallback modal appears
+  const fallbackTextareaRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (clipboardFallbackSQL && fallbackTextareaRef.current) {
+      fallbackTextareaRef.current.focus();
+      fallbackTextareaRef.current.select();
+    }
+  }, [clipboardFallbackSQL]);
+
+  // Auth/Init logicycleBin, setRecycleBin] = useState<any[]>([]);
   const [tables, setTables] = useState<any[]>([]);
   const [recycleBin, setRecycleBin] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,7 +142,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [pageStart, setPageStart] = useState(0);
   const [sortConfig, setSortConfig] = useState<{ column: string, direction: 'asc' | 'desc' } | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
-  const [selectedRows, setSelectedRows] = useState<Set<any>>(new Set());
+  const [selectedRows, setSelectedRows] = new Set());
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [draggingColumn, setDraggingColumn] = useState<string | null>(null);
@@ -898,17 +927,19 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
       const sql = `CREATE TABLE ${activeSchema}."${tableName}" (\n${cols.map((c: any) => {
         let def = `  "${c.name}" ${c.type}`;
         if (c.isPrimaryKey) def += ' PRIMARY KEY';
-        if (!c.isNullable) def += ' NOT NULL';
+        if (c.is_nullable === 'NO' && !c.isPrimaryKey) def += ' NOT NULL';
         if (c.defaultValue) def += ` DEFAULT ${c.defaultValue}`;
         return def;
       }).join(',\n')}\n);`;
-      const copied = await copyToClipboard(sql);
-      if (copied) {
-        setSuccessMsg("SQL Copied to clipboard");
+      const ok = await copyToClipboard(sql);
+      if (ok) {
+        setSuccessMsg("SQL Copied");
       } else {
-        setError("Failed to copy — clipboard access denied");
+        setClipboardFallbackSQL(sql);
       }
-    } catch (e: any) { setError(e.message || 'Failed to generate SQL'); }
+    } catch (e: any) {
+      setError(e.message || "Failed to generate SQL");
+    }
   };
 
   // --- TABLE CREATOR CALLBACK ---
@@ -1655,6 +1686,49 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
           </div>
         )
       }
+
+      {/* Clipboard Fallback Modal (HTTP Environment Support) */}
+      {clipboardFallbackSQL && (
+        <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden border border-slate-200">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-amber-50">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-600">
+                  <Copy size={16} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-800">Cópia Manual Necessária</h3>
+                  <p className="text-[10px] text-slate-500 font-medium tracking-wide">
+                    Pressione <kbd className="bg-slate-200 px-1 py-0.5 rounded text-slate-700">Ctrl+C</kbd> para copiar o código abaixo.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setClipboardFallbackSQL(null)}
+                className="w-8 h-8 rounded-full hover:bg-slate-200 flex items-center justify-center text-slate-400"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-4 bg-slate-50">
+              <textarea
+                ref={fallbackTextareaRef}
+                value={clipboardFallbackSQL}
+                readOnly
+                className="w-full h-48 bg-slate-900 text-emerald-400 font-mono text-xs p-4 rounded-xl outline-none resize-none border border-slate-800 selection:bg-indigo-500/50"
+              />
+            </div>
+            <div className="px-4 py-3 bg-white border-t border-slate-100 flex justify-end">
+              <button
+                onClick={() => setClipboardFallbackSQL(null)}
+                className="px-6 py-2 bg-indigo-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-indigo-700 transition-colors"
+              >
+                Feito, fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div >
   );
 };

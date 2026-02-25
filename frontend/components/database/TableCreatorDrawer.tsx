@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Plus, Loader2, Link as LinkIcon, Shield, ShieldOff, Regex } from 'lucide-react';
+import { X, Plus, Loader2, Link as LinkIcon, Shield, ShieldOff, Regex, Cpu } from 'lucide-react';
 
 // ============================================================
 // TableCreatorDrawer — Enterprise Schema Designer
@@ -155,6 +155,33 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
         if (initialColumns) setColumns(initialColumns);
     }, [initialColumns]);
 
+    // MCP Access state
+    const [mcpEnabled, setMcpEnabled] = useState(false);
+    const [mcpPerms, setMcpPerms] = useState(() => {
+        try {
+            const saved = localStorage.getItem(`cascata_mcp_defaults_${projectId}`);
+            if (saved) return JSON.parse(saved);
+        } catch { /* ignore */ }
+        return { r: true, c: true, u: true, d: false }; // DELETE off by default
+    });
+
+    // Check if MCP is enabled for this project
+    useEffect(() => {
+        if (!isOpen) return;
+        (async () => {
+            try {
+                const res = await fetchWithAuth(`/api/data/${projectId}/metadata`);
+                const gov = res?.metadata?.ai_governance;
+                setMcpEnabled(gov?.mcp_enabled === true);
+            } catch { setMcpEnabled(false); }
+        })();
+    }, [isOpen, projectId]);
+
+    // Persist MCP defaults whenever they change
+    useEffect(() => {
+        localStorage.setItem(`cascata_mcp_defaults_${projectId}`, JSON.stringify(mcpPerms));
+    }, [mcpPerms, projectId]);
+
     // Reset when drawer opens fresh
     useEffect(() => {
         if (isOpen && !initialTableName && !initialColumns) {
@@ -163,6 +190,7 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
             setColumns([...DEFAULT_COLUMNS]);
             setEnableRLS(true);
             setActiveFkEditor(null);
+            // Restore last MCP prefs from localStorage (already done via useState initializer)
         }
     }, [isOpen]);
 
@@ -265,11 +293,7 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
         lines.push(colDefs.join(',\n'));
         lines.push(`);`);
 
-        // Table comment (if provided)
-        if (tableDesc.trim()) {
-            lines.push('');
-            lines.push(`COMMENT ON TABLE ${schema}.${safeName} IS '${tableDesc.replace(/'/g, "''").trim()}';`);
-        }
+        // (Table comment logic moved to the end, combined with MCP Governance)
 
         // RLS (optional)
         if (enableRLS) {
@@ -293,6 +317,22 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
             lines.push('');
             lines.push('-- Column format validation & descriptions');
             commentLines.forEach(l => lines.push(l));
+        }
+
+        // Table description & MCP Governance metadata
+        const hasDesc = tableDesc.trim().length > 0;
+
+        if (hasDesc || mcpEnabled) {
+            lines.push('');
+            lines.push('-- Table Comment & Governance');
+            const cleanDesc = hasDesc ? tableDesc.replace(/'/g, "''").trim() : '';
+
+            if (mcpEnabled) {
+                const mcpFlag = `MCP:${mcpPerms.r ? 'R' : ''}${mcpPerms.c ? 'C' : ''}${mcpPerms.u ? 'U' : ''}${mcpPerms.d ? 'D' : ''}`;
+                lines.push(`COMMENT ON TABLE ${schema}.${safeName} IS '${cleanDesc}||${mcpFlag}';`);
+            } else {
+                lines.push(`COMMENT ON TABLE ${schema}.${safeName} IS '${cleanDesc}';`);
+            }
         }
 
         const sql = lines.join('\n');
@@ -514,6 +554,46 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
                         <div className={`w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${enableRLS ? 'translate-x-5' : ''}`}></div>
                     </button>
                 </div>
+
+                {/* MCP Access Card — only shows if MCP is enabled for this project */}
+                {mcpEnabled && (
+                    <div className="bg-slate-900 p-4 rounded-xl border border-slate-700">
+                        <div className="flex items-center gap-3 mb-3">
+                            <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center shadow-lg shadow-emerald-500/30">
+                                <Cpu size={16} className="text-white" />
+                            </div>
+                            <div>
+                                <span className="text-xs font-bold text-white block">MCP Access (AI Agents)</span>
+                                <span className="text-[10px] text-slate-400 font-medium">Permissions for Cursor, Windsurf, etc.</span>
+                            </div>
+                        </div>
+                        <div className="flex gap-2">
+                            {(['r', 'c', 'u', 'd'] as const).map(perm => {
+                                const labels = { r: 'READ', c: 'CREATE', u: 'UPDATE', d: 'DELETE' };
+                                const colors = {
+                                    r: mcpPerms[perm] ? 'bg-blue-500 text-white border-blue-400' : 'bg-slate-800 text-slate-500 border-slate-600',
+                                    c: mcpPerms[perm] ? 'bg-emerald-500 text-white border-emerald-400' : 'bg-slate-800 text-slate-500 border-slate-600',
+                                    u: mcpPerms[perm] ? 'bg-amber-500 text-white border-amber-400' : 'bg-slate-800 text-slate-500 border-slate-600',
+                                    d: mcpPerms[perm] ? 'bg-rose-500 text-white border-rose-400' : 'bg-slate-800 text-slate-500 border-slate-600',
+                                };
+                                return (
+                                    <button
+                                        key={perm}
+                                        onClick={() => setMcpPerms((prev: any) => ({ ...prev, [perm]: !prev[perm] }))}
+                                        className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest border transition-all ${colors[perm]}`}
+                                    >
+                                        {labels[perm]}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        {mcpPerms.d && (
+                            <p className="text-[9px] text-rose-400 font-bold mt-2 text-center animate-pulse">
+                                ⚠ DELETE enabled — AI agents will be able to delete rows
+                            </p>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* Footer */}
