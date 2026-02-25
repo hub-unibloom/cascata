@@ -14,6 +14,7 @@ import SqlConsole from '../components/database/SqlConsole';
 import TableCreatorDrawer from '../components/database/TableCreatorDrawer';
 import ColumnImpactModal from '../components/database/ColumnImpactModal';
 import { scanColumnDependencies, DependencyItem } from '../lib/ColumnImpactScanner';
+import TablePanel from '../components/database/TablePanel';
 
 // Helper Functions
 const getUUID = () => {
@@ -101,20 +102,29 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [openTabs, setOpenTabs] = useState<{ schema: string, table: string }[]>([]);
   const [tables, setTables] = useState<any[]>([]);
   const [recycleBin, setRecycleBin] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isRealtimeActive, setIsRealtimeActive] = useState(false);
+
+  // --- State also used by modals/export/import/realtime (TablePanel has own copies) ---
   const [tableData, setTableData] = useState<any[]>([]);
   const [columns, setColumns] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState(false);
-  const [isRealtimeActive, setIsRealtimeActive] = useState(false);
   const [pageStart, setPageStart] = useState(0);
   const [sortConfig, setSortConfig] = useState<{ column: string, direction: 'asc' | 'desc' } | null>(null);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [selectedRows, setSelectedRows] = useState<Set<any>>(new Set());
+  const [columnOrder, setColumnOrder] = useState<string[]>([]);
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+  const [draggingColumn, setDraggingColumn] = useState<string | null>(null);
+  const [dragOverCol, setDragOverCol] = useState<string | null>(null);
+
+  // --- PINNED TABLES (Multi-table side-by-side) ---
+  const [pinnedTables, setPinnedTables] = useState<string[]>([]);
 
   // Additional Features State
-  const [showExportMenu, setShowExportMenu] = useState(false);
   const [restoreTarget, setRestoreTarget] = useState<string | null>(null);
   const [searchFilter, setSearchFilter] = useState('');
   const [columnContextMenu, setColumnContextMenu] = useState<{ x: number; y: number; col: string } | null>(null);
-  const [dragOverCol, setDragOverCol] = useState<string | null>(null);
   const [dragOverTable, setDragOverTable] = useState<string | null>(null);
 
   // Protocolo Cascata — Impact Scan State
@@ -145,10 +155,6 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [fkLoading, setFkLoading] = useState(false);
 
   // UI State
-  const [selectedRows, setSelectedRows] = useState<Set<any>>(new Set());
-  const [columnOrder, setColumnOrder] = useState<string[]>([]);
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
-  const [draggingColumn, setDraggingColumn] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
 
@@ -175,24 +181,21 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
 
-  // Editing State
+  // Editing State (still used by surviving functions)
   const [editingCell, setEditingCell] = useState<{ rowId: any, col: string } | null>(null);
   const [editValue, setEditValue] = useState<string>('');
   const [inlineNewRow, setInlineNewRow] = useState<any>({});
   const firstInputRef = useRef<HTMLInputElement>(null);
 
-
   // Drag State
   const [draggedTable, setDraggedTable] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, table: string } | null>(null);
 
-  // --- NEW: DUPLICATE MODAL ---
+  // --- DUPLICATE MODAL ---
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [duplicateConfig, setDuplicateConfig] = useState({ source: '', newName: '', withData: false });
 
-  // --- EDIT FORMAT MODAL (Column Format Validation) ---
-  // NOTE: Works in conjunction with the "Add Column" modal format UI and
-  // the TableCreatorDrawer format generation. Server-side enforced by DataController.
+  // --- EDIT FORMAT MODAL ---
   const [editFormat, setEditFormat] = useState<{
     column: string;
     preset: string;
@@ -204,6 +207,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [sqlInitial, setSqlInitial] = useState('');
 
   const pkCol = columns.find(c => c.isPrimaryKey)?.name || columns[0]?.name;
+  const displayColumns = columnOrder.length > 0 ? columnOrder.map(name => columns.find(c => c.name === name)).filter(Boolean) : columns;
 
   // --- API HELPER ---
   const fetchWithAuth = useCallback(async (url: string, options: any = {}) => {
@@ -229,22 +233,35 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   };
 
   const fetchTables = async () => {
+    setLoading(true);
     try {
-      const [data, recycle] = await Promise.all([
-        fetchWithAuth(`/api/data/${projectId}/tables?schema=${activeSchema}`),
-        fetchWithAuth(`/api/data/${projectId}/recycle-bin?schema=${activeSchema}`)
-      ]);
-      setTables(data);
-      setRecycleBin(recycle);
+      const data = await fetchWithAuth(`/api/data/${projectId}/tables?schema=${activeSchema}`);
+      const recycleBinData = await fetchWithAuth(`/api/data/${projectId}/recycle-bin?schema=${activeSchema}`).catch(() => []);
+      setRecycleBin(recycleBinData);
+
+      // Apply persisted table order from localStorage
+      const savedOrder = localStorage.getItem(`cascata_table_order_${projectId}_${activeSchema}`);
+      let sortedData = data;
+      if (savedOrder) {
+        try {
+          const order: string[] = JSON.parse(savedOrder);
+          const ordered = order.map(name => data.find((t: any) => t.name === name)).filter(Boolean);
+          const remaining = data.filter((t: any) => !order.includes(t.name));
+          sortedData = [...ordered, ...remaining];
+        } catch { /* ignore parse errors */ }
+      }
+      setTables(sortedData);
 
       // Auto select first table if current is wiped
-      if (data.length > 0 && !data.find((t: any) => t.name === selectedTable)) {
-        setSelectedTable(data[0].name);
-      } else if (data.length === 0) {
+      if (sortedData.length > 0 && !sortedData.find((t: any) => t.name === selectedTable)) {
+        setSelectedTable(sortedData[0].name);
+        setPinnedTables([sortedData[0].name]);
+      } else if (sortedData.length === 0) {
         setSelectedTable(null);
+        setPinnedTables([]);
         setTableData([]);
       }
-    } catch (err: any) { setError(err.message); }
+    } catch (e: any) { setError(translateError(e)); }
     finally { setLoading(false); }
   };
 
@@ -501,7 +518,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
       const a = document.createElement('a'); a.href = url; a.download = `${fileName}.json`; a.click();
     }
     else if (format === 'pdf') {
-      const doc = new (window as any).jsPDF();
+      const doc = new jsPDF();
       doc.autoTable({
         head: [Object.keys(sanitized[0] || {})],
         body: sanitized.map((r: any) => Object.values(r)),
@@ -633,14 +650,22 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
 
   // --- EFFECT HOOKS ---
   useEffect(() => { fetchSchemas(); }, [projectId]);
-  useEffect(() => { fetchTables(); }, [projectId, activeSchema]);
+  useEffect(() => {
+    // Clear stale selection BEFORE fetchTables, preventing race with TablePanel
+    setSelectedTable(null);
+    setPinnedTables([]);
+    setOpenTabs([]);
+    fetchTables();
+  }, [projectId, activeSchema]);
 
   // Refetch data when table changes OR pagination changes OR sort changes
+  // Guard: only fire when selectedTable is valid AND tables are loaded
   useEffect(() => {
-    if (selectedTable && activeTab === 'tables') {
+    if (selectedTable && activeTab === 'tables' && tables.length > 0 && tables.some((t: any) => t.name === selectedTable)) {
       fetchTableData(selectedTable);
     }
   }, [selectedTable, activeTab, pageStart, sortConfig]);
+
   useEffect(() => { if (showExtensions) fetchExtensions(); }, [showExtensions]);
 
   // Realtime
@@ -871,23 +896,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   };
 
   const handleColumnDrop = (targetCol: string) => {
-    if (!draggingColumn || draggingColumn === targetCol) { setDragOverCol(null); return; }
-    const newOrder = [...columnOrder];
-    const fromIdx = newOrder.indexOf(draggingColumn);
-    const toIdx = newOrder.indexOf(targetCol);
-    if (fromIdx === -1 || toIdx === -1) return;
-    newOrder.splice(fromIdx, 1);
-    newOrder.splice(toIdx, 0, draggingColumn);
-    setColumnOrder(newOrder);
-    setDraggingColumn(null);
-    setDragOverCol(null);
-    // Persist column order
-    if (selectedTable) {
-      fetchWithAuth(`/api/data/${projectId}/ui-settings/${selectedTable}?schema=${activeSchema}`, {
-        method: 'PUT',
-        body: JSON.stringify({ columns: newOrder.map(n => ({ name: n, width: columnWidths[n] || 200 })) })
-      }).catch(() => { });
-    }
+    // Column drop is now handled inside TablePanel
   };
 
   const handleTableDrop = (targetTable: string) => {
@@ -899,6 +908,8 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
       if (fromIdx === -1 || toIdx === -1) return prev;
       const [moved] = newList.splice(fromIdx, 1);
       newList.splice(toIdx, 0, moved);
+      // Persist table order in localStorage
+      localStorage.setItem(`cascata_table_order_${projectId}_${activeSchema}`, JSON.stringify(newList.map(t => t.name)));
       return newList;
     });
     setDraggedTable(null);
@@ -906,7 +917,6 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   };
 
   // --- RENDER HELPERS ---
-  const displayColumns = columnOrder.length > 0 ? columnOrder.map(name => columns.find(c => c.name === name)).filter(Boolean) : columns;
 
   const renderSidebar = () => (
     <aside className="bg-white border-r border-slate-200 flex flex-col shrink-0 relative z-10" style={{ width: sidebarWidth }}>
@@ -964,22 +974,29 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
             onDragLeave={() => setDragOverTable(null)}
             onDrop={(e: any) => { e.preventDefault(); handleTableDrop(table.name); }}
             onDragEnd={() => { setDraggedTable(null); setDragOverTable(null); }}
-            onClick={() => {
+            onClick={(e: any) => {
               setActiveTab('tables');
-              setSelectedTable(table.name);
-              setOpenTabs(prev => prev.some(t => t.schema === activeSchema && t.table === table.name) ? prev : [...prev, { schema: activeSchema, table: table.name }]);
-              setPageStart(0);
+              if (e.shiftKey) {
+                // Shift+click: add to pinned tables for side-by-side view
+                setPinnedTables(prev => prev.includes(table.name) ? prev : [...prev, table.name]);
+                setOpenTabs(prev => prev.some(t => t.schema === activeSchema && t.table === table.name) ? prev : [...prev, { schema: activeSchema, table: table.name }]);
+              } else {
+                // Normal click — single table, reset pinned
+                setPinnedTables([table.name]);
+                setSelectedTable(table.name);
+                setOpenTabs(prev => prev.some(t => t.schema === activeSchema && t.table === table.name) ? prev : [...prev, { schema: activeSchema, table: table.name }]);
+              }
             }}
             onContextMenu={(e: any) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, table: table.name }); }}
             className={`
                           group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition-all border
                           ${dragOverTable === table.name ? 'border-indigo-400 bg-indigo-50' : 'border-transparent'}
-                          ${selectedTable === table.name && activeTab === 'tables' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'text-slate-600 hover:bg-slate-50'}
+                          ${selectedTable === table.name && activeTab === 'tables' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : pinnedTables.includes(table.name) && activeTab === 'tables' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'text-slate-600 hover:bg-slate-50'}
                       `}
           >
             <div className="flex items-center gap-3 overflow-hidden">
-              <GripVertical size={12} className={`opacity-0 group-hover:opacity-60 shrink-0 ${selectedTable === table.name && activeTab === 'tables' ? 'text-white' : 'text-slate-300'}`} />
-              <TableIcon size={16} className={selectedTable === table.name && activeTab === 'tables' ? 'text-white' : 'text-slate-400'} />
+              <GripVertical size={12} className={`opacity-0 group-hover:opacity-60 shrink-0 ${selectedTable === table.name && activeTab === 'tables' ? 'text-white' : pinnedTables.includes(table.name) && activeTab === 'tables' ? 'text-indigo-400' : 'text-slate-300'}`} />
+              <TableIcon size={16} className={selectedTable === table.name && activeTab === 'tables' ? 'text-white' : pinnedTables.includes(table.name) && activeTab === 'tables' ? 'text-indigo-500' : 'text-slate-400'} />
               <span className="font-bold text-xs truncate">{table.name}</span>
             </div>
           </div>
@@ -1012,15 +1029,18 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
     return col.type;
   };
 
+  // isCompareMode: true when multiple tables are pinned
+  const isCompareMode = pinnedTables.length > 1;
+
   return (
     <div
       className={`flex h-full flex-row bg-[#F8FAFC] text-slate-900 overflow-hidden font-sans relative transition-colors ${isDraggingOver ? 'bg-indigo-50/50' : ''}`}
       onDrop={handleGlobalDrop}
-      onDragOver={(e: any) => { e.preventDefault(); setIsDraggingOver(true); }}
+      onDragOver={(e: any) => { e.preventDefault(); if (!draggingColumn && !draggedTable) setIsDraggingOver(true); }}
       onDragLeave={() => setIsDraggingOver(false)}
     >
-      {/* Drag Overlay */}
-      {isDraggingOver && (
+      {/* Drag Overlay — only for external file drops, NOT internal reorders */}
+      {isDraggingOver && !draggingColumn && !draggedTable && (
         <div className="absolute inset-0 z-[1000] border-8 border-indigo-500 border-dashed bg-indigo-50/80 flex items-center justify-center p-8 pointer-events-none">
           <div className="bg-white rounded-3xl p-10 shadow-2xl text-indigo-600 flex flex-col items-center animate-bounce">
             <Upload size={64} className="mb-4" />
@@ -1045,7 +1065,16 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
         {activeTab === 'tables' && openTabs.length > 0 && (
           <div className="flex items-center px-4 pt-2 bg-slate-50 border-b border-slate-200 overflow-x-auto gap-1 shrink-0 scrollbar-hide">
             {openTabs.map((tab, idx) => (
-              <div key={`${tab.schema}.${tab.table}`} className={`group flex items-center gap-2 px-4 py-2 rounded-t-lg border border-b-0 cursor-pointer select-none transition-colors ${selectedTable === tab.table && activeSchema === tab.schema ? 'bg-white border-slate-200 text-indigo-700 shadow-[0_1px_0_white]' : 'bg-slate-100 border-transparent text-slate-500 hover:bg-slate-200'}`} style={{ marginBottom: '-1px' }} onClick={() => { if (tab.schema !== activeSchema) setActiveSchema(tab.schema); setSelectedTable(tab.table); setPageStart(0); }}>
+              <div key={`${tab.schema}.${tab.table}`} className={`group flex items-center gap-2 px-4 py-2 rounded-t-lg border border-b-0 cursor-pointer select-none transition-colors ${selectedTable === tab.table && activeSchema === tab.schema ? 'bg-white border-slate-200 text-indigo-700 shadow-[0_1px_0_white]' : pinnedTables.includes(tab.table) ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-slate-100 border-transparent text-slate-500 hover:bg-slate-200'}`} style={{ marginBottom: '-1px' }} onClick={(e: any) => {
+                if (e.shiftKey) {
+                  // Shift+click on tab: toggle pinned
+                  setPinnedTables(prev => prev.includes(tab.table) ? (prev.length > 1 ? prev.filter(t => t !== tab.table) : prev) : [...prev, tab.table]);
+                } else {
+                  if (tab.schema !== activeSchema) setActiveSchema(tab.schema);
+                  setSelectedTable(tab.table);
+                  setPinnedTables([tab.table]);
+                }
+              }}>
                 <TableIcon size={14} className={selectedTable === tab.table && activeSchema === tab.schema ? 'text-indigo-600' : 'text-slate-400'} />
                 {tab.schema !== activeSchema && <span className="text-[9px] font-bold uppercase tracking-wider bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">{tab.schema}</span>}
                 <span className="text-xs font-bold truncate max-w-[150px]">{tab.table}</span>
@@ -1053,167 +1082,68 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                   e.stopPropagation();
                   const newTabs = openTabs.filter((_, i) => i !== idx);
                   setOpenTabs(newTabs);
+                  setPinnedTables(prev => prev.filter(t => t !== tab.table));
                   if (selectedTable === tab.table && activeSchema === tab.schema) {
                     if (newTabs.length > 0) {
                       const last = newTabs[newTabs.length - 1];
                       setActiveSchema(last.schema);
                       setSelectedTable(last.table);
+                      setPinnedTables([last.table]);
                     } else {
                       setSelectedTable(null);
+                      setPinnedTables([]);
                     }
                   }
-                }}>
-                  <X size={12} />
+                }}>                  <X size={12} />
                 </button>
               </div>
             ))}
           </div>
-        )}
+        )
+        }
 
-        {activeTab === 'tables' && selectedTable ? (
-          <div className="flex-1 flex flex-col overflow-hidden">
-            {/* TOOLBAR */}
-            <div className="px-8 py-4 border-b border-slate-200 bg-white flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-6">
-                <h3 className="text-xl font-black text-slate-900 tracking-tight">{selectedTable}</h3>
-
-                {/* PAGINATION */}
-                <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg p-1 shadow-inner shadow-slate-100/50">
-                  <button disabled={pageStart === 0} onClick={() => setPageStart(Math.max(0, pageStart - 100))} className="p-1 px-2 text-slate-400 hover:text-indigo-600 hover:bg-white rounded shadow-sm disabled:opacity-30 disabled:shadow-none disabled:bg-transparent transition-all"><ChevronLeft size={14} /></button>
-                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest min-w-[90px] text-center select-none">
-                    {pageStart} - {pageStart + tableData.length}
-                  </span>
-                  <button disabled={tableData.length < 100} onClick={() => setPageStart(pageStart + 100)} className="p-1 px-2 text-slate-400 hover:text-indigo-600 hover:bg-white rounded shadow-sm disabled:opacity-30 disabled:shadow-none disabled:bg-transparent transition-all"><ChevronRight size={14} /></button>
-                </div>
-
-                {isRealtimeActive && <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-50 rounded-full border border-amber-100"><div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></div><span className="text-[9px] font-black text-amber-600 uppercase">Live</span></div>}
-              </div>
-              <div className="flex items-center gap-3 relative">
-                <button onClick={(e: any) => { e.stopPropagation(); setShowExportMenu(!showExportMenu); }} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-50 text-slate-600 hover:bg-slate-100 text-[10px] font-black uppercase tracking-widest"><Download size={12} /> Export</button>
-                {showExportMenu && (
-                  <div className="absolute top-12 right-24 w-40 bg-white rounded-xl shadow-2xl border border-slate-200 z-50 p-2 animate-in fade-in zoom-in-95">
-                    {['csv', 'xlsx', 'json', 'sql', 'pdf'].map(fmt => (
-                      <button key={fmt} onClick={() => { handleExport(fmt as any); setShowExportMenu(false); }} className="w-full text-left px-3 py-2 hover:bg-slate-50 text-xs font-bold uppercase text-slate-600 rounded-lg flex items-center gap-2">
-                        {fmt === 'pdf' ? <FileType size={12} /> : fmt === 'xlsx' ? <FileSpreadsheet size={12} /> : fmt === 'json' ? <FileJson size={12} /> : <Code size={12} />} {fmt.toUpperCase()}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <button onClick={() => setShowImportModal(true)} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-50 text-slate-600 hover:bg-slate-100 text-[10px] font-black uppercase tracking-widest"><Upload size={12} /> Import</button>
-              </div>
+        {
+          activeTab === 'tables' && pinnedTables.length > 0 ? (
+            <div className={`flex-1 flex ${isCompareMode ? 'flex-row divide-x divide-slate-200' : 'flex-col'} overflow-hidden`}>
+              {pinnedTables.map(tName => (
+                <TablePanel
+                  key={`${activeSchema}-${tName}`}
+                  projectId={projectId}
+                  tableName={tName}
+                  schema={activeSchema}
+                  isCompareMode={isCompareMode}
+                  onClose={() => {
+                    setPinnedTables(prev => {
+                      const next = prev.filter(t => t !== tName);
+                      if (next.length > 0 && selectedTable === tName) setSelectedTable(next[0]);
+                      if (next.length === 0) setSelectedTable(null);
+                      return next;
+                    });
+                    setOpenTabs(prev => prev.filter(t => !(t.table === tName && t.schema === activeSchema)));
+                  }}
+                  onColumnContextMenu={(x, y, col) => setColumnContextMenu({ x, y, col })}
+                  onAddColumn={() => setShowAddColumn(true)}
+                  onError={setError}
+                  onSuccess={setSuccessMsg}
+                  onExport={(name, data, fmt) => handleExport(fmt as any, data)}
+                  onImport={() => setShowImportModal(true)}
+                  isRealtimeActive={isRealtimeActive}
+                />
+              ))}
             </div>
-
-            {/* GRID */}
-            <div className="flex-1 overflow-auto relative">
-              <table className="border-collapse table-fixed" style={{ minWidth: '100%' }}>
-                <thead className="sticky top-0 bg-white shadow-sm z-20">
-                  <tr>
-                    <th className="w-12 border-b border-r border-slate-200 bg-slate-50 sticky left-0 z-30">
-                      <div className="flex items-center justify-center h-full"><input type="checkbox" onChange={(e: any) => setSelectedRows(e.target.checked ? new Set(tableData.map(r => r[pkCol])) : new Set())} checked={selectedRows.size > 0 && selectedRows.size === tableData.length} className="rounded border-slate-300" /></div>
-                    </th>
-                    {displayColumns.map((col: any) => (
-                      <th
-                        key={col.name}
-                        draggable
-                        onDragStart={() => setDraggingColumn(col.name)}
-                        onDragOver={(e: any) => { e.preventDefault(); setDragOverCol(col.name); }}
-                        onDragLeave={() => setDragOverCol(null)}
-                        onDrop={(e: any) => { e.preventDefault(); handleColumnDrop(col.name); }}
-                        onDragEnd={() => { setDraggingColumn(null); setDragOverCol(null); }}
-                        className={`px-4 py-3 text-left border-b border-r border-slate-200 bg-slate-50 relative group select-none whitespace-nowrap cursor-pointer hover:bg-slate-100 ${dragOverCol === col.name ? 'bg-indigo-100 border-indigo-400' : ''} ${draggingColumn === col.name ? 'opacity-50' : ''}`}
-                        style={{ width: columnWidths[col.name] || 200 }}
-                        onClick={() => {
-                          let nextDir: 'asc' | 'desc' | null = 'asc';
-                          if (sortConfig?.column === col.name) {
-                            if (sortConfig.direction === 'asc') nextDir = 'desc';
-                            else nextDir = null;
-                          }
-                          setSortConfig(nextDir ? { column: col.name, direction: nextDir } : null);
-                        }}
-                        onContextMenu={(e: any) => {
-                          e.preventDefault(); e.stopPropagation();
-                          setColumnContextMenu({ x: e.clientX, y: e.clientY, col: col.name });
-                        }}
-                      >
-                        <div className="flex items-center gap-2">
-                          <GripVertical size={10} className="text-slate-300 opacity-0 group-hover:opacity-60 shrink-0 cursor-grab" />
-                          {col.isPrimaryKey && <Key size={10} className="text-amber-500 shrink-0" />}
-                          <span className="text-[10px] font-black text-slate-700 uppercase tracking-tight truncate flex-1">{col.name}</span>
-                          {sortConfig?.column === col.name && (
-                            <div className="flex flex-col items-center justify-center shrink-0">
-                              {sortConfig.direction === 'asc' ? <ChevronUp size={12} className="text-indigo-600 font-bold" /> : <ChevronDown size={12} className="text-indigo-600 font-bold" />}
-                            </div>
-                          )}
-                        </div>
-                        <div className="absolute right-0 top-0 w-1 h-full cursor-col-resize hover:bg-indigo-400 z-10" onClick={(e: any) => e.stopPropagation()} onMouseDown={(e: any) => {
-                          e.preventDefault();
-                          const startX = e.clientX;
-                          const startWidth = columnWidths[col.name] || 200;
-                          const onMove = (ev: MouseEvent) => setColumnWidths(prev => ({ ...prev, [col.name]: Math.max(10, startWidth + (ev.clientX - startX)) }));
-                          const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
-                          document.addEventListener('mousemove', onMove);
-                          document.addEventListener('mouseup', onUp);
-                        }} />
-                      </th>
-                    ))}
-                    <th className="w-16 border-b border-slate-200 bg-slate-50 text-center hover:bg-slate-100 cursor-pointer" onClick={() => setShowAddColumn(true)}>
-                      <Plus size={16} className="mx-auto text-slate-400 hover:text-indigo-600 transition-colors" />
-                    </th>
-                  </tr>
-
-                  {/* INLINE ROW */}
-                  <tr className="bg-indigo-50/30 border-b border-indigo-100 group">
-                    <td className="p-0 text-center border-r border-slate-200 bg-indigo-50/50 sticky left-0 z-20"><Plus size={14} className="mx-auto text-indigo-400" /></td>
-                    {displayColumns.map((col: any, idx) => (
-                      <td key={col.name} className="p-0 border-r border-slate-200 relative">
-                        <div className="h-10">
-                          <input
-                            ref={idx === 0 ? firstInputRef : undefined}
-                            value={inlineNewRow[col.name]}
-                            onChange={(e: any) => setInlineNewRow({ ...inlineNewRow, [col.name]: e.target.value })}
-                            className="w-full bg-transparent outline-none text-xs font-medium text-slate-700 h-full px-2 placeholder:text-slate-300"
-                            placeholder={getSmartPlaceholder(col)}
-                            onKeyDown={(e: any) => e.key === 'Enter' && handleInlineSave()}
-                          />
-                        </div>
-                      </td>
-                    ))}
-                    <td className="p-0 text-center bg-indigo-50/50"><button onClick={handleInlineSave} className="w-full h-full flex items-center justify-center text-indigo-600 hover:bg-indigo-100 transition-colors"><Save size={14} /></button></td>
-                  </tr>
-                </thead>
-                <tbody className="bg-white">
-                  {dataLoading ? (
-                    <tr><td colSpan={displayColumns.length + 2} className="py-20 text-center text-slate-400"><Loader2 className="animate-spin mx-auto mb-2" /> Loading data...</td></tr>
-                  ) : tableData.map((row, rIdx) => (
-                    <tr key={rIdx} className={`hover:bg-slate-50 group ${selectedRows.has(row[pkCol]) ? 'bg-indigo-50/50' : ''}`}>
-                      <td className="text-center border-b border-r border-slate-100 sticky left-0 bg-white group-hover:bg-slate-50 z-10"><input type="checkbox" checked={selectedRows.has(row[pkCol])} onChange={() => { const next = new Set(selectedRows); if (next.has(row[pkCol])) next.delete(row[pkCol]); else next.add(row[pkCol]); setSelectedRows(next); }} className="rounded border-slate-300" /></td>
-                      {displayColumns.map((col: any) => {
-                        const isEditing = editingCell?.rowId === row[pkCol] && editingCell?.col === col.name;
-                        return (
-                          <td key={col.name} onDoubleClick={() => { setEditingCell({ rowId: row[pkCol], col: col.name }); setEditValue(String(row[col.name])); }} className="border-b border-r border-slate-100 px-4 py-2.5 text-xs text-slate-700 font-medium truncate cursor-text relative">
-                            {isEditing ? <input autoFocus value={editValue} onChange={(e: any) => setEditValue(e.target.value)} onBlur={() => handleUpdateCell(row, col.name, editValue)} onKeyDown={(e: any) => e.key === 'Enter' && handleUpdateCell(row, col.name, editValue)} className="absolute inset-0 w-full h-full px-4 bg-white outline-none border-2 border-indigo-500 shadow-lg z-10" /> : (row[col.name] === null ? <span className="text-slate-300 italic">null</span> : String(row[col.name]))}
-                          </td>
-                        );
-                      })}
-                      <td className="border-b border-slate-100"></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          ) : activeTab === 'query' ? (
+            <SqlConsole onExecute={handleExecuteSql} onFix={handleFixSql} initialQuery={sqlInitial} />
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-slate-300">
+              <Database size={64} className="mb-4 opacity-20" />
+              <span className="font-bold uppercase tracking-widest text-xs">Select a table</span>
             </div>
-          </div>
-        ) : activeTab === 'query' ? (
-          <SqlConsole onExecute={handleExecuteSql} onFix={handleFixSql} initialQuery={sqlInitial} />
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-slate-300">
-            <Database size={64} className="mb-4 opacity-20" />
-            <span className="font-bold uppercase tracking-widest text-xs">Select a table</span>
-          </div>
-        )}
-      </main>
+          )
+        }
+      </main >
 
       {/* TABLE CREATOR DRAWER */}
-      <TableCreatorDrawer
+      < TableCreatorDrawer
         isOpen={showCreateTable}
         onClose={() => { setShowCreateTable(false); setInitialColumns(undefined); }}
         tables={tables}
@@ -1226,20 +1156,22 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
       />
 
       {/* IMPORT MODAL */}
-      {showImportModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[250] flex items-center justify-center p-8 animate-in zoom-in-95">
-          <div className="bg-white rounded-[3.5rem] w-full max-w-lg p-12 shadow-2xl border border-slate-100 relative">
-            <button onClick={() => setShowImportModal(false)} className="absolute top-8 right-8 text-slate-300 hover:text-slate-900 transition-colors"><X size={24} /></button>
-            <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-8">Data Import</h3>
-            <div className="space-y-6">
-              <div className="border-4 border-dashed border-slate-100 rounded-[2.5rem] p-10 text-center hover:border-emerald-300 hover:bg-emerald-50/10 transition-all cursor-pointer relative group">
-                <input type="file" accept=".csv, .xlsx, .json" onChange={(e: any) => setImportFile(e.target.files?.[0] || null)} className="absolute inset-0 opacity-0 cursor-pointer" />
-                {importFile ? <span className="font-bold text-slate-900">{importFile.name}</span> : <div className="flex flex-col items-center text-slate-300 group-hover:text-emerald-500"><Upload size={40} className="mb-2" /><span className="font-bold text-sm">Drop file here</span></div>}
+      {
+        showImportModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[250] flex items-center justify-center p-8 animate-in zoom-in-95">
+            <div className="bg-white rounded-[3.5rem] w-full max-w-lg p-12 shadow-2xl border border-slate-100 relative">
+              <button onClick={() => setShowImportModal(false)} className="absolute top-8 right-8 text-slate-300 hover:text-slate-900 transition-colors"><X size={24} /></button>
+              <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-8">Data Import</h3>
+              <div className="space-y-6">
+                <div className="border-4 border-dashed border-slate-100 rounded-[2.5rem] p-10 text-center hover:border-emerald-300 hover:bg-emerald-50/10 transition-all cursor-pointer relative group">
+                  <input type="file" accept=".csv, .xlsx, .json" onChange={(e: any) => setImportFile(e.target.files?.[0] || null)} className="absolute inset-0 opacity-0 cursor-pointer" />
+                  {importFile ? <span className="font-bold text-slate-900">{importFile.name}</span> : <div className="flex flex-col items-center text-slate-300 group-hover:text-emerald-500"><Upload size={40} className="mb-2" /><span className="font-bold text-sm">Drop file here</span></div>}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* EXTENSIONS MODAL */}
       <ExtensionsModal
@@ -1252,49 +1184,53 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
       />
 
       {/* CONTEXT MENU */}
-      {contextMenu && (
-        <>
-          <div className="fixed inset-0 z-[90]" onClick={() => setContextMenu(null)} />
-          <div className="fixed z-[100] bg-white border border-slate-200 shadow-2xl rounded-2xl p-2 w-56 animate-in fade-in zoom-in-95" style={{ top: contextMenu.y, left: contextMenu.x }}>
-            <button onClick={() => { handleRenameTable(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Edit size={14} /> Rename</button>
-            <button onClick={() => { handleDuplicateTable(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Layers size={14} /> Duplicate</button>
-            <button onClick={() => { handleCopyStructure(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Code size={14} /> Copy SQL</button>
-            <div className="h-[1px] bg-slate-100 my-1"></div>
-            <button onClick={() => { handleDeleteTable(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-all"><Trash2 size={14} /> Delete Table</button>
-          </div>
-        </>
-      )}
+      {
+        contextMenu && (
+          <>
+            <div className="fixed inset-0 z-[90]" onClick={() => setContextMenu(null)} />
+            <div className="fixed z-[100] bg-white border border-slate-200 shadow-2xl rounded-2xl p-2 w-56 animate-in fade-in zoom-in-95" style={{ top: contextMenu.y, left: contextMenu.x }}>
+              <button onClick={() => { handleRenameTable(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Edit size={14} /> Rename</button>
+              <button onClick={() => { handleDuplicateTable(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Layers size={14} /> Duplicate</button>
+              <button onClick={() => { handleCopyStructure(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Code size={14} /> Copy SQL</button>
+              <div className="h-[1px] bg-slate-100 my-1"></div>
+              <button onClick={() => { handleDeleteTable(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-all"><Trash2 size={14} /> Delete Table</button>
+            </div>
+          </>
+        )
+      }
 
       {/* COLUMN CONTEXT MENU */}
-      {columnContextMenu && (
-        <>
-          <div className="fixed inset-0 z-[90]" onClick={() => setColumnContextMenu(null)} />
-          <div className="fixed z-[100] bg-white border border-slate-200 shadow-2xl rounded-2xl p-2 w-52 animate-in fade-in zoom-in-95" style={{ top: columnContextMenu.y, left: columnContextMenu.x }}>
-            <button onClick={() => { startCascadeProtocol('rename', columnContextMenu.col); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Edit size={14} /> Rename Column</button>
-            <button onClick={() => { copyToClipboard(columnContextMenu.col); setSuccessMsg('Column name copied'); setColumnContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Copy size={14} /> Copy Name</button>
-            {/* Edit Format — only for text/varchar columns */}
-            {(() => {
-              const colMeta = columns.find((c: any) => c.name === columnContextMenu.col);
-              const isTextType = colMeta && (colMeta.type === 'text' || colMeta.type?.includes('character'));
-              return isTextType ? (
-                <button onClick={() => {
-                  setEditFormat({
-                    column: columnContextMenu.col,
-                    preset: colMeta.formatPattern || '',
-                    customPattern: '',
-                    columnType: colMeta.type,
-                  });
-                  setColumnContextMenu(null);
-                }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-amber-600 hover:bg-amber-50 rounded-xl transition-all">
-                  <Shield size={14} /> Edit Format
-                </button>
-              ) : null;
-            })()}
-            <div className="h-[1px] bg-slate-100 my-1"></div>
-            <button onClick={() => { startCascadeProtocol('delete', columnContextMenu.col); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-all"><Trash2 size={14} /> Delete Column</button>
-          </div>
-        </>
-      )}
+      {
+        columnContextMenu && (
+          <>
+            <div className="fixed inset-0 z-[90]" onClick={() => setColumnContextMenu(null)} />
+            <div className="fixed z-[100] bg-white border border-slate-200 shadow-2xl rounded-2xl p-2 w-52 animate-in fade-in zoom-in-95" style={{ top: columnContextMenu.y, left: columnContextMenu.x }}>
+              <button onClick={() => { startCascadeProtocol('rename', columnContextMenu.col); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Edit size={14} /> Rename Column</button>
+              <button onClick={() => { copyToClipboard(columnContextMenu.col); setSuccessMsg('Column name copied'); setColumnContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Copy size={14} /> Copy Name</button>
+              {/* Edit Format — only for text/varchar columns */}
+              {(() => {
+                const colMeta = columns.find((c: any) => c.name === columnContextMenu.col);
+                const isTextType = colMeta && (colMeta.type === 'text' || colMeta.type?.includes('character'));
+                return isTextType ? (
+                  <button onClick={() => {
+                    setEditFormat({
+                      column: columnContextMenu.col,
+                      preset: colMeta.formatPattern || '',
+                      customPattern: '',
+                      columnType: colMeta.type,
+                    });
+                    setColumnContextMenu(null);
+                  }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-amber-600 hover:bg-amber-50 rounded-xl transition-all">
+                    <Shield size={14} /> Edit Format
+                  </button>
+                ) : null;
+              })()}
+              <div className="h-[1px] bg-slate-100 my-1"></div>
+              <button onClick={() => { startCascadeProtocol('delete', columnContextMenu.col); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-all"><Trash2 size={14} /> Delete Column</button>
+            </div>
+          </>
+        )
+      }
 
       {/* PROTOCOLO CASCATA — Impact Modal */}
       <ColumnImpactModal
@@ -1311,306 +1247,316 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
       />
 
       {/* ADD COLUMN MODAL (ENHANCED) */}
-      {showAddColumn && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
-          <div className="bg-white rounded-[3rem] p-10 max-w-sm w-full shadow-2xl border border-slate-200 text-center">
-            <h3 className="text-xl font-black text-slate-900 mb-6">Add New Column</h3>
-            <div className="space-y-4 mb-6 text-left">
+      {
+        showAddColumn && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+            <div className="bg-white rounded-[3rem] p-10 max-w-sm w-full shadow-2xl border border-slate-200 text-center">
+              <h3 className="text-xl font-black text-slate-900 mb-6">Add New Column</h3>
+              <div className="space-y-4 mb-6 text-left">
 
-              {/* Name */}
-              <div className="space-y-1">
-                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Column Name</label>
-                <input
-                  value={newColumn.name}
-                  onChange={e => setNewColumn({ ...newColumn, name: sanitizeColName(e.target.value) })}
-                  placeholder="column_name"
-                  autoFocus
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500/20"
-                />
-              </div>
-
-              {/* Description */}
-              <div className="space-y-1">
-                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Description</label>
-                <input
-                  value={newColumn.description}
-                  onChange={e => setNewColumn({ ...newColumn, description: e.target.value })}
-                  placeholder="Semantic hint for AI..."
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-medium text-sm outline-none text-slate-600"
-                />
-              </div>
-
-              {/* Smart Type Selector */}
-              <div className="space-y-1">
-                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Data Type</label>
-                <select
-                  value={newColumn.type}
-                  onChange={e => setNewColumn({ ...newColumn, type: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-bold text-sm outline-none cursor-pointer"
-                >
-                  <optgroup label="Numbers"><option value="int8">int8 (BigInt)</option><option value="int4">int4 (Integer)</option><option value="numeric">numeric</option><option value="float8">float8</option></optgroup>
-                  <optgroup label="Text"><option value="text">text</option><option value="varchar">varchar</option><option value="uuid">uuid</option></optgroup>
-                  <optgroup label="Date/Time"><option value="timestamptz">timestamptz</option><option value="date">date</option><option value="time">time</option></optgroup>
-                  <optgroup label="JSON"><option value="jsonb">jsonb</option><option value="json">json</option></optgroup>
-                  <optgroup label="Other"><option value="bool">boolean</option><option value="bytea">bytea</option></optgroup>
-                </select>
-              </div>
-
-              {/* Toggles & Options */}
-              <div className="flex items-center justify-between bg-slate-50 p-2 rounded-2xl border border-slate-100">
-                <div className="flex items-center gap-2">
-                  <div title="Nullable" onClick={() => setNewColumn({ ...newColumn, isNullable: !newColumn.isNullable })} className={`px-2 py-1.5 rounded-xl text-[10px] font-black cursor-pointer select-none transition-all ${newColumn.isNullable ? 'bg-emerald-100 text-emerald-700' : 'text-slate-400 hover:bg-slate-200'}`}>NULL</div>
-                  <div title="Unique" onClick={() => setNewColumn({ ...newColumn, isUnique: !newColumn.isUnique })} className={`px-2 py-1.5 rounded-xl text-[10px] font-black cursor-pointer select-none transition-all ${newColumn.isUnique ? 'bg-purple-100 text-purple-700' : 'text-slate-400 hover:bg-slate-200'}`}>UNIQ</div>
+                {/* Name */}
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Column Name</label>
+                  <input
+                    value={newColumn.name}
+                    onChange={e => setNewColumn({ ...newColumn, name: sanitizeColName(e.target.value) })}
+                    placeholder="column_name"
+                    autoFocus
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  />
                 </div>
 
-                {/* Foreign Key Toggle */}
-                <div
-                  onClick={async () => {
-                    if (!newColumn.foreignKey) {
-                      setNewColumn({ ...newColumn, foreignKey: { table: '', column: '' } });
-                    } else {
-                      setNewColumn({ ...newColumn, foreignKey: undefined });
-                    }
-                  }}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-[10px] font-black cursor-pointer select-none transition-all ${newColumn.foreignKey ? 'bg-blue-100 text-blue-700 shadow-sm' : 'text-slate-400 hover:bg-slate-200'}`}
-                >
-                  <LinkIcon size={12} strokeWidth={3} /> {newColumn.foreignKey ? 'LINKED' : 'LINK'}
+                {/* Description */}
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Description</label>
+                  <input
+                    value={newColumn.description}
+                    onChange={e => setNewColumn({ ...newColumn, description: e.target.value })}
+                    placeholder="Semantic hint for AI..."
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-medium text-sm outline-none text-slate-600"
+                  />
                 </div>
-              </div>
 
-              {/* Foreign Key Configuration (Conditional) */}
-              {newColumn.foreignKey && (
-                <div className="space-y-3 bg-blue-50/50 p-3 rounded-2xl border border-blue-100 animate-in slide-in-from-top-2">
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black text-blue-400 uppercase tracking-widest ml-1">Target Table</label>
-                    <select
-                      value={newColumn.foreignKey.table}
-                      onChange={async (e: any) => {
-                        const tbl = e.target.value;
-                        setNewColumn(prev => ({ ...prev, foreignKey: { table: tbl, column: '' } }));
-                        if (tbl) {
-                          setFkLoading(true);
-                          try {
-                            const res = await fetchWithAuth(`/api/data/${projectId}/tables/${tbl}/columns?schema=${activeSchema}`);
-                            setFkTargetColumns(res.map((c: any) => c.name));
-                            if (res.length > 0) {
-                              const defaultCol = res.find((c: any) => c.name === 'id') ? 'id' : res[0].name;
-                              setNewColumn(prev => ({ ...prev, foreignKey: { ...prev.foreignKey!, table: tbl, column: defaultCol } }));
-                            }
-                          } catch (err) { } finally { setFkLoading(false); }
-                        }
-                      }}
-                      className="w-full bg-white border border-blue-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-700 outline-none"
-                    >
-                      <option value="">Select Table...</option>
-                      {tables.filter(t => t.name !== selectedTable).map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
-                    </select>
-                  </div>
-                  {newColumn.foreignKey.table && (
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-black text-blue-400 uppercase tracking-widest ml-1">Target Column</label>
-                      {fkLoading ? <div className="py-2 flex justify-center"><Loader2 size={14} className="animate-spin text-blue-500" /></div> : (
-                        <select
-                          value={newColumn.foreignKey.column}
-                          onChange={(e: any) => setNewColumn(prev => ({ ...prev, foreignKey: { ...prev.foreignKey!, column: e.target.value } }))}
-                          className="w-full bg-white border border-blue-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-700 outline-none"
-                        >
-                          {fkTargetColumns.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Smart Default Value */}
-              <div className="space-y-1">
-                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Default Value</label>
-                <input
-                  list="modal-defaults"
-                  value={newColumn.defaultValue}
-                  onChange={e => setNewColumn({ ...newColumn, defaultValue: e.target.value })}
-                  placeholder="NULL (Optional)"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-mono text-xs font-medium text-slate-600 outline-none focus:ring-2 focus:ring-indigo-500/20"
-                />
-                <datalist id="modal-defaults">
-                  {getDefaultSuggestions(newColumn.type).map(s => <option key={s} value={s} />)}
-                </datalist>
-              </div>
-
-              {/* Format Validation */}
-              {(newColumn.type === 'text' || newColumn.type === 'varchar') && (
-                <div className="space-y-2 bg-amber-50/50 p-3 rounded-2xl border border-amber-100 animate-in slide-in-from-top-2">
-                  <label className="text-[9px] font-black text-amber-500 uppercase tracking-widest ml-1 flex items-center gap-1">
-                    <Shield size={10} /> Format Validation
-                  </label>
+                {/* Smart Type Selector */}
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Data Type</label>
                   <select
-                    value={newColumn.formatPreset}
-                    onChange={e => {
-                      const val = e.target.value;
-                      if (val === 'custom') {
-                        setNewColumn({ ...newColumn, formatPreset: 'custom', formatPattern: '' });
+                    value={newColumn.type}
+                    onChange={e => setNewColumn({ ...newColumn, type: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-bold text-sm outline-none cursor-pointer"
+                  >
+                    <optgroup label="Numbers"><option value="int8">int8 (BigInt)</option><option value="int4">int4 (Integer)</option><option value="numeric">numeric</option><option value="float8">float8</option></optgroup>
+                    <optgroup label="Text"><option value="text">text</option><option value="varchar">varchar</option><option value="uuid">uuid</option></optgroup>
+                    <optgroup label="Date/Time"><option value="timestamptz">timestamptz</option><option value="date">date</option><option value="time">time</option></optgroup>
+                    <optgroup label="JSON"><option value="jsonb">jsonb</option><option value="json">json</option></optgroup>
+                    <optgroup label="Other"><option value="bool">boolean</option><option value="bytea">bytea</option></optgroup>
+                  </select>
+                </div>
+
+                {/* Toggles & Options */}
+                <div className="flex items-center justify-between bg-slate-50 p-2 rounded-2xl border border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <div title="Nullable" onClick={() => setNewColumn({ ...newColumn, isNullable: !newColumn.isNullable })} className={`px-2 py-1.5 rounded-xl text-[10px] font-black cursor-pointer select-none transition-all ${newColumn.isNullable ? 'bg-emerald-100 text-emerald-700' : 'text-slate-400 hover:bg-slate-200'}`}>NULL</div>
+                    <div title="Unique" onClick={() => setNewColumn({ ...newColumn, isUnique: !newColumn.isUnique })} className={`px-2 py-1.5 rounded-xl text-[10px] font-black cursor-pointer select-none transition-all ${newColumn.isUnique ? 'bg-purple-100 text-purple-700' : 'text-slate-400 hover:bg-slate-200'}`}>UNIQ</div>
+                  </div>
+
+                  {/* Foreign Key Toggle */}
+                  <div
+                    onClick={async () => {
+                      if (!newColumn.foreignKey) {
+                        setNewColumn({ ...newColumn, foreignKey: { table: '', column: '' } });
                       } else {
-                        setNewColumn({ ...newColumn, formatPreset: val, formatPattern: '' });
+                        setNewColumn({ ...newColumn, foreignKey: undefined });
                       }
                     }}
-                    className="w-full bg-white border border-amber-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-700 outline-none cursor-pointer"
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-[10px] font-black cursor-pointer select-none transition-all ${newColumn.foreignKey ? 'bg-blue-100 text-blue-700 shadow-sm' : 'text-slate-400 hover:bg-slate-200'}`}
                   >
-                    <option value="">None (No Validation)</option>
-                    {Object.entries(FORMAT_PRESETS).map(([key, preset]) => (
-                      <option key={key} value={key}>{preset.label} — {preset.description}</option>
-                    ))}
-                    <option value="custom">Custom Regex...</option>
-                  </select>
-
-                  {newColumn.formatPreset === 'custom' && (
-                    <input
-                      value={newColumn.formatPattern}
-                      onChange={e => setNewColumn({ ...newColumn, formatPattern: e.target.value })}
-                      placeholder="^[A-Z]{2}\d{4}$"
-                      className="w-full bg-white border border-amber-200 rounded-xl py-2 px-3 text-xs font-mono font-medium text-slate-600 outline-none focus:ring-2 focus:ring-amber-400/30"
-                    />
-                  )}
-
-                  {/* Live Preview */}
-                  {(newColumn.formatPreset && newColumn.formatPreset !== 'custom') || newColumn.formatPattern ? (() => {
-                    const pattern = newColumn.formatPreset !== 'custom'
-                      ? FORMAT_PRESETS[newColumn.formatPreset]?.regex
-                      : newColumn.formatPattern;
-                    const example = newColumn.formatPreset !== 'custom'
-                      ? FORMAT_PRESETS[newColumn.formatPreset]?.example
-                      : '';
-                    if (!pattern) return null;
-                    const testOk = example ? new RegExp(pattern).test(example) : false;
-                    return (
-                      <div className="flex items-center gap-2 text-[10px] font-bold mt-1">
-                        <div className={`w-2 h-2 rounded-full ${testOk ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                        <span className="text-slate-500">
-                          Example: <span className="font-mono text-slate-700">{example || '—'}</span>
-                          {testOk ? <span className="text-emerald-600 ml-1">✓ Match</span> : <span className="text-red-500 ml-1">✗ No match</span>}
-                        </span>
-                      </div>
-                    );
-                  })() : null}
+                    <LinkIcon size={12} strokeWidth={3} /> {newColumn.foreignKey ? 'LINKED' : 'LINK'}
+                  </div>
                 </div>
-              )}
 
+                {/* Foreign Key Configuration (Conditional) */}
+                {newColumn.foreignKey && (
+                  <div className="space-y-3 bg-blue-50/50 p-3 rounded-2xl border border-blue-100 animate-in slide-in-from-top-2">
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-black text-blue-400 uppercase tracking-widest ml-1">Target Table</label>
+                      <select
+                        value={newColumn.foreignKey.table}
+                        onChange={async (e: any) => {
+                          const tbl = e.target.value;
+                          setNewColumn(prev => ({ ...prev, foreignKey: { table: tbl, column: '' } }));
+                          if (tbl) {
+                            setFkLoading(true);
+                            try {
+                              const res = await fetchWithAuth(`/api/data/${projectId}/tables/${tbl}/columns?schema=${activeSchema}`);
+                              setFkTargetColumns(res.map((c: any) => c.name));
+                              if (res.length > 0) {
+                                const defaultCol = res.find((c: any) => c.name === 'id') ? 'id' : res[0].name;
+                                setNewColumn(prev => ({ ...prev, foreignKey: { ...prev.foreignKey!, table: tbl, column: defaultCol } }));
+                              }
+                            } catch (err) { } finally { setFkLoading(false); }
+                          }
+                        }}
+                        className="w-full bg-white border border-blue-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-700 outline-none"
+                      >
+                        <option value="">Select Table...</option>
+                        {tables.filter(t => t.name !== selectedTable).map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
+                      </select>
+                    </div>
+                    {newColumn.foreignKey.table && (
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-blue-400 uppercase tracking-widest ml-1">Target Column</label>
+                        {fkLoading ? <div className="py-2 flex justify-center"><Loader2 size={14} className="animate-spin text-blue-500" /></div> : (
+                          <select
+                            value={newColumn.foreignKey.column}
+                            onChange={(e: any) => setNewColumn(prev => ({ ...prev, foreignKey: { ...prev.foreignKey!, column: e.target.value } }))}
+                            className="w-full bg-white border border-blue-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-700 outline-none"
+                          >
+                            {fkTargetColumns.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Smart Default Value */}
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Default Value</label>
+                  <input
+                    list="modal-defaults"
+                    value={newColumn.defaultValue}
+                    onChange={e => setNewColumn({ ...newColumn, defaultValue: e.target.value })}
+                    placeholder="NULL (Optional)"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-mono text-xs font-medium text-slate-600 outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  />
+                  <datalist id="modal-defaults">
+                    {getDefaultSuggestions(newColumn.type).map(s => <option key={s} value={s} />)}
+                  </datalist>
+                </div>
+
+                {/* Format Validation */}
+                {(newColumn.type === 'text' || newColumn.type === 'varchar') && (
+                  <div className="space-y-2 bg-amber-50/50 p-3 rounded-2xl border border-amber-100 animate-in slide-in-from-top-2">
+                    <label className="text-[9px] font-black text-amber-500 uppercase tracking-widest ml-1 flex items-center gap-1">
+                      <Shield size={10} /> Format Validation
+                    </label>
+                    <select
+                      value={newColumn.formatPreset}
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (val === 'custom') {
+                          setNewColumn({ ...newColumn, formatPreset: 'custom', formatPattern: '' });
+                        } else {
+                          setNewColumn({ ...newColumn, formatPreset: val, formatPattern: '' });
+                        }
+                      }}
+                      className="w-full bg-white border border-amber-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-700 outline-none cursor-pointer"
+                    >
+                      <option value="">None (No Validation)</option>
+                      {Object.entries(FORMAT_PRESETS).map(([key, preset]) => (
+                        <option key={key} value={key}>{preset.label} — {preset.description}</option>
+                      ))}
+                      <option value="custom">Custom Regex...</option>
+                    </select>
+
+                    {newColumn.formatPreset === 'custom' && (
+                      <input
+                        value={newColumn.formatPattern}
+                        onChange={e => setNewColumn({ ...newColumn, formatPattern: e.target.value })}
+                        placeholder="^[A-Z]{2}\d{4}$"
+                        className="w-full bg-white border border-amber-200 rounded-xl py-2 px-3 text-xs font-mono font-medium text-slate-600 outline-none focus:ring-2 focus:ring-amber-400/30"
+                      />
+                    )}
+
+                    {/* Live Preview */}
+                    {(newColumn.formatPreset && newColumn.formatPreset !== 'custom') || newColumn.formatPattern ? (() => {
+                      const pattern = newColumn.formatPreset !== 'custom'
+                        ? FORMAT_PRESETS[newColumn.formatPreset]?.regex
+                        : newColumn.formatPattern;
+                      const example = newColumn.formatPreset !== 'custom'
+                        ? FORMAT_PRESETS[newColumn.formatPreset]?.example
+                        : '';
+                      if (!pattern) return null;
+                      const testOk = example ? new RegExp(pattern).test(example) : false;
+                      return (
+                        <div className="flex items-center gap-2 text-[10px] font-bold mt-1">
+                          <div className={`w-2 h-2 rounded-full ${testOk ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                          <span className="text-slate-500">
+                            Example: <span className="font-mono text-slate-700">{example || '—'}</span>
+                            {testOk ? <span className="text-emerald-600 ml-1">✓ Match</span> : <span className="text-red-500 ml-1">✗ No match</span>}
+                          </span>
+                        </div>
+                      );
+                    })() : null}
+                  </div>
+                )}
+
+              </div>
+              <button onClick={handleAddColumn} disabled={executing} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2">
+                {executing ? <Loader2 className="animate-spin" size={16} /> : 'Create Column'}
+              </button>
+              <button onClick={() => setShowAddColumn(false)} className="mt-4 text-xs font-bold text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
             </div>
-            <button onClick={handleAddColumn} disabled={executing} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2">
-              {executing ? <Loader2 className="animate-spin" size={16} /> : 'Create Column'}
-            </button>
-            <button onClick={() => setShowAddColumn(false)} className="mt-4 text-xs font-bold text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* EDIT FORMAT MODAL — Column format validation editor */}
       {/* NOTE: Works with the "Add Column" modal and TableCreatorDrawer format system. */}
       {/* Server-side enforcement is in DataController.ts insertRows/updateRows. */}
-      {editFormat && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
-          <div className="bg-white rounded-[3rem] p-10 max-w-sm w-full shadow-2xl border border-slate-200 text-center">
-            <div className="flex items-center justify-center gap-2 mb-6">
-              <Shield size={18} className="text-amber-500" />
-              <h3 className="text-xl font-black text-slate-900">Edit Format</h3>
-            </div>
-            <p className="text-xs text-slate-400 mb-6">Column: <span className="font-mono font-bold text-slate-700">{editFormat.column}</span></p>
+      {
+        editFormat && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+            <div className="bg-white rounded-[3rem] p-10 max-w-sm w-full shadow-2xl border border-slate-200 text-center">
+              <div className="flex items-center justify-center gap-2 mb-6">
+                <Shield size={18} className="text-amber-500" />
+                <h3 className="text-xl font-black text-slate-900">Edit Format</h3>
+              </div>
+              <p className="text-xs text-slate-400 mb-6">Column: <span className="font-mono font-bold text-slate-700">{editFormat.column}</span></p>
 
-            <div className="space-y-4 text-left">
-              <select
-                value={editFormat.preset || ''}
-                onChange={e => {
-                  const val = e.target.value;
-                  setEditFormat({ ...editFormat, preset: val, customPattern: val === 'custom' ? '' : '' });
-                }}
-                className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-bold text-slate-700 outline-none cursor-pointer"
+              <div className="space-y-4 text-left">
+                <select
+                  value={editFormat.preset || ''}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setEditFormat({ ...editFormat, preset: val, customPattern: val === 'custom' ? '' : '' });
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-bold text-slate-700 outline-none cursor-pointer"
+                >
+                  <option value="">None (Remove Format)</option>
+                  {Object.entries(FORMAT_PRESETS).map(([key, preset]) => (
+                    <option key={key} value={key}>{preset.label} — {preset.example}</option>
+                  ))}
+                  <option value="custom">Custom Regex...</option>
+                </select>
+
+                {editFormat.preset === 'custom' && (
+                  <input
+                    value={editFormat.customPattern}
+                    onChange={e => setEditFormat({ ...editFormat, customPattern: e.target.value })}
+                    placeholder="^[A-Z]{2}\d{4}$"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-mono text-slate-600 outline-none focus:ring-2 focus:ring-amber-400/30"
+                  />
+                )}
+              </div>
+
+              <button
+                onClick={handleSaveColumnFormat}
+                disabled={executing}
+                className="w-full mt-6 bg-amber-500 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-amber-600 transition-all flex items-center justify-center gap-2"
               >
-                <option value="">None (Remove Format)</option>
-                {Object.entries(FORMAT_PRESETS).map(([key, preset]) => (
-                  <option key={key} value={key}>{preset.label} — {preset.example}</option>
-                ))}
-                <option value="custom">Custom Regex...</option>
-              </select>
-
-              {editFormat.preset === 'custom' && (
-                <input
-                  value={editFormat.customPattern}
-                  onChange={e => setEditFormat({ ...editFormat, customPattern: e.target.value })}
-                  placeholder="^[A-Z]{2}\d{4}$"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-mono text-slate-600 outline-none focus:ring-2 focus:ring-amber-400/30"
-                />
-              )}
+                {executing ? <Loader2 className="animate-spin" size={16} /> : 'Save Format'}
+              </button>
+              <button onClick={() => setEditFormat(null)} className="mt-4 text-xs font-bold text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
             </div>
-
-            <button
-              onClick={handleSaveColumnFormat}
-              disabled={executing}
-              className="w-full mt-6 bg-amber-500 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-amber-600 transition-all flex items-center justify-center gap-2"
-            >
-              {executing ? <Loader2 className="animate-spin" size={16} /> : 'Save Format'}
-            </button>
-            <button onClick={() => setEditFormat(null)} className="mt-4 text-xs font-bold text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* NEW: DUPLICATE TABLE MODAL */}
-      {showDuplicateModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
-          <div className="bg-white rounded-[3rem] w-full max-w-sm p-12 shadow-2xl border border-slate-100 relative">
-            <h3 className="text-xl font-black text-slate-900 mb-6">Duplicate Table</h3>
-            <div className="space-y-4 mb-6">
-              <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">New Table Name</label><input autoFocus value={duplicateConfig.newName} onChange={(e: any) => setDuplicateConfig({ ...duplicateConfig, newName: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-bold text-sm outline-none" placeholder={duplicateConfig.source + '_copy'} /></div>
-              <div className="flex items-center gap-3 p-2 cursor-pointer" onClick={() => setDuplicateConfig({ ...duplicateConfig, withData: !duplicateConfig.withData })}><div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${duplicateConfig.withData ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>{duplicateConfig.withData && <Check size={14} className="text-white" />}</div><span className="text-xs font-bold text-slate-600">Copy Data Rows</span></div>
+      {
+        showDuplicateModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+            <div className="bg-white rounded-[3rem] w-full max-w-sm p-12 shadow-2xl border border-slate-100 relative">
+              <h3 className="text-xl font-black text-slate-900 mb-6">Duplicate Table</h3>
+              <div className="space-y-4 mb-6">
+                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">New Table Name</label><input autoFocus value={duplicateConfig.newName} onChange={(e: any) => setDuplicateConfig({ ...duplicateConfig, newName: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-bold text-sm outline-none" placeholder={duplicateConfig.source + '_copy'} /></div>
+                <div className="flex items-center gap-3 p-2 cursor-pointer" onClick={() => setDuplicateConfig({ ...duplicateConfig, withData: !duplicateConfig.withData })}><div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${duplicateConfig.withData ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>{duplicateConfig.withData && <Check size={14} className="text-white" />}</div><span className="text-xs font-bold text-slate-600">Copy Data Rows</span></div>
+              </div>
+              <button onClick={handleDuplicateTableSubmit} disabled={executing || !duplicateConfig.newName} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all mb-3">{executing ? <Loader2 className="animate-spin mx-auto" /> : 'Duplicate'}</button>
+              <button onClick={() => setShowDuplicateModal(false)} className="w-full py-2 text-xs font-bold text-slate-400 hover:text-slate-600">Cancel</button>
             </div>
-            <button onClick={handleDuplicateTableSubmit} disabled={executing || !duplicateConfig.newName} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all mb-3">{executing ? <Loader2 className="animate-spin mx-auto" /> : 'Duplicate'}</button>
-            <button onClick={() => setShowDuplicateModal(false)} className="w-full py-2 text-xs font-bold text-slate-400 hover:text-slate-600">Cancel</button>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* RESTORE MODAL */}
-      {restoreTarget && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[200]">
-          <div className="bg-white p-6 rounded-2xl w-[400px] shadow-2xl border border-slate-200">
-            <h3 className="text-lg font-black mb-4">Restore Table</h3>
-            <p className="text-sm text-slate-500 mb-6 font-medium">Are you sure you want to restore <strong className="text-slate-900 px-1 py-0.5 bg-slate-100 rounded">"{restoreTarget}"</strong> back to public?</p>
-            <div className="flex gap-3">
-              <button disabled={executing} onClick={() => setRestoreTarget(null)} className="flex-1 px-4 py-2 font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all">Cancel</button>
-              <button disabled={executing} onClick={handleRestoreTable} className="flex-1 px-4 py-2 font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-md">{executing ? <Loader2 size={16} className="animate-spin mx-auto" /> : 'Restore'}</button>
+      {
+        restoreTarget && (
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[200]">
+            <div className="bg-white p-6 rounded-2xl w-[400px] shadow-2xl border border-slate-200">
+              <h3 className="text-lg font-black mb-4">Restore Table</h3>
+              <p className="text-sm text-slate-500 mb-6 font-medium">Are you sure you want to restore <strong className="text-slate-900 px-1 py-0.5 bg-slate-100 rounded">"{restoreTarget}"</strong> back to public?</p>
+              <div className="flex gap-3">
+                <button disabled={executing} onClick={() => setRestoreTarget(null)} className="flex-1 px-4 py-2 font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all">Cancel</button>
+                <button disabled={executing} onClick={handleRestoreTable} className="flex-1 px-4 py-2 font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-md">{executing ? <Loader2 size={16} className="animate-spin mx-auto" /> : 'Restore'}</button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* IMPORT MODAL */}
-      {showImportModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[250] flex items-center justify-center p-8 animate-in zoom-in-95">
-          <div className="bg-white rounded-[3.5rem] w-full max-w-lg p-12 shadow-2xl border border-slate-100 relative">
-            <button onClick={() => setShowImportModal(false)} className="absolute top-8 right-8 text-slate-300 hover:text-slate-900 transition-colors"><X size={24} /></button>
-            <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-8">Data Import</h3>
-            <div className="space-y-6">
-              {/* RESTORED TOGGLE */}
-              <div className="flex items-center justify-between bg-slate-50 p-4 rounded-2xl">
-                <span className="text-xs font-bold text-slate-700">Create new table from file</span>
-                <button onClick={() => setCreateTableFromImport(!createTableFromImport)} className={`w-12 h-7 rounded-full p-1 transition-colors ${createTableFromImport ? 'bg-indigo-600' : 'bg-slate-200'}`}>
-                  <div className={`w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${createTableFromImport ? 'translate-x-5' : ''}`}></div>
+      {
+        showImportModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[250] flex items-center justify-center p-8 animate-in zoom-in-95">
+            <div className="bg-white rounded-[3.5rem] w-full max-w-lg p-12 shadow-2xl border border-slate-100 relative">
+              <button onClick={() => setShowImportModal(false)} className="absolute top-8 right-8 text-slate-300 hover:text-slate-900 transition-colors"><X size={24} /></button>
+              <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-8">Data Import</h3>
+              <div className="space-y-6">
+                {/* RESTORED TOGGLE */}
+                <div className="flex items-center justify-between bg-slate-50 p-4 rounded-2xl">
+                  <span className="text-xs font-bold text-slate-700">Create new table from file</span>
+                  <button onClick={() => setCreateTableFromImport(!createTableFromImport)} className={`w-12 h-7 rounded-full p-1 transition-colors ${createTableFromImport ? 'bg-indigo-600' : 'bg-slate-200'}`}>
+                    <div className={`w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${createTableFromImport ? 'translate-x-5' : ''}`}></div>
+                  </button>
+                </div>
+
+                <div className="border-4 border-dashed border-slate-100 rounded-[2.5rem] p-10 text-center hover:border-emerald-300 hover:bg-emerald-50/10 transition-all cursor-pointer relative group">
+                  <input type="file" accept=".csv, .xlsx, .json" onChange={(e: any) => setImportFile(e.target.files?.[0] || null)} className="absolute inset-0 opacity-0 cursor-pointer" />
+                  {importFile ? <span className="font-bold text-slate-900">{importFile.name}</span> : <div className="flex flex-col items-center text-slate-300 group-hover:text-emerald-500"><Upload size={40} className="mb-2" /><span className="font-bold text-sm">Drop file here</span></div>}
+                </div>
+
+                <button onClick={handleImport} disabled={!importFile || executing} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl flex items-center justify-center gap-3 disabled:opacity-50">
+                  {executing ? <Loader2 className="animate-spin" size={18} /> : 'Start Ingestion'}
                 </button>
               </div>
-
-              <div className="border-4 border-dashed border-slate-100 rounded-[2.5rem] p-10 text-center hover:border-emerald-300 hover:bg-emerald-50/10 transition-all cursor-pointer relative group">
-                <input type="file" accept=".csv, .xlsx, .json" onChange={(e: any) => setImportFile(e.target.files?.[0] || null)} className="absolute inset-0 opacity-0 cursor-pointer" />
-                {importFile ? <span className="font-bold text-slate-900">{importFile.name}</span> : <div className="flex flex-col items-center text-slate-300 group-hover:text-emerald-500"><Upload size={40} className="mb-2" /><span className="font-bold text-sm">Drop file here</span></div>}
-              </div>
-
-              <button onClick={handleImport} disabled={!importFile || executing} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl flex items-center justify-center gap-3 disabled:opacity-50">
-                {executing ? <Loader2 className="animate-spin" size={18} /> : 'Start Ingestion'}
-              </button>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )
+      }
+    </div >
   );
 };
 
