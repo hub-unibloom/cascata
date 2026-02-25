@@ -41,7 +41,7 @@
 				mv frontend/nginx.conf.txt frontend/nginx.conf
 				mv nginx-controller/Dockerfile.txt nginx-controller/Dockerfile
 				nano .env
-			mkdir -p /cascata-data/pg /cascata-data/qdrant /cascata-data/redis
+			mkdir -p /cascata-data/pg /cascata-data/qdrant /cascata-data/redis /cascata-data/storage
 			docker compose up -d --build
 
 # ═══════════════════════════════════════════════════════

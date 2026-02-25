@@ -86,7 +86,7 @@ services:
     volumes:
       - acme_challenge:/var/www/html
       - certs:/etc/letsencrypt
-      - storage_data:/cascata/storage
+      - ${CASCATA_DATA_DIR:-/cascata-data}/storage:/cascata/storage
       - temp_data:/cascata/temp
       - nginx_dynamic:/etc/nginx/conf.d/dynamic
       - /var/run/docker.sock:/var/run/docker.sock
@@ -133,7 +133,7 @@ services:
       - API_KEY=${GEMINI_API_KEY}
       - ENGINE_URL=http://backend_engine:3000
     volumes:
-      - storage_data:/cascata/storage
+      - ${CASCATA_DATA_DIR:-/cascata-data}/storage:/cascata/storage
       - temp_data:/cascata/temp
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
@@ -203,6 +203,7 @@ services:
     ports:
       - "5432:5432"
     environment:
+      PGDATA: /var/lib/postgresql/data
       POSTGRES_USER: ${DB_USER:-cascata_admin}
       POSTGRES_PASSWORD: ${DB_PASS:-secure_pass}
       POSTGRES_DB: ${DB_NAME:-cascata_system}
@@ -270,7 +271,6 @@ networks:
 volumes:
   acme_challenge:
   certs:
-  storage_data:
   temp_data:
   nginx_dynamic:
   extension_payloads:
