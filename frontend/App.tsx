@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Database, Settings, Shield, Activity, Code2, Users, Layers,
   Plus, Search, Terminal, Server, Key, LogOut, Clock, Settings2, HardDrive, Zap, BookOpen,
-  Pin, PinOff, Smartphone, GitBranch, Rocket, Loader2, RefreshCw, Trash2, Sliders, GitPullRequest, Play, RefreshCcw, ChevronRight
+  Pin, PinOff, Smartphone, GitBranch, Rocket, Loader2, RefreshCw, Trash2, Sliders, GitPullRequest, Play, RefreshCcw, ChevronRight, X
 } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import ProjectDetail from './pages/ProjectDetail';
@@ -56,6 +56,9 @@ const App: React.FC = () => {
   const [showRebaseModal, setShowRebaseModal] = useState(false);
   const [draftDataPercent, setDraftDataPercent] = useState<number>(100);
 
+  // --- QUICK-PEEK OVERLAY (Right-click sidebar → overlay page) ---
+  const [quickPeekRoute, setQuickPeekRoute] = useState<string | null>(null);
+
   // --- SIDEBAR STATE ---
   const [isSidebarLocked, setIsSidebarLocked] = useState<boolean>(() => {
     return localStorage.getItem('cascata_sidebar_locked') !== 'false';
@@ -97,6 +100,13 @@ const App: React.FC = () => {
     localStorage.setItem('cascata_env', currentEnv);
     window.dispatchEvent(new Event('cascata_env_change'));
   }, [currentEnv]);
+
+  // --- QUICK-PEEK: Escape key to dismiss ---
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape' && quickPeekRoute) setQuickPeekRoute(null); };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [quickPeekRoute]);
 
   useEffect(() => {
     const handleHashChange = () => {
@@ -309,6 +319,7 @@ const App: React.FC = () => {
                           active={currentHash.includes(item.matchKey)}
                           expanded={isExpanded}
                           onClick={() => navigate(`#/project/${selectedProjectId}/${item.route}`)}
+                          onContextMenu={(e) => { e.preventDefault(); setQuickPeekRoute(item.route); }}
                         />
                       </div>
                     );
@@ -551,6 +562,50 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {/* QUICK-PEEK OVERLAY — Right-click sidebar to open page as overlay */}
+      {quickPeekRoute && selectedProjectId && (
+        <div
+          className="fixed inset-0 z-[800] flex items-center justify-center animate-in fade-in zoom-in-95 duration-200"
+          onClick={(e) => { if (e.target === e.currentTarget) setQuickPeekRoute(null); }}
+          style={{ background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(12px)' }}
+        >
+          <div
+            className="bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col border border-slate-200/50"
+            style={{ width: '94vw', height: '94vh' }}
+          >
+            {/* Header */}
+            <div className="h-11 bg-slate-50 border-b border-slate-100 flex items-center justify-between px-5 shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-indigo-500 shadow-[0_0_6px_rgba(99,102,241,0.5)]"></div>
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Quick Peek</span>
+              </div>
+              <button onClick={() => setQuickPeekRoute(null)} className="text-slate-400 hover:text-slate-700 transition-colors p-1 hover:bg-slate-100 rounded-lg" title="Close (Esc)">
+                <X size={16} />
+              </button>
+            </div>
+            {/* Content — renders the actual page component */}
+            <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
+              {(() => {
+                const key = `peek-${selectedProjectId}-${currentEnv}-${quickPeekRoute}`;
+                switch (quickPeekRoute) {
+                  case 'overview': return <ProjectDetail key={key} projectId={selectedProjectId} />;
+                  case 'database': return <DatabaseExplorer key={key} projectId={selectedProjectId} />;
+                  case 'auth': return <AuthConfig key={key} projectId={selectedProjectId} />;
+                  case 'rls': return <RLSManager key={key} projectId={selectedProjectId} />;
+                  case 'rpc': return <RPCManager key={key} projectId={selectedProjectId} />;
+                  case 'storage': return <StorageExplorer key={key} projectId={selectedProjectId} />;
+                  case 'events': return <EventManager key={key} projectId={selectedProjectId} />;
+                  case 'push': return <PushManager key={key} projectId={selectedProjectId} />;
+                  case 'docs': return <APIDocs key={key} projectId={selectedProjectId} />;
+                  case 'backups': return <ProjectBackups key={key} projectId={selectedProjectId} />;
+                  default: return null;
+                }
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* NEW DEPLOY WIZARD */}
       {showDeployWizard && selectedProjectId && (
         <DeployWizard
@@ -573,8 +628,9 @@ const SidebarItem: React.FC<{
   label: string,
   active: boolean,
   expanded: boolean,
-  onClick: () => void
-}> = ({ icon, label, active, expanded, onClick }) => {
+  onClick: () => void,
+  onContextMenu?: (e: React.MouseEvent) => void
+}> = ({ icon, label, active, expanded, onClick, onContextMenu }) => {
   // Ajuste: 18px expandido, 21px recolhido (+3px apenas — anti pré-cognitivo fix)
   const iconSize = expanded ? 18 : 21;
   const TheIcon = React.cloneElement(icon as React.ReactElement<any>, { size: iconSize });
@@ -582,6 +638,7 @@ const SidebarItem: React.FC<{
   return (
     <button
       onClick={onClick}
+      onContextMenu={onContextMenu}
       title={!expanded ? label : undefined}
       className={`
         flex items-center transition-all duration-200 rounded-xl group relative
