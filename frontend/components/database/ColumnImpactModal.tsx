@@ -24,6 +24,10 @@ interface ColumnImpactModalProps {
     isScanning: boolean;
     onClose: () => void;
     onExecute: (sql: string) => Promise<void>;
+    /** 'column' (default) or 'table' — controls labels and SQL generation */
+    targetType?: 'column' | 'table';
+    /** Pre-built cascade SQL — used for table rename instead of buildCascadeSQL */
+    cascadeSQLOverride?: string;
 }
 
 const TYPE_CONFIG: Record<string, { icon: React.ReactNode; label: string; color: string }> = {
@@ -45,12 +49,16 @@ const SEVERITY_BADGE: Record<string, string> = {
 const ColumnImpactModal: React.FC<ColumnImpactModalProps> = ({
     isOpen, action, schema, table, column, newName,
     dependencies, isScanning, onClose, onExecute,
+    targetType = 'column', cascadeSQLOverride,
 }) => {
     const [executing, setExecuting] = useState(false);
     const [expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set());
     const [showSQL, setShowSQL] = useState(false);
 
     if (!isOpen) return null;
+
+    const isTable = targetType === 'table';
+    const targetLabel = isTable ? 'Table' : 'Column';
 
     // Group dependencies by type
     const grouped = dependencies.reduce<Record<string, DependencyItem[]>>((acc, dep) => {
@@ -59,7 +67,7 @@ const ColumnImpactModal: React.FC<ColumnImpactModalProps> = ({
         return acc;
     }, {});
 
-    const cascadeSQL = buildCascadeSQL(schema, table, column, action, newName, dependencies);
+    const cascadeSQL = cascadeSQLOverride || buildCascadeSQL(schema, table, column, action, newName, dependencies);
     const hasManualReview = dependencies.some(d => d.type === 'function' && !d.cascadeSQL);
     const hasDanger = dependencies.some(d => d.severity === 'danger');
 
@@ -98,7 +106,7 @@ const ColumnImpactModal: React.FC<ColumnImpactModalProps> = ({
                             </div>
                             <div>
                                 <h3 className="text-lg font-black text-slate-900 tracking-tight">
-                                    {action === 'rename' ? 'Impact Analysis — Rename' : 'Impact Analysis — Delete'}
+                                    {action === 'rename' ? `Impact Analysis — Rename ${targetLabel}` : `Impact Analysis — Delete ${targetLabel}`}
                                 </h3>
                                 <p className="text-xs font-bold text-slate-500 mt-0.5">
                                     {action === 'rename'
@@ -126,7 +134,7 @@ const ColumnImpactModal: React.FC<ColumnImpactModalProps> = ({
                         <div className="flex flex-col items-center justify-center py-16">
                             <CheckCircle2 size={48} className="text-emerald-500 mb-4" />
                             <p className="text-lg font-black text-slate-900">No Dependencies Found</p>
-                            <p className="text-sm text-slate-400 font-medium mt-1">Safe to proceed. No objects reference this column.</p>
+                            <p className="text-sm text-slate-400 font-medium mt-1">Safe to proceed. No objects reference this {targetLabel.toLowerCase()}.</p>
                         </div>
                     ) : (
                         <>
@@ -150,7 +158,7 @@ const ColumnImpactModal: React.FC<ColumnImpactModalProps> = ({
                                     <div>
                                         <p className="text-xs font-bold text-amber-800">Manual Review Required</p>
                                         <p className="text-[10px] text-amber-600 font-medium mt-1">
-                                            Some functions reference this column and cannot be auto-updated. Review them after the operation.
+                                            Some functions reference this {targetLabel.toLowerCase()} and cannot be auto-updated. Review them after the operation.
                                         </p>
                                     </div>
                                 </div>
@@ -240,13 +248,13 @@ const ColumnImpactModal: React.FC<ColumnImpactModalProps> = ({
                         onClick={handleExecute}
                         disabled={isScanning || executing}
                         className={`flex-[2] py-3 rounded-xl text-xs font-black uppercase tracking-widest shadow-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${action === 'delete'
-                                ? 'bg-rose-600 text-white hover:bg-rose-700'
-                                : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                            ? 'bg-rose-600 text-white hover:bg-rose-700'
+                            : 'bg-indigo-600 text-white hover:bg-indigo-700'
                             }`}
                     >
                         {executing ? <Loader2 size={14} className="animate-spin" /> : null}
                         {dependencies.length === 0
-                            ? (action === 'rename' ? 'Rename Column' : 'Delete Column')
+                            ? (action === 'rename' ? `Rename ${targetLabel}` : `Delete ${targetLabel}`)
                             : `Execute Cascade (${dependencies.length} objects)`
                         }
                     </button>

@@ -14,6 +14,7 @@ import SqlConsole from '../components/database/SqlConsole';
 import TableCreatorDrawer from '../components/database/TableCreatorDrawer';
 import ColumnImpactModal from '../components/database/ColumnImpactModal';
 import { scanColumnDependencies, DependencyItem } from '../lib/ColumnImpactScanner';
+import { scanTableDependencies, buildTableRenameCascadeSQL } from '../lib/TableImpactScanner';
 import TablePanel from '../components/database/TablePanel';
 
 // Helper Functions
@@ -127,12 +128,21 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [columnContextMenu, setColumnContextMenu] = useState<{ x: number; y: number; col: string } | null>(null);
   const [dragOverTable, setDragOverTable] = useState<string | null>(null);
 
-  // Protocolo Cascata — Impact Scan State
+  // Protocolo Cascata — Column Impact Scan State
   const [impactScan, setImpactScan] = useState<{
     action: 'rename' | 'delete';
     column: string;
     newName?: string;
     dependencies: DependencyItem[];
+    isScanning: boolean;
+  } | null>(null);
+
+  // Protocolo Cascata — Table Rename Impact Scan State
+  const [tableImpactScan, setTableImpactScan] = useState<{
+    oldName: string;
+    newName: string;
+    dependencies: DependencyItem[];
+    cascadeSQL: string;
     isScanning: boolean;
   } | null>(null);
 
@@ -778,15 +788,69 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   const handleRenameTable = async (oldName: string) => {
     const newName = prompt("Rename table to:", oldName);
     if (!newName || newName === oldName) return;
+    const safeName = sanitizeName(newName);
+
+    // Phase 1: Start scanning — show modal with spinner
+    setTableImpactScan({ oldName, newName: safeName, dependencies: [], cascadeSQL: '', isScanning: true });
+
+    // Phase 2: Run 7 catalog queries
+    const deps = await scanTableDependencies(
+      fetchWithAuth, projectId, activeSchema, oldName, safeName
+    );
+
+    // Phase 3: Build cascade SQL
+    const cascadeSQL = buildTableRenameCascadeSQL(activeSchema, oldName, safeName, deps);
+
+    // Phase 4: Show results in modal
+    setTableImpactScan({ oldName, newName: safeName, dependencies: deps, cascadeSQL, isScanning: false });
+  };
+
+  const executeTableCascade = async (sql: string) => {
+    if (!tableImpactScan) return;
     try {
-      await fetchWithAuth(`/api/data/${projectId}/query`, {
+      setExecuting(true);
+      await fetchWithAuth(`/api/data/${projectId}/query?schema=${activeSchema}`, {
         method: 'POST',
-        body: JSON.stringify({ sql: `ALTER TABLE "${oldName}" RENAME TO "${sanitizeName(newName)}"` })
+        body: JSON.stringify({ sql })
       });
-      setSuccessMsg(`Renamed to ${newName}`);
+      const oldName = tableImpactScan.oldName;
+      const newName = tableImpactScan.newName;
+      setTableImpactScan(null);
+      setSuccessMsg(`Table renamed: ${oldName} → ${newName}`);
+
+      // ── Client-side migrations ──
+      // 1. Migrate localStorage sort config key
+      const oldSortKey = `cascata_sort_${projectId}_${activeSchema}_${oldName}`;
+      const newSortKey = `cascata_sort_${projectId}_${activeSchema}_${newName}`;
+      const sortData = localStorage.getItem(oldSortKey);
+      if (sortData) {
+        localStorage.setItem(newSortKey, sortData);
+        localStorage.removeItem(oldSortKey);
+      }
+
+      // 2. Update table order in localStorage
+      const orderKey = `cascata_table_order_${projectId}_${activeSchema}`;
+      const orderData = localStorage.getItem(orderKey);
+      if (orderData) {
+        try {
+          const order: string[] = JSON.parse(orderData);
+          const updated = order.map(t => t === oldName ? newName : t);
+          localStorage.setItem(orderKey, JSON.stringify(updated));
+        } catch { /* ignore parse errors */ }
+      }
+
+      // 3. Update React state
       fetchTables();
-      if (selectedTable === oldName) setSelectedTable(sanitizeName(newName));
-    } catch (e: any) { setError(e.message); }
+      if (selectedTable === oldName) {
+        setSelectedTable(newName);
+      }
+      setPinnedTables(prev => prev.map(t => t === oldName ? newName : t));
+      setOpenTabs(prev => prev.map(t => t.table === oldName && t.schema === activeSchema ? { ...t, table: newName } : t));
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setExecuting(false);
+    }
   };
 
   const handleDuplicateTable = (source: string) => {
@@ -830,11 +894,21 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
 
   const handleCopyStructure = async (tableName: string) => {
     try {
-      const cols = await fetchWithAuth(`/api/data/${projectId}/tables/${tableName}/columns`);
-      const sql = `CREATE TABLE "${tableName}" (\n${cols.map((c: any) => `  "${c.name}" ${c.type}`).join(',\n')}\n);`;
-      copyToClipboard(sql);
-      setSuccessMsg("SQL Copied");
-    } catch (e) { }
+      const cols = await fetchWithAuth(`/api/data/${projectId}/tables/${tableName}/columns?schema=${activeSchema}`);
+      const sql = `CREATE TABLE ${activeSchema}."${tableName}" (\n${cols.map((c: any) => {
+        let def = `  "${c.name}" ${c.type}`;
+        if (c.isPrimaryKey) def += ' PRIMARY KEY';
+        if (!c.isNullable) def += ' NOT NULL';
+        if (c.defaultValue) def += ` DEFAULT ${c.defaultValue}`;
+        return def;
+      }).join(',\n')}\n);`;
+      const copied = await copyToClipboard(sql);
+      if (copied) {
+        setSuccessMsg("SQL Copied to clipboard");
+      } else {
+        setError("Failed to copy — clipboard access denied");
+      }
+    } catch (e: any) { setError(e.message || 'Failed to generate SQL'); }
   };
 
   // --- TABLE CREATOR CALLBACK ---
@@ -1241,7 +1315,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
         )
       }
 
-      {/* PROTOCOLO CASCATA — Impact Modal */}
+      {/* PROTOCOLO CASCATA — Column Impact Modal */}
       <ColumnImpactModal
         isOpen={!!impactScan}
         action={impactScan?.action || 'rename'}
@@ -1253,6 +1327,22 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
         isScanning={impactScan?.isScanning || false}
         onClose={() => setImpactScan(null)}
         onExecute={executeCascade}
+      />
+
+      {/* PROTOCOLO CASCATA — Table Rename Impact Modal */}
+      <ColumnImpactModal
+        isOpen={!!tableImpactScan}
+        action="rename"
+        targetType="table"
+        schema={activeSchema}
+        table={tableImpactScan?.oldName || ''}
+        column={tableImpactScan?.oldName || ''}
+        newName={tableImpactScan?.newName}
+        dependencies={tableImpactScan?.dependencies || []}
+        isScanning={tableImpactScan?.isScanning || false}
+        onClose={() => setTableImpactScan(null)}
+        onExecute={executeTableCascade}
+        cascadeSQLOverride={tableImpactScan?.cascadeSQL}
       />
 
       {/* ADD COLUMN MODAL (ENHANCED) */}
