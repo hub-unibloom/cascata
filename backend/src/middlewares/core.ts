@@ -90,10 +90,11 @@ export const resolveProject: RequestHandler = async (req: any, res: any, next: a
         } catch { }
     }
 
-    // --- 3. CONTROL PLANE EXIT ---
-    // If this is a control route (e.g., creating projects), we stop resolution here.
-    // The route handler (control.routes.ts) relies on `isSystemRequest` being set above.
-    if (req.originalUrl.includes('/api/control/')) return next();
+    // --- 3. PROPOSED CONTROL PLANE BYPASS REMOVED ---
+    // Previously, we bypassed project resolution for /api/control/ routes here.
+    // However, this caused hostGuard to aggressively 404 Custom Domains trying to hit 
+    // root APIs because req.project was never set. Now we resolve it, and let 
+    // cascataAuth handle proper 401 blocking.
 
     // --- 4. PROJECT RESOLUTION (DATA PLANE) ---
 
