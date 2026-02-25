@@ -190,6 +190,16 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [duplicateConfig, setDuplicateConfig] = useState({ source: '', newName: '', withData: false });
 
+  // --- EDIT FORMAT MODAL (Column Format Validation) ---
+  // NOTE: Works in conjunction with the "Add Column" modal format UI and
+  // the TableCreatorDrawer format generation. Server-side enforced by DataController.
+  const [editFormat, setEditFormat] = useState<{
+    column: string;
+    preset: string;
+    customPattern: string;
+    columnType: string;
+  } | null>(null);
+
   // Refs for Sql Console State Lifting
   const [sqlInitial, setSqlInitial] = useState('');
 
@@ -590,6 +600,33 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
       setShowAddColumn(false);
       setNewColumn({ name: '', type: 'text', isNullable: true, defaultValue: '', isUnique: false, description: '', formatPreset: '', formatPattern: '' });
       fetchTableData(selectedTable);
+    } catch (e: any) { setError(translateError(e)); }
+    finally { setExecuting(false); }
+  };
+
+  // --- SAVE COLUMN FORMAT (Edit existing column) ---
+  const handleSaveColumnFormat = async () => {
+    if (!editFormat || !selectedTable) return;
+    setExecuting(true);
+    try {
+      const colMeta = columns.find((c: any) => c.name === editFormat.column);
+      const existingDesc = colMeta?.description || '';
+
+      const formatStr = editFormat.preset === 'custom' ? editFormat.customPattern : editFormat.preset;
+      const commentBody = formatStr
+        ? `${existingDesc.replace(/'/g, "'''")}||FORMAT:${formatStr}`
+        : existingDesc.replace(/'/g, "''");
+
+      await fetchWithAuth(`/api/data/${projectId}/query?schema=${activeSchema}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          sql: `COMMENT ON COLUMN ${activeSchema}."${selectedTable}"."${editFormat.column}" IS '${commentBody}'`
+        })
+      });
+
+      setSuccessMsg(`Format updated for column "${editFormat.column}".`);
+      setEditFormat(null);
+      if (selectedTable) fetchTableData(selectedTable);
     } catch (e: any) { setError(translateError(e)); }
     finally { setExecuting(false); }
   };
@@ -1235,6 +1272,24 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
           <div className="fixed z-[100] bg-white border border-slate-200 shadow-2xl rounded-2xl p-2 w-52 animate-in fade-in zoom-in-95" style={{ top: columnContextMenu.y, left: columnContextMenu.x }}>
             <button onClick={() => { startCascadeProtocol('rename', columnContextMenu.col); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Edit size={14} /> Rename Column</button>
             <button onClick={() => { copyToClipboard(columnContextMenu.col); setSuccessMsg('Column name copied'); setColumnContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Copy size={14} /> Copy Name</button>
+            {/* Edit Format — only for text/varchar columns */}
+            {(() => {
+              const colMeta = columns.find((c: any) => c.name === columnContextMenu.col);
+              const isTextType = colMeta && (colMeta.type === 'text' || colMeta.type?.includes('character'));
+              return isTextType ? (
+                <button onClick={() => {
+                  setEditFormat({
+                    column: columnContextMenu.col,
+                    preset: colMeta.formatPattern || '',
+                    customPattern: '',
+                    columnType: colMeta.type,
+                  });
+                  setColumnContextMenu(null);
+                }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-amber-600 hover:bg-amber-50 rounded-xl transition-all">
+                  <Shield size={14} /> Edit Format
+                </button>
+              ) : null;
+            })()}
             <div className="h-[1px] bg-slate-100 my-1"></div>
             <button onClick={() => { startCascadeProtocol('delete', columnContextMenu.col); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-all"><Trash2 size={14} /> Delete Column</button>
           </div>
@@ -1445,6 +1500,56 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
               {executing ? <Loader2 className="animate-spin" size={16} /> : 'Create Column'}
             </button>
             <button onClick={() => setShowAddColumn(false)} className="mt-4 text-xs font-bold text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT FORMAT MODAL — Column format validation editor */}
+      {/* NOTE: Works with the "Add Column" modal and TableCreatorDrawer format system. */}
+      {/* Server-side enforcement is in DataController.ts insertRows/updateRows. */}
+      {editFormat && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+          <div className="bg-white rounded-[3rem] p-10 max-w-sm w-full shadow-2xl border border-slate-200 text-center">
+            <div className="flex items-center justify-center gap-2 mb-6">
+              <Shield size={18} className="text-amber-500" />
+              <h3 className="text-xl font-black text-slate-900">Edit Format</h3>
+            </div>
+            <p className="text-xs text-slate-400 mb-6">Column: <span className="font-mono font-bold text-slate-700">{editFormat.column}</span></p>
+
+            <div className="space-y-4 text-left">
+              <select
+                value={editFormat.preset || ''}
+                onChange={e => {
+                  const val = e.target.value;
+                  setEditFormat({ ...editFormat, preset: val, customPattern: val === 'custom' ? '' : '' });
+                }}
+                className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-bold text-slate-700 outline-none cursor-pointer"
+              >
+                <option value="">None (Remove Format)</option>
+                {Object.entries(FORMAT_PRESETS).map(([key, preset]) => (
+                  <option key={key} value={key}>{preset.label} — {preset.example}</option>
+                ))}
+                <option value="custom">Custom Regex...</option>
+              </select>
+
+              {editFormat.preset === 'custom' && (
+                <input
+                  value={editFormat.customPattern}
+                  onChange={e => setEditFormat({ ...editFormat, customPattern: e.target.value })}
+                  placeholder="^[A-Z]{2}\d{4}$"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-mono text-slate-600 outline-none focus:ring-2 focus:ring-amber-400/30"
+                />
+              )}
+            </div>
+
+            <button
+              onClick={handleSaveColumnFormat}
+              disabled={executing}
+              className="w-full mt-6 bg-amber-500 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-amber-600 transition-all flex items-center justify-center gap-2"
+            >
+              {executing ? <Loader2 className="animate-spin" size={16} /> : 'Save Format'}
+            </button>
+            <button onClick={() => setEditFormat(null)} className="mt-4 text-xs font-bold text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
           </div>
         </div>
       )}

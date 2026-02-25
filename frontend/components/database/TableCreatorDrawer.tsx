@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Plus, Loader2, Link as LinkIcon, Shield, ShieldOff } from 'lucide-react';
+import { X, Plus, Loader2, Link as LinkIcon, Shield, ShieldOff, Regex } from 'lucide-react';
 
 // ============================================================
 // TableCreatorDrawer — Enterprise Schema Designer
@@ -21,7 +21,23 @@ interface ColumnDef {
     foreignKey?: { table: string; column: string };
     sourceHeader?: string;
     description?: string;
+    formatPreset?: string;
+    formatPattern?: string;
 }
+
+// Format presets for column validation (mirrored from backend)
+// NOTE: This map is also used by the "Add Column" modal in DatabaseExplorer.tsx
+// and enforced server-side in DataController.ts insertRows/updateRows.
+const FORMAT_PRESETS: Record<string, { label: string; regex: string; example: string }> = {
+    email: { label: 'Email', regex: '^[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}$', example: 'user@example.com' },
+    cpf: { label: 'CPF', regex: '^\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2}$', example: '123.456.789-00' },
+    cnpj: { label: 'CNPJ', regex: '^\\d{2}\\.\\d{3}\\.\\d{3}\\/\\d{4}-\\d{2}$', example: '12.345.678/0001-99' },
+    phone_br: { label: 'Phone (BR)', regex: '^\\+?55\\s?\\(?\\d{2}\\)?\\s?\\d{4,5}-?\\d{4}$', example: '+55 (11) 99999-1234' },
+    cep: { label: 'CEP', regex: '^\\d{5}-?\\d{3}$', example: '01310-100' },
+    url: { label: 'URL', regex: '^https?:\\/\\/[a-zA-Z0-9\\-]+(\\.[a-zA-Z0-9\\-]+)+(\\/.*)?$', example: 'https://example.com' },
+    uuid_format: { label: 'UUID', regex: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', example: 'a1b2c3d4-...' },
+    date_br: { label: 'Date (BR)', regex: '^\\d{2}\\/\\d{2}\\/\\d{4}$', example: '25/02/2026' },
+};
 
 interface TableCreatorDrawerProps {
     isOpen: boolean;
@@ -262,6 +278,23 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
             lines.push(`ALTER TABLE ${schema}.${safeName} ENABLE ROW LEVEL SECURITY;`);
         }
 
+        // Column comments (descriptions + format patterns)
+        const commentLines: string[] = [];
+        columns.forEach((c) => {
+            const name = sanitizeName(c.name || 'unnamed');
+            const formatStr = c.formatPreset && c.formatPreset !== 'custom' ? c.formatPreset : c.formatPattern;
+            const desc = c.description || '';
+            const commentBody = formatStr ? `${desc}||FORMAT:${formatStr}` : desc;
+            if (commentBody) {
+                commentLines.push(`COMMENT ON COLUMN ${schema}.${safeName}.${name} IS '${commentBody.replace(/'/g, "''")}';`);
+            }
+        });
+        if (commentLines.length > 0) {
+            lines.push('');
+            lines.push('-- Column format validation & descriptions');
+            commentLines.forEach(l => lines.push(l));
+        }
+
         const sql = lines.join('\n');
         onSqlGenerated(sql);
         onClose();
@@ -366,8 +399,48 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
                                         <div title="Array" onClick={() => handleColumnChange(col.id, 'isArray', !col.isArray)} className={`px-1.5 py-1 rounded text-[9px] font-black cursor-pointer select-none transition-colors ${col.isArray ? 'bg-indigo-100 text-indigo-700' : 'text-slate-300 hover:bg-slate-200'}`}>LIST</div>
                                         <div title="Nullable" onClick={() => handleColumnChange(col.id, 'isNullable', !col.isNullable)} className={`px-1.5 py-1 rounded text-[9px] font-black cursor-pointer select-none transition-colors ${col.isNullable ? 'bg-emerald-100 text-emerald-700' : 'text-slate-300 hover:bg-slate-200'}`}>NULL</div>
                                         <div title="Unique" onClick={() => handleColumnChange(col.id, 'isUnique', !col.isUnique)} className={`px-1.5 py-1 rounded text-[9px] font-black cursor-pointer select-none transition-colors ${col.isUnique ? 'bg-purple-100 text-purple-700' : 'text-slate-300 hover:bg-slate-200'}`}>UNIQ</div>
+                                        {(col.type === 'text' || col.type === 'varchar') && (
+                                            <div title="Format Validation" onClick={() => handleColumnChange(col.id, 'formatPreset', col.formatPreset ? undefined : 'email')} className={`px-1.5 py-1 rounded cursor-pointer select-none transition-colors flex items-center gap-0.5 ${col.formatPreset || col.formatPattern ? 'bg-amber-100 text-amber-700' : 'text-slate-300 hover:bg-slate-200'}`}><Regex size={10} strokeWidth={3} /></div>
+                                        )}
                                     </div>
                                 </div>
+
+                                {/* Format Validation Editor (inline) */}
+                                {(col.formatPreset || col.formatPattern) && (col.type === 'text' || col.type === 'varchar') && (
+                                    <div className="mt-2 bg-amber-50/50 border border-amber-100 rounded-lg p-2 animate-in slide-in-from-top-1">
+                                        <select
+                                            value={col.formatPreset || 'custom'}
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                if (val === 'custom') {
+                                                    handleColumnChange(col.id, 'formatPreset', 'custom');
+                                                    handleColumnChange(col.id, 'formatPattern', '');
+                                                } else if (val === '') {
+                                                    handleColumnChange(col.id, 'formatPreset', undefined);
+                                                    handleColumnChange(col.id, 'formatPattern', undefined);
+                                                } else {
+                                                    handleColumnChange(col.id, 'formatPreset', val);
+                                                    handleColumnChange(col.id, 'formatPattern', undefined);
+                                                }
+                                            }}
+                                            className="w-full bg-white border border-amber-200 rounded py-1.5 px-2 text-[10px] font-bold text-slate-700 outline-none cursor-pointer"
+                                        >
+                                            <option value="">Remove Format</option>
+                                            {Object.entries(FORMAT_PRESETS).map(([key, p]) => (
+                                                <option key={key} value={key}>{p.label} ({p.example})</option>
+                                            ))}
+                                            <option value="custom">Custom Regex...</option>
+                                        </select>
+                                        {col.formatPreset === 'custom' && (
+                                            <input
+                                                value={col.formatPattern || ''}
+                                                onChange={(e) => handleColumnChange(col.id, 'formatPattern', e.target.value)}
+                                                placeholder="^[A-Z]{2}\d{4}$"
+                                                className="w-full mt-1.5 bg-white border border-amber-200 rounded py-1.5 px-2 text-[10px] font-mono text-slate-600 outline-none"
+                                            />
+                                        )}
+                                    </div>
+                                )}
 
                                 {/* FK Editor Popover */}
                                 {activeFkEditor === col.id && (
