@@ -942,18 +942,60 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
     }
   };
 
-  // --- TABLE CREATOR CALLBACK ---
-  const handleSqlFromDrawer = async (sql: string) => {
+  // --- TABLE CREATOR CALLBACK & GOVERNANCE SYNC ---
+  const handleSqlFromDrawer = async (
+    sql: string,
+    metaConfig?: { tableName: string, mcpEnabled: boolean, mcpPerms: { r: boolean, c: boolean, u: boolean, d: boolean } }
+  ) => {
     try {
+      // 1. Execute Table Creation DDL
       await fetchWithAuth(`/api/data/${projectId}/query?schema=${activeSchema}`, {
         method: 'POST',
         body: JSON.stringify({ sql })
       });
-      setSuccessMsg('Table created successfully.');
+      setSuccessMsg(`Table '${metaConfig?.tableName || 'new'}' created successfully.`);
       fetchTables();
       fetchSchemas(); // P6: refresh schemas after table creation
+
+      // 2. Synchronize MCP Governance into Backend Engine (control.projects jsonb)
+      if (metaConfig && metaConfig.mcpEnabled) {
+        try {
+          // Fetch current project metadata
+          const resProj = await fetchWithAuth(`/api/control/projects`);
+          const currentProject = resProj.find((p: any) => p.slug === projectId);
+
+          if (currentProject) {
+            const currentMetadata = currentProject.metadata || {};
+            const gov = currentMetadata.ai_governance || { mcp_enabled: true, tables: {}, rpcs: [] };
+
+            // Inject new table permissions
+            const updatedGov = {
+              ...gov,
+              tables: {
+                ...gov.tables,
+                [metaConfig.tableName]: metaConfig.mcpPerms
+              }
+            };
+
+            // Patch backend
+            await fetch(`/api/control/projects/${projectId}`, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('cascata_token')}`
+              },
+              body: JSON.stringify({ metadata: { ...currentMetadata, ai_governance: updatedGov } })
+            });
+            console.log(`[Governance] Sync complete for table ${metaConfig.tableName}`);
+          }
+        } catch (govErr: any) {
+          console.error("Governance Sync Failed:", govErr);
+          // Don't fail the whole creation process, but alert user
+          setError(`Table created, but MCP Governance sync failed.`);
+        }
+      }
     } catch (e: any) {
-      // If auto-execute fails, send to console for manual review
+      // If auto-execute DDL fails, send to console for manual review
       setSqlInitial(sql);
       setActiveTab('query');
       setError(`Auto-execute failed: ${e.message}. SQL sent to console.`);

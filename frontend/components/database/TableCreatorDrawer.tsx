@@ -46,7 +46,7 @@ interface TableCreatorDrawerProps {
     activeSchema: string;
     projectId: string;
     fetchWithAuth: (url: string, options?: any) => Promise<any>;
-    onSqlGenerated: (sql: string) => void;
+    onSqlGenerated: (sql: string, metaConfig: { tableName: string, mcpEnabled: boolean, mcpPerms: { r: boolean, c: boolean, u: boolean, d: boolean } }) => void;
     initialTableName?: string;
     initialColumns?: ColumnDef[];
 }
@@ -336,9 +336,13 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
         }
 
         const sql = lines.join('\n');
-        onSqlGenerated(sql);
+        onSqlGenerated(sql, {
+            tableName: safeName,
+            mcpEnabled,
+            mcpPerms
+        });
         onClose();
-    }, [tableName, tableDesc, columns, enableRLS, activeSchema, onSqlGenerated, onClose, canGenerate]);
+    }, [tableName, tableDesc, columns, enableRLS, activeSchema, mcpEnabled, mcpPerms, onSqlGenerated, onClose, canGenerate]);
 
     // Click outside handler for FK editor
     useEffect(() => {
