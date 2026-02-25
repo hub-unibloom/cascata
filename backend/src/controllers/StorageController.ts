@@ -4,7 +4,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { CascataRequest } from '../types.js';
 import { STORAGE_ROOT, systemPool } from '../config/main.js';
-import { getSectorForExt, validateMagicBytesAsync, parseBytes } from '../utils/index.js';
+import { getSectorForExt, validateMagicBytesAsync, parseBytes, resolveStorageConfig } from '../utils/index.js';
 import { StorageService, StorageConfig } from '../../services/StorageService.js';
 import { StorageIndexer } from '../../services/StorageIndexer.js';
 import { RateLimitService } from '../../services/RateLimitService.js';
@@ -232,7 +232,8 @@ export class StorageController {
         let reservationId: string | undefined;
         try {
             const { name, type, size, path: targetPath } = req.body;
-            const storageConfig: StorageConfig = req.project.metadata?.storage_config || { provider: 'local' };
+            const ext = path.extname(name).replace('.', '').toLowerCase();
+            const storageConfig: StorageConfig = resolveStorageConfig(req.project.metadata, ext);
 
             const limit = req.project.metadata?.storage_limit || '1GB';
             const quotaCheck = await StorageController.checkQuota(req.project.slug, size || 0, limit, storageConfig.provider);
@@ -243,7 +244,6 @@ export class StorageController {
             reservationId = quotaCheck.reservationId;
 
             const governance = req.project.metadata?.storage_governance || {};
-            const ext = path.extname(name).replace('.', '').toLowerCase();
             const sector = getSectorForExt(ext);
             const rule = governance[sector] || governance['global'] || { max_size: '10MB', allowed_exts: [] };
 
@@ -288,7 +288,8 @@ export class StorageController {
         };
 
         try {
-            const storageConfig: StorageConfig = req.project.metadata?.storage_config || { provider: 'local' };
+            const ext = path.extname(req.file.originalname).replace('.', '').toLowerCase();
+            const storageConfig: StorageConfig = resolveStorageConfig(req.project.metadata, ext);
 
             const limit = req.project.metadata?.storage_limit || '1GB';
             const quotaCheck = await StorageController.checkQuota(req.project.slug, req.file.size, limit, storageConfig.provider);
@@ -300,7 +301,6 @@ export class StorageController {
             reservationId = quotaCheck.reservationId;
 
             const governance = req.project.metadata?.storage_governance || {};
-            const ext = path.extname(req.file.originalname).replace('.', '').toLowerCase();
             const sector = getSectorForExt(ext);
             const rule = governance[sector] || governance['global'] || { max_size: '10MB', allowed_exts: [] };
 

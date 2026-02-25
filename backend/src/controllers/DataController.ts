@@ -1,7 +1,7 @@
 
 import { NextFunction } from 'express';
 import { CascataRequest } from '../types.js';
-import { queryWithRLS, quoteId } from '../utils/index.js';
+import { queryWithRLS, quoteId, parseColumnFormat, validateFormatPattern } from '../utils/index.js';
 import { DatabaseService } from '../../services/DatabaseService.js';
 import { PostgrestService } from '../../services/PostgrestService.js';
 import { OpenApiService } from '../../services/OpenApiService.js';
@@ -177,6 +177,46 @@ export class DataController {
             const rows = Array.isArray(data) ? data : [data];
             if (rows.length === 0) return res.json([]);
 
+            // --- FORMAT VALIDATION (Server-Side Enforcement) ---
+            const schema = req.query.schema || 'public';
+            const safeSchema = quoteId(schema as string);
+
+            const commentRes = await req.projectPool!.query(
+                `SELECT c.column_name, col_description(
+                    (SELECT oid FROM pg_class WHERE relname = $1 AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = $2)),
+                    c.ordinal_position
+                ) as comment
+                FROM information_schema.columns c
+                WHERE c.table_schema = $2 AND c.table_name = $1`,
+                [req.params.tableName, schema]
+            );
+
+            const formatMap = new Map<string, string>();
+            for (const row of commentRes.rows) {
+                const parsed = parseColumnFormat(row.comment);
+                if (parsed.formatPattern) {
+                    formatMap.set(row.column_name, parsed.formatPattern);
+                }
+            }
+
+            // Validate all rows against format patterns
+            if (formatMap.size > 0) {
+                for (let i = 0; i < rows.length; i++) {
+                    for (const [colName, pattern] of formatMap) {
+                        const value = rows[i][colName];
+                        if (value !== undefined && value !== null && value !== '') {
+                            const result = validateFormatPattern(String(value), pattern);
+                            if (!result.valid) {
+                                return res.status(400).json({
+                                    error: `Format Validation Failed on column "${colName}" (row ${i + 1}): ${result.error}`
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            // --- END FORMAT VALIDATION ---
+
             const allKeys = new Set<string>();
             rows.forEach(row => Object.keys(row).forEach(k => allKeys.add(k)));
 
@@ -203,9 +243,6 @@ export class DataController {
                 throw new Error("Batch too large. Reduce rows or columns.");
             }
 
-            const schema = req.query.schema || 'public';
-            const safeSchema = quoteId(schema as string);
-
             const result = await queryWithRLS(req, async (client) => {
                 return await client.query(`INSERT INTO ${safeSchema}.${safeTable} (${columns}) VALUES ${valuesPlaceholder} RETURNING *`, flatValues);
             });
@@ -220,6 +257,31 @@ export class DataController {
             const safeTable = quoteId(req.params.tableName);
             const { data, pkColumn, pkValue } = req.body;
             if (!data || !pkColumn || pkValue === undefined) throw new Error("Missing data or PK");
+
+            // --- FORMAT VALIDATION (Server-Side Enforcement) ---
+            const commentRes = await req.projectPool!.query(
+                `SELECT c.column_name, col_description(
+                    (SELECT oid FROM pg_class WHERE relname = $1 AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = $2)),
+                    c.ordinal_position
+                ) as comment
+                FROM information_schema.columns c
+                WHERE c.table_schema = $2 AND c.table_name = $1`,
+                [req.params.tableName, schema]
+            );
+
+            for (const row of commentRes.rows) {
+                const parsed = parseColumnFormat(row.comment);
+                if (parsed.formatPattern && data[row.column_name] !== undefined && data[row.column_name] !== null && data[row.column_name] !== '') {
+                    const result = validateFormatPattern(String(data[row.column_name]), parsed.formatPattern);
+                    if (!result.valid) {
+                        return res.status(400).json({
+                            error: `Format Validation Failed on column "${row.column_name}": ${result.error}`
+                        });
+                    }
+                }
+            }
+            // --- END FORMAT VALIDATION ---
+
             const updates = Object.keys(data).map((k, i) => `${quoteId(k)} = $${i + 1}`).join(', ');
             const values = Object.values(data);
             const pkValIndex = values.length + 1;
@@ -332,8 +394,38 @@ export class DataController {
         }
         try {
             const schema = req.query.schema || 'public';
-            const result = await req.projectPool!.query(`SELECT column_name as name, data_type as type, is_nullable, column_default as "defaultValue", EXISTS (SELECT 1 FROM information_schema.key_column_usage kcu WHERE kcu.table_name = $1 AND kcu.table_schema = $2 AND kcu.column_name = c.column_name) as "isPrimaryKey" FROM information_schema.columns c WHERE table_schema = $2 AND table_name = $1`, [req.params.tableName, schema]);
-            res.json(result.rows);
+            const result = await req.projectPool!.query(
+                `SELECT 
+                    c.column_name as name, 
+                    c.data_type as type, 
+                    c.is_nullable, 
+                    c.column_default as "defaultValue",
+                    EXISTS (
+                        SELECT 1 FROM information_schema.key_column_usage kcu 
+                        WHERE kcu.table_name = $1 AND kcu.table_schema = $2 AND kcu.column_name = c.column_name
+                    ) as "isPrimaryKey",
+                    col_description(
+                        (SELECT oid FROM pg_class WHERE relname = $1 AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = $2)),
+                        c.ordinal_position
+                    ) as "rawComment"
+                FROM information_schema.columns c 
+                WHERE c.table_schema = $2 AND c.table_name = $1
+                ORDER BY c.ordinal_position`,
+                [req.params.tableName, schema]
+            );
+
+            // Parse format patterns from comments
+            const enriched = result.rows.map((row: any) => {
+                const parsed = parseColumnFormat(row.rawComment);
+                return {
+                    ...row,
+                    description: parsed.description || '',
+                    formatPattern: parsed.formatPattern || null,
+                    rawComment: undefined // Don't expose raw comment to client
+                };
+            });
+
+            res.json(enriched);
         } catch (e: any) { next(e); }
     }
 

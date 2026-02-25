@@ -3,7 +3,7 @@ import {
   Database, Search, Table as TableIcon, Loader2, AlertCircle, Plus, X,
   Terminal, Trash2, Download, Upload, Copy, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   CheckCircle2, Save, Key, RefreshCw, Puzzle, FileType, FileSpreadsheet, FileJson,
-  RotateCcw, GripVertical, MousePointer2, Layers, AlertTriangle, Check, Link as LinkIcon, Code, Eye, Edit
+  RotateCcw, GripVertical, MousePointer2, Layers, AlertTriangle, Check, Link as LinkIcon, Code, Eye, Edit, Shield
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
@@ -75,7 +75,21 @@ interface ColumnDef {
   foreignKey?: { table: string; column: string };
   sourceHeader?: string;
   description?: string;
+  formatPreset?: string;
+  formatPattern?: string;
 }
+
+// Format presets for column validation (mirrored from backend)
+const FORMAT_PRESETS: Record<string, { label: string; regex: string; example: string; description: string }> = {
+  email: { label: 'Email', regex: '^[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}$', example: 'user@example.com', description: 'Endereço de e-mail válido' },
+  cpf: { label: 'CPF', regex: '^\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2}$', example: '123.456.789-00', description: 'CPF no formato XXX.XXX.XXX-XX' },
+  cnpj: { label: 'CNPJ', regex: '^\\d{2}\\.\\d{3}\\.\\d{3}\\/\\d{4}-\\d{2}$', example: '12.345.678/0001-99', description: 'CNPJ no formato XX.XXX.XXX/XXXX-XX' },
+  phone_br: { label: 'Phone (BR)', regex: '^\\+?55\\s?\\(?\\d{2}\\)?\\s?\\d{4,5}-?\\d{4}$', example: '+55 (11) 99999-1234', description: 'Telefone brasileiro com DDD' },
+  cep: { label: 'CEP', regex: '^\\d{5}-?\\d{3}$', example: '01310-100', description: 'CEP brasileiro' },
+  url: { label: 'URL', regex: '^https?:\\/\\/[a-zA-Z0-9\\-]+(\\.[a-zA-Z0-9\\-]+)+(\\/.*)?$', example: 'https://example.com', description: 'URL com http ou https' },
+  uuid_format: { label: 'UUID', regex: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', description: 'UUID v4 padrão' },
+  date_br: { label: 'Date (BR)', regex: '^\\d{2}\\/\\d{2}\\/\\d{4}$', example: '25/02/2026', description: 'Data no formato DD/MM/AAAA' },
+};
 
 // Main Component
 const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
@@ -122,8 +136,10 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
     isUnique: boolean;
     description: string;
     foreignKey?: { table: string, column: string };
+    formatPreset: string;
+    formatPattern: string;
   }>({
-    name: '', type: 'text', isNullable: true, defaultValue: '', isUnique: false, description: ''
+    name: '', type: 'text', isNullable: true, defaultValue: '', isUnique: false, description: '', formatPreset: '', formatPattern: ''
   });
   const [fkTargetColumns, setFkTargetColumns] = useState<string[]>([]);
   const [fkLoading, setFkLoading] = useState(false);
@@ -554,19 +570,25 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
         body: JSON.stringify({ sql })
       });
 
-      // Add Comment/Description if provided
-      if (newColumn.description) {
+      // Build comment with format pattern
+      const formatStr = newColumn.formatPreset || newColumn.formatPattern;
+      const commentBody = formatStr
+        ? `${newColumn.description.replace(/'/g, "''")}||FORMAT:${formatStr}`
+        : newColumn.description.replace(/'/g, "''");
+
+      // Add Comment/Description + Format if provided
+      if (commentBody) {
         await fetchWithAuth(`/api/data/${projectId}/query?schema=${activeSchema}`, {
           method: 'POST',
           body: JSON.stringify({
-            sql: `COMMENT ON COLUMN ${activeSchema}."${selectedTable}"."${sanitizeColName(newColumn.name)}" IS '${newColumn.description.replace(/'/g, "''")}'`
+            sql: `COMMENT ON COLUMN ${activeSchema}."${selectedTable}"."${sanitizeColName(newColumn.name)}" IS '${commentBody}'`
           })
         });
       }
 
       setSuccessMsg("Column added.");
       setShowAddColumn(false);
-      setNewColumn({ name: '', type: 'text', isNullable: true, defaultValue: '', isUnique: false, description: '' });
+      setNewColumn({ name: '', type: 'text', isNullable: true, defaultValue: '', isUnique: false, description: '', formatPreset: '', formatPattern: '' });
       fetchTableData(selectedTable);
     } catch (e: any) { setError(translateError(e)); }
     finally { setExecuting(false); }
@@ -1360,6 +1382,63 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                   {getDefaultSuggestions(newColumn.type).map(s => <option key={s} value={s} />)}
                 </datalist>
               </div>
+
+              {/* Format Validation */}
+              {(newColumn.type === 'text' || newColumn.type === 'varchar') && (
+                <div className="space-y-2 bg-amber-50/50 p-3 rounded-2xl border border-amber-100 animate-in slide-in-from-top-2">
+                  <label className="text-[9px] font-black text-amber-500 uppercase tracking-widest ml-1 flex items-center gap-1">
+                    <Shield size={10} /> Format Validation
+                  </label>
+                  <select
+                    value={newColumn.formatPreset}
+                    onChange={e => {
+                      const val = e.target.value;
+                      if (val === 'custom') {
+                        setNewColumn({ ...newColumn, formatPreset: 'custom', formatPattern: '' });
+                      } else {
+                        setNewColumn({ ...newColumn, formatPreset: val, formatPattern: '' });
+                      }
+                    }}
+                    className="w-full bg-white border border-amber-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-700 outline-none cursor-pointer"
+                  >
+                    <option value="">None (No Validation)</option>
+                    {Object.entries(FORMAT_PRESETS).map(([key, preset]) => (
+                      <option key={key} value={key}>{preset.label} — {preset.description}</option>
+                    ))}
+                    <option value="custom">Custom Regex...</option>
+                  </select>
+
+                  {newColumn.formatPreset === 'custom' && (
+                    <input
+                      value={newColumn.formatPattern}
+                      onChange={e => setNewColumn({ ...newColumn, formatPattern: e.target.value })}
+                      placeholder="^[A-Z]{2}\d{4}$"
+                      className="w-full bg-white border border-amber-200 rounded-xl py-2 px-3 text-xs font-mono font-medium text-slate-600 outline-none focus:ring-2 focus:ring-amber-400/30"
+                    />
+                  )}
+
+                  {/* Live Preview */}
+                  {(newColumn.formatPreset && newColumn.formatPreset !== 'custom') || newColumn.formatPattern ? (() => {
+                    const pattern = newColumn.formatPreset !== 'custom'
+                      ? FORMAT_PRESETS[newColumn.formatPreset]?.regex
+                      : newColumn.formatPattern;
+                    const example = newColumn.formatPreset !== 'custom'
+                      ? FORMAT_PRESETS[newColumn.formatPreset]?.example
+                      : '';
+                    if (!pattern) return null;
+                    const testOk = example ? new RegExp(pattern).test(example) : false;
+                    return (
+                      <div className="flex items-center gap-2 text-[10px] font-bold mt-1">
+                        <div className={`w-2 h-2 rounded-full ${testOk ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                        <span className="text-slate-500">
+                          Example: <span className="font-mono text-slate-700">{example || '—'}</span>
+                          {testOk ? <span className="text-emerald-600 ml-1">✓ Match</span> : <span className="text-red-500 ml-1">✗ No match</span>}
+                        </span>
+                      </div>
+                    );
+                  })() : null}
+                </div>
+              )}
 
             </div>
             <button onClick={handleAddColumn} disabled={executing} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2">

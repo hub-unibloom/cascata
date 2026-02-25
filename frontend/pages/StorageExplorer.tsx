@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { 
-  Folder, File, Upload, HardDrive, Search, Trash2, 
-  Download, Image as ImageIcon, FileText, MoreVertical, 
+import {
+  Folder, File, Upload, HardDrive, Search, Trash2,
+  Download, Image as ImageIcon, FileText, MoreVertical,
   Plus, Loader2, CheckCircle2, ChevronRight, AlertCircle,
-  FolderPlus, ChevronDown, MoreHorizontal, Copy, Edit, 
+  FolderPlus, ChevronDown, MoreHorizontal, Copy, Edit,
   ExternalLink, ArrowRight, Filter, SortAsc, SortDesc,
   Grid, List, X, Move, Share2, Settings2, Shield, Eye,
   Check, Square, CheckSquare, Zap, ShieldAlert, Lock,
@@ -61,16 +61,16 @@ const StorageExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  
+
   // View States
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('newest');
-  
+
   // Auth State
   const [lastVerifiedTime, setLastVerifiedTime] = useState<number>(0);
-  
+
   // Modals & Popups
   const [showNewBucket, setShowNewBucket] = useState(false);
   const [showNewFolder, setShowNewFolder] = useState(false);
@@ -86,7 +86,7 @@ const StorageExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [pendingAction, setPendingAction] = useState<(() => Promise<void>) | null>(null);
 
   const [draggedItem, setDraggedItem] = useState<StorageItem | null>(null);
-  const [dragTarget, setDragTarget] = useState<string | null>(null); 
+  const [dragTarget, setDragTarget] = useState<string | null>(null);
 
   const [governanceSearch, setGovernanceSearch] = useState('');
   const [newCustomExt, setNewCustomExt] = useState('');
@@ -94,7 +94,7 @@ const StorageExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, type: 'bucket' | 'item', data: any } | null>(null);
 
   const [governance, setGovernance] = useState<any>({});
-  
+
   // Storage Configuration State (Provider Settings)
   const [storageConfig, setStorageConfig] = useState<any>({ provider: 'local', optimize: false });
   const [activeConfigTab, setActiveConfigTab] = useState('local');
@@ -104,24 +104,24 @@ const StorageExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
     const token = localStorage.getItem('cascata_token');
     const headers = { 'Authorization': `Bearer ${token}`, ...options.headers };
     if (!(options.body instanceof FormData)) {
-        headers['Content-Type'] = 'application/json';
+      headers['Content-Type'] = 'application/json';
     }
     const res = await fetch(url, { ...options, headers });
     if (!res.ok) {
-        const errorText = await res.text();
-        let errorMessage = `HTTP ${res.status}`;
-        try {
-            const json = JSON.parse(errorText);
-            errorMessage = json.error || errorMessage;
-        } catch {}
-        throw new Error(errorMessage);
+      const errorText = await res.text();
+      let errorMessage = `HTTP ${res.status}`;
+      try {
+        const json = JSON.parse(errorText);
+        errorMessage = json.error || errorMessage;
+      } catch { }
+      throw new Error(errorMessage);
     }
     return res.json();
   }, []);
 
   const getSecureDownloadLink = (path: string) => {
     const token = localStorage.getItem('cascata_token');
-    return `${window.location.origin}/api/data/${projectId}/storage/${selectedBucket}/object/${path}?apikey=${token}`; 
+    return `${window.location.origin}/api/data/${projectId}/storage/${selectedBucket}/object/${path}?apikey=${token}`;
   };
 
   const safeCopyToClipboard = (text: string) => {
@@ -191,25 +191,25 @@ const StorageExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
     } else {
       const initial: any = {};
       SECTOR_DEFINITIONS.forEach(s => {
-        initial[s.id] = { 
-            max_size: s.id === 'global' ? '100MB' : '10MB', // Internal
-            max_size_direct: '5GB', // External Default
-            allowed_exts: s.defaults 
+        initial[s.id] = {
+          max_size: s.id === 'global' ? '100MB' : '10MB', // Internal
+          max_size_direct: '5GB', // External Default
+          allowed_exts: s.defaults
         };
       });
       setGovernance(initial);
     }
     if (proj?.metadata?.storage_config) {
-        setStorageConfig(proj.metadata.storage_config);
-        setActiveConfigTab(proj.metadata.storage_config.provider || 'local');
+      setStorageConfig(proj.metadata.storage_config);
+      setActiveConfigTab(proj.metadata.storage_config.provider || 'local');
     }
   };
 
   useEffect(() => { fetchBuckets(); fetchProjectData(); }, [projectId]);
-  
-  useEffect(() => { 
-      const timer = setTimeout(() => fetchItems(), 100);
-      return () => clearTimeout(timer);
+
+  useEffect(() => {
+    const timer = setTimeout(() => fetchItems(), 100);
+    return () => clearTimeout(timer);
   }, [selectedBucket, currentPath, searchQuery]);
 
   useEffect(() => {
@@ -221,104 +221,104 @@ const StorageExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   // --- INTERACTION ---
   const handleItemClick = (e: React.MouseEvent, item: StorageItem) => {
     if (e.ctrlKey || e.metaKey || e.shiftKey) {
-        toggleSelect(item.path);
-        return;
+      toggleSelect(item.path);
+      return;
     }
-    
+
     if (item.type === 'folder') {
-        // Folder: Single click navigates
-        setCurrentPath(item.path);
-        setSearchQuery('');
-        setSelectedItems(new Set()); // Clear selection on navigate
+      // Folder: Single click navigates
+      setCurrentPath(item.path);
+      setSearchQuery('');
+      setSelectedItems(new Set()); // Clear selection on navigate
     } else {
-        // File: Single click selects
-        setSelectedItems(new Set([item.path]));
+      // File: Single click selects
+      setSelectedItems(new Set([item.path]));
     }
   };
 
   const handleItemDoubleClick = (item: StorageItem) => {
-      if (item.type === 'folder') {
-          // Folder: Double click selects
-          toggleSelect(item.path);
-      } else {
-          // File: Double click opens/downloads
-          window.open(getSecureDownloadLink(item.path), '_blank');
-      }
+    if (item.type === 'folder') {
+      // Folder: Double click selects
+      toggleSelect(item.path);
+    } else {
+      // File: Double click opens/downloads
+      window.open(getSecureDownloadLink(item.path), '_blank');
+    }
   };
 
   const handleCreateFolder = async () => {
-      if(!newName) return;
-      try {
-          await fetchWithAuth(`/api/data/${projectId}/storage/${selectedBucket}/folder`, { 
-              method: 'POST', 
-              body: JSON.stringify({ name: newName, path: currentPath }) 
-          });
-          setNewName('');
-          setShowNewFolder(false);
-          fetchItems();
-          setSuccess("Pasta criada.");
-      } catch(e: any) {
-          setError(e.message);
-      }
+    if (!newName) return;
+    try {
+      await fetchWithAuth(`/api/data/${projectId}/storage/${selectedBucket}/folder`, {
+        method: 'POST',
+        body: JSON.stringify({ name: newName, path: currentPath })
+      });
+      setNewName('');
+      setShowNewFolder(false);
+      fetchItems();
+      setSuccess("Pasta criada.");
+    } catch (e: any) {
+      setError(e.message);
+    }
   };
 
   // --- HYBRID UPLOAD (Direct vs Proxy) ---
   const handleUpload = async (files: FileList | null, targetPath: string = currentPath, targetBucket: string = selectedBucket!) => {
-      if (!files || !targetBucket) return;
-      setIsUploading(true);
-      setError(null);
-      
-      try {
-          let successCount = 0;
-          
-          for (let i = 0; i < files.length; i++) {
-              const file = files[i];
-              setUploadProgress(Math.round(((i) / files.length) * 100));
+    if (!files || !targetBucket) return;
+    setIsUploading(true);
+    setError(null);
 
-              // 1. Negotiate (Get Strategy)
-              const signRes = await fetchWithAuth(`/api/data/${projectId}/storage/${targetBucket}/sign`, {
-                  method: 'POST',
-                  body: JSON.stringify({ 
-                      name: file.name, 
-                      type: file.type, 
-                      size: file.size, 
-                      path: targetPath 
-                  })
-              });
+    try {
+      let successCount = 0;
 
-              if (signRes.error) throw new Error(signRes.error);
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        setUploadProgress(Math.round(((i) / files.length) * 100));
 
-              // 2. Execute based on Strategy
-              if (signRes.strategy === 'direct') {
-                  // Direct Upload (PUT to S3/Cloud)
-                  await fetch(signRes.url, {
-                      method: signRes.method,
-                      headers: signRes.fields || { 'Content-Type': file.type },
-                      body: file
-                  });
-              } else {
-                  // Proxy Upload (Standard Multipart)
-                  const formData = new FormData();
-                  formData.append('file', file);
-                  formData.append('path', targetPath);
-                  await fetchWithAuth(`/api/data/${projectId}/storage/${targetBucket}/upload`, { 
-                      method: 'POST', 
-                      body: formData 
-                  });
-              }
-              successCount++;
-          }
-          
-          if (targetBucket === selectedBucket) {
-              fetchItems();
-          }
-          setSuccess(`${successCount} arquivos enviados.`);
-      } catch (e: any) { 
-          setError(e.message || "Erro no upload."); 
-      } finally { 
-          setIsUploading(false);
-          setUploadProgress(0); 
+        // 1. Negotiate (Get Strategy)
+        const signRes = await fetchWithAuth(`/api/data/${projectId}/storage/${targetBucket}/sign`, {
+          method: 'POST',
+          body: JSON.stringify({
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            path: targetPath
+          })
+        });
+
+        if (signRes.error) throw new Error(signRes.error);
+
+        // 2. Execute based on Strategy
+        if (signRes.strategy === 'direct') {
+          // Direct Upload (PUT to S3/Cloud)
+          await fetch(signRes.url, {
+            method: signRes.method,
+            headers: signRes.fields || { 'Content-Type': file.type },
+            body: file
+          });
+        } else {
+          // Proxy Upload (Standard Multipart)
+          const formData = new FormData();
+          formData.append('file', file);
+          formData.append('path', targetPath);
+          await fetchWithAuth(`/api/data/${projectId}/storage/${targetBucket}/upload`, {
+            method: 'POST',
+            body: formData
+          });
+        }
+        successCount++;
       }
+
+      if (targetBucket === selectedBucket) {
+        fetchItems();
+      }
+      setSuccess(`${successCount} arquivos enviados.`);
+    } catch (e: any) {
+      setError(e.message || "Erro no upload.");
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(0);
+    }
   };
 
   // --- DRAG & DROP LOGIC ---
@@ -330,72 +330,72 @@ const StorageExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   };
 
   const handleDropOnTarget = (e: React.DragEvent, targetBucket: string, targetPath: string) => {
-      e.preventDefault(); e.stopPropagation(); setDragTarget(null);
-      
-      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-          handleUpload(e.dataTransfer.files, targetPath, targetBucket);
-          return;
-      }
+    e.preventDefault(); e.stopPropagation(); setDragTarget(null);
 
-      if (draggedItem) {
-          if (targetBucket === selectedBucket && targetPath.startsWith(draggedItem.path)) return;
-          
-          const move = async () => {
-              try {
-                  await fetchWithAuth(`/api/data/${projectId}/storage/move`, {
-                      method: 'POST',
-                      body: JSON.stringify({
-                          bucket: selectedBucket,
-                          paths: [draggedItem.path],
-                          destination: { bucket: targetBucket, path: targetPath } 
-                      })
-                  });
-                  if (selectedBucket === targetBucket || targetBucket === selectedBucket) {
-                      fetchItems();
-                  }
-                  setSuccess(`Moved to ${targetPath || targetBucket}`);
-              } catch (err: any) { setError("Failed to move item."); }
-          };
-          move();
-          setDraggedItem(null);
-      }
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleUpload(e.dataTransfer.files, targetPath, targetBucket);
+      return;
+    }
+
+    if (draggedItem) {
+      if (targetBucket === selectedBucket && targetPath.startsWith(draggedItem.path)) return;
+
+      const move = async () => {
+        try {
+          await fetchWithAuth(`/api/data/${projectId}/storage/move`, {
+            method: 'POST',
+            body: JSON.stringify({
+              bucket: selectedBucket,
+              paths: [draggedItem.path],
+              destination: { bucket: targetBucket, path: targetPath }
+            })
+          });
+          if (selectedBucket === targetBucket || targetBucket === selectedBucket) {
+            fetchItems();
+          }
+          setSuccess(`Moved to ${targetPath || targetBucket}`);
+        } catch (err: any) { setError("Failed to move item."); }
+      };
+      move();
+      setDraggedItem(null);
+    }
   };
 
   const handleDragEnter = (e: React.DragEvent, id: string) => {
-      e.preventDefault(); e.stopPropagation();
-      setDragTarget(id);
+    e.preventDefault(); e.stopPropagation();
+    setDragTarget(id);
   };
 
   const handleDragLeave = (e: React.DragEvent, id: string) => {
-      e.preventDefault(); e.stopPropagation();
-      if (e.currentTarget.contains(e.relatedTarget as Node)) return;
-      if (dragTarget === id) setDragTarget(null);
+    e.preventDefault(); e.stopPropagation();
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    if (dragTarget === id) setDragTarget(null);
   };
 
   // --- ACTIONS (Delete, Rename, Move, Config) ---
 
   const handleSaveStorageConfig = async () => {
-      try {
-          const newConfig = { ...storageConfig, provider: activeConfigTab };
-          await fetchWithAuth(`/api/control/projects/${projectId}`, {
-              method: 'PATCH',
-              body: JSON.stringify({ metadata: { storage_config: newConfig } })
-          });
-          setStorageConfig(newConfig);
-          setSuccess("Provedor de armazenamento atualizado.");
-          setShowConnectModal(false);
-      } catch (e: any) {
-          setError("Erro ao salvar configuração.");
-      }
+    try {
+      const newConfig = { ...storageConfig, provider: activeConfigTab };
+      await fetchWithAuth(`/api/control/projects/${projectId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ metadata: { storage_config: newConfig } })
+      });
+      setStorageConfig(newConfig);
+      setSuccess("Provedor de armazenamento atualizado.");
+      setShowConnectModal(false);
+    } catch (e: any) {
+      setError("Erro ao salvar configuração.");
+    }
   };
 
   const checkAuth = (action: () => Promise<void>, requiresAuth: boolean = true) => {
     const isSessionValid = (Date.now() - lastVerifiedTime) < 3600000;
     if (!requiresAuth || isSessionValid) {
-        action();
+      action();
     } else {
-        setPendingAction(() => action);
-        setShowVerifyModal(true);
+      setPendingAction(() => action);
+      setShowVerifyModal(true);
     }
   };
 
@@ -421,18 +421,18 @@ const StorageExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   const handleDeleteBucket = async (bucketName: string) => {
     const isCurrentBucket = bucketName === selectedBucket;
     const isEmpty = isCurrentBucket && items.length === 0;
-    
+
     checkAuth(async () => {
-        try {
-            await fetchWithAuth(`/api/data/${projectId}/storage/buckets/${bucketName}`, { method: 'DELETE' });
-            if (isCurrentBucket) {
-                setSelectedBucket(null);
-                setItems([]);
-            }
-            fetchBuckets();
-            setSuccess("Bucket deleted successfully");
-        } catch (e: any) { setError("Failed to delete bucket"); }
-    }, !isEmpty); 
+      try {
+        await fetchWithAuth(`/api/data/${projectId}/storage/buckets/${bucketName}`, { method: 'DELETE' });
+        if (isCurrentBucket) {
+          setSelectedBucket(null);
+          setItems([]);
+        }
+        fetchBuckets();
+        setSuccess("Bucket deleted successfully");
+      } catch (e: any) { setError("Failed to delete bucket"); }
+    }, !isEmpty);
   };
 
   const handleBulkDelete = async () => {
@@ -500,22 +500,22 @@ const StorageExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   };
 
   const checkPhysicalLimit = (valStr: string) => {
-      const val = parseFloat(parseSizeValue(valStr) || '0');
-      const unit = parseSizeUnit(valStr);
-      const multipliers: any = { 'B': 1, 'KB': 1024, 'MB': 1024*1024, 'GB': 1024*1024*1024 };
-      const bytes = val * (multipliers[unit.toUpperCase()] || 1);
-      return bytes > PHYSICAL_LIMIT_BYTES;
+    const val = parseFloat(parseSizeValue(valStr) || '0');
+    const unit = parseSizeUnit(valStr);
+    const multipliers: any = { 'B': 1, 'KB': 1024, 'MB': 1024 * 1024, 'GB': 1024 * 1024 * 1024 };
+    const bytes = val * (multipliers[unit.toUpperCase()] || 1);
+    return bytes > PHYSICAL_LIMIT_BYTES;
   };
 
   const addCustomExtension = (sectorId: string) => {
-      if (!newCustomExt) return;
-      const cleanExt = newCustomExt.replace(/^\./, '').toLowerCase();
-      const current = governance[sectorId]?.allowed_exts || [];
-      if (!current.includes(cleanExt)) {
-          const next = [...current, cleanExt];
-          setGovernance({ ...governance, [sectorId]: { ...governance[sectorId], allowed_exts: next } });
-      }
-      setNewCustomExt('');
+    if (!newCustomExt) return;
+    const cleanExt = newCustomExt.replace(/^\./, '').toLowerCase();
+    const current = governance[sectorId]?.allowed_exts || [];
+    if (!current.includes(cleanExt)) {
+      const next = [...current, cleanExt];
+      setGovernance({ ...governance, [sectorId]: { ...governance[sectorId], allowed_exts: next } });
+    }
+    setNewCustomExt('');
   };
 
   // --- RENDER HELPERS ---
@@ -537,17 +537,17 @@ const StorageExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   const ActiveProviderIcon = STORAGE_PROVIDERS.find(p => p.id === storageConfig.provider)?.icon || Server;
 
   return (
-    <div 
-      className="flex h-full flex-col bg-[#F8FAFC] overflow-hidden relative" 
+    <div
+      className="flex h-full flex-col bg-[#F8FAFC] overflow-hidden relative"
       onContextMenu={(e) => e.preventDefault()}
-      onDragOver={e => e.preventDefault()} 
+      onDragOver={e => e.preventDefault()}
       onDrop={e => {
-          if (!dragTarget) {
-              handleDropOnTarget(e, selectedBucket!, currentPath);
-          }
+        if (!dragTarget) {
+          handleDropOnTarget(e, selectedBucket!, currentPath);
+        }
       }}
     >
-      
+
       {/* Toast */}
       {(error || success) && (
         <div className={`fixed top-8 left-1/2 -translate-x-1/2 z-[600] px-6 py-4 rounded-full shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-4 ${error ? 'bg-rose-600 text-white' : 'bg-emerald-600 text-white'}`}>
@@ -562,37 +562,37 @@ const StorageExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
         <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[500] bg-slate-900 text-white p-2 pl-6 pr-2 rounded-2xl shadow-2xl flex items-center gap-6 animate-in slide-in-from-bottom-4">
           <span className="text-xs font-black uppercase tracking-widest">{selectedItems.size} Selected</span>
           <div className="flex gap-2">
-             <button onClick={() => { setMoveDestination({bucket: selectedBucket!, path: ''}); setShowMoveModal(true); }} className="p-3 hover:bg-white/10 rounded-xl transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest"><CornerUpRight size={14}/> Move</button>
-             <button onClick={handleBulkDelete} className="p-3 bg-rose-600 hover:bg-rose-700 rounded-xl transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest"><Trash2 size={14}/> Delete</button>
-             <button onClick={() => setSelectedItems(new Set())} className="p-3 hover:bg-white/10 rounded-xl transition-all"><X size={14}/></button>
+            <button onClick={() => { setMoveDestination({ bucket: selectedBucket!, path: '' }); setShowMoveModal(true); }} className="p-3 hover:bg-white/10 rounded-xl transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest"><CornerUpRight size={14} /> Move</button>
+            <button onClick={handleBulkDelete} className="p-3 bg-rose-600 hover:bg-rose-700 rounded-xl transition-all flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest"><Trash2 size={14} /> Delete</button>
+            <button onClick={() => setSelectedItems(new Set())} className="p-3 hover:bg-white/10 rounded-xl transition-all"><X size={14} /></button>
           </div>
         </div>
       )}
 
       {/* Context Menu */}
       {contextMenu && (
-        <div 
-          className="fixed z-[700] bg-white border border-slate-200 shadow-2xl rounded-2xl p-2 w-56 animate-in fade-in zoom-in-95" 
+        <div
+          className="fixed z-[700] bg-white border border-slate-200 shadow-2xl rounded-2xl p-2 w-56 animate-in fade-in zoom-in-95"
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={(e) => e.stopPropagation()}
         >
           {contextMenu.type === 'bucket' ? (
             <>
-              <button onClick={() => { const name = prompt("Novo nome:", contextMenu.data.name); if(name) handleRenameBucket(name); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Edit size={14}/> Rename Bucket</button>
-              <button onClick={() => { setShowNewFolder(true); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><FolderPlus size={14}/> New Folder</button>
-              <button onClick={() => window.location.hash = `#/project/${projectId}/rls-editor/bucket/${contextMenu.data.name}`} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Shield size={14}/> Security Policies</button>
+              <button onClick={() => { const name = prompt("Novo nome:", contextMenu.data.name); if (name) handleRenameBucket(name); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Edit size={14} /> Rename Bucket</button>
+              <button onClick={() => { setShowNewFolder(true); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><FolderPlus size={14} /> New Folder</button>
+              <button onClick={() => window.location.hash = `#/project/${projectId}/rls-editor/bucket/${contextMenu.data.name}`} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Shield size={14} /> Security Policies</button>
               <div className="h-[1px] bg-slate-100 my-1"></div>
-              <button onClick={() => { handleDeleteBucket(contextMenu.data.name); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-all"><Trash2 size={14}/> Delete Bucket</button>
+              <button onClick={() => { handleDeleteBucket(contextMenu.data.name); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-all"><Trash2 size={14} /> Delete Bucket</button>
             </>
           ) : (
             <>
               {contextMenu.data.type === 'folder' && (
-                 <button onClick={() => { setShowNewFolder(true); setCurrentPath(contextMenu.data.path); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><FolderPlus size={14}/> New Folder Inside</button>
+                <button onClick={() => { setShowNewFolder(true); setCurrentPath(contextMenu.data.path); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><FolderPlus size={14} /> New Folder Inside</button>
               )}
-              <button onClick={() => { safeCopyToClipboard(getSecureDownloadLink(contextMenu.data.path)); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Share2 size={14}/> Copy Public URL</button>
-              <button onClick={() => { setSelectedItems(new Set([contextMenu.data.path])); setMoveDestination({bucket: selectedBucket!, path: ''}); setShowMoveModal(true); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Move size={14}/> Move Asset</button>
+              <button onClick={() => { safeCopyToClipboard(getSecureDownloadLink(contextMenu.data.path)); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Share2 size={14} /> Copy Public URL</button>
+              <button onClick={() => { setSelectedItems(new Set([contextMenu.data.path])); setMoveDestination({ bucket: selectedBucket!, path: '' }); setShowMoveModal(true); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Move size={14} /> Move Asset</button>
               <div className="h-[1px] bg-slate-100 my-1"></div>
-              <button onClick={() => { toggleSelect(contextMenu.data.path); handleBulkDelete(); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-all"><Trash2 size={14}/> Delete Asset</button>
+              <button onClick={() => { toggleSelect(contextMenu.data.path); handleBulkDelete(); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-all"><Trash2 size={14} /> Delete Asset</button>
             </>
           )}
         </div>
@@ -605,80 +605,80 @@ const StorageExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
           <div><h2 className="text-3xl font-black text-slate-900 tracking-tighter leading-none">Storage Engine</h2><p className="text-[10px] text-indigo-600 font-bold uppercase tracking-[0.2em] mt-1">Sovereign Object Infrastructure</p></div>
         </div>
         <div className="flex items-center gap-4">
-           {/* CONNECTION MANAGER BUTTON */}
-           <button onClick={() => setShowConnectModal(true)} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${storageConfig.provider === 'local' ? 'bg-slate-100 text-slate-500 hover:bg-slate-200' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
-              <ActiveProviderIcon size={14}/>
-              {storageConfig.provider === 'local' ? 'Local Storage' : storageConfig.provider.toUpperCase()}
-           </button>
-           
-           <div className="w-[1px] h-8 bg-slate-100 mx-2"></div>
-           <div className="relative group mr-4">
-             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-             <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Global Search..." className="pl-12 pr-6 py-3 bg-slate-100 border-none rounded-2xl text-xs font-bold outline-none w-64 transition-all focus:ring-2 focus:ring-indigo-500/10" />
-           </div>
-           <button onClick={() => setShowSettings(true)} className="p-3 text-slate-400 hover:text-indigo-600 transition-all"><Settings2 size={24}/></button>
-           <button onClick={() => setShowNewFolder(true)} disabled={!selectedBucket} className="p-3 text-slate-400 hover:text-indigo-600 transition-all"><FolderPlus size={24} /></button>
-           <label className={`cursor-pointer bg-indigo-600 text-white px-8 py-3.5 rounded-2xl text-xs font-black uppercase tracking-widest flex items-center gap-3 hover:bg-indigo-700 shadow-xl ${!selectedBucket || isUploading ? 'opacity-50' : ''}`}>
-             {isUploading ? <Loader2 size={18} className="animate-spin" /> : <><Upload size={18} /> Ingest Data</>}
-             <input type="file" multiple className="hidden" onChange={(e) => handleUpload(e.target.files)} disabled={!selectedBucket || isUploading} />
-           </label>
+          {/* CONNECTION MANAGER BUTTON */}
+          <button onClick={() => setShowConnectModal(true)} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${storageConfig.provider === 'local' ? 'bg-slate-100 text-slate-500 hover:bg-slate-200' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
+            <ActiveProviderIcon size={14} />
+            {storageConfig.provider === 'local' ? 'Local Storage' : storageConfig.provider.toUpperCase()}
+          </button>
+
+          <div className="w-[1px] h-8 bg-slate-100 mx-2"></div>
+          <div className="relative group mr-4">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+            <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Global Search..." className="pl-12 pr-6 py-3 bg-slate-100 border-none rounded-2xl text-xs font-bold outline-none w-64 transition-all focus:ring-2 focus:ring-indigo-500/10" />
+          </div>
+          <button onClick={() => setShowSettings(true)} className="p-3 text-slate-400 hover:text-indigo-600 transition-all"><Settings2 size={24} /></button>
+          <button onClick={() => setShowNewFolder(true)} disabled={!selectedBucket} className="p-3 text-slate-400 hover:text-indigo-600 transition-all"><FolderPlus size={24} /></button>
+          <label className={`cursor-pointer bg-indigo-600 text-white px-8 py-3.5 rounded-2xl text-xs font-black uppercase tracking-widest flex items-center gap-3 hover:bg-indigo-700 shadow-xl ${!selectedBucket || isUploading ? 'opacity-50' : ''}`}>
+            {isUploading ? <Loader2 size={18} className="animate-spin" /> : <><Upload size={18} /> Ingest Data</>}
+            <input type="file" multiple className="hidden" onChange={(e) => handleUpload(e.target.files)} disabled={!selectedBucket || isUploading} />
+          </label>
         </div>
       </header>
 
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar */}
         <aside className="w-80 border-r border-slate-200 bg-white flex flex-col shrink-0">
-           <div className="p-6 border-b border-slate-50"><button onClick={() => setShowNewBucket(true)} className="w-full py-4 border-2 border-dashed border-slate-200 rounded-2xl text-[10px] font-black text-slate-400 uppercase tracking-widest hover:border-indigo-400 transition-all flex items-center justify-center gap-2"><Plus size={14} /> New Bucket</button></div>
-           <div className="flex-1 overflow-y-auto p-4 space-y-1">
-             <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest px-4 mb-4 block">Registry Root</span>
-             {buckets.map(b => (
-               <div 
-                 key={b.name} 
-                 onClick={() => { setSelectedBucket(b.name); setCurrentPath(''); setSearchQuery(''); }} 
-                 onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, type: 'bucket', data: b }); }}
-                 // Drag Handlers for Sidebar (Bucket Target)
-                 onDragOver={(e) => handleDragEnter(e, `bucket-${b.name}`)}
-                 onDragLeave={(e) => handleDragLeave(e, `bucket-${b.name}`)}
-                 onDrop={(e) => handleDropOnTarget(e, b.name, '')}
-                 className={`w-full flex items-center justify-between px-5 py-4 rounded-2xl transition-all cursor-pointer group 
+          <div className="p-6 border-b border-slate-50"><button onClick={() => setShowNewBucket(true)} className="w-full py-4 border-2 border-dashed border-slate-200 rounded-2xl text-[10px] font-black text-slate-400 uppercase tracking-widest hover:border-indigo-400 transition-all flex items-center justify-center gap-2"><Plus size={14} /> New Bucket</button></div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-1">
+            <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest px-4 mb-4 block">Registry Root</span>
+            {buckets.map(b => (
+              <div
+                key={b.name}
+                onClick={() => { setSelectedBucket(b.name); setCurrentPath(''); setSearchQuery(''); }}
+                onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, type: 'bucket', data: b }); }}
+                // Drag Handlers for Sidebar (Bucket Target)
+                onDragOver={(e) => handleDragEnter(e, `bucket-${b.name}`)}
+                onDragLeave={(e) => handleDragLeave(e, `bucket-${b.name}`)}
+                onDrop={(e) => handleDropOnTarget(e, b.name, '')}
+                className={`w-full flex items-center justify-between px-5 py-4 rounded-2xl transition-all cursor-pointer group 
                     ${selectedBucket === b.name && currentPath === '' ? 'bg-indigo-600 text-white shadow-xl' : 'text-slate-600 hover:bg-slate-50'}
                     ${dragTarget === `bucket-${b.name}` ? 'ring-2 ring-indigo-500 bg-indigo-50 !text-indigo-700' : ''}
                  `}
-               >
-                 <div className="flex items-center gap-4"><Folder size={20} className={selectedBucket === b.name ? 'text-white' : 'text-slate-300'} /><span className="text-sm font-bold tracking-tight">{b.name}</span></div>
-                 {/* Quick Policy Link */}
-                 {selectedBucket === b.name && (
-                    <button onClick={(e) => { e.stopPropagation(); window.location.hash = `#/project/${projectId}/rls-editor/bucket/${b.name}`; }} className="text-white/70 hover:text-white" title="Manage Policies"><Shield size={14} /></button>
-                 )}
-               </div>
-             ))}
-           </div>
+              >
+                <div className="flex items-center gap-4"><Folder size={20} className={selectedBucket === b.name ? 'text-white' : 'text-slate-300'} /><span className="text-sm font-bold tracking-tight">{b.name}</span></div>
+                {/* Quick Policy Link */}
+                {selectedBucket === b.name && (
+                  <button onClick={(e) => { e.stopPropagation(); window.location.hash = `#/project/${projectId}/rls-editor/bucket/${b.name}`; }} className="text-white/70 hover:text-white" title="Manage Policies"><Shield size={14} /></button>
+                )}
+              </div>
+            ))}
+          </div>
         </aside>
 
         {/* Main Content */}
         <main className="flex-1 flex flex-col bg-[#FDFDFD] relative overflow-hidden">
           {/* Breadcrumbs */}
           <div className="px-10 py-6 bg-white border-b border-slate-100 flex items-center justify-between sticky top-0 z-20">
-             <div className="flex items-center gap-3 text-slate-400 text-sm font-black">
-                <HardDrive size={16} />
-                <span className="hover:text-indigo-600 cursor-pointer" onClick={() => setCurrentPath('')}>{selectedBucket || 'Root'}</span>
-                {currentPath.split('/').filter(Boolean).map((part, i, arr) => {
-                    const partialPath = arr.slice(0, i + 1).join('/');
-                    return (
-                        <React.Fragment key={i}>
-                            <ChevronRight size={14} />
-                            <span className="hover:text-indigo-600 cursor-pointer" onClick={() => setCurrentPath(partialPath)}>{part}</span>
-                        </React.Fragment>
-                    );
-                })}
-                {searchQuery && <span className="text-indigo-600 ml-2">/ Searching: "{searchQuery}"</span>}
-             </div>
-             <div className="flex items-center bg-slate-50 p-1 rounded-xl border border-slate-100">
-               <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="bg-transparent border-none text-[10px] font-black uppercase tracking-widest px-4 py-2 outline-none text-slate-500 cursor-pointer">
-                 <option value="all">All Sectors</option>
-                 {SECTOR_DEFINITIONS.filter(s => s.id !== 'global').map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-               </select>
-             </div>
+            <div className="flex items-center gap-3 text-slate-400 text-sm font-black">
+              <HardDrive size={16} />
+              <span className="hover:text-indigo-600 cursor-pointer" onClick={() => setCurrentPath('')}>{selectedBucket || 'Root'}</span>
+              {currentPath.split('/').filter(Boolean).map((part, i, arr) => {
+                const partialPath = arr.slice(0, i + 1).join('/');
+                return (
+                  <React.Fragment key={i}>
+                    <ChevronRight size={14} />
+                    <span className="hover:text-indigo-600 cursor-pointer" onClick={() => setCurrentPath(partialPath)}>{part}</span>
+                  </React.Fragment>
+                );
+              })}
+              {searchQuery && <span className="text-indigo-600 ml-2">/ Searching: "{searchQuery}"</span>}
+            </div>
+            <div className="flex items-center bg-slate-50 p-1 rounded-xl border border-slate-100">
+              <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="bg-transparent border-none text-[10px] font-black uppercase tracking-widest px-4 py-2 outline-none text-slate-500 cursor-pointer">
+                <option value="all">All Sectors</option>
+                {SECTOR_DEFINITIONS.filter(s => s.id !== 'global').map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+              </select>
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto p-10">
@@ -693,51 +693,51 @@ const StorageExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                   <tbody className="divide-y divide-slate-50">
                     {/* "Up" Navigation if not root */}
                     {currentPath && (
-                        <tr className="hover:bg-slate-50 cursor-pointer group" onClick={() => setCurrentPath(currentPath.split('/').slice(0, -1).join('/'))}>
-                            <td className="px-8 py-4 text-center"><CornerUpRight size={16} className="text-slate-300 mx-auto"/></td>
-                            <td className="px-8 py-4 text-xs font-bold text-slate-500">.. (Up One Level)</td>
-                            <td></td><td></td>
-                        </tr>
+                      <tr className="hover:bg-slate-50 cursor-pointer group" onClick={() => setCurrentPath(currentPath.split('/').slice(0, -1).join('/'))}>
+                        <td className="px-8 py-4 text-center"><CornerUpRight size={16} className="text-slate-300 mx-auto" /></td>
+                        <td className="px-8 py-4 text-xs font-bold text-slate-500">.. (Up One Level)</td>
+                        <td></td><td></td>
+                      </tr>
                     )}
                     {sortedItems.map((item) => (
-                      <tr 
-                        key={item.path} 
+                      <tr
+                        key={item.path}
                         draggable
                         onDragStart={(e) => handleDragStartItem(e, item)}
                         // Specific handlers for Folder Rows (Drop Target)
                         onDragOver={(e) => item.type === 'folder' ? handleDragEnter(e, `folder-${item.path}`) : undefined}
                         onDragLeave={(e) => item.type === 'folder' ? handleDragLeave(e, `folder-${item.path}`) : undefined}
                         onDrop={(e) => item.type === 'folder' ? handleDropOnTarget(e, selectedBucket!, item.path) : undefined}
-                        
+
                         onClick={(e) => handleItemClick(e, item)}
                         onDoubleClick={() => handleItemDoubleClick(item)}
                         onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, type: 'item', data: item }); }}
                         className={`group transition-colors cursor-pointer select-none ${selectedItems.has(item.path) ? 'bg-indigo-50' : 'hover:bg-indigo-50/30'} ${dragTarget === `folder-${item.path}` ? '!bg-indigo-100 ring-2 ring-inset ring-indigo-500' : ''}`}
                       >
                         <td className="px-8 py-5 text-center">
-                            <div 
-                                onClick={(e) => { e.stopPropagation(); toggleSelect(item.path); }} 
-                                className={`w-4 h-4 border-2 rounded transition-all mx-auto cursor-pointer ${selectedItems.has(item.path) ? 'bg-indigo-600 border-indigo-600' : 'border-slate-200 group-hover:border-indigo-300'}`}
-                            >
-                                {selectedItems.has(item.path) && <Check size={12} className="text-white" />}
-                            </div>
+                          <div
+                            onClick={(e) => { e.stopPropagation(); toggleSelect(item.path); }}
+                            className={`w-4 h-4 border-2 rounded transition-all mx-auto cursor-pointer ${selectedItems.has(item.path) ? 'bg-indigo-600 border-indigo-600' : 'border-slate-200 group-hover:border-indigo-300'}`}
+                          >
+                            {selectedItems.has(item.path) && <Check size={12} className="text-white" />}
+                          </div>
                         </td>
                         <td className="px-8 py-5">
-                            <div className="flex items-center gap-4">
-                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${item.type === 'folder' ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-500'}`}>
-                                    {item.type === 'folder' ? <Folder size={20} /> : <FileText size={20} />}
-                                </div>
-                                <span className="text-sm font-bold text-slate-700">{item.name}</span>
+                          <div className="flex items-center gap-4">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${item.type === 'folder' ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-500'}`}>
+                              {item.type === 'folder' ? <Folder size={20} /> : <FileText size={20} />}
                             </div>
+                            <span className="text-sm font-bold text-slate-700">{item.name}</span>
+                          </div>
                         </td>
                         <td className="px-8 py-5 text-right font-mono text-xs font-bold text-slate-400">{new Date(item.updated_at).toLocaleDateString()}</td>
                         <td className="px-8 py-5 text-right relative">
-                           <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              {item.type === 'file' && (
-                                <button onClick={(e) => { e.stopPropagation(); window.open(getSecureDownloadLink(item.path), '_blank'); }} title="Preview" className="p-3 text-slate-400 hover:text-indigo-600 hover:bg-white rounded-xl shadow-sm"><Eye size={18} /></button>
-                              )}
-                              <button onClick={(e) => { e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, type: 'item', data: item }); }} className="p-3 text-slate-400 hover:text-indigo-600 hover:bg-white rounded-xl shadow-sm"><MoreHorizontal size={18} /></button>
-                           </div>
+                          <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {item.type === 'file' && (
+                              <button onClick={(e) => { e.stopPropagation(); window.open(getSecureDownloadLink(item.path), '_blank'); }} title="Preview" className="p-3 text-slate-400 hover:text-indigo-600 hover:bg-white rounded-xl shadow-sm"><Eye size={18} /></button>
+                            )}
+                            <button onClick={(e) => { e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, type: 'item', data: item }); }} className="p-3 text-slate-400 hover:text-indigo-600 hover:bg-white rounded-xl shadow-sm"><MoreHorizontal size={18} /></button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -761,19 +761,19 @@ const StorageExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                 </div>
                 <button onClick={() => setShowSettings(false)} className="p-4 hover:bg-slate-200 rounded-full transition-all text-slate-400"><X size={32} /></button>
               </div>
-              
+
               {/* GLOBAL SEARCH */}
               <div className="relative mb-2">
-                 <Search size={18} className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400" />
-                 <input 
-                   value={governanceSearch}
-                   onChange={(e) => setGovernanceSearch(e.target.value)}
-                   placeholder="Search format globally (e.g. .png, json)..." 
-                   className="w-full pl-14 pr-6 py-5 bg-white border border-slate-200 rounded-3xl text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 shadow-sm"
-                 />
+                <Search size={18} className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={governanceSearch}
+                  onChange={(e) => setGovernanceSearch(e.target.value)}
+                  placeholder="Search format globally (e.g. .png, json)..."
+                  className="w-full pl-14 pr-6 py-5 bg-white border border-slate-200 rounded-3xl text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 shadow-sm"
+                />
               </div>
             </header>
-            
+
             <div className="flex-1 overflow-y-auto p-12 space-y-4">
               {SECTOR_DEFINITIONS.map(sector => {
                 // Filter logic
@@ -787,123 +787,148 @@ const StorageExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
 
                 return (
                   <div key={sector.id} className="bg-slate-50 border border-slate-100 rounded-[2.5rem] overflow-hidden transition-all group">
-                     <button onClick={() => { setExpandedSector(expandedSector === sector.id ? null : sector.id); }} className="w-full p-8 flex items-center justify-between text-left hover:bg-white transition-colors">
-                       <div className="flex items-center gap-6">
-                         <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-inner ${expandedSector === sector.id || governanceSearch ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400'}`}><Zap size={24} /></div>
-                         <div><h4 className="text-xl font-black text-slate-900 tracking-tight">{sector.label}</h4><p className="text-[11px] text-slate-400 font-medium uppercase tracking-widest">{sector.desc}</p></div>
-                       </div>
-                       <ChevronDown size={20} className={`text-slate-300 transition-transform ${expandedSector === sector.id || governanceSearch ? 'rotate-180' : ''}`} />
-                     </button>
+                    <button onClick={() => { setExpandedSector(expandedSector === sector.id ? null : sector.id); }} className="w-full p-8 flex items-center justify-between text-left hover:bg-white transition-colors">
+                      <div className="flex items-center gap-6">
+                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-inner ${expandedSector === sector.id || governanceSearch ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400'}`}><Zap size={24} /></div>
+                        <div><h4 className="text-xl font-black text-slate-900 tracking-tight">{sector.label}</h4><p className="text-[11px] text-slate-400 font-medium uppercase tracking-widest">{sector.desc}</p></div>
+                      </div>
+                      <ChevronDown size={20} className={`text-slate-300 transition-transform ${expandedSector === sector.id || governanceSearch ? 'rotate-180' : ''}`} />
+                    </button>
 
-                     {(expandedSector === sector.id || (governanceSearch && hasMatch)) && (
-                       <div className="p-8 pt-0 border-t border-slate-100 bg-white/50 animate-in slide-in-from-top-2">
-                          
-                          {/* LIMITS SECTION (DUAL) */}
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 bg-white p-6 rounded-3xl border border-slate-100">
-                              {/* Internal Limit */}
-                              <div>
-                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 mb-2">
-                                      <Server size={12}/> Internal Limit (Proxy)
-                                      {isOverPhysical && <span className="text-rose-500 flex items-center gap-1" title="Exceeds Nginx Physical Cap"><AlertTriangle size={10}/> High Risk</span>}
-                                  </label>
-                                  <div className={`flex items-center gap-2 bg-slate-50 border rounded-xl p-1 ${isOverPhysical ? 'border-rose-300 bg-rose-50' : 'border-slate-200'}`}>
-                                     <input 
-                                      value={parseSizeValue(internalValStr)}
-                                      onChange={(e) => updateSectorSize(sector.id, e.target.value, parseSizeUnit(internalValStr), false)}
-                                      className="w-full text-center text-xs font-black text-indigo-600 outline-none bg-transparent py-2"
-                                     />
-                                     <select 
-                                      value={parseSizeUnit(internalValStr)}
-                                      onChange={(e) => updateSectorSize(sector.id, parseSizeValue(internalValStr), e.target.value, false)}
-                                      className="bg-white rounded-lg text-[9px] font-bold text-slate-500 outline-none px-2 py-1 shadow-sm border border-slate-100 h-8"
-                                     >
-                                       <option value="B">Bytes</option><option value="KB">KB</option><option value="MB">MB</option><option value="GB">GB</option>
-                                     </select>
-                                  </div>
-                                  <p className="text-[9px] text-slate-400 mt-2 leading-relaxed">Limit for files passing through the server RAM/Disk. Max safe: 100MB.</p>
-                              </div>
+                    {(expandedSector === sector.id || (governanceSearch && hasMatch)) && (
+                      <div className="p-8 pt-0 border-t border-slate-100 bg-white/50 animate-in slide-in-from-top-2">
 
-                              {/* External Limit */}
-                              <div>
-                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 mb-2"><Cloud size={12}/> External Limit (Direct)</label>
-                                  <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl p-1">
-                                     <input 
-                                      value={parseSizeValue(externalValStr)}
-                                      onChange={(e) => updateSectorSize(sector.id, e.target.value, parseSizeUnit(externalValStr), true)}
-                                      className="w-full text-center text-xs font-black text-emerald-600 outline-none bg-transparent py-2"
-                                     />
-                                     <select 
-                                      value={parseSizeUnit(externalValStr)}
-                                      onChange={(e) => updateSectorSize(sector.id, parseSizeValue(externalValStr), e.target.value, true)}
-                                      className="bg-white rounded-lg text-[9px] font-bold text-slate-500 outline-none px-2 py-1 shadow-sm border border-slate-100 h-8"
-                                     >
-                                       <option value="B">Bytes</option><option value="KB">KB</option><option value="MB">MB</option><option value="GB">GB</option><option value="TB">TB</option>
-                                     </select>
-                                  </div>
-                                  <p className="text-[9px] text-slate-400 mt-2 leading-relaxed">Limit for presigned uploads directly to S3/Cloud. Virtually unlimited.</p>
-                              </div>
+                        {/* LIMITS SECTION (DUAL) */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 bg-white p-6 rounded-3xl border border-slate-100">
+                          {/* Internal Limit */}
+                          <div>
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 mb-2">
+                              <Server size={12} /> Internal Limit (Proxy)
+                              {isOverPhysical && <span className="text-rose-500 flex items-center gap-1" title="Exceeds Nginx Physical Cap"><AlertTriangle size={10} /> High Risk</span>}
+                            </label>
+                            <div className={`flex items-center gap-2 bg-slate-50 border rounded-xl p-1 ${isOverPhysical ? 'border-rose-300 bg-rose-50' : 'border-slate-200'}`}>
+                              <input
+                                value={parseSizeValue(internalValStr)}
+                                onChange={(e) => updateSectorSize(sector.id, e.target.value, parseSizeUnit(internalValStr), false)}
+                                className="w-full text-center text-xs font-black text-indigo-600 outline-none bg-transparent py-2"
+                              />
+                              <select
+                                value={parseSizeUnit(internalValStr)}
+                                onChange={(e) => updateSectorSize(sector.id, parseSizeValue(internalValStr), e.target.value, false)}
+                                className="bg-white rounded-lg text-[9px] font-bold text-slate-500 outline-none px-2 py-1 shadow-sm border border-slate-100 h-8"
+                              >
+                                <option value="B">Bytes</option><option value="KB">KB</option><option value="MB">MB</option><option value="GB">GB</option>
+                              </select>
+                            </div>
+                            <p className="text-[9px] text-slate-400 mt-2 leading-relaxed">Limit for files passing through the server RAM/Disk. Max safe: 100MB.</p>
                           </div>
 
-                          {sector.id !== 'global' && (
-                              <>
-                                <div className="flex items-center justify-between mb-6">
-                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Whitelisted Terminations</span>
-                                    <div className="flex gap-4">
-                                        <button onClick={() => setGovernance({ ...governance, [sector.id]: { ...governance[sector.id], allowed_exts: sector.exts } })} className="text-[10px] font-black text-indigo-600 uppercase hover:underline">Select All</button>
-                                        <button onClick={() => setGovernance({ ...governance, [sector.id]: { ...governance[sector.id], allowed_exts: [] } })} className="text-[10px] font-black text-rose-600 uppercase hover:underline">Clear All</button>
-                                    </div>
-                                </div>
-                                
-                                {/* Custom Extension Adder */}
-                                <div className="mb-4 flex items-center gap-3">
-                                    <input 
-                                    value={newCustomExt}
-                                    onChange={(e) => setNewCustomExt(e.target.value)}
-                                    placeholder="Add custom ext (e.g. .thales)"
-                                    className="bg-white border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/10"
-                                    onKeyDown={(e) => e.key === 'Enter' && addCustomExtension(sector.id)}
-                                    />
-                                    <button onClick={() => addCustomExtension(sector.id)} className="bg-indigo-600 text-white p-2 rounded-lg hover:bg-indigo-700 transition-colors"><Plus size={14}/></button>
-                                </div>
+                          {/* External Limit */}
+                          <div>
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 mb-2"><Cloud size={12} /> External Limit (Direct)</label>
+                            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl p-1">
+                              <input
+                                value={parseSizeValue(externalValStr)}
+                                onChange={(e) => updateSectorSize(sector.id, e.target.value, parseSizeUnit(externalValStr), true)}
+                                className="w-full text-center text-xs font-black text-emerald-600 outline-none bg-transparent py-2"
+                              />
+                              <select
+                                value={parseSizeUnit(externalValStr)}
+                                onChange={(e) => updateSectorSize(sector.id, parseSizeValue(externalValStr), e.target.value, true)}
+                                className="bg-white rounded-lg text-[9px] font-bold text-slate-500 outline-none px-2 py-1 shadow-sm border border-slate-100 h-8"
+                              >
+                                <option value="B">Bytes</option><option value="KB">KB</option><option value="MB">MB</option><option value="GB">GB</option><option value="TB">TB</option>
+                              </select>
+                            </div>
+                            <p className="text-[9px] text-slate-400 mt-2 leading-relaxed">Limit for presigned uploads directly to S3/Cloud. Virtually unlimited.</p>
+                          </div>
+                        </div>
 
-                                <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
-                                    {Array.from(new Set([...sector.exts, ...(governance[sector.id]?.allowed_exts || [])]))
-                                    .filter(ext => ext.includes(governanceSearch.toLowerCase().replace(/^\./, '')))
-                                    .map(ext => {
-                                        const isActive = governance[sector.id]?.allowed_exts?.includes(ext);
-                                        return (
-                                        <button 
-                                            key={ext} 
-                                            onClick={() => {
-                                            const current = governance[sector.id]?.allowed_exts || [];
-                                            const next = current.includes(ext) ? current.filter((e:string) => e !== ext) : [...current, ext];
-                                            setGovernance({ ...governance, [sector.id]: { ...governance[sector.id], allowed_exts: next } });
-                                            }}
-                                            className={`flex items-center justify-center gap-2 py-3 rounded-xl border transition-all ${isActive ? 'bg-indigo-600 text-white border-indigo-700 shadow-lg' : 'bg-white text-slate-400 border-slate-200 hover:border-slate-300'}`}
-                                        >
-                                            {isActive ? <CheckSquare size={12} /> : <Square size={12} />}
-                                            <span className="text-[10px] font-black uppercase tracking-tighter">.{ext}</span>
-                                        </button>
-                                        );
-                                    })}
-                                </div>
-                              </>
-                          )}
-                       </div>
-                     )}
+                        {sector.id !== 'global' && (
+                          <div className="mb-6">
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Storage Routing</span>
+                            <select
+                              value={governance[sector.id]?.storage_provider || 'default'}
+                              onChange={(e) => setGovernance({
+                                ...governance,
+                                [sector.id]: {
+                                  ...governance[sector.id],
+                                  storage_provider: e.target.value === 'default' ? undefined : e.target.value
+                                }
+                              })}
+                              className="w-full bg-white border border-slate-200 rounded-xl py-3 px-4 text-xs font-bold text-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-indigo-500/20"
+                            >
+                              <option value="default">Default (Global Provider)</option>
+                              {STORAGE_PROVIDERS.map(p => (
+                                <option key={p.id} value={p.id}>{p.name} — {p.desc}</option>
+                              ))}
+                            </select>
+                            <p className="text-[9px] text-slate-400 mt-2 leading-relaxed">
+                              Route uploads of this file type to a specific storage provider. Leave as "Default" to use the project's global provider.
+                            </p>
+                          </div>
+                        )}
+
+                        {sector.id !== 'global' && (
+                          <>
+                            <div className="flex items-center justify-between mb-6">
+                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Whitelisted Terminations</span>
+                              <div className="flex gap-4">
+                                <button onClick={() => setGovernance({ ...governance, [sector.id]: { ...governance[sector.id], allowed_exts: sector.exts } })} className="text-[10px] font-black text-indigo-600 uppercase hover:underline">Select All</button>
+                                <button onClick={() => setGovernance({ ...governance, [sector.id]: { ...governance[sector.id], allowed_exts: [] } })} className="text-[10px] font-black text-rose-600 uppercase hover:underline">Clear All</button>
+                              </div>
+                            </div>
+
+                            {/* Custom Extension Adder */}
+                            <div className="mb-4 flex items-center gap-3">
+                              <input
+                                value={newCustomExt}
+                                onChange={(e) => setNewCustomExt(e.target.value)}
+                                placeholder="Add custom ext (e.g. .thales)"
+                                className="bg-white border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/10"
+                                onKeyDown={(e) => e.key === 'Enter' && addCustomExtension(sector.id)}
+                              />
+                              <button onClick={() => addCustomExtension(sector.id)} className="bg-indigo-600 text-white p-2 rounded-lg hover:bg-indigo-700 transition-colors"><Plus size={14} /></button>
+                            </div>
+
+                            <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
+                              {Array.from(new Set([...sector.exts, ...(governance[sector.id]?.allowed_exts || [])]))
+                                .filter(ext => ext.includes(governanceSearch.toLowerCase().replace(/^\./, '')))
+                                .map(ext => {
+                                  const isActive = governance[sector.id]?.allowed_exts?.includes(ext);
+                                  return (
+                                    <button
+                                      key={ext}
+                                      onClick={() => {
+                                        const current = governance[sector.id]?.allowed_exts || [];
+                                        const next = current.includes(ext) ? current.filter((e: string) => e !== ext) : [...current, ext];
+                                        setGovernance({ ...governance, [sector.id]: { ...governance[sector.id], allowed_exts: next } });
+                                      }}
+                                      className={`flex items-center justify-center gap-2 py-3 rounded-xl border transition-all ${isActive ? 'bg-indigo-600 text-white border-indigo-700 shadow-lg' : 'bg-white text-slate-400 border-slate-200 hover:border-slate-300'}`}
+                                    >
+                                      {isActive ? <CheckSquare size={12} /> : <Square size={12} />}
+                                      <span className="text-[10px] font-black uppercase tracking-tighter">.{ext}</span>
+                                    </button>
+                                  );
+                                })}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
 
             <footer className="p-10 bg-slate-50 border-t border-slate-100 flex gap-6 shrink-0">
-               <button onClick={() => setShowSettings(false)} className="flex-1 py-6 text-slate-400 font-black uppercase tracking-widest text-xs hover:bg-slate-100 rounded-[2rem] transition-all">Discard</button>
-               <button onClick={async () => {
-                  try {
-                    await fetchWithAuth(`/api/control/projects/${projectId}`, { method: 'PATCH', body: JSON.stringify({ metadata: { storage_governance: governance } }) });
-                    setSuccess("Políticas de governança sincronizadas."); setShowSettings(false);
-                  } catch (e: any) { setError("Erro ao salvar governança."); }
-               }} className="flex-[3] py-6 bg-slate-900 text-white rounded-[2rem] text-xs font-black uppercase tracking-widest shadow-2xl hover:bg-indigo-600 transition-all">Sincronizar Políticas de Segurança</button>
+              <button onClick={() => setShowSettings(false)} className="flex-1 py-6 text-slate-400 font-black uppercase tracking-widest text-xs hover:bg-slate-100 rounded-[2rem] transition-all">Discard</button>
+              <button onClick={async () => {
+                try {
+                  await fetchWithAuth(`/api/control/projects/${projectId}`, { method: 'PATCH', body: JSON.stringify({ metadata: { storage_governance: governance } }) });
+                  setSuccess("Políticas de governança sincronizadas."); setShowSettings(false);
+                } catch (e: any) { setError("Erro ao salvar governança."); }
+              }} className="flex-[3] py-6 bg-slate-900 text-white rounded-[2rem] text-xs font-black uppercase tracking-widest shadow-2xl hover:bg-indigo-600 transition-all">Sincronizar Políticas de Segurança</button>
             </footer>
           </div>
         </div>
@@ -912,182 +937,182 @@ const StorageExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
       {/* MOVE MODAL */}
       {showMoveModal && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
-           <div className="bg-white rounded-[3rem] w-full max-w-lg p-10 shadow-2xl border border-slate-100">
-              <h3 className="text-2xl font-black text-slate-900 mb-6">Mover {selectedItems.size} Itens</h3>
-              <div className="space-y-4 mb-8">
-                 <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Destination Bucket</label>
-                    <select 
-                      value={moveDestination.bucket} 
-                      onChange={(e) => setMoveDestination({...moveDestination, bucket: e.target.value})}
-                      className="w-full bg-slate-50 border-none rounded-2xl py-3 px-4 text-sm font-bold text-slate-900 outline-none"
-                    >
-                       {buckets.map(b => <option key={b.name} value={b.name}>{b.name}</option>)}
-                    </select>
-                 </div>
-                 <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Relative Path (Optional)</label>
-                    <input 
-                      value={moveDestination.path} 
-                      onChange={(e) => setMoveDestination({...moveDestination, path: e.target.value})}
-                      placeholder="folder/subfolder"
-                      className="w-full bg-slate-50 border-none rounded-2xl py-3 px-4 text-sm font-bold text-slate-900 outline-none"
-                    />
-                 </div>
+          <div className="bg-white rounded-[3rem] w-full max-w-lg p-10 shadow-2xl border border-slate-100">
+            <h3 className="text-2xl font-black text-slate-900 mb-6">Mover {selectedItems.size} Itens</h3>
+            <div className="space-y-4 mb-8">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Destination Bucket</label>
+                <select
+                  value={moveDestination.bucket}
+                  onChange={(e) => setMoveDestination({ ...moveDestination, bucket: e.target.value })}
+                  className="w-full bg-slate-50 border-none rounded-2xl py-3 px-4 text-sm font-bold text-slate-900 outline-none"
+                >
+                  {buckets.map(b => <option key={b.name} value={b.name}>{b.name}</option>)}
+                </select>
               </div>
-              <div className="flex gap-4">
-                 <button onClick={() => setShowMoveModal(false)} className="flex-1 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Cancelar</button>
-                 <button onClick={handleMove} className="flex-[2] py-4 bg-indigo-600 text-white font-black rounded-2xl text-xs uppercase tracking-widest shadow-xl">Confirmar Transferência</button>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Relative Path (Optional)</label>
+                <input
+                  value={moveDestination.path}
+                  onChange={(e) => setMoveDestination({ ...moveDestination, path: e.target.value })}
+                  placeholder="folder/subfolder"
+                  className="w-full bg-slate-50 border-none rounded-2xl py-3 px-4 text-sm font-bold text-slate-900 outline-none"
+                />
               </div>
-           </div>
+            </div>
+            <div className="flex gap-4">
+              <button onClick={() => setShowMoveModal(false)} className="flex-1 py-4 text-xs font-black text-slate-400 uppercase tracking-widest">Cancelar</button>
+              <button onClick={handleMove} className="flex-[2] py-4 bg-indigo-600 text-white font-black rounded-2xl text-xs uppercase tracking-widest shadow-xl">Confirmar Transferência</button>
+            </div>
+          </div>
         </div>
       )}
 
       {/* PASSWORD CONFIRM MODAL */}
       {showVerifyModal && (
-         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[800] flex items-center justify-center p-8 animate-in zoom-in-95">
-            <div className="bg-white rounded-[3rem] p-10 max-w-sm w-full shadow-2xl text-center border border-rose-100">
-               <Lock size={40} className="mx-auto text-rose-600 mb-6" />
-               <h3 className="text-xl font-black text-slate-900 mb-2">Ação Destrutiva</h3>
-               <p className="text-xs text-slate-500 font-bold mb-8">Confirme sua senha mestra para prosseguir.</p>
-               <input 
-                 type="password" 
-                 autoFocus
-                 value={verifyPassword}
-                 onChange={e => setVerifyPassword(e.target.value)}
-                 className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 text-center font-bold text-slate-900 outline-none mb-6 focus:ring-4 focus:ring-rose-500/10"
-                 placeholder="••••••••"
-               />
-               <button onClick={handleVerifyAndExecute} className="w-full bg-rose-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-rose-700 transition-all">
-                  Liberar Acesso
-               </button>
-               <button onClick={() => { setShowVerifyModal(false); setPendingAction(null); }} className="mt-4 text-xs font-bold text-slate-400 hover:text-slate-600">Cancelar</button>
-            </div>
-         </div>
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[800] flex items-center justify-center p-8 animate-in zoom-in-95">
+          <div className="bg-white rounded-[3rem] p-10 max-w-sm w-full shadow-2xl text-center border border-rose-100">
+            <Lock size={40} className="mx-auto text-rose-600 mb-6" />
+            <h3 className="text-xl font-black text-slate-900 mb-2">Ação Destrutiva</h3>
+            <p className="text-xs text-slate-500 font-bold mb-8">Confirme sua senha mestra para prosseguir.</p>
+            <input
+              type="password"
+              autoFocus
+              value={verifyPassword}
+              onChange={e => setVerifyPassword(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 text-center font-bold text-slate-900 outline-none mb-6 focus:ring-4 focus:ring-rose-500/10"
+              placeholder="••••••••"
+            />
+            <button onClick={handleVerifyAndExecute} className="w-full bg-rose-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-rose-700 transition-all">
+              Liberar Acesso
+            </button>
+            <button onClick={() => { setShowVerifyModal(false); setPendingAction(null); }} className="mt-4 text-xs font-bold text-slate-400 hover:text-slate-600">Cancelar</button>
+          </div>
+        </div>
       )}
 
       {/* NEW BUCKET/FOLDER POPUP */}
       {(showNewBucket || showNewFolder) && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[200] flex items-center justify-center p-8 animate-in zoom-in-95">
-           <div className="bg-white rounded-[3.5rem] w-full max-w-lg p-12 shadow-2xl border border-slate-100">
-              <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-8">{showNewBucket ? 'New Bucket' : 'New Folder'}</h3>
-              <input autoFocus value={newName} onChange={(e) => setNewName(e.target.value.toLowerCase().replace(/[^a-z0-9-_]/gi, '_'))} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-8 text-lg font-black outline-none mb-8" placeholder="entity_name" />
-              <div className="flex gap-4"><button onClick={() => { setShowNewBucket(false); setShowNewFolder(false); setNewName(''); }} className="flex-1 py-5 text-xs font-black text-slate-400 uppercase tracking-widest">Abort</button><button onClick={showNewBucket ? async () => { await fetchWithAuth(`/api/data/${projectId}/storage/buckets`, { method: 'POST', body: JSON.stringify({ name: newName }) }); setNewName(''); setShowNewBucket(false); fetchBuckets(); } : handleCreateFolder} className="flex-[2] py-5 bg-indigo-600 text-white font-black rounded-2xl text-xs uppercase tracking-widest shadow-xl">Confirm</button></div>
-           </div>
+          <div className="bg-white rounded-[3.5rem] w-full max-w-lg p-12 shadow-2xl border border-slate-100">
+            <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-8">{showNewBucket ? 'New Bucket' : 'New Folder'}</h3>
+            <input autoFocus value={newName} onChange={(e) => setNewName(e.target.value.toLowerCase().replace(/[^a-z0-9-_]/gi, '_'))} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-8 text-lg font-black outline-none mb-8" placeholder="entity_name" />
+            <div className="flex gap-4"><button onClick={() => { setShowNewBucket(false); setShowNewFolder(false); setNewName(''); }} className="flex-1 py-5 text-xs font-black text-slate-400 uppercase tracking-widest">Abort</button><button onClick={showNewBucket ? async () => { await fetchWithAuth(`/api/data/${projectId}/storage/buckets`, { method: 'POST', body: JSON.stringify({ name: newName }) }); setNewName(''); setShowNewBucket(false); fetchBuckets(); } : handleCreateFolder} className="flex-[2] py-5 bg-indigo-600 text-white font-black rounded-2xl text-xs uppercase tracking-widest shadow-xl">Confirm</button></div>
+          </div>
         </div>
       )}
 
       {/* CONNECT STORAGE MODAL (FIXED & EXPANDED) */}
       {showConnectModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[800] flex items-center justify-center p-8 animate-in zoom-in-95">
-            <div className="bg-white rounded-[3.5rem] w-full max-w-4xl h-[700px] shadow-2xl flex overflow-hidden">
-                {/* Sidebar */}
-                <div className="w-72 bg-slate-50 p-6 flex flex-col gap-2 overflow-y-auto">
-                    <h3 className="text-lg font-black text-slate-900 mb-4 px-2">Providers</h3>
-                    {STORAGE_PROVIDERS.map(p => (
-                        <button 
-                            key={p.id}
-                            onClick={() => setActiveConfigTab(p.id)}
-                            className={`flex items-center gap-3 p-3 rounded-xl transition-all ${activeConfigTab === p.id ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-white hover:text-indigo-600'}`}
-                        >
-                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${activeConfigTab === p.id ? 'bg-white/20' : 'bg-white'}`}>
-                                <p.icon size={16}/>
-                            </div>
-                            <div className="text-left">
-                                <span className="text-xs font-bold block">{p.name}</span>
-                                <span className="text-[9px] opacity-70 block">{p.desc.substring(0, 20)}...</span>
-                            </div>
-                        </button>
-                    ))}
-                </div>
-                
-                {/* Main Config Area */}
-                <div className="flex-1 p-10 flex flex-col">
-                    <div className="flex justify-between items-start mb-8">
-                        <div>
-                            <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-2">Configure {STORAGE_PROVIDERS.find(p => p.id === activeConfigTab)?.name}</h3>
-                            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Storage Connection Settings</p>
-                        </div>
-                        <button onClick={() => setShowConnectModal(false)} className="p-3 hover:bg-slate-50 rounded-full text-slate-400"><X size={24}/></button>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto space-y-6 pr-4">
-                        {activeConfigTab === 'local' && (
-                            <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100 flex items-center gap-4">
-                                <Server size={32} className="text-indigo-600"/>
-                                <div>
-                                    <h4 className="font-bold text-slate-900">Default Local Storage</h4>
-                                    <p className="text-xs text-slate-500 mt-1">Files are stored directly on the server's disk.</p>
-                                </div>
-                            </div>
-                        )}
-
-                        {activeConfigTab === 's3' && (
-                            <div className="space-y-4">
-                                <div><label className="text-[10px] font-black uppercase text-slate-400">Endpoint (Optional for AWS)</label><input value={storageConfig.s3?.endpoint || ''} onChange={e => setStorageConfig({...storageConfig, s3: {...storageConfig.s3, endpoint: e.target.value}})} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none" placeholder="https://s3.us-east-1.amazonaws.com"/></div>
-                                <div><label className="text-[10px] font-black uppercase text-slate-400">Region</label><input value={storageConfig.s3?.region || ''} onChange={e => setStorageConfig({...storageConfig, s3: {...storageConfig.s3, region: e.target.value}})} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none" placeholder="us-east-1"/></div>
-                                <div><label className="text-[10px] font-black uppercase text-slate-400">Bucket Name</label><input value={storageConfig.s3?.bucket || ''} onChange={e => setStorageConfig({...storageConfig, s3: {...storageConfig.s3, bucket: e.target.value}})} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none" placeholder="my-bucket"/></div>
-                                <div><label className="text-[10px] font-black uppercase text-slate-400">Access Key ID</label><input value={storageConfig.s3?.accessKeyId || ''} onChange={e => setStorageConfig({...storageConfig, s3: {...storageConfig.s3, accessKeyId: e.target.value}})} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none"/></div>
-                                <div><label className="text-[10px] font-black uppercase text-slate-400">Secret Access Key</label><input type="password" value={storageConfig.s3?.secretAccessKey || ''} onChange={e => setStorageConfig({...storageConfig, s3: {...storageConfig.s3, secretAccessKey: e.target.value}})} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none"/></div>
-                            </div>
-                        )}
-
-                        {activeConfigTab === 'cloudinary' && (
-                             <div className="space-y-4">
-                                <div><label className="text-[10px] font-black uppercase text-slate-400">Cloud Name</label><input value={storageConfig.cloudinary?.cloudName || ''} onChange={e => setStorageConfig({...storageConfig, cloudinary: {...storageConfig.cloudinary, cloudName: e.target.value}})} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none"/></div>
-                                <div><label className="text-[10px] font-black uppercase text-slate-400">API Key</label><input value={storageConfig.cloudinary?.apiKey || ''} onChange={e => setStorageConfig({...storageConfig, cloudinary: {...storageConfig.cloudinary, apiKey: e.target.value}})} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none"/></div>
-                                <div><label className="text-[10px] font-black uppercase text-slate-400">API Secret</label><input type="password" value={storageConfig.cloudinary?.apiSecret || ''} onChange={e => setStorageConfig({...storageConfig, cloudinary: {...storageConfig.cloudinary, apiSecret: e.target.value}})} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none"/></div>
-                                <div><label className="text-[10px] font-black uppercase text-slate-400">Upload Preset (Unsigned)</label><input value={storageConfig.cloudinary?.uploadPreset || ''} onChange={e => setStorageConfig({...storageConfig, cloudinary: {...storageConfig.cloudinary, uploadPreset: e.target.value}})} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none"/></div>
-                             </div>
-                        )}
-
-                        {activeConfigTab === 'imagekit' && (
-                             <div className="space-y-4">
-                                <div><label className="text-[10px] font-black uppercase text-slate-400">Public Key</label><input value={storageConfig.imagekit?.publicKey || ''} onChange={e => setStorageConfig({...storageConfig, imagekit: {...storageConfig.imagekit, publicKey: e.target.value}})} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none"/></div>
-                                <div><label className="text-[10px] font-black uppercase text-slate-400">Private Key</label><input type="password" value={storageConfig.imagekit?.privateKey || ''} onChange={e => setStorageConfig({...storageConfig, imagekit: {...storageConfig.imagekit, privateKey: e.target.value}})} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none"/></div>
-                                <div><label className="text-[10px] font-black uppercase text-slate-400">URL Endpoint</label><input value={storageConfig.imagekit?.urlEndpoint || ''} onChange={e => setStorageConfig({...storageConfig, imagekit: {...storageConfig.imagekit, urlEndpoint: e.target.value}})} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none" placeholder="https://ik.imagekit.io/your_id"/></div>
-                             </div>
-                        )}
-
-                        {activeConfigTab === 'gdrive' && (
-                             <div className="space-y-4">
-                                <div className="p-4 bg-amber-50 border border-amber-100 rounded-xl text-xs text-amber-800 font-medium">Use a Service Account JSON from Google Cloud Console.</div>
-                                <div><label className="text-[10px] font-black uppercase text-slate-400">Client Email (Service Account)</label><input value={storageConfig.gdrive?.clientEmail || ''} onChange={e => setStorageConfig({...storageConfig, gdrive: {...storageConfig.gdrive, clientEmail: e.target.value}})} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none" placeholder="service-account@..."/></div>
-                                <div><label className="text-[10px] font-black uppercase text-slate-400">Private Key</label><textarea value={storageConfig.gdrive?.privateKey || ''} onChange={e => setStorageConfig({...storageConfig, gdrive: {...storageConfig.gdrive, privateKey: e.target.value}})} className="w-full p-3 bg-slate-50 rounded-xl text-xs font-mono border-none outline-none h-24" placeholder="-----BEGIN PRIVATE KEY..."/></div>
-                                <div><label className="text-[10px] font-black uppercase text-slate-400">Root Folder ID (Optional)</label><input value={storageConfig.gdrive?.rootFolderId || ''} onChange={e => setStorageConfig({...storageConfig, gdrive: {...storageConfig.gdrive, rootFolderId: e.target.value}})} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none"/></div>
-                             </div>
-                        )}
-
-                        {['onedrive', 'dropbox'].includes(activeConfigTab) && (
-                             <div className="space-y-4">
-                                <div><label className="text-[10px] font-black uppercase text-slate-400">Client ID / App Key</label><input value={storageConfig[activeConfigTab]?.clientId || ''} onChange={e => setStorageConfig({...storageConfig, [activeConfigTab]: {...storageConfig[activeConfigTab], clientId: e.target.value}})} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none"/></div>
-                                <div><label className="text-[10px] font-black uppercase text-slate-400">Client Secret / App Secret</label><input type="password" value={storageConfig[activeConfigTab]?.clientSecret || ''} onChange={e => setStorageConfig({...storageConfig, [activeConfigTab]: {...storageConfig[activeConfigTab], clientSecret: e.target.value}})} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none"/></div>
-                                <div><label className="text-[10px] font-black uppercase text-slate-400">Refresh Token (Long Lived)</label><input type="password" value={storageConfig[activeConfigTab]?.refreshToken || ''} onChange={e => setStorageConfig({...storageConfig, [activeConfigTab]: {...storageConfig[activeConfigTab], refreshToken: e.target.value}})} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none"/></div>
-                             </div>
-                        )}
-
-                        {/* --- NEW OPTIMIZATION TOGGLE (SOLUTION 3) --- */}
-                        <div className="mt-8 pt-8 border-t border-slate-100">
-                           <h4 className="text-sm font-bold text-slate-900 mb-2 flex items-center gap-2"><Wand2 size={16}/> Processing Pipeline</h4>
-                           <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${storageConfig.optimize ? 'bg-indigo-50 border-indigo-200' : 'hover:bg-slate-50 border-slate-200'}`}>
-                              <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-colors ${storageConfig.optimize ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-300'}`}>
-                                  {storageConfig.optimize && <Check size={14} className="text-white"/>}
-                              </div>
-                              <input type="checkbox" className="hidden" checked={storageConfig.optimize || false} onChange={e => setStorageConfig({...storageConfig, optimize: e.target.checked})} />
-                              <div>
-                                 <span className="text-xs font-black uppercase block text-slate-700">Auto-Optimize Images</span>
-                                 <span className="text-[10px] text-slate-400 font-medium">Automatically resize/compress uploads. Disable for FlutterFlow compatibility if needed.</span>
-                              </div>
-                           </label>
-                        </div>
-                    </div>
-
-                    <div className="pt-6 mt-4 border-t border-slate-100 flex gap-4">
-                        <button onClick={() => setShowConnectModal(false)} className="flex-1 py-4 text-xs font-black uppercase tracking-widest text-slate-400 hover:bg-slate-50 rounded-2xl">Cancel</button>
-                        <button onClick={handleSaveStorageConfig} className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl hover:bg-indigo-700">Save Configuration</button>
-                    </div>
-                </div>
+          <div className="bg-white rounded-[3.5rem] w-full max-w-4xl h-[700px] shadow-2xl flex overflow-hidden">
+            {/* Sidebar */}
+            <div className="w-72 bg-slate-50 p-6 flex flex-col gap-2 overflow-y-auto">
+              <h3 className="text-lg font-black text-slate-900 mb-4 px-2">Providers</h3>
+              {STORAGE_PROVIDERS.map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => setActiveConfigTab(p.id)}
+                  className={`flex items-center gap-3 p-3 rounded-xl transition-all ${activeConfigTab === p.id ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-white hover:text-indigo-600'}`}
+                >
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${activeConfigTab === p.id ? 'bg-white/20' : 'bg-white'}`}>
+                    <p.icon size={16} />
+                  </div>
+                  <div className="text-left">
+                    <span className="text-xs font-bold block">{p.name}</span>
+                    <span className="text-[9px] opacity-70 block">{p.desc.substring(0, 20)}...</span>
+                  </div>
+                </button>
+              ))}
             </div>
+
+            {/* Main Config Area */}
+            <div className="flex-1 p-10 flex flex-col">
+              <div className="flex justify-between items-start mb-8">
+                <div>
+                  <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-2">Configure {STORAGE_PROVIDERS.find(p => p.id === activeConfigTab)?.name}</h3>
+                  <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Storage Connection Settings</p>
+                </div>
+                <button onClick={() => setShowConnectModal(false)} className="p-3 hover:bg-slate-50 rounded-full text-slate-400"><X size={24} /></button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto space-y-6 pr-4">
+                {activeConfigTab === 'local' && (
+                  <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100 flex items-center gap-4">
+                    <Server size={32} className="text-indigo-600" />
+                    <div>
+                      <h4 className="font-bold text-slate-900">Default Local Storage</h4>
+                      <p className="text-xs text-slate-500 mt-1">Files are stored directly on the server's disk.</p>
+                    </div>
+                  </div>
+                )}
+
+                {activeConfigTab === 's3' && (
+                  <div className="space-y-4">
+                    <div><label className="text-[10px] font-black uppercase text-slate-400">Endpoint (Optional for AWS)</label><input value={storageConfig.s3?.endpoint || ''} onChange={e => setStorageConfig({ ...storageConfig, s3: { ...storageConfig.s3, endpoint: e.target.value } })} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none" placeholder="https://s3.us-east-1.amazonaws.com" /></div>
+                    <div><label className="text-[10px] font-black uppercase text-slate-400">Region</label><input value={storageConfig.s3?.region || ''} onChange={e => setStorageConfig({ ...storageConfig, s3: { ...storageConfig.s3, region: e.target.value } })} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none" placeholder="us-east-1" /></div>
+                    <div><label className="text-[10px] font-black uppercase text-slate-400">Bucket Name</label><input value={storageConfig.s3?.bucket || ''} onChange={e => setStorageConfig({ ...storageConfig, s3: { ...storageConfig.s3, bucket: e.target.value } })} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none" placeholder="my-bucket" /></div>
+                    <div><label className="text-[10px] font-black uppercase text-slate-400">Access Key ID</label><input value={storageConfig.s3?.accessKeyId || ''} onChange={e => setStorageConfig({ ...storageConfig, s3: { ...storageConfig.s3, accessKeyId: e.target.value } })} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none" /></div>
+                    <div><label className="text-[10px] font-black uppercase text-slate-400">Secret Access Key</label><input type="password" value={storageConfig.s3?.secretAccessKey || ''} onChange={e => setStorageConfig({ ...storageConfig, s3: { ...storageConfig.s3, secretAccessKey: e.target.value } })} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none" /></div>
+                  </div>
+                )}
+
+                {activeConfigTab === 'cloudinary' && (
+                  <div className="space-y-4">
+                    <div><label className="text-[10px] font-black uppercase text-slate-400">Cloud Name</label><input value={storageConfig.cloudinary?.cloudName || ''} onChange={e => setStorageConfig({ ...storageConfig, cloudinary: { ...storageConfig.cloudinary, cloudName: e.target.value } })} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none" /></div>
+                    <div><label className="text-[10px] font-black uppercase text-slate-400">API Key</label><input value={storageConfig.cloudinary?.apiKey || ''} onChange={e => setStorageConfig({ ...storageConfig, cloudinary: { ...storageConfig.cloudinary, apiKey: e.target.value } })} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none" /></div>
+                    <div><label className="text-[10px] font-black uppercase text-slate-400">API Secret</label><input type="password" value={storageConfig.cloudinary?.apiSecret || ''} onChange={e => setStorageConfig({ ...storageConfig, cloudinary: { ...storageConfig.cloudinary, apiSecret: e.target.value } })} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none" /></div>
+                    <div><label className="text-[10px] font-black uppercase text-slate-400">Upload Preset (Unsigned)</label><input value={storageConfig.cloudinary?.uploadPreset || ''} onChange={e => setStorageConfig({ ...storageConfig, cloudinary: { ...storageConfig.cloudinary, uploadPreset: e.target.value } })} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none" /></div>
+                  </div>
+                )}
+
+                {activeConfigTab === 'imagekit' && (
+                  <div className="space-y-4">
+                    <div><label className="text-[10px] font-black uppercase text-slate-400">Public Key</label><input value={storageConfig.imagekit?.publicKey || ''} onChange={e => setStorageConfig({ ...storageConfig, imagekit: { ...storageConfig.imagekit, publicKey: e.target.value } })} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none" /></div>
+                    <div><label className="text-[10px] font-black uppercase text-slate-400">Private Key</label><input type="password" value={storageConfig.imagekit?.privateKey || ''} onChange={e => setStorageConfig({ ...storageConfig, imagekit: { ...storageConfig.imagekit, privateKey: e.target.value } })} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none" /></div>
+                    <div><label className="text-[10px] font-black uppercase text-slate-400">URL Endpoint</label><input value={storageConfig.imagekit?.urlEndpoint || ''} onChange={e => setStorageConfig({ ...storageConfig, imagekit: { ...storageConfig.imagekit, urlEndpoint: e.target.value } })} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none" placeholder="https://ik.imagekit.io/your_id" /></div>
+                  </div>
+                )}
+
+                {activeConfigTab === 'gdrive' && (
+                  <div className="space-y-4">
+                    <div className="p-4 bg-amber-50 border border-amber-100 rounded-xl text-xs text-amber-800 font-medium">Use a Service Account JSON from Google Cloud Console.</div>
+                    <div><label className="text-[10px] font-black uppercase text-slate-400">Client Email (Service Account)</label><input value={storageConfig.gdrive?.clientEmail || ''} onChange={e => setStorageConfig({ ...storageConfig, gdrive: { ...storageConfig.gdrive, clientEmail: e.target.value } })} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none" placeholder="service-account@..." /></div>
+                    <div><label className="text-[10px] font-black uppercase text-slate-400">Private Key</label><textarea value={storageConfig.gdrive?.privateKey || ''} onChange={e => setStorageConfig({ ...storageConfig, gdrive: { ...storageConfig.gdrive, privateKey: e.target.value } })} className="w-full p-3 bg-slate-50 rounded-xl text-xs font-mono border-none outline-none h-24" placeholder="-----BEGIN PRIVATE KEY..." /></div>
+                    <div><label className="text-[10px] font-black uppercase text-slate-400">Root Folder ID (Optional)</label><input value={storageConfig.gdrive?.rootFolderId || ''} onChange={e => setStorageConfig({ ...storageConfig, gdrive: { ...storageConfig.gdrive, rootFolderId: e.target.value } })} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none" /></div>
+                  </div>
+                )}
+
+                {['onedrive', 'dropbox'].includes(activeConfigTab) && (
+                  <div className="space-y-4">
+                    <div><label className="text-[10px] font-black uppercase text-slate-400">Client ID / App Key</label><input value={storageConfig[activeConfigTab]?.clientId || ''} onChange={e => setStorageConfig({ ...storageConfig, [activeConfigTab]: { ...storageConfig[activeConfigTab], clientId: e.target.value } })} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none" /></div>
+                    <div><label className="text-[10px] font-black uppercase text-slate-400">Client Secret / App Secret</label><input type="password" value={storageConfig[activeConfigTab]?.clientSecret || ''} onChange={e => setStorageConfig({ ...storageConfig, [activeConfigTab]: { ...storageConfig[activeConfigTab], clientSecret: e.target.value } })} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none" /></div>
+                    <div><label className="text-[10px] font-black uppercase text-slate-400">Refresh Token (Long Lived)</label><input type="password" value={storageConfig[activeConfigTab]?.refreshToken || ''} onChange={e => setStorageConfig({ ...storageConfig, [activeConfigTab]: { ...storageConfig[activeConfigTab], refreshToken: e.target.value } })} className="w-full p-3 bg-slate-50 rounded-xl text-sm font-bold border-none outline-none" /></div>
+                  </div>
+                )}
+
+                {/* --- NEW OPTIMIZATION TOGGLE (SOLUTION 3) --- */}
+                <div className="mt-8 pt-8 border-t border-slate-100">
+                  <h4 className="text-sm font-bold text-slate-900 mb-2 flex items-center gap-2"><Wand2 size={16} /> Processing Pipeline</h4>
+                  <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${storageConfig.optimize ? 'bg-indigo-50 border-indigo-200' : 'hover:bg-slate-50 border-slate-200'}`}>
+                    <div className={`w-5 h-5 rounded-md border flex items-center justify-center transition-colors ${storageConfig.optimize ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-300'}`}>
+                      {storageConfig.optimize && <Check size={14} className="text-white" />}
+                    </div>
+                    <input type="checkbox" className="hidden" checked={storageConfig.optimize || false} onChange={e => setStorageConfig({ ...storageConfig, optimize: e.target.checked })} />
+                    <div>
+                      <span className="text-xs font-black uppercase block text-slate-700">Auto-Optimize Images</span>
+                      <span className="text-[10px] text-slate-400 font-medium">Automatically resize/compress uploads. Disable for FlutterFlow compatibility if needed.</span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div className="pt-6 mt-4 border-t border-slate-100 flex gap-4">
+                <button onClick={() => setShowConnectModal(false)} className="flex-1 py-4 text-xs font-black uppercase tracking-widest text-slate-400 hover:bg-slate-50 rounded-2xl">Cancel</button>
+                <button onClick={handleSaveStorageConfig} className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl hover:bg-indigo-700">Save Configuration</button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
