@@ -1013,868 +1013,870 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
       setActiveTab('query');
       setError(`Auto-execute failed: ${e.message}. SQL sent to console.`);
     }
-    // --- UNIVERSAL PADLOCK — Toggle Column Immutability ---
-    const handleToggleLock = async () => {
-      if (!editLock) return;
-      try {
-        setExecuting(true);
-        const resProj = await fetchWithAuth(`/api/control/projects`);
-        const currentProject = resProj.find((p: any) => p.slug === projectId);
+  };
 
-        if (currentProject) {
-          const currentMetadata = currentProject.metadata || {};
-          const lockedCols = { ...(currentMetadata.locked_columns || {}) };
+  // --- UNIVERSAL PADLOCK — Toggle Column Immutability ---
+  const handleToggleLock = async () => {
+    if (!editLock) return;
+    try {
+      setExecuting(true);
+      const resProj = await fetchWithAuth(`/api/control/projects`);
+      const currentProject = resProj.find((p: any) => p.slug === projectId);
 
-          if (editLock.currentLevel === 'unlocked') {
-            delete lockedCols[editLock.column];
-          } else {
-            lockedCols[editLock.column] = editLock.currentLevel;
-          }
+      if (currentProject) {
+        const currentMetadata = currentProject.metadata || {};
+        const lockedCols = { ...(currentMetadata.locked_columns || {}) };
 
-          await fetch(`/api/control/projects/${projectId}`, {
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('cascata_token')}`
-            },
-            body: JSON.stringify({ metadata: { ...currentMetadata, locked_columns: lockedCols } })
-          });
-
-          setSuccessMsg(`Column '${editLock.column}' lock initialized. Reloading structure...`);
-          setEditLock(null);
-          // Refresh tables/schemas to propagate the lock UI updates across the IDE
-          fetchSchemas();
-          fetchTables();
+        if (editLock.currentLevel === 'unlocked') {
+          delete lockedCols[editLock.column];
+        } else {
+          lockedCols[editLock.column] = editLock.currentLevel;
         }
-      } catch (e: any) {
-        setError(`Failed to update security lock: ${e.message}`);
-      } finally {
-        setExecuting(false);
-      }
-    };
 
-    // --- PROTOCOLO CASCATA — Column Operations with Impact Analysis ---
-    const startCascadeProtocol = async (action: 'rename' | 'delete', colName: string) => {
-      if (!selectedTable) return;
-      setColumnContextMenu(null);
-
-      let newName: string | undefined;
-      if (action === 'rename') {
-        const input = prompt(`Rename column "${colName}" to:`, colName);
-        if (!input || input === colName) return;
-        newName = input.toLowerCase().replace(/[^a-z0-9_]/g, '_');
-      }
-
-      // Phase 1: Start scanning — show modal with spinner
-      setImpactScan({ action, column: colName, newName, dependencies: [], isScanning: true });
-
-      // Phase 2: Run 7 catalog queries
-      const deps = await scanColumnDependencies(
-        fetchWithAuth, projectId, activeSchema, selectedTable, colName, action, newName
-      );
-
-      // Phase 3: Show results in modal
-      setImpactScan({ action, column: colName, newName, dependencies: deps, isScanning: false });
-    };
-
-    const executeCascade = async (sql: string) => {
-      if (!selectedTable) return;
-      try {
-        setExecuting(true);
-        await fetchWithAuth(`/api/data/${projectId}/query?schema=${activeSchema}`, {
-          method: 'POST',
-          body: JSON.stringify({ sql })
+        await fetch(`/api/control/projects/${projectId}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('cascata_token')}`
+          },
+          body: JSON.stringify({ metadata: { ...currentMetadata, locked_columns: lockedCols } })
         });
-        const action = impactScan?.action;
-        const col = impactScan?.column;
-        const newN = impactScan?.newName;
-        setImpactScan(null);
-        setSuccessMsg(
-          action === 'rename'
-            ? `Column renamed: ${col} → ${newN}`
-            : `Column "${col}" deleted with cascade.`
-        );
-        fetchTableData(selectedTable);
-      } catch (e: any) {
-        setError(e.message);
-      } finally {
-        setExecuting(false);
+
+        setSuccessMsg(`Column '${editLock.column}' lock initialized. Reloading structure...`);
+        setEditLock(null);
+        // Refresh tables/schemas to propagate the lock UI updates across the IDE
+        fetchSchemas();
+        fetchTables();
       }
-    };
+    } catch (e: any) {
+      setError(`Failed to update security lock: ${e.message}`);
+    } finally {
+      setExecuting(false);
+    }
+  };
 
-    const handleColumnDrop = (targetCol: string) => {
-      // Column drop is now handled inside TablePanel
-    };
+  // --- PROTOCOLO CASCATA — Column Operations with Impact Analysis ---
+  const startCascadeProtocol = async (action: 'rename' | 'delete', colName: string) => {
+    if (!selectedTable) return;
+    setColumnContextMenu(null);
 
-    const handleTableDrop = (targetTable: string) => {
-      if (!draggedTable || draggedTable === targetTable) { setDragOverTable(null); return; }
-      setTables(prev => {
-        const newList = [...prev];
-        const fromIdx = newList.findIndex(t => t.name === draggedTable);
-        const toIdx = newList.findIndex(t => t.name === targetTable);
-        if (fromIdx === -1 || toIdx === -1) return prev;
-        const [moved] = newList.splice(fromIdx, 1);
-        newList.splice(toIdx, 0, moved);
-        // Persist table order in localStorage
-        localStorage.setItem(`cascata_table_order_${projectId}_${activeSchema}`, JSON.stringify(newList.map(t => t.name)));
-        return newList;
+    let newName: string | undefined;
+    if (action === 'rename') {
+      const input = prompt(`Rename column "${colName}" to:`, colName);
+      if (!input || input === colName) return;
+      newName = input.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    }
+
+    // Phase 1: Start scanning — show modal with spinner
+    setImpactScan({ action, column: colName, newName, dependencies: [], isScanning: true });
+
+    // Phase 2: Run 7 catalog queries
+    const deps = await scanColumnDependencies(
+      fetchWithAuth, projectId, activeSchema, selectedTable, colName, action, newName
+    );
+
+    // Phase 3: Show results in modal
+    setImpactScan({ action, column: colName, newName, dependencies: deps, isScanning: false });
+  };
+
+  const executeCascade = async (sql: string) => {
+    if (!selectedTable) return;
+    try {
+      setExecuting(true);
+      await fetchWithAuth(`/api/data/${projectId}/query?schema=${activeSchema}`, {
+        method: 'POST',
+        body: JSON.stringify({ sql })
       });
-      setDraggedTable(null);
-      setDragOverTable(null);
-    };
+      const action = impactScan?.action;
+      const col = impactScan?.column;
+      const newN = impactScan?.newName;
+      setImpactScan(null);
+      setSuccessMsg(
+        action === 'rename'
+          ? `Column renamed: ${col} → ${newN}`
+          : `Column "${col}" deleted with cascade.`
+      );
+      fetchTableData(selectedTable);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setExecuting(false);
+    }
+  };
 
-    // --- RENDER HELPERS ---
+  const handleColumnDrop = (targetCol: string) => {
+    // Column drop is now handled inside TablePanel
+  };
 
-    const renderSidebar = () => (
-      <aside className="bg-white border-r border-slate-200 flex flex-col shrink-0 relative z-10" style={{ width: sidebarWidth }}>
-        <div className="p-6 border-b border-slate-100 bg-white sticky top-0 z-10">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100 transition-colors p-1.5 pr-3 rounded-xl border border-slate-200/60 cursor-pointer relative group">
-              <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white shadow-lg shadow-indigo-200">
-                <Database size={16} />
-              </div>
-              <select
-                value={activeSchema}
-                onChange={(e: any) => switchSchema(e.target.value)}
-                className="text-sm font-black text-slate-900 tracking-tight bg-transparent border-none outline-none cursor-pointer appearance-none pl-1 pr-6"
-              >
-                {schemas.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-              <ChevronDown size={14} className="text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none group-hover:text-indigo-500" />
+  const handleTableDrop = (targetTable: string) => {
+    if (!draggedTable || draggedTable === targetTable) { setDragOverTable(null); return; }
+    setTables(prev => {
+      const newList = [...prev];
+      const fromIdx = newList.findIndex(t => t.name === draggedTable);
+      const toIdx = newList.findIndex(t => t.name === targetTable);
+      if (fromIdx === -1 || toIdx === -1) return prev;
+      const [moved] = newList.splice(fromIdx, 1);
+      newList.splice(toIdx, 0, moved);
+      // Persist table order in localStorage
+      localStorage.setItem(`cascata_table_order_${projectId}_${activeSchema}`, JSON.stringify(newList.map(t => t.name)));
+      return newList;
+    });
+    setDraggedTable(null);
+    setDragOverTable(null);
+  };
+
+  // --- RENDER HELPERS ---
+
+  const renderSidebar = () => (
+    <aside className="bg-white border-r border-slate-200 flex flex-col shrink-0 relative z-10" style={{ width: sidebarWidth }}>
+      <div className="p-6 border-b border-slate-100 bg-white sticky top-0 z-10">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100 transition-colors p-1.5 pr-3 rounded-xl border border-slate-200/60 cursor-pointer relative group">
+            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white shadow-lg shadow-indigo-200">
+              <Database size={16} />
             </div>
-            <button onClick={() => setShowExtensions(true)} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-purple-600 transition-colors" title="Manage Extensions">
-              <Puzzle size={20} />
-            </button>
+            <select
+              value={activeSchema}
+              onChange={(e: any) => switchSchema(e.target.value)}
+              className="text-sm font-black text-slate-900 tracking-tight bg-transparent border-none outline-none cursor-pointer appearance-none pl-1 pr-6"
+            >
+              {schemas.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <ChevronDown size={14} className="text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none group-hover:text-indigo-500" />
           </div>
+          <button onClick={() => setShowExtensions(true)} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-purple-600 transition-colors" title="Manage Extensions">
+            <Puzzle size={20} />
+          </button>
+        </div>
 
-          <div className="relative group">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-            <input
-              value={searchFilter}
-              onChange={(e: any) => setSearchFilter(e.target.value)}
-              placeholder="Search tables..."
-              className="w-full bg-slate-50 border border-slate-100 rounded-xl pl-10 pr-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500/20"
-            />
-            {searchFilter && (
-              <button onClick={() => setSearchFilter('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-600">
-                <X size={14} />
-              </button>
-            )}
+        <div className="relative group">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+          <input
+            value={searchFilter}
+            onChange={(e: any) => setSearchFilter(e.target.value)}
+            placeholder="Search tables..."
+            className="w-full bg-slate-50 border border-slate-100 rounded-xl pl-10 pr-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500/20"
+          />
+          {searchFilter && (
+            <button onClick={() => setSearchFilter('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-600">
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-3 space-y-1 custom-scrollbar">
+        <div className="flex items-center justify-between mb-4 px-2">
+          <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">{activeSchema} Tables</h2>
+          <div className="flex gap-1">
+            <button onClick={fetchTables} className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-indigo-600"><RefreshCw size={14} /></button>
+            <button onClick={() => setShowCreateTable(true)} className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-indigo-600"><Plus size={14} /></button>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3 space-y-1 custom-scrollbar">
-          <div className="flex items-center justify-between mb-4 px-2">
-            <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">{activeSchema} Tables</h2>
-            <div className="flex gap-1">
-              <button onClick={fetchTables} className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-indigo-600"><RefreshCw size={14} /></button>
-              <button onClick={() => setShowCreateTable(true)} className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-indigo-600"><Plus size={14} /></button>
-            </div>
-          </div>
-
-          {tables.filter(t => !searchFilter || t.name.toLowerCase().includes(searchFilter.toLowerCase())).map(table => (
-            <div
-              key={table.name}
-              draggable
-              onDragStart={() => setDraggedTable(table.name)}
-              onDragOver={(e: any) => { e.preventDefault(); setDragOverTable(table.name); }}
-              onDragLeave={() => setDragOverTable(null)}
-              onDrop={(e: any) => { e.preventDefault(); handleTableDrop(table.name); }}
-              onDragEnd={() => { setDraggedTable(null); setDragOverTable(null); }}
-              onClick={(e: any) => {
-                setActiveTab('tables');
-                if (e.shiftKey) {
-                  // Shift+click: add to pinned tables for side-by-side view
-                  setPinnedTables(prev => prev.includes(table.name) ? prev : [...prev, table.name]);
-                  setOpenTabs(prev => prev.some(t => t.schema === activeSchema && t.table === table.name) ? prev : [...prev, { schema: activeSchema, table: table.name }]);
-                } else {
-                  // Normal click — single table, reset pinned
-                  setPinnedTables([table.name]);
-                  setSelectedTable(table.name);
-                  setOpenTabs(prev => prev.some(t => t.schema === activeSchema && t.table === table.name) ? prev : [...prev, { schema: activeSchema, table: table.name }]);
-                }
-              }}
-              onContextMenu={(e: any) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, table: table.name }); }}
-              className={`
+        {tables.filter(t => !searchFilter || t.name.toLowerCase().includes(searchFilter.toLowerCase())).map(table => (
+          <div
+            key={table.name}
+            draggable
+            onDragStart={() => setDraggedTable(table.name)}
+            onDragOver={(e: any) => { e.preventDefault(); setDragOverTable(table.name); }}
+            onDragLeave={() => setDragOverTable(null)}
+            onDrop={(e: any) => { e.preventDefault(); handleTableDrop(table.name); }}
+            onDragEnd={() => { setDraggedTable(null); setDragOverTable(null); }}
+            onClick={(e: any) => {
+              setActiveTab('tables');
+              if (e.shiftKey) {
+                // Shift+click: add to pinned tables for side-by-side view
+                setPinnedTables(prev => prev.includes(table.name) ? prev : [...prev, table.name]);
+                setOpenTabs(prev => prev.some(t => t.schema === activeSchema && t.table === table.name) ? prev : [...prev, { schema: activeSchema, table: table.name }]);
+              } else {
+                // Normal click — single table, reset pinned
+                setPinnedTables([table.name]);
+                setSelectedTable(table.name);
+                setOpenTabs(prev => prev.some(t => t.schema === activeSchema && t.table === table.name) ? prev : [...prev, { schema: activeSchema, table: table.name }]);
+              }
+            }}
+            onContextMenu={(e: any) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, table: table.name }); }}
+            className={`
                           group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition-all border
                           ${dragOverTable === table.name ? 'border-indigo-400 bg-indigo-50' : 'border-transparent'}
                           ${selectedTable === table.name && activeTab === 'tables' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : pinnedTables.includes(table.name) && activeTab === 'tables' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'text-slate-600 hover:bg-slate-50'}
                       `}
-            >
-              <div className="flex items-center gap-3 overflow-hidden">
-                <GripVertical size={12} className={`opacity-0 group-hover:opacity-60 shrink-0 ${selectedTable === table.name && activeTab === 'tables' ? 'text-white' : pinnedTables.includes(table.name) && activeTab === 'tables' ? 'text-indigo-400' : 'text-slate-300'}`} />
-                <TableIcon size={16} className={selectedTable === table.name && activeTab === 'tables' ? 'text-white' : pinnedTables.includes(table.name) && activeTab === 'tables' ? 'text-indigo-500' : 'text-slate-400'} />
-                <span className="font-bold text-xs truncate">{table.name}</span>
-              </div>
-            </div>
-          ))}
-
-          {recycleBin.length > 0 && (
-            <div className="mt-8 pt-4 border-t border-slate-100">
-              <button className="w-full flex items-center gap-3 px-3 py-2 text-xs font-bold text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all">
-                <Trash2 size={16} /> Recycle Bin ({recycleBin.length})
-              </button>
-            </div>
-          )}
-        </div>
-
-        <div className="p-4 border-t border-slate-100 bg-slate-50">
-          <button
-            onClick={() => setActiveTab(activeTab === 'query' ? 'tables' : 'query')}
-            className={`w-full py-3 rounded-xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${activeTab === 'query' ? 'bg-slate-900 text-white shadow-xl' : 'bg-white border border-slate-200 text-slate-600 hover:border-slate-300'}`}
           >
-            <Terminal size={14} /> SQL Editor
-          </button>
-        </div>
-        <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-500 transition-colors z-20" onMouseDown={() => setIsResizingSidebar(true)} />
-      </aside>
-    );
-
-    const getSmartPlaceholder = (col: any) => {
-      if (col.defaultValue && col.defaultValue.includes('gen_random_uuid')) return 'UUID (Auto)';
-      if (col.defaultValue && col.defaultValue.includes('now()')) return 'Now()';
-      return col.type;
-    };
-
-    // isCompareMode: true when multiple tables are pinned
-    const isCompareMode = pinnedTables.length > 1;
-
-    return (
-      <div
-        className={`flex h-full flex-row bg-[#F8FAFC] text-slate-900 overflow-hidden font-sans relative transition-colors ${isDraggingOver ? 'bg-indigo-50/50' : ''}`}
-        onDrop={handleGlobalDrop}
-        onDragOver={(e: any) => { e.preventDefault(); if (!draggingColumn && !draggedTable) setIsDraggingOver(true); }}
-        onDragLeave={() => setIsDraggingOver(false)}
-      >
-        {/* Drag Overlay — only for external file drops, NOT internal reorders */}
-        {isDraggingOver && !draggingColumn && !draggedTable && (
-          <div className="absolute inset-0 z-[1000] border-8 border-indigo-500 border-dashed bg-indigo-50/80 flex items-center justify-center p-8 pointer-events-none">
-            <div className="bg-white rounded-3xl p-10 shadow-2xl text-indigo-600 flex flex-col items-center animate-bounce">
-              <Upload size={64} className="mb-4" />
-              <h2 className="text-3xl font-black uppercase tracking-tighter">Drop to Import</h2>
-              <p className="text-indigo-400 font-bold mt-2">CSV, JSON, or XLSX files supported.</p>
+            <div className="flex items-center gap-3 overflow-hidden">
+              <GripVertical size={12} className={`opacity-0 group-hover:opacity-60 shrink-0 ${selectedTable === table.name && activeTab === 'tables' ? 'text-white' : pinnedTables.includes(table.name) && activeTab === 'tables' ? 'text-indigo-400' : 'text-slate-300'}`} />
+              <TableIcon size={16} className={selectedTable === table.name && activeTab === 'tables' ? 'text-white' : pinnedTables.includes(table.name) && activeTab === 'tables' ? 'text-indigo-500' : 'text-slate-400'} />
+              <span className="font-bold text-xs truncate">{table.name}</span>
             </div>
           </div>
-        )}
+        ))}
 
-        {/* Notifications */}
-        {(successMsg || error) && (
-          <div className={`fixed top-8 left-1/2 -translate-x-1/2 z-[100] px-6 py-4 rounded-full shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-4 ${error ? 'bg-rose-600 text-white' : 'bg-emerald-600 text-white'}`}>
-            {error ? <AlertCircle size={18} /> : <CheckCircle2 size={18} />}
-            <span className="text-xs font-bold">{error || successMsg}</span>
-            <button onClick={() => { setError(null); setSuccessMsg(null); }} className="ml-2 opacity-60 hover:opacity-100"><X size={14} /></button>
+        {recycleBin.length > 0 && (
+          <div className="mt-8 pt-4 border-t border-slate-100">
+            <button className="w-full flex items-center gap-3 px-3 py-2 text-xs font-bold text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all">
+              <Trash2 size={16} /> Recycle Bin ({recycleBin.length})
+            </button>
           </div>
         )}
+      </div>
 
-        {renderSidebar()}
+      <div className="p-4 border-t border-slate-100 bg-slate-50">
+        <button
+          onClick={() => setActiveTab(activeTab === 'query' ? 'tables' : 'query')}
+          className={`w-full py-3 rounded-xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${activeTab === 'query' ? 'bg-slate-900 text-white shadow-xl' : 'bg-white border border-slate-200 text-slate-600 hover:border-slate-300'}`}
+        >
+          <Terminal size={14} /> SQL Editor
+        </button>
+      </div>
+      <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-500 transition-colors z-20" onMouseDown={() => setIsResizingSidebar(true)} />
+    </aside>
+  );
 
-        <main className="flex-1 overflow-hidden relative flex flex-col bg-white">
-          {activeTab === 'tables' && openTabs.length > 0 && (
-            <div className="flex items-center px-4 pt-2 bg-slate-50 border-b border-slate-200 overflow-x-auto gap-1 shrink-0 scrollbar-hide">
-              {openTabs.map((tab, idx) => (
-                <div key={`${tab.schema}.${tab.table}`} className={`group flex items-center gap-2 px-4 py-2 rounded-t-lg border border-b-0 cursor-pointer select-none transition-colors ${selectedTable === tab.table && activeSchema === tab.schema ? 'bg-white border-slate-200 text-indigo-700 shadow-[0_1px_0_white]' : pinnedTables.includes(tab.table) ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-slate-100 border-transparent text-slate-500 hover:bg-slate-200'}`} style={{ marginBottom: '-1px' }} onClick={(e: any) => {
-                  if (e.shiftKey) {
-                    // Shift+click on tab: toggle pinned
-                    setPinnedTables(prev => prev.includes(tab.table) ? (prev.length > 1 ? prev.filter(t => t !== tab.table) : prev) : [...prev, tab.table]);
-                  } else {
-                    if (tab.schema !== activeSchema) switchSchema(tab.schema);
-                    setSelectedTable(tab.table);
-                    setPinnedTables([tab.table]);
-                  }
-                }}>
-                  <TableIcon size={14} className={selectedTable === tab.table && activeSchema === tab.schema ? 'text-indigo-600' : 'text-slate-400'} />
-                  {tab.schema !== activeSchema && <span className="text-[9px] font-bold uppercase tracking-wider bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">{tab.schema}</span>}
-                  <span className="text-xs font-bold truncate max-w-[150px]">{tab.table}</span>
-                  <button className={`p-0.5 rounded-md transition-colors ${selectedTable === tab.table && activeSchema === tab.schema ? 'opacity-100 hover:bg-indigo-50 text-indigo-400 hover:text-indigo-600' : 'opacity-0 group-hover:opacity-100 hover:bg-slate-300 text-slate-400 hover:text-slate-600'}`} onClick={(e: any) => {
-                    e.stopPropagation();
-                    const newTabs = openTabs.filter((_, i) => i !== idx);
-                    setOpenTabs(newTabs);
-                    setPinnedTables(prev => prev.filter(t => t !== tab.table));
-                    if (selectedTable === tab.table && activeSchema === tab.schema) {
-                      if (newTabs.length > 0) {
-                        const last = newTabs[newTabs.length - 1];
-                        switchSchema(last.schema);
-                        setSelectedTable(last.table);
-                        setPinnedTables([last.table]);
-                      } else {
-                        setSelectedTable(null);
-                        setPinnedTables([]);
-                      }
-                    }
-                  }}>                  <X size={12} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )
-          }
-
-          {
-            activeTab === 'tables' && pinnedTables.length > 0 ? (
-              <div className={`flex-1 flex ${isCompareMode ? 'flex-row divide-x divide-slate-200' : 'flex-col'} overflow-hidden`}>
-                {pinnedTables.map(tName => (
-                  <TablePanel
-                    key={`${activeSchema}-${tName}`}
-                    projectId={projectId}
-                    tableName={tName}
-                    schema={activeSchema}
-                    isCompareMode={isCompareMode}
-                    onClose={() => {
-                      setPinnedTables(prev => {
-                        const next = prev.filter(t => t !== tName);
-                        if (next.length > 0 && selectedTable === tName) setSelectedTable(next[0]);
-                        if (next.length === 0) setSelectedTable(null);
-                        return next;
-                      });
-                      setOpenTabs(prev => prev.filter(t => !(t.table === tName && t.schema === activeSchema)));
-                    }}
-                    onColumnContextMenu={(x, y, col) => setColumnContextMenu({ x, y, col })}
-                    onAddColumn={() => setShowAddColumn(true)}
-                    onError={setError}
-                    onSuccess={setSuccessMsg}
-                    onExport={(name, data, fmt) => handleExport(fmt as any, data)}
-                    onImport={() => setShowImportModal(true)}
-                    isRealtimeActive={isRealtimeActive}
-                  />
-                ))}
-              </div>
-            ) : activeTab === 'query' ? (
-              <SqlConsole onExecute={handleExecuteSql} onFix={handleFixSql} onInterceptCreateTable={handleInterceptCreateTable} initialQuery={sqlInitial} />
-            ) : (
-              <div className="flex-1 flex flex-col items-center justify-center text-slate-300">
-                <Database size={64} className="mb-4 opacity-20" />
-                <span className="font-bold uppercase tracking-widest text-xs">Select a table</span>
-              </div>
-            )
-          }
-        </main >
-
-        {/* TABLE CREATOR DRAWER */}
-        < TableCreatorDrawer
-          isOpen={showCreateTable}
-          onClose={() => { setShowCreateTable(false); setInitialColumns(undefined); }}
-          tables={tables}
-          activeSchema={activeSchema}
-          projectId={projectId}
-          fetchWithAuth={fetchWithAuth}
-          onSqlGenerated={handleSqlFromDrawer}
-          initialTableName={newTableName}
-          initialColumns={initialColumns}
-        />
-
-        {/* IMPORT MODAL */}
-        {
-          showImportModal && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[250] flex items-center justify-center p-8 animate-in zoom-in-95">
-              <div className="bg-white rounded-[3.5rem] w-full max-w-lg p-12 shadow-2xl border border-slate-100 relative">
-                <button onClick={() => setShowImportModal(false)} className="absolute top-8 right-8 text-slate-300 hover:text-slate-900 transition-colors"><X size={24} /></button>
-                <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-8">Data Import</h3>
-                <div className="space-y-6">
-                  <div className="border-4 border-dashed border-slate-100 rounded-[2.5rem] p-10 text-center hover:border-emerald-300 hover:bg-emerald-50/10 transition-all cursor-pointer relative group">
-                    <input type="file" accept=".csv, .xlsx, .json" onChange={(e: any) => setImportFile(e.target.files?.[0] || null)} className="absolute inset-0 opacity-0 cursor-pointer" />
-                    {importFile ? <span className="font-bold text-slate-900">{importFile.name}</span> : <div className="flex flex-col items-center text-slate-300 group-hover:text-emerald-500"><Upload size={40} className="mb-2" /><span className="font-bold text-sm">Drop file here</span></div>}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )
-        }
-
-        {/* EXTENSIONS MODAL */}
-        <ExtensionsModal
-          isOpen={showExtensions}
-          onClose={() => setShowExtensions(false)}
-          installedExtensions={extensions}
-          onInstall={installExtension}
-          onUninstall={uninstallExtension}
-          loadingName={extensionLoadingName}
-        />
-
-        {/* CONTEXT MENU */}
-        {
-          contextMenu && (
-            <>
-              <div className="fixed inset-0 z-[90]" onClick={() => setContextMenu(null)} />
-              <div className="fixed z-[100] bg-white border border-slate-200 shadow-2xl rounded-2xl p-2 w-56 animate-in fade-in zoom-in-95" style={{ top: contextMenu.y, left: contextMenu.x }}>
-                <button onClick={() => { handleRenameTable(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Edit size={14} /> Rename</button>
-                <button onClick={() => { handleDuplicateTable(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Layers size={14} /> Duplicate</button>
-                <button onClick={() => { handleCopyStructure(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Code size={14} /> Copy SQL</button>
-                <div className="h-[1px] bg-slate-100 my-1"></div>
-                <button onClick={() => { handleDeleteTable(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-all"><Trash2 size={14} /> Delete Table</button>
-              </div>
-            </>
-          )
-        }
-
-        {/* COLUMN CONTEXT MENU */}
-        {
-          columnContextMenu && (
-            <>
-              <div className="fixed inset-0 z-[90]" onClick={() => setColumnContextMenu(null)} />
-              <div className="fixed z-[100] bg-white border border-slate-200 shadow-2xl rounded-2xl p-2 w-52 animate-in fade-in zoom-in-95" style={{ top: columnContextMenu.y, left: columnContextMenu.x }}>
-                <button onClick={() => { startCascadeProtocol('rename', columnContextMenu.col); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Edit size={14} /> Rename Column</button>
-                <button onClick={() => { copyToClipboard(columnContextMenu.col); setSuccessMsg('Column name copied'); setColumnContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Copy size={14} /> Copy Name</button>
-                {/* Edit Format — only for text/varchar columns */}
-                {(() => {
-                  const colMeta = columns.find((c: any) => c.name === columnContextMenu.col);
-                  const isTextType = colMeta && (colMeta.type === 'text' || colMeta.type?.includes('character'));
-                  return isTextType ? (
-                    <button onClick={() => {
-                      setEditFormat({
-                        column: columnContextMenu.col,
-                        preset: colMeta.formatPattern || '',
-                        customPattern: '',
-                        columnType: colMeta.type,
-                      });
-                      setColumnContextMenu(null);
-                    }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-amber-600 hover:bg-amber-50 rounded-xl transition-all">
-                      <Shield size={14} /> Edit Format
-                    </button>
-                  ) : null;
-                })()}
-                <button onClick={() => {
-                  setEditLock({ column: columnContextMenu.col, table: columnContextMenu.table, currentLevel: columnContextMenu.lockLevel });
-                  setColumnContextMenu(null);
-                }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-all">
-                  <Lock size={14} /> Security Lock
-                </button>
-                <div className="h-[1px] bg-slate-100 my-1"></div>
-                <button onClick={() => { startCascadeProtocol('delete', columnContextMenu.col); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-all"><Trash2 size={14} /> Delete Column</button>
-              </div>
-            </>
-          )
-        }
-
-        {/* UNIVERSAL SECURITY PADLOCK MODAL */}
-        {
-          editLock && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
-              <div className="bg-white rounded-[3rem] p-10 max-w-sm w-full shadow-2xl border border-slate-200 text-center">
-                <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
-                  <Lock size={32} />
-                </div>
-                <h3 className="text-xl font-black text-slate-900 mb-2">Universal Padlock</h3>
-                <p className="text-xs text-slate-500 font-medium mb-6">
-                  Protect column <strong>{editLock.column}</strong> from arbitrary API mutations. This applies <em>project-wide</em>.
-                </p>
-
-                <div className="space-y-4 mb-8 text-left">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Lock Security Tier</label>
-                  <select
-                    value={editLock.currentLevel}
-                    onChange={(e) => setEditLock({ ...editLock, currentLevel: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-bold text-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-rose-500/20"
-                  >
-                    <option value="unlocked">UNLOCKED (Open Access)</option>
-                    <option value="immutable">IMMUTABLE (Blocks INSERT & UPDATE)</option>
-                    <option value="insert_only">INSERT ONLY (Blocks UPDATE)</option>
-                    <option value="service_role_only">SERVICE ROLE ONLY (Blocks Anon/Auth)</option>
-                  </select>
-
-                  {editLock.currentLevel !== 'unlocked' && (
-                    <div className="bg-rose-50 border border-rose-100 rounded-xl p-3 text-[10px] text-rose-700 font-medium mt-2">
-                      <strong className="block mb-1 font-black">Intrusion Alerting Active</strong>
-                      Any API request violating this tier will be scrubbed automatically and an alert will be logged to <em>system.security_events</em>.
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex gap-4">
-                  <button onClick={() => setEditLock(null)} disabled={executing} className="flex-1 py-4 text-xs font-black text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-colors disabled:opacity-50">Cancel</button>
-                  <button onClick={handleToggleLock} disabled={executing} className="flex-[2] py-4 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-rose-600/20 transition-all flex justify-center items-center gap-2 disabled:opacity-50">
-                    {executing ? <Loader2 size={16} className="animate-spin" /> : <><Shield size={16} /> Enforce Lock</>}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )
-        }
-
-        {/* PROTOCOLO CASCATA — Column Impact Modal */}
-        <ColumnImpactModal
-          isOpen={!!impactScan}
-          action={impactScan?.action || 'rename'}
-          schema={activeSchema}
-          table={selectedTable || ''}
-          column={impactScan?.column || ''}
-          newName={impactScan?.newName}
-          dependencies={impactScan?.dependencies || []}
-          isScanning={impactScan?.isScanning || false}
-          onClose={() => setImpactScan(null)}
-          onExecute={executeCascade}
-        />
-
-        {/* PROTOCOLO CASCATA — Table Rename Impact Modal */}
-        <ColumnImpactModal
-          isOpen={!!tableImpactScan}
-          action="rename"
-          targetType="table"
-          schema={activeSchema}
-          table={tableImpactScan?.oldName || ''}
-          column={tableImpactScan?.oldName || ''}
-          newName={tableImpactScan?.newName}
-          dependencies={tableImpactScan?.dependencies || []}
-          isScanning={tableImpactScan?.isScanning || false}
-          onClose={() => setTableImpactScan(null)}
-          onExecute={executeTableCascade}
-          cascadeSQLOverride={tableImpactScan?.cascadeSQL}
-        />
-
-        {/* ADD COLUMN MODAL (ENHANCED) */}
-        {
-          showAddColumn && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
-              <div className="bg-white rounded-[3rem] p-10 max-w-sm w-full shadow-2xl border border-slate-200 text-center">
-                <h3 className="text-xl font-black text-slate-900 mb-6">Add New Column</h3>
-                <div className="space-y-4 mb-6 text-left">
-
-                  {/* Name */}
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Column Name</label>
-                    <input
-                      value={newColumn.name}
-                      onChange={e => setNewColumn({ ...newColumn, name: sanitizeColName(e.target.value) })}
-                      placeholder="column_name"
-                      autoFocus
-                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500/20"
-                    />
-                  </div>
-
-                  {/* Description */}
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Description</label>
-                    <input
-                      value={newColumn.description}
-                      onChange={e => setNewColumn({ ...newColumn, description: e.target.value })}
-                      placeholder="Semantic hint for AI..."
-                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-medium text-sm outline-none text-slate-600"
-                    />
-                  </div>
-
-                  {/* Smart Type Selector */}
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Data Type</label>
-                    <select
-                      value={newColumn.type}
-                      onChange={e => setNewColumn({ ...newColumn, type: e.target.value })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-bold text-sm outline-none cursor-pointer"
-                    >
-                      <optgroup label="Numbers"><option value="int8">int8 (BigInt)</option><option value="int4">int4 (Integer)</option><option value="numeric">numeric</option><option value="float8">float8</option></optgroup>
-                      <optgroup label="Text"><option value="text">text</option><option value="varchar">varchar</option><option value="uuid">uuid</option></optgroup>
-                      <optgroup label="Date/Time"><option value="timestamptz">timestamptz</option><option value="date">date</option><option value="time">time</option></optgroup>
-                      <optgroup label="JSON"><option value="jsonb">jsonb</option><option value="json">json</option></optgroup>
-                      <optgroup label="Other"><option value="bool">boolean</option><option value="bytea">bytea</option></optgroup>
-                    </select>
-                  </div>
-
-                  {/* Toggles & Options */}
-                  <div className="flex items-center justify-between bg-slate-50 p-2 rounded-2xl border border-slate-100">
-                    <div className="flex items-center gap-2">
-                      <div title="Nullable" onClick={() => setNewColumn({ ...newColumn, isNullable: !newColumn.isNullable })} className={`px-2 py-1.5 rounded-xl text-[10px] font-black cursor-pointer select-none transition-all ${newColumn.isNullable ? 'bg-emerald-100 text-emerald-700' : 'text-slate-400 hover:bg-slate-200'}`}>NULL</div>
-                      <div title="Unique" onClick={() => setNewColumn({ ...newColumn, isUnique: !newColumn.isUnique })} className={`px-2 py-1.5 rounded-xl text-[10px] font-black cursor-pointer select-none transition-all ${newColumn.isUnique ? 'bg-purple-100 text-purple-700' : 'text-slate-400 hover:bg-slate-200'}`}>UNIQ</div>
-                    </div>
-
-                    {/* Foreign Key Toggle */}
-                    <div
-                      onClick={async () => {
-                        if (!newColumn.foreignKey) {
-                          setNewColumn({ ...newColumn, foreignKey: { table: '', column: '' } });
-                        } else {
-                          setNewColumn({ ...newColumn, foreignKey: undefined });
-                        }
-                      }}
-                      className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-[10px] font-black cursor-pointer select-none transition-all ${newColumn.foreignKey ? 'bg-blue-100 text-blue-700 shadow-sm' : 'text-slate-400 hover:bg-slate-200'}`}
-                    >
-                      <LinkIcon size={12} strokeWidth={3} /> {newColumn.foreignKey ? 'LINKED' : 'LINK'}
-                    </div>
-                  </div>
-
-                  {/* Foreign Key Configuration (Conditional) */}
-                  {newColumn.foreignKey && (
-                    <div className="space-y-3 bg-blue-50/50 p-3 rounded-2xl border border-blue-100 animate-in slide-in-from-top-2">
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-black text-blue-400 uppercase tracking-widest ml-1">Target Table</label>
-                        <select
-                          value={newColumn.foreignKey.table}
-                          onChange={async (e: any) => {
-                            const tbl = e.target.value;
-                            setNewColumn(prev => ({ ...prev, foreignKey: { table: tbl, column: '' } }));
-                            if (tbl) {
-                              setFkLoading(true);
-                              try {
-                                const res = await fetchWithAuth(`/api/data/${projectId}/tables/${tbl}/columns?schema=${activeSchema}`);
-                                setFkTargetColumns(res.map((c: any) => c.name));
-                                if (res.length > 0) {
-                                  const defaultCol = res.find((c: any) => c.name === 'id') ? 'id' : res[0].name;
-                                  setNewColumn(prev => ({ ...prev, foreignKey: { ...prev.foreignKey!, table: tbl, column: defaultCol } }));
-                                }
-                              } catch (err) { } finally { setFkLoading(false); }
-                            }
-                          }}
-                          className="w-full bg-white border border-blue-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-700 outline-none"
-                        >
-                          <option value="">Select Table...</option>
-                          {tables.filter(t => t.name !== selectedTable).map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
-                        </select>
-                      </div>
-                      {newColumn.foreignKey.table && (
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-black text-blue-400 uppercase tracking-widest ml-1">Target Column</label>
-                          {fkLoading ? <div className="py-2 flex justify-center"><Loader2 size={14} className="animate-spin text-blue-500" /></div> : (
-                            <select
-                              value={newColumn.foreignKey.column}
-                              onChange={(e: any) => setNewColumn(prev => ({ ...prev, foreignKey: { ...prev.foreignKey!, column: e.target.value } }))}
-                              className="w-full bg-white border border-blue-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-700 outline-none"
-                            >
-                              {fkTargetColumns.map(c => <option key={c} value={c}>{c}</option>)}
-                            </select>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Smart Default Value */}
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Default Value</label>
-                    <input
-                      list="modal-defaults"
-                      value={newColumn.defaultValue}
-                      onChange={e => setNewColumn({ ...newColumn, defaultValue: e.target.value })}
-                      placeholder="NULL (Optional)"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-mono text-xs font-medium text-slate-600 outline-none focus:ring-2 focus:ring-indigo-500/20"
-                    />
-                    <datalist id="modal-defaults">
-                      {getDefaultSuggestions(newColumn.type).map(s => <option key={s} value={s} />)}
-                    </datalist>
-                  </div>
-
-                  {/* Format Validation */}
-                  {(newColumn.type === 'text' || newColumn.type === 'varchar') && (
-                    <div className="space-y-2 bg-amber-50/50 p-3 rounded-2xl border border-amber-100 animate-in slide-in-from-top-2">
-                      <label className="text-[9px] font-black text-amber-500 uppercase tracking-widest ml-1 flex items-center gap-1">
-                        <Shield size={10} /> Format Validation
-                      </label>
-                      <select
-                        value={newColumn.formatPreset}
-                        onChange={e => {
-                          const val = e.target.value;
-                          if (val === 'custom') {
-                            setNewColumn({ ...newColumn, formatPreset: 'custom', formatPattern: '' });
-                          } else {
-                            setNewColumn({ ...newColumn, formatPreset: val, formatPattern: '' });
-                          }
-                        }}
-                        className="w-full bg-white border border-amber-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-700 outline-none cursor-pointer"
-                      >
-                        <option value="">None (No Validation)</option>
-                        {Object.entries(FORMAT_PRESETS).map(([key, preset]) => (
-                          <option key={key} value={key}>{preset.label} — {preset.description}</option>
-                        ))}
-                        <option value="custom">Custom Regex...</option>
-                      </select>
-
-                      {newColumn.formatPreset === 'custom' && (
-                        <input
-                          value={newColumn.formatPattern}
-                          onChange={e => setNewColumn({ ...newColumn, formatPattern: e.target.value })}
-                          placeholder="^[A-Z]{2}\d{4}$"
-                          className="w-full bg-white border border-amber-200 rounded-xl py-2 px-3 text-xs font-mono font-medium text-slate-600 outline-none focus:ring-2 focus:ring-amber-400/30"
-                        />
-                      )}
-
-                      {/* Live Preview */}
-                      {(newColumn.formatPreset && newColumn.formatPreset !== 'custom') || newColumn.formatPattern ? (() => {
-                        const pattern = newColumn.formatPreset !== 'custom'
-                          ? FORMAT_PRESETS[newColumn.formatPreset]?.regex
-                          : newColumn.formatPattern;
-                        const example = newColumn.formatPreset !== 'custom'
-                          ? FORMAT_PRESETS[newColumn.formatPreset]?.example
-                          : '';
-                        if (!pattern) return null;
-                        const testOk = example ? new RegExp(pattern).test(example) : false;
-                        return (
-                          <div className="flex items-center gap-2 text-[10px] font-bold mt-1">
-                            <div className={`w-2 h-2 rounded-full ${testOk ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                            <span className="text-slate-500">
-                              Example: <span className="font-mono text-slate-700">{example || '—'}</span>
-                              {testOk ? <span className="text-emerald-600 ml-1">✓ Match</span> : <span className="text-red-500 ml-1">✗ No match</span>}
-                            </span>
-                          </div>
-                        );
-                      })() : null}
-                    </div>
-                  )}
-
-                </div>
-                <button onClick={handleAddColumn} disabled={executing} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2">
-                  {executing ? <Loader2 className="animate-spin" size={16} /> : 'Create Column'}
-                </button>
-                <button onClick={() => setShowAddColumn(false)} className="mt-4 text-xs font-bold text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
-              </div>
-            </div>
-          )
-        }
-
-        {/* EDIT FORMAT MODAL — Column format validation editor */}
-        {/* NOTE: Works with the "Add Column" modal and TableCreatorDrawer format system. */}
-        {/* Server-side enforcement is in DataController.ts insertRows/updateRows. */}
-        {
-          editFormat && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
-              <div className="bg-white rounded-[3rem] p-10 max-w-sm w-full shadow-2xl border border-slate-200 text-center">
-                <div className="flex items-center justify-center gap-2 mb-6">
-                  <Shield size={18} className="text-amber-500" />
-                  <h3 className="text-xl font-black text-slate-900">Edit Format</h3>
-                </div>
-                <p className="text-xs text-slate-400 mb-6">Column: <span className="font-mono font-bold text-slate-700">{editFormat.column}</span></p>
-
-                <div className="space-y-4 text-left">
-                  <select
-                    value={editFormat.preset || ''}
-                    onChange={e => {
-                      const val = e.target.value;
-                      setEditFormat({ ...editFormat, preset: val, customPattern: val === 'custom' ? '' : '' });
-                    }}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-bold text-slate-700 outline-none cursor-pointer"
-                  >
-                    <option value="">None (Remove Format)</option>
-                    {Object.entries(FORMAT_PRESETS).map(([key, preset]) => (
-                      <option key={key} value={key}>{preset.label} — {preset.example}</option>
-                    ))}
-                    <option value="custom">Custom Regex...</option>
-                  </select>
-
-                  {editFormat.preset === 'custom' && (
-                    <input
-                      value={editFormat.customPattern}
-                      onChange={e => setEditFormat({ ...editFormat, customPattern: e.target.value })}
-                      placeholder="^[A-Z]{2}\d{4}$"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-mono text-slate-600 outline-none focus:ring-2 focus:ring-amber-400/30"
-                    />
-                  )}
-                </div>
-
-                <button
-                  onClick={handleSaveColumnFormat}
-                  disabled={executing}
-                  className="w-full mt-6 bg-amber-500 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-amber-600 transition-all flex items-center justify-center gap-2"
-                >
-                  {executing ? <Loader2 className="animate-spin" size={16} /> : 'Save Format'}
-                </button>
-                <button onClick={() => setEditFormat(null)} className="mt-4 text-xs font-bold text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
-              </div>
-            </div>
-          )
-        }
-
-        {/* NEW: DUPLICATE TABLE MODAL */}
-        {
-          showDuplicateModal && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
-              <div className="bg-white rounded-[3rem] w-full max-w-sm p-12 shadow-2xl border border-slate-100 relative">
-                <h3 className="text-xl font-black text-slate-900 mb-6">Duplicate Table</h3>
-                <div className="space-y-4 mb-6">
-                  <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">New Table Name</label><input autoFocus value={duplicateConfig.newName} onChange={(e: any) => setDuplicateConfig({ ...duplicateConfig, newName: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-bold text-sm outline-none" placeholder={duplicateConfig.source + '_copy'} /></div>
-                  <div className="flex items-center gap-3 p-2 cursor-pointer" onClick={() => setDuplicateConfig({ ...duplicateConfig, withData: !duplicateConfig.withData })}><div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${duplicateConfig.withData ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>{duplicateConfig.withData && <Check size={14} className="text-white" />}</div><span className="text-xs font-bold text-slate-600">Copy Data Rows</span></div>
-                </div>
-                <button onClick={handleDuplicateTableSubmit} disabled={executing || !duplicateConfig.newName} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all mb-3">{executing ? <Loader2 className="animate-spin mx-auto" /> : 'Duplicate'}</button>
-                <button onClick={() => setShowDuplicateModal(false)} className="w-full py-2 text-xs font-bold text-slate-400 hover:text-slate-600">Cancel</button>
-              </div>
-            </div>
-          )
-        }
-
-        {/* RESTORE MODAL */}
-        {
-          restoreTarget && (
-            <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[200]">
-              <div className="bg-white p-6 rounded-2xl w-[400px] shadow-2xl border border-slate-200">
-                <h3 className="text-lg font-black mb-4">Restore Table</h3>
-                <p className="text-sm text-slate-500 mb-6 font-medium">Are you sure you want to restore <strong className="text-slate-900 px-1 py-0.5 bg-slate-100 rounded">"{restoreTarget}"</strong> back to public?</p>
-                <div className="flex gap-3">
-                  <button disabled={executing} onClick={() => setRestoreTarget(null)} className="flex-1 px-4 py-2 font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all">Cancel</button>
-                  <button disabled={executing} onClick={handleRestoreTable} className="flex-1 px-4 py-2 font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-md">{executing ? <Loader2 size={16} className="animate-spin mx-auto" /> : 'Restore'}</button>
-                </div>
-              </div>
-            </div>
-          )
-        }
-
-        {/* IMPORT MODAL */}
-        {
-          showImportModal && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[250] flex items-center justify-center p-8 animate-in zoom-in-95">
-              <div className="bg-white rounded-[3.5rem] w-full max-w-lg p-12 shadow-2xl border border-slate-100 relative">
-                <button onClick={() => setShowImportModal(false)} className="absolute top-8 right-8 text-slate-300 hover:text-slate-900 transition-colors"><X size={24} /></button>
-                <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-8">Data Import</h3>
-                <div className="space-y-6">
-                  {/* RESTORED TOGGLE */}
-                  <div className="flex items-center justify-between bg-slate-50 p-4 rounded-2xl">
-                    <span className="text-xs font-bold text-slate-700">Create new table from file</span>
-                    <button onClick={() => setCreateTableFromImport(!createTableFromImport)} className={`w-12 h-7 rounded-full p-1 transition-colors ${createTableFromImport ? 'bg-indigo-600' : 'bg-slate-200'}`}>
-                      <div className={`w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${createTableFromImport ? 'translate-x-5' : ''}`}></div>
-                    </button>
-                  </div>
-
-                  <div className="border-4 border-dashed border-slate-100 rounded-[2.5rem] p-10 text-center hover:border-emerald-300 hover:bg-emerald-50/10 transition-all cursor-pointer relative group">
-                    <input type="file" accept=".csv, .xlsx, .json" onChange={(e: any) => setImportFile(e.target.files?.[0] || null)} className="absolute inset-0 opacity-0 cursor-pointer" />
-                    {importFile ? <span className="font-bold text-slate-900">{importFile.name}</span> : <div className="flex flex-col items-center text-slate-300 group-hover:text-emerald-500"><Upload size={40} className="mb-2" /><span className="font-bold text-sm">Drop file here</span></div>}
-                  </div>
-
-                  <button onClick={handleImport} disabled={!importFile || executing} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl flex items-center justify-center gap-3 disabled:opacity-50">
-                    {executing ? <Loader2 className="animate-spin" size={18} /> : 'Start Ingestion'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )
-        }
-
-        {/* Clipboard Fallback Modal (HTTP Environment Support) */}
-        {clipboardFallbackSQL && (
-          <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden border border-slate-200">
-              <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-amber-50">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-600">
-                    <Copy size={16} />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-black text-slate-800">Cópia Manual Necessária</h3>
-                    <p className="text-[10px] text-slate-500 font-medium tracking-wide">
-                      Pressione <kbd className="bg-slate-200 px-1 py-0.5 rounded text-slate-700">Ctrl+C</kbd> para copiar o código abaixo.
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setClipboardFallbackSQL(null)}
-                  className="w-8 h-8 rounded-full hover:bg-slate-200 flex items-center justify-center text-slate-400"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-              <div className="p-4 bg-slate-50">
-                <textarea
-                  ref={fallbackTextareaRef}
-                  value={clipboardFallbackSQL}
-                  readOnly
-                  className="w-full h-48 bg-slate-900 text-emerald-400 font-mono text-xs p-4 rounded-xl outline-none resize-none border border-slate-800 selection:bg-indigo-500/50"
-                />
-              </div>
-              <div className="px-4 py-3 bg-white border-t border-slate-100 flex justify-end">
-                <button
-                  onClick={() => setClipboardFallbackSQL(null)}
-                  className="px-6 py-2 bg-indigo-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-indigo-700 transition-colors"
-                >
-                  Feito, fechar
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div >
-    );
+  const getSmartPlaceholder = (col: any) => {
+    if (col.defaultValue && col.defaultValue.includes('gen_random_uuid')) return 'UUID (Auto)';
+    if (col.defaultValue && col.defaultValue.includes('now()')) return 'Now()';
+    return col.type;
   };
 
-  export default DatabaseExplorer;
+  // isCompareMode: true when multiple tables are pinned
+  const isCompareMode = pinnedTables.length > 1;
+
+  return (
+    <div
+      className={`flex h-full flex-row bg-[#F8FAFC] text-slate-900 overflow-hidden font-sans relative transition-colors ${isDraggingOver ? 'bg-indigo-50/50' : ''}`}
+      onDrop={handleGlobalDrop}
+      onDragOver={(e: any) => { e.preventDefault(); if (!draggingColumn && !draggedTable) setIsDraggingOver(true); }}
+      onDragLeave={() => setIsDraggingOver(false)}
+    >
+      {/* Drag Overlay — only for external file drops, NOT internal reorders */}
+      {isDraggingOver && !draggingColumn && !draggedTable && (
+        <div className="absolute inset-0 z-[1000] border-8 border-indigo-500 border-dashed bg-indigo-50/80 flex items-center justify-center p-8 pointer-events-none">
+          <div className="bg-white rounded-3xl p-10 shadow-2xl text-indigo-600 flex flex-col items-center animate-bounce">
+            <Upload size={64} className="mb-4" />
+            <h2 className="text-3xl font-black uppercase tracking-tighter">Drop to Import</h2>
+            <p className="text-indigo-400 font-bold mt-2">CSV, JSON, or XLSX files supported.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Notifications */}
+      {(successMsg || error) && (
+        <div className={`fixed top-8 left-1/2 -translate-x-1/2 z-[100] px-6 py-4 rounded-full shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-4 ${error ? 'bg-rose-600 text-white' : 'bg-emerald-600 text-white'}`}>
+          {error ? <AlertCircle size={18} /> : <CheckCircle2 size={18} />}
+          <span className="text-xs font-bold">{error || successMsg}</span>
+          <button onClick={() => { setError(null); setSuccessMsg(null); }} className="ml-2 opacity-60 hover:opacity-100"><X size={14} /></button>
+        </div>
+      )}
+
+      {renderSidebar()}
+
+      <main className="flex-1 overflow-hidden relative flex flex-col bg-white">
+        {activeTab === 'tables' && openTabs.length > 0 && (
+          <div className="flex items-center px-4 pt-2 bg-slate-50 border-b border-slate-200 overflow-x-auto gap-1 shrink-0 scrollbar-hide">
+            {openTabs.map((tab, idx) => (
+              <div key={`${tab.schema}.${tab.table}`} className={`group flex items-center gap-2 px-4 py-2 rounded-t-lg border border-b-0 cursor-pointer select-none transition-colors ${selectedTable === tab.table && activeSchema === tab.schema ? 'bg-white border-slate-200 text-indigo-700 shadow-[0_1px_0_white]' : pinnedTables.includes(tab.table) ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-slate-100 border-transparent text-slate-500 hover:bg-slate-200'}`} style={{ marginBottom: '-1px' }} onClick={(e: any) => {
+                if (e.shiftKey) {
+                  // Shift+click on tab: toggle pinned
+                  setPinnedTables(prev => prev.includes(tab.table) ? (prev.length > 1 ? prev.filter(t => t !== tab.table) : prev) : [...prev, tab.table]);
+                } else {
+                  if (tab.schema !== activeSchema) switchSchema(tab.schema);
+                  setSelectedTable(tab.table);
+                  setPinnedTables([tab.table]);
+                }
+              }}>
+                <TableIcon size={14} className={selectedTable === tab.table && activeSchema === tab.schema ? 'text-indigo-600' : 'text-slate-400'} />
+                {tab.schema !== activeSchema && <span className="text-[9px] font-bold uppercase tracking-wider bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">{tab.schema}</span>}
+                <span className="text-xs font-bold truncate max-w-[150px]">{tab.table}</span>
+                <button className={`p-0.5 rounded-md transition-colors ${selectedTable === tab.table && activeSchema === tab.schema ? 'opacity-100 hover:bg-indigo-50 text-indigo-400 hover:text-indigo-600' : 'opacity-0 group-hover:opacity-100 hover:bg-slate-300 text-slate-400 hover:text-slate-600'}`} onClick={(e: any) => {
+                  e.stopPropagation();
+                  const newTabs = openTabs.filter((_, i) => i !== idx);
+                  setOpenTabs(newTabs);
+                  setPinnedTables(prev => prev.filter(t => t !== tab.table));
+                  if (selectedTable === tab.table && activeSchema === tab.schema) {
+                    if (newTabs.length > 0) {
+                      const last = newTabs[newTabs.length - 1];
+                      switchSchema(last.schema);
+                      setSelectedTable(last.table);
+                      setPinnedTables([last.table]);
+                    } else {
+                      setSelectedTable(null);
+                      setPinnedTables([]);
+                    }
+                  }
+                }}>                  <X size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )
+        }
+
+        {
+          activeTab === 'tables' && pinnedTables.length > 0 ? (
+            <div className={`flex-1 flex ${isCompareMode ? 'flex-row divide-x divide-slate-200' : 'flex-col'} overflow-hidden`}>
+              {pinnedTables.map(tName => (
+                <TablePanel
+                  key={`${activeSchema}-${tName}`}
+                  projectId={projectId}
+                  tableName={tName}
+                  schema={activeSchema}
+                  isCompareMode={isCompareMode}
+                  onClose={() => {
+                    setPinnedTables(prev => {
+                      const next = prev.filter(t => t !== tName);
+                      if (next.length > 0 && selectedTable === tName) setSelectedTable(next[0]);
+                      if (next.length === 0) setSelectedTable(null);
+                      return next;
+                    });
+                    setOpenTabs(prev => prev.filter(t => !(t.table === tName && t.schema === activeSchema)));
+                  }}
+                  onColumnContextMenu={(x, y, col) => setColumnContextMenu({ x, y, col })}
+                  onAddColumn={() => setShowAddColumn(true)}
+                  onError={setError}
+                  onSuccess={setSuccessMsg}
+                  onExport={(name, data, fmt) => handleExport(fmt as any, data)}
+                  onImport={() => setShowImportModal(true)}
+                  isRealtimeActive={isRealtimeActive}
+                />
+              ))}
+            </div>
+          ) : activeTab === 'query' ? (
+            <SqlConsole onExecute={handleExecuteSql} onFix={handleFixSql} onInterceptCreateTable={handleInterceptCreateTable} initialQuery={sqlInitial} />
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-slate-300">
+              <Database size={64} className="mb-4 opacity-20" />
+              <span className="font-bold uppercase tracking-widest text-xs">Select a table</span>
+            </div>
+          )
+        }
+      </main >
+
+      {/* TABLE CREATOR DRAWER */}
+      < TableCreatorDrawer
+        isOpen={showCreateTable}
+        onClose={() => { setShowCreateTable(false); setInitialColumns(undefined); }}
+        tables={tables}
+        activeSchema={activeSchema}
+        projectId={projectId}
+        fetchWithAuth={fetchWithAuth}
+        onSqlGenerated={handleSqlFromDrawer}
+        initialTableName={newTableName}
+        initialColumns={initialColumns}
+      />
+
+      {/* IMPORT MODAL */}
+      {
+        showImportModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[250] flex items-center justify-center p-8 animate-in zoom-in-95">
+            <div className="bg-white rounded-[3.5rem] w-full max-w-lg p-12 shadow-2xl border border-slate-100 relative">
+              <button onClick={() => setShowImportModal(false)} className="absolute top-8 right-8 text-slate-300 hover:text-slate-900 transition-colors"><X size={24} /></button>
+              <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-8">Data Import</h3>
+              <div className="space-y-6">
+                <div className="border-4 border-dashed border-slate-100 rounded-[2.5rem] p-10 text-center hover:border-emerald-300 hover:bg-emerald-50/10 transition-all cursor-pointer relative group">
+                  <input type="file" accept=".csv, .xlsx, .json" onChange={(e: any) => setImportFile(e.target.files?.[0] || null)} className="absolute inset-0 opacity-0 cursor-pointer" />
+                  {importFile ? <span className="font-bold text-slate-900">{importFile.name}</span> : <div className="flex flex-col items-center text-slate-300 group-hover:text-emerald-500"><Upload size={40} className="mb-2" /><span className="font-bold text-sm">Drop file here</span></div>}
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      {/* EXTENSIONS MODAL */}
+      <ExtensionsModal
+        isOpen={showExtensions}
+        onClose={() => setShowExtensions(false)}
+        installedExtensions={extensions}
+        onInstall={installExtension}
+        onUninstall={uninstallExtension}
+        loadingName={extensionLoadingName}
+      />
+
+      {/* CONTEXT MENU */}
+      {
+        contextMenu && (
+          <>
+            <div className="fixed inset-0 z-[90]" onClick={() => setContextMenu(null)} />
+            <div className="fixed z-[100] bg-white border border-slate-200 shadow-2xl rounded-2xl p-2 w-56 animate-in fade-in zoom-in-95" style={{ top: contextMenu.y, left: contextMenu.x }}>
+              <button onClick={() => { handleRenameTable(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Edit size={14} /> Rename</button>
+              <button onClick={() => { handleDuplicateTable(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Layers size={14} /> Duplicate</button>
+              <button onClick={() => { handleCopyStructure(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Code size={14} /> Copy SQL</button>
+              <div className="h-[1px] bg-slate-100 my-1"></div>
+              <button onClick={() => { handleDeleteTable(contextMenu.table); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-all"><Trash2 size={14} /> Delete Table</button>
+            </div>
+          </>
+        )
+      }
+
+      {/* COLUMN CONTEXT MENU */}
+      {
+        columnContextMenu && (
+          <>
+            <div className="fixed inset-0 z-[90]" onClick={() => setColumnContextMenu(null)} />
+            <div className="fixed z-[100] bg-white border border-slate-200 shadow-2xl rounded-2xl p-2 w-52 animate-in fade-in zoom-in-95" style={{ top: columnContextMenu.y, left: columnContextMenu.x }}>
+              <button onClick={() => { startCascadeProtocol('rename', columnContextMenu.col); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Edit size={14} /> Rename Column</button>
+              <button onClick={() => { copyToClipboard(columnContextMenu.col); setSuccessMsg('Column name copied'); setColumnContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"><Copy size={14} /> Copy Name</button>
+              {/* Edit Format — only for text/varchar columns */}
+              {(() => {
+                const colMeta = columns.find((c: any) => c.name === columnContextMenu.col);
+                const isTextType = colMeta && (colMeta.type === 'text' || colMeta.type?.includes('character'));
+                return isTextType ? (
+                  <button onClick={() => {
+                    setEditFormat({
+                      column: columnContextMenu.col,
+                      preset: colMeta.formatPattern || '',
+                      customPattern: '',
+                      columnType: colMeta.type,
+                    });
+                    setColumnContextMenu(null);
+                  }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-amber-600 hover:bg-amber-50 rounded-xl transition-all">
+                    <Shield size={14} /> Edit Format
+                  </button>
+                ) : null;
+              })()}
+              <button onClick={() => {
+                setEditLock({ column: columnContextMenu.col, table: columnContextMenu.table, currentLevel: columnContextMenu.lockLevel });
+                setColumnContextMenu(null);
+              }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-all">
+                <Lock size={14} /> Security Lock
+              </button>
+              <div className="h-[1px] bg-slate-100 my-1"></div>
+              <button onClick={() => { startCascadeProtocol('delete', columnContextMenu.col); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-all"><Trash2 size={14} /> Delete Column</button>
+            </div>
+          </>
+        )
+      }
+
+      {/* UNIVERSAL SECURITY PADLOCK MODAL */}
+      {
+        editLock && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+            <div className="bg-white rounded-[3rem] p-10 max-w-sm w-full shadow-2xl border border-slate-200 text-center">
+              <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+                <Lock size={32} />
+              </div>
+              <h3 className="text-xl font-black text-slate-900 mb-2">Universal Padlock</h3>
+              <p className="text-xs text-slate-500 font-medium mb-6">
+                Protect column <strong>{editLock.column}</strong> from arbitrary API mutations. This applies <em>project-wide</em>.
+              </p>
+
+              <div className="space-y-4 mb-8 text-left">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Lock Security Tier</label>
+                <select
+                  value={editLock.currentLevel}
+                  onChange={(e) => setEditLock({ ...editLock, currentLevel: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-bold text-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-rose-500/20"
+                >
+                  <option value="unlocked">UNLOCKED (Open Access)</option>
+                  <option value="immutable">IMMUTABLE (Blocks INSERT & UPDATE)</option>
+                  <option value="insert_only">INSERT ONLY (Blocks UPDATE)</option>
+                  <option value="service_role_only">SERVICE ROLE ONLY (Blocks Anon/Auth)</option>
+                </select>
+
+                {editLock.currentLevel !== 'unlocked' && (
+                  <div className="bg-rose-50 border border-rose-100 rounded-xl p-3 text-[10px] text-rose-700 font-medium mt-2">
+                    <strong className="block mb-1 font-black">Intrusion Alerting Active</strong>
+                    Any API request violating this tier will be scrubbed automatically and an alert will be logged to <em>system.security_events</em>.
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-4">
+                <button onClick={() => setEditLock(null)} disabled={executing} className="flex-1 py-4 text-xs font-black text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-colors disabled:opacity-50">Cancel</button>
+                <button onClick={handleToggleLock} disabled={executing} className="flex-[2] py-4 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-rose-600/20 transition-all flex justify-center items-center gap-2 disabled:opacity-50">
+                  {executing ? <Loader2 size={16} className="animate-spin" /> : <><Shield size={16} /> Enforce Lock</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      {/* PROTOCOLO CASCATA — Column Impact Modal */}
+      <ColumnImpactModal
+        isOpen={!!impactScan}
+        action={impactScan?.action || 'rename'}
+        schema={activeSchema}
+        table={selectedTable || ''}
+        column={impactScan?.column || ''}
+        newName={impactScan?.newName}
+        dependencies={impactScan?.dependencies || []}
+        isScanning={impactScan?.isScanning || false}
+        onClose={() => setImpactScan(null)}
+        onExecute={executeCascade}
+      />
+
+      {/* PROTOCOLO CASCATA — Table Rename Impact Modal */}
+      <ColumnImpactModal
+        isOpen={!!tableImpactScan}
+        action="rename"
+        targetType="table"
+        schema={activeSchema}
+        table={tableImpactScan?.oldName || ''}
+        column={tableImpactScan?.oldName || ''}
+        newName={tableImpactScan?.newName}
+        dependencies={tableImpactScan?.dependencies || []}
+        isScanning={tableImpactScan?.isScanning || false}
+        onClose={() => setTableImpactScan(null)}
+        onExecute={executeTableCascade}
+        cascadeSQLOverride={tableImpactScan?.cascadeSQL}
+      />
+
+      {/* ADD COLUMN MODAL (ENHANCED) */}
+      {
+        showAddColumn && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+            <div className="bg-white rounded-[3rem] p-10 max-w-sm w-full shadow-2xl border border-slate-200 text-center">
+              <h3 className="text-xl font-black text-slate-900 mb-6">Add New Column</h3>
+              <div className="space-y-4 mb-6 text-left">
+
+                {/* Name */}
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Column Name</label>
+                  <input
+                    value={newColumn.name}
+                    onChange={e => setNewColumn({ ...newColumn, name: sanitizeColName(e.target.value) })}
+                    placeholder="column_name"
+                    autoFocus
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  />
+                </div>
+
+                {/* Description */}
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Description</label>
+                  <input
+                    value={newColumn.description}
+                    onChange={e => setNewColumn({ ...newColumn, description: e.target.value })}
+                    placeholder="Semantic hint for AI..."
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-medium text-sm outline-none text-slate-600"
+                  />
+                </div>
+
+                {/* Smart Type Selector */}
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Data Type</label>
+                  <select
+                    value={newColumn.type}
+                    onChange={e => setNewColumn({ ...newColumn, type: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-bold text-sm outline-none cursor-pointer"
+                  >
+                    <optgroup label="Numbers"><option value="int8">int8 (BigInt)</option><option value="int4">int4 (Integer)</option><option value="numeric">numeric</option><option value="float8">float8</option></optgroup>
+                    <optgroup label="Text"><option value="text">text</option><option value="varchar">varchar</option><option value="uuid">uuid</option></optgroup>
+                    <optgroup label="Date/Time"><option value="timestamptz">timestamptz</option><option value="date">date</option><option value="time">time</option></optgroup>
+                    <optgroup label="JSON"><option value="jsonb">jsonb</option><option value="json">json</option></optgroup>
+                    <optgroup label="Other"><option value="bool">boolean</option><option value="bytea">bytea</option></optgroup>
+                  </select>
+                </div>
+
+                {/* Toggles & Options */}
+                <div className="flex items-center justify-between bg-slate-50 p-2 rounded-2xl border border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <div title="Nullable" onClick={() => setNewColumn({ ...newColumn, isNullable: !newColumn.isNullable })} className={`px-2 py-1.5 rounded-xl text-[10px] font-black cursor-pointer select-none transition-all ${newColumn.isNullable ? 'bg-emerald-100 text-emerald-700' : 'text-slate-400 hover:bg-slate-200'}`}>NULL</div>
+                    <div title="Unique" onClick={() => setNewColumn({ ...newColumn, isUnique: !newColumn.isUnique })} className={`px-2 py-1.5 rounded-xl text-[10px] font-black cursor-pointer select-none transition-all ${newColumn.isUnique ? 'bg-purple-100 text-purple-700' : 'text-slate-400 hover:bg-slate-200'}`}>UNIQ</div>
+                  </div>
+
+                  {/* Foreign Key Toggle */}
+                  <div
+                    onClick={async () => {
+                      if (!newColumn.foreignKey) {
+                        setNewColumn({ ...newColumn, foreignKey: { table: '', column: '' } });
+                      } else {
+                        setNewColumn({ ...newColumn, foreignKey: undefined });
+                      }
+                    }}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-[10px] font-black cursor-pointer select-none transition-all ${newColumn.foreignKey ? 'bg-blue-100 text-blue-700 shadow-sm' : 'text-slate-400 hover:bg-slate-200'}`}
+                  >
+                    <LinkIcon size={12} strokeWidth={3} /> {newColumn.foreignKey ? 'LINKED' : 'LINK'}
+                  </div>
+                </div>
+
+                {/* Foreign Key Configuration (Conditional) */}
+                {newColumn.foreignKey && (
+                  <div className="space-y-3 bg-blue-50/50 p-3 rounded-2xl border border-blue-100 animate-in slide-in-from-top-2">
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-black text-blue-400 uppercase tracking-widest ml-1">Target Table</label>
+                      <select
+                        value={newColumn.foreignKey.table}
+                        onChange={async (e: any) => {
+                          const tbl = e.target.value;
+                          setNewColumn(prev => ({ ...prev, foreignKey: { table: tbl, column: '' } }));
+                          if (tbl) {
+                            setFkLoading(true);
+                            try {
+                              const res = await fetchWithAuth(`/api/data/${projectId}/tables/${tbl}/columns?schema=${activeSchema}`);
+                              setFkTargetColumns(res.map((c: any) => c.name));
+                              if (res.length > 0) {
+                                const defaultCol = res.find((c: any) => c.name === 'id') ? 'id' : res[0].name;
+                                setNewColumn(prev => ({ ...prev, foreignKey: { ...prev.foreignKey!, table: tbl, column: defaultCol } }));
+                              }
+                            } catch (err) { } finally { setFkLoading(false); }
+                          }
+                        }}
+                        className="w-full bg-white border border-blue-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-700 outline-none"
+                      >
+                        <option value="">Select Table...</option>
+                        {tables.filter(t => t.name !== selectedTable).map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
+                      </select>
+                    </div>
+                    {newColumn.foreignKey.table && (
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-blue-400 uppercase tracking-widest ml-1">Target Column</label>
+                        {fkLoading ? <div className="py-2 flex justify-center"><Loader2 size={14} className="animate-spin text-blue-500" /></div> : (
+                          <select
+                            value={newColumn.foreignKey.column}
+                            onChange={(e: any) => setNewColumn(prev => ({ ...prev, foreignKey: { ...prev.foreignKey!, column: e.target.value } }))}
+                            className="w-full bg-white border border-blue-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-700 outline-none"
+                          >
+                            {fkTargetColumns.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Smart Default Value */}
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Default Value</label>
+                  <input
+                    list="modal-defaults"
+                    value={newColumn.defaultValue}
+                    onChange={e => setNewColumn({ ...newColumn, defaultValue: e.target.value })}
+                    placeholder="NULL (Optional)"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-mono text-xs font-medium text-slate-600 outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  />
+                  <datalist id="modal-defaults">
+                    {getDefaultSuggestions(newColumn.type).map(s => <option key={s} value={s} />)}
+                  </datalist>
+                </div>
+
+                {/* Format Validation */}
+                {(newColumn.type === 'text' || newColumn.type === 'varchar') && (
+                  <div className="space-y-2 bg-amber-50/50 p-3 rounded-2xl border border-amber-100 animate-in slide-in-from-top-2">
+                    <label className="text-[9px] font-black text-amber-500 uppercase tracking-widest ml-1 flex items-center gap-1">
+                      <Shield size={10} /> Format Validation
+                    </label>
+                    <select
+                      value={newColumn.formatPreset}
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (val === 'custom') {
+                          setNewColumn({ ...newColumn, formatPreset: 'custom', formatPattern: '' });
+                        } else {
+                          setNewColumn({ ...newColumn, formatPreset: val, formatPattern: '' });
+                        }
+                      }}
+                      className="w-full bg-white border border-amber-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-700 outline-none cursor-pointer"
+                    >
+                      <option value="">None (No Validation)</option>
+                      {Object.entries(FORMAT_PRESETS).map(([key, preset]) => (
+                        <option key={key} value={key}>{preset.label} — {preset.description}</option>
+                      ))}
+                      <option value="custom">Custom Regex...</option>
+                    </select>
+
+                    {newColumn.formatPreset === 'custom' && (
+                      <input
+                        value={newColumn.formatPattern}
+                        onChange={e => setNewColumn({ ...newColumn, formatPattern: e.target.value })}
+                        placeholder="^[A-Z]{2}\d{4}$"
+                        className="w-full bg-white border border-amber-200 rounded-xl py-2 px-3 text-xs font-mono font-medium text-slate-600 outline-none focus:ring-2 focus:ring-amber-400/30"
+                      />
+                    )}
+
+                    {/* Live Preview */}
+                    {(newColumn.formatPreset && newColumn.formatPreset !== 'custom') || newColumn.formatPattern ? (() => {
+                      const pattern = newColumn.formatPreset !== 'custom'
+                        ? FORMAT_PRESETS[newColumn.formatPreset]?.regex
+                        : newColumn.formatPattern;
+                      const example = newColumn.formatPreset !== 'custom'
+                        ? FORMAT_PRESETS[newColumn.formatPreset]?.example
+                        : '';
+                      if (!pattern) return null;
+                      const testOk = example ? new RegExp(pattern).test(example) : false;
+                      return (
+                        <div className="flex items-center gap-2 text-[10px] font-bold mt-1">
+                          <div className={`w-2 h-2 rounded-full ${testOk ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                          <span className="text-slate-500">
+                            Example: <span className="font-mono text-slate-700">{example || '—'}</span>
+                            {testOk ? <span className="text-emerald-600 ml-1">✓ Match</span> : <span className="text-red-500 ml-1">✗ No match</span>}
+                          </span>
+                        </div>
+                      );
+                    })() : null}
+                  </div>
+                )}
+
+              </div>
+              <button onClick={handleAddColumn} disabled={executing} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2">
+                {executing ? <Loader2 className="animate-spin" size={16} /> : 'Create Column'}
+              </button>
+              <button onClick={() => setShowAddColumn(false)} className="mt-4 text-xs font-bold text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
+            </div>
+          </div>
+        )
+      }
+
+      {/* EDIT FORMAT MODAL — Column format validation editor */}
+      {/* NOTE: Works with the "Add Column" modal and TableCreatorDrawer format system. */}
+      {/* Server-side enforcement is in DataController.ts insertRows/updateRows. */}
+      {
+        editFormat && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+            <div className="bg-white rounded-[3rem] p-10 max-w-sm w-full shadow-2xl border border-slate-200 text-center">
+              <div className="flex items-center justify-center gap-2 mb-6">
+                <Shield size={18} className="text-amber-500" />
+                <h3 className="text-xl font-black text-slate-900">Edit Format</h3>
+              </div>
+              <p className="text-xs text-slate-400 mb-6">Column: <span className="font-mono font-bold text-slate-700">{editFormat.column}</span></p>
+
+              <div className="space-y-4 text-left">
+                <select
+                  value={editFormat.preset || ''}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setEditFormat({ ...editFormat, preset: val, customPattern: val === 'custom' ? '' : '' });
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-bold text-slate-700 outline-none cursor-pointer"
+                >
+                  <option value="">None (Remove Format)</option>
+                  {Object.entries(FORMAT_PRESETS).map(([key, preset]) => (
+                    <option key={key} value={key}>{preset.label} — {preset.example}</option>
+                  ))}
+                  <option value="custom">Custom Regex...</option>
+                </select>
+
+                {editFormat.preset === 'custom' && (
+                  <input
+                    value={editFormat.customPattern}
+                    onChange={e => setEditFormat({ ...editFormat, customPattern: e.target.value })}
+                    placeholder="^[A-Z]{2}\d{4}$"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-mono text-slate-600 outline-none focus:ring-2 focus:ring-amber-400/30"
+                  />
+                )}
+              </div>
+
+              <button
+                onClick={handleSaveColumnFormat}
+                disabled={executing}
+                className="w-full mt-6 bg-amber-500 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-amber-600 transition-all flex items-center justify-center gap-2"
+              >
+                {executing ? <Loader2 className="animate-spin" size={16} /> : 'Save Format'}
+              </button>
+              <button onClick={() => setEditFormat(null)} className="mt-4 text-xs font-bold text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
+            </div>
+          </div>
+        )
+      }
+
+      {/* NEW: DUPLICATE TABLE MODAL */}
+      {
+        showDuplicateModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+            <div className="bg-white rounded-[3rem] w-full max-w-sm p-12 shadow-2xl border border-slate-100 relative">
+              <h3 className="text-xl font-black text-slate-900 mb-6">Duplicate Table</h3>
+              <div className="space-y-4 mb-6">
+                <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">New Table Name</label><input autoFocus value={duplicateConfig.newName} onChange={(e: any) => setDuplicateConfig({ ...duplicateConfig, newName: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 font-bold text-sm outline-none" placeholder={duplicateConfig.source + '_copy'} /></div>
+                <div className="flex items-center gap-3 p-2 cursor-pointer" onClick={() => setDuplicateConfig({ ...duplicateConfig, withData: !duplicateConfig.withData })}><div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${duplicateConfig.withData ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>{duplicateConfig.withData && <Check size={14} className="text-white" />}</div><span className="text-xs font-bold text-slate-600">Copy Data Rows</span></div>
+              </div>
+              <button onClick={handleDuplicateTableSubmit} disabled={executing || !duplicateConfig.newName} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all mb-3">{executing ? <Loader2 className="animate-spin mx-auto" /> : 'Duplicate'}</button>
+              <button onClick={() => setShowDuplicateModal(false)} className="w-full py-2 text-xs font-bold text-slate-400 hover:text-slate-600">Cancel</button>
+            </div>
+          </div>
+        )
+      }
+
+      {/* RESTORE MODAL */}
+      {
+        restoreTarget && (
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[200]">
+            <div className="bg-white p-6 rounded-2xl w-[400px] shadow-2xl border border-slate-200">
+              <h3 className="text-lg font-black mb-4">Restore Table</h3>
+              <p className="text-sm text-slate-500 mb-6 font-medium">Are you sure you want to restore <strong className="text-slate-900 px-1 py-0.5 bg-slate-100 rounded">"{restoreTarget}"</strong> back to public?</p>
+              <div className="flex gap-3">
+                <button disabled={executing} onClick={() => setRestoreTarget(null)} className="flex-1 px-4 py-2 font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all">Cancel</button>
+                <button disabled={executing} onClick={handleRestoreTable} className="flex-1 px-4 py-2 font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-md">{executing ? <Loader2 size={16} className="animate-spin mx-auto" /> : 'Restore'}</button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      {/* IMPORT MODAL */}
+      {
+        showImportModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[250] flex items-center justify-center p-8 animate-in zoom-in-95">
+            <div className="bg-white rounded-[3.5rem] w-full max-w-lg p-12 shadow-2xl border border-slate-100 relative">
+              <button onClick={() => setShowImportModal(false)} className="absolute top-8 right-8 text-slate-300 hover:text-slate-900 transition-colors"><X size={24} /></button>
+              <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-8">Data Import</h3>
+              <div className="space-y-6">
+                {/* RESTORED TOGGLE */}
+                <div className="flex items-center justify-between bg-slate-50 p-4 rounded-2xl">
+                  <span className="text-xs font-bold text-slate-700">Create new table from file</span>
+                  <button onClick={() => setCreateTableFromImport(!createTableFromImport)} className={`w-12 h-7 rounded-full p-1 transition-colors ${createTableFromImport ? 'bg-indigo-600' : 'bg-slate-200'}`}>
+                    <div className={`w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${createTableFromImport ? 'translate-x-5' : ''}`}></div>
+                  </button>
+                </div>
+
+                <div className="border-4 border-dashed border-slate-100 rounded-[2.5rem] p-10 text-center hover:border-emerald-300 hover:bg-emerald-50/10 transition-all cursor-pointer relative group">
+                  <input type="file" accept=".csv, .xlsx, .json" onChange={(e: any) => setImportFile(e.target.files?.[0] || null)} className="absolute inset-0 opacity-0 cursor-pointer" />
+                  {importFile ? <span className="font-bold text-slate-900">{importFile.name}</span> : <div className="flex flex-col items-center text-slate-300 group-hover:text-emerald-500"><Upload size={40} className="mb-2" /><span className="font-bold text-sm">Drop file here</span></div>}
+                </div>
+
+                <button onClick={handleImport} disabled={!importFile || executing} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl flex items-center justify-center gap-3 disabled:opacity-50">
+                  {executing ? <Loader2 className="animate-spin" size={18} /> : 'Start Ingestion'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      {/* Clipboard Fallback Modal (HTTP Environment Support) */}
+      {clipboardFallbackSQL && (
+        <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden border border-slate-200">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-amber-50">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-600">
+                  <Copy size={16} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-800">Cópia Manual Necessária</h3>
+                  <p className="text-[10px] text-slate-500 font-medium tracking-wide">
+                    Pressione <kbd className="bg-slate-200 px-1 py-0.5 rounded text-slate-700">Ctrl+C</kbd> para copiar o código abaixo.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setClipboardFallbackSQL(null)}
+                className="w-8 h-8 rounded-full hover:bg-slate-200 flex items-center justify-center text-slate-400"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-4 bg-slate-50">
+              <textarea
+                ref={fallbackTextareaRef}
+                value={clipboardFallbackSQL}
+                readOnly
+                className="w-full h-48 bg-slate-900 text-emerald-400 font-mono text-xs p-4 rounded-xl outline-none resize-none border border-slate-800 selection:bg-indigo-500/50"
+              />
+            </div>
+            <div className="px-4 py-3 bg-white border-t border-slate-100 flex justify-end">
+              <button
+                onClick={() => setClipboardFallbackSQL(null)}
+                className="px-6 py-2 bg-indigo-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-indigo-700 transition-colors"
+              >
+                Feito, fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div >
+  );
+};
+
+export default DatabaseExplorer;

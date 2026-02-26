@@ -1,6 +1,7 @@
 
 import { PoolClient } from 'pg';
 import crypto from 'crypto';
+import { DatabaseService } from './DatabaseService.js';
 
 interface PostgrestQuery {
     text: string;
@@ -133,7 +134,6 @@ export class PostgrestService {
 
                                     // Fire-and-Forget Radar Log
                                     if (projectId) {
-                                        const { DatabaseService } = require('./DatabaseService.js');
                                         DatabaseService.logSecurityEvent({
                                             projectId,
                                             tableName,
@@ -177,8 +177,24 @@ export class PostgrestService {
             let upsertClause = '';
             if (headers['prefer'] && headers['prefer'].includes('resolution=merge-duplicates')) {
                 const conflictTarget = onConflictParam ? `"${onConflictParam.replace(/[^a-zA-Z0-9_]/g, '')}"` : '"id"';
-                const updateSet = keys.map(k => `"${k}" = EXCLUDED."${k}"`).join(', ');
-                upsertClause = `ON CONFLICT (${conflictTarget}) DO UPDATE SET ${updateSet}`;
+
+                // TIER-3 PADLOCK: UPSERT Vulnerability Patch
+                // Prevent 'insert_only' columns from being modified during the UPDATE phase of an UPSERT
+                let updateKeys = keys;
+                if (lockedColumnsStr) {
+                    try {
+                        const lockedColumns = JSON.parse(lockedColumnsStr);
+                        updateKeys = keys.filter(k => lockedColumns[k] !== 'insert_only');
+                    } catch (e) { /* silent fail */ }
+                }
+
+                if (updateKeys.length > 0) {
+                    const updateSet = updateKeys.map(k => `"${k}" = EXCLUDED."${k}"`).join(', ');
+                    upsertClause = `ON CONFLICT (${conflictTarget}) DO UPDATE SET ${updateSet}`;
+                } else {
+                    upsertClause = `ON CONFLICT (${conflictTarget}) DO NOTHING`;
+                }
+
             } else if (headers['prefer'] && headers['prefer'].includes('resolution=ignore-duplicates')) {
                 upsertClause = `ON CONFLICT DO NOTHING`;
             }
@@ -219,7 +235,6 @@ export class PostgrestService {
 
                                 // Fire-and-Forget Radar Log
                                 if (projectId) {
-                                    const { DatabaseService } = require('./DatabaseService.js');
                                     DatabaseService.logSecurityEvent({
                                         projectId,
                                         tableName,
