@@ -159,7 +159,21 @@ export const resolveProject: RequestHandler = async (req: any, res: any, next: a
         // Domain Locking Policy (Prevent accessing Prod via generic URL if Custom Domain exists)
         if (project.custom_domain && resolutionMethod === 'slug' && targetEnv === 'live') {
             const isDev = host.includes('localhost') || host.includes('127.0.0.1');
-            if (!isDev && !r.isSystemRequest) {
+
+            // SECURITY FIX: Fetch system domain to ensure the Dashboard can still access the API via slug
+            let sysDomain = null;
+            try {
+                const sysDomainRes = await systemPool.query(
+                    "SELECT settings->>'domain' as domain FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'domain_config'"
+                );
+                sysDomain = sysDomainRes.rows[0]?.domain;
+            } catch (e) {
+                // Ignore DB errors during domain fetch and fallback gracefully
+            }
+
+            const isSystemDomain = sysDomain && host.toLowerCase() === sysDomain.toLowerCase();
+
+            if (!isDev && !isSystemDomain && !r.isSystemRequest) {
                 res.status(403).json({ error: 'Domain Locking Policy Active.', hint: `Use https://${project.custom_domain}` });
                 return;
             }

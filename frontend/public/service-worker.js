@@ -34,7 +34,8 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
   // API calls: Network First (never cache API data heavily)
-  if (url.pathname.startsWith('/api/')) {
+  const apiPaths = ['/api/', '/rest/', '/rpc/', '/auth/', '/storage/', '/edge/', '/tables/', '/vector/', '/realtime', '/graphql'];
+  if (apiPaths.some(p => url.pathname.startsWith(p))) {
     return;
   }
 
