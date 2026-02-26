@@ -12,6 +12,13 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
+    # CRITICAL: Prevent Nginx and Cloudflare from caching the Service Worker
+    # If cached, browsers will never receive security updates
+    location = /service-worker.js {
+        expires off;
+        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+    }
+
     # Cache de assets estáticos do React
     location /assets/ {
         expires 1y;
