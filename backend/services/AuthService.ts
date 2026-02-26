@@ -42,7 +42,8 @@ interface OtpConfig {
 }
 
 interface EmailConfig {
-    delivery_method: 'webhook' | 'resend' | 'smtp';
+    delivery_methods?: string[];
+    delivery_method?: string; // Legacy
     webhook_url?: string;
     resend_api_key?: string;
     from_email?: string;
@@ -211,54 +212,69 @@ export class AuthService {
 
     private static async sendEmail(to: string, subject: string, htmlContent: string, config: EmailConfig, projectSecret: string, actionType: string) {
         const fromEmail = config.from_email || 'noreply@cascata.io';
-        console.log(`[AuthService] Sending ${actionType} email to ${to} via ${config.delivery_method}`);
+        const methods = config.delivery_methods || (config.delivery_method ? [config.delivery_method] : []);
+        console.log(`[AuthService] Sending ${actionType} email to ${to} via methods: ${methods.join(', ')}`);
 
-        if (config.delivery_method === 'webhook' && config.webhook_url) {
-            await this.dispatchWebhook(config.webhook_url, {
-                event: 'auth.email_request',
-                action: actionType,
-                to,
-                from: fromEmail,
-                subject,
-                html: htmlContent,
-                timestamp: new Date().toISOString()
-            }, projectSecret);
+        if (methods.length === 0) {
+            console.warn(`[AuthService] No valid email provider configured. Simulating email to ${to}: ${subject}`);
             return;
         }
 
-        if (config.delivery_method === 'resend' && config.resend_api_key) {
-            const res = await fetch('https://api.resend.com/emails', {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${config.resend_api_key}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ from: fromEmail, to: [to], subject: subject, html: htmlContent })
-            });
-            if (!res.ok) {
-                const err = await res.json();
-                throw new Error(`Resend API Error: ${err.message || 'Unknown error'}`);
-            }
-            return;
+        const promises = [];
+
+        if (methods.includes('webhook') && config.webhook_url) {
+            promises.push(
+                this.dispatchWebhook(config.webhook_url, {
+                    event: 'auth.email_request',
+                    action: actionType,
+                    to,
+                    from: fromEmail,
+                    subject,
+                    html: htmlContent,
+                    timestamp: new Date().toISOString()
+                }, projectSecret)
+            );
         }
 
-        if (config.delivery_method === 'smtp') {
-            if (!config.smtp_host || !config.smtp_user || !config.smtp_pass) {
-                throw new Error("SMTP Credentials incomplete.");
-            }
-            const port = Number(config.smtp_port) || 587;
-            const secure = config.smtp_secure || port === 465;
-            const transporter = nodemailer.createTransport({
-                host: config.smtp_host,
-                port: port,
-                secure: secure,
-                auth: { user: config.smtp_user, pass: config.smtp_pass },
-            });
-            try {
-                await transporter.sendMail({ from: fromEmail, to, subject, html: htmlContent });
-                return;
-            } catch (smtpError: any) {
-                throw new Error(`SMTP Handshake Failed: ${smtpError.message}`);
-            }
+        if (methods.includes('resend') && config.resend_api_key) {
+            promises.push(
+                fetch('https://api.resend.com/emails', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${config.resend_api_key}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ from: fromEmail, to: [to], subject: subject, html: htmlContent })
+                }).then(async res => {
+                    if (!res.ok) {
+                        const err = await res.json();
+                        throw new Error(`Resend API Error: ${err.message || 'Unknown error'}`);
+                    }
+                })
+            );
         }
-        console.warn(`[AuthService] No valid email provider configured. Simulating email to ${to}: ${subject}`);
+
+        if (methods.includes('smtp')) {
+            promises.push((async () => {
+                if (!config.smtp_host || !config.smtp_user || !config.smtp_pass) {
+                    throw new Error("SMTP Credentials incomplete.");
+                }
+                const port = Number(config.smtp_port) || 587;
+                const secure = config.smtp_secure || port === 465;
+                const transporter = nodemailer.createTransport({
+                    host: config.smtp_host,
+                    port: port,
+                    secure: secure,
+                    auth: { user: config.smtp_user, pass: config.smtp_pass },
+                });
+                try {
+                    await transporter.sendMail({ from: fromEmail, to, subject, html: htmlContent });
+                } catch (smtpError: any) {
+                    throw new Error(`SMTP Handshake Failed: ${smtpError.message}`);
+                }
+            })());
+        }
+
+        if (promises.length > 0) {
+            await Promise.all(promises);
+        }
     }
 
     private static replaceTemplate(template: string, data: Record<string, string>): string {

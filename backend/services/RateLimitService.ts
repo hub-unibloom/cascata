@@ -78,7 +78,7 @@ interface RateCheckResult {
 export interface AuthSecurityConfig {
     max_attempts: number;
     lockout_minutes: number;
-    strategy: 'ip' | 'email' | 'hybrid';
+    strategy: 'ip' | 'identifier' | 'hybrid';
     disabled?: boolean;
 }
 
@@ -520,8 +520,8 @@ export class RateLimitService {
                 }
             }
 
-            // 2. Identifier-Level Check (email, username, etc)
-            if (identifier && (strategy === 'hybrid' || strategy === 'email')) {
+            // 2. Identifier-Level Check (email, username, phone, etc)
+            if (identifier && (strategy === 'hybrid' || strategy === 'identifier' || strategy === 'email')) {
                 const idKey = `lockout:id:${slug}:${identifier}`;
                 const idStrikes = parseInt(await this.redis.get(idKey) || '0');
                 if (idStrikes >= maxAttempts) {
@@ -555,7 +555,7 @@ export class RateLimitService {
             }
 
             // Record Identifier Strike
-            if (identifier && (strategy === 'hybrid' || strategy === 'email')) {
+            if (identifier && (strategy === 'hybrid' || strategy === 'identifier' || strategy === 'email')) {
                 const idKey = `lockout:id:${slug}:${identifier}`;
                 pipe.incr(idKey);
                 pipe.expire(idKey, lockoutSeconds);

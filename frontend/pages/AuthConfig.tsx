@@ -128,7 +128,8 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
     };
 
     const isValidUrl = (str: string) => {
-        try { new URL(str); return true; } catch { return false; }
+        if (str === '*' || str.startsWith('*.')) return true;
+        try { new URL(str.includes('://') ? str : `https://${str}`); return true; } catch { return false; }
     };
 
     // --- FETCHERS ---
@@ -172,7 +173,11 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
             const strategyEmail = currentProj?.metadata?.auth_strategies?.email || {};
 
             // Merge Gateway Config
-            setEmailGateway(prev => ({ ...prev, ...strategyEmail }));
+            setEmailGateway(prev => ({
+                ...prev,
+                ...strategyEmail,
+                delivery_methods: strategyEmail.delivery_methods || []
+            }));
 
             // Merge Policies
             setEmailPolicies({
@@ -364,11 +369,17 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
 
     const addRuleToStrategy = (origin: string, requireCode: boolean) => {
         if (!isValidUrl(origin)) { alert("URL inválida."); return; }
-        const currentRules = strategyConfig.rules || [];
-        if (currentRules.some((r: any) => r.origin === origin)) return;
-        setStrategyConfig({
-            ...strategyConfig,
-            rules: [...currentRules, { origin, require_code: requireCode }]
+        setStrategyConfig(prev => {
+            if (!prev) return prev;
+            const currentRules = prev.rules || [];
+            if (currentRules.some((r: any) => r.origin === origin)) {
+                return { ...prev, newRule: '' };
+            }
+            return {
+                ...prev,
+                rules: [...currentRules, { origin, require_code: requireCode }],
+                newRule: ''
+            };
         });
     };
 
@@ -769,21 +780,42 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                                 <div className="space-y-8 animate-in fade-in slide-in-from-right-2">
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                         <div className="space-y-4">
-                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Delivery Method</label>
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Delivery Channels (Multi-Select)</label>
                                             <div className="grid grid-cols-3 gap-3">
-                                                <button onClick={() => setEmailGateway({ ...emailGateway, delivery_method: 'smtp' })} className={`py-4 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center gap-2 ${emailGateway.delivery_method === 'smtp' ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'border-slate-200 text-slate-400'}`}>
+                                                <button
+                                                    onClick={() => setEmailGateway({
+                                                        ...emailGateway,
+                                                        delivery_methods: (emailGateway.delivery_methods || []).includes('smtp')
+                                                            ? (emailGateway.delivery_methods || []).filter((m: string) => m !== 'smtp')
+                                                            : [...(emailGateway.delivery_methods || []), 'smtp']
+                                                    })}
+                                                    className={`py-4 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center gap-2 ${(emailGateway.delivery_methods || []).includes('smtp') ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-inner' : 'border-slate-200 text-slate-400'}`}>
                                                     <Server size={18} /> SMTP
                                                 </button>
-                                                <button onClick={() => setEmailGateway({ ...emailGateway, delivery_method: 'resend' })} className={`py-4 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center gap-2 ${emailGateway.delivery_method === 'resend' ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'border-slate-200 text-slate-400'}`}>
+                                                <button
+                                                    onClick={() => setEmailGateway({
+                                                        ...emailGateway,
+                                                        delivery_methods: (emailGateway.delivery_methods || []).includes('resend')
+                                                            ? (emailGateway.delivery_methods || []).filter((m: string) => m !== 'resend')
+                                                            : [...(emailGateway.delivery_methods || []), 'resend']
+                                                    })}
+                                                    className={`py-4 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center gap-2 ${(emailGateway.delivery_methods || []).includes('resend') ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-inner' : 'border-slate-200 text-slate-400'}`}>
                                                     <Send size={18} /> Resend
                                                 </button>
-                                                <button onClick={() => setEmailGateway({ ...emailGateway, delivery_method: 'webhook' })} className={`py-4 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center gap-2 ${emailGateway.delivery_method === 'webhook' ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'border-slate-200 text-slate-400'}`}>
+                                                <button
+                                                    onClick={() => setEmailGateway({
+                                                        ...emailGateway,
+                                                        delivery_methods: (emailGateway.delivery_methods || []).includes('webhook')
+                                                            ? (emailGateway.delivery_methods || []).filter((m: string) => m !== 'webhook')
+                                                            : [...(emailGateway.delivery_methods || []), 'webhook']
+                                                    })}
+                                                    className={`py-4 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center gap-2 ${(emailGateway.delivery_methods || []).includes('webhook') ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-inner' : 'border-slate-200 text-slate-400'}`}>
                                                     <Plug size={18} /> Webhook
                                                 </button>
                                             </div>
                                         </div>
 
-                                        {emailGateway.delivery_method !== 'webhook' && (
+                                        {(!(emailGateway.delivery_methods || []).includes('webhook') || (emailGateway.delivery_methods || []).length > 1) && (
                                             <div className="space-y-2">
                                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Sender Email (From)</label>
                                                 <input
@@ -796,8 +828,8 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                                         )}
                                     </div>
 
-                                    {emailGateway.delivery_method === 'resend' && (
-                                        <div className="space-y-2">
+                                    {(emailGateway.delivery_methods || []).includes('resend') && (
+                                        <div className="space-y-2 animate-in fade-in slide-in-from-top-1">
                                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Resend API Key</label>
                                             <input
                                                 type="password"
@@ -809,8 +841,8 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                                         </div>
                                     )}
 
-                                    {emailGateway.delivery_method === 'smtp' && (
-                                        <div className="grid grid-cols-2 gap-4">
+                                    {(emailGateway.delivery_methods || []).includes('smtp') && (
+                                        <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-1">
                                             <div className="space-y-2">
                                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">SMTP Host</label>
                                                 <input
@@ -849,8 +881,8 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                                         </div>
                                     )}
 
-                                    {emailGateway.delivery_method === 'webhook' && (
-                                        <div className="space-y-2">
+                                    {(emailGateway.delivery_methods || []).includes('webhook') && (
+                                        <div className="space-y-2 animate-in fade-in slide-in-from-top-1">
                                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Webhook URL</label>
                                             <input
                                                 value={emailGateway.webhook_url || ''}
@@ -979,15 +1011,131 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                                     </button>
                                 </div>
                             )}
+                            {/* Moved Smart Lockout to bottom */}
+
+                            {/* SCHEMA CONCATENATION */}
+                            <div className="bg-white border border-slate-200 rounded-[3rem] p-12 shadow-sm">
+                                <div className="flex items-center gap-4 mb-8">
+                                    <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center"><Layers size={20} /></div>
+                                    <div>
+                                        <h3 className="text-2xl font-black text-slate-900 tracking-tight">Schema Concatenation</h3>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Multi-Table Linking & Foreign Keys</p>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                                    {availableTables.map(table => {
+                                        const isLinked = linkedTables.includes(table);
+                                        return (
+                                            <button
+                                                key={table}
+                                                onClick={() => toggleLinkedTable(table)}
+                                                disabled={executing}
+                                                className={`p-4 rounded-2xl border flex flex-col items-center gap-3 transition-all ${isLinked ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-white hover:shadow-md'}`}
+                                            >
+                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isLinked ? 'bg-white/20' : 'bg-white'}`}>
+                                                    {isLinked ? <Link size={18} /> : <Unlink size={18} />}
+                                                </div>
+                                                <span className="text-xs font-black truncate max-w-full px-2">{table}</span>
+                                            </button>
+                                        );
+                                    })}
+                                    {availableTables.length === 0 && <p className="col-span-full text-center text-slate-400 text-xs font-medium py-8">Nenhuma tabela pública disponível para vínculo.</p>}
+                                </div>
+                            </div>
+
+                            {/* Social Providers */}
+                            <div className="bg-white border border-slate-200 rounded-[3rem] p-12 shadow-sm">
+                                <div className="flex items-center gap-4 mb-8">
+                                    <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center"><Globe size={20} /></div>
+                                    <h3 className="text-2xl font-black text-slate-900 tracking-tight">Social & Enterprise Providers</h3>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                    {/* Google */}
+                                    <button onClick={() => openProviderConfig('google')} className="flex flex-col items-center gap-4 p-8 border-2 border-indigo-50 bg-indigo-50/20 rounded-[2.5rem] hover:border-indigo-200 transition-all group">
+                                        <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-lg text-rose-600"><Globe size={32} /></div>
+                                        <div className="text-center">
+                                            <h4 className="font-black text-slate-900">Google Workspace</h4>
+                                            <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-2 py-1 rounded-lg mt-2 inline-block">Configurar</span>
+                                        </div>
+                                    </button>
+                                    {/* GitHub */}
+                                    <button onClick={() => openProviderConfig('github')} className="flex flex-col items-center gap-4 p-8 border-2 border-slate-100 bg-slate-50/50 rounded-[2.5rem] hover:border-slate-300 transition-all group">
+                                        <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-lg text-slate-900"><Github size={32} /></div>
+                                        <div className="text-center">
+                                            <h4 className="font-black text-slate-900">GitHub</h4>
+                                            <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-2 py-1 rounded-lg mt-2 inline-block">Configurar</span>
+                                        </div>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Strategy Cards (Custom & System) */}
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between px-4">
+                                    <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.4em]">Active Strategies</h3>
+                                    <button onClick={() => setShowNewStrategy(true)} className="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:bg-indigo-50 px-4 py-2 rounded-xl transition-all flex items-center gap-2"><Plus size={12} /> New Custom Strategy</button>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                                    {Object.keys(strategies)
+                                        .filter(stKey => !['google', 'github'].includes(stKey)) // Filter out social providers from this list
+                                        .map(stKey => {
+                                            const config = strategies[stKey];
+                                            const isDefault = ['email'].includes(stKey);
+
+                                            return (
+                                                <div key={stKey} className={`relative bg-white border rounded-[2.5rem] p-8 shadow-sm transition-all group ${config.enabled ? 'border-indigo-200' : 'border-slate-200 opacity-70'}`}>
+                                                    <div className="flex justify-between items-start mb-6">
+                                                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-lg ${config.enabled ? 'bg-indigo-600' : 'bg-slate-300'}`}>
+                                                            {stKey === 'email' && <Mail size={24} />}
+                                                            {stKey === 'cpf' && <CreditCard size={24} />}
+                                                            {stKey === 'phone' && <Smartphone size={24} />}
+                                                            {!isDefault && <Hash size={24} />}
+                                                        </div>
+                                                        <button onClick={() => toggleStrategy(stKey)} className={`w-12 h-7 rounded-full p-1 transition-colors ${config.enabled ? 'bg-emerald-500' : 'bg-slate-200'}`}>
+                                                            <div className={`w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${config.enabled ? 'translate-x-5' : ''}`}></div>
+                                                        </button>
+                                                    </div>
+
+                                                    <div className="mb-6">
+                                                        <div className="flex items-center justify-between">
+                                                            <h4 className="text-xl font-black text-slate-900 capitalize truncate" title={stKey}>{stKey}</h4>
+                                                            {!isDefault && (
+                                                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                    <button onClick={() => handleDeleteStrategy(stKey)} className="p-1 text-slate-300 hover:text-rose-600"><Trash2 size={12} /></button>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-2">
+                                                            {config.rules?.length || 0} Origin Rules • {config.jwt_expiration || '24h'}
+                                                        </p>
+                                                    </div>
+
+                                                    <button
+                                                        onClick={() => {
+                                                            setSelectedStrategy(stKey);
+                                                            setStrategyConfig({ ...config });
+                                                            setEditingStrategyName(stKey);
+                                                            setShowConfigModal(true);
+                                                        }}
+                                                        className="w-full py-4 border border-slate-200 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center justify-center gap-2"
+                                                    >
+                                                        <Settings size={14} /> Advanced Config
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
+                                </div>
+                            </div>
                         </div>
 
-                        {/* SECURITY & PROTECTION (Existing) */}
+                        {/* SECURITY & PROTECTION (Edge Firewall) - Moved to bottom */}
                         <div className="bg-white border border-slate-200 rounded-[3rem] p-12 shadow-sm">
                             <div className="flex items-center gap-4 mb-8">
                                 <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center"><ShieldAlert size={20} /></div>
                                 <div>
-                                    <h3 className="text-2xl font-black text-slate-900 tracking-tight">Smart Lockout</h3>
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Brute Force Protection</p>
+                                    <h3 className="text-2xl font-black text-slate-900 tracking-tight">Smart Lockout (Edge Firewall)</h3>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Identity-Agnostic Brute Force Protection</p>
                                 </div>
                             </div>
 
@@ -1027,22 +1175,22 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                                         onClick={() => setSecurityConfig({ ...securityConfig, strategy: 'hybrid' })}
                                         className={`p-4 rounded-2xl border text-left transition-all ${securityConfig.strategy === 'hybrid' ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300'}`}
                                     >
-                                        <span className="text-xs font-black uppercase block mb-1">Hybrid (Best)</span>
-                                        <span className={`text-[10px] ${securityConfig.strategy === 'hybrid' ? 'text-indigo-200' : 'text-slate-400'}`}>Locks IP + Email pair. Safest for offices/NAT.</span>
+                                        <span className="text-xs font-black uppercase block mb-1">Hybrid (IP + Identifier)</span>
+                                        <span className={`text-[10px] ${securityConfig.strategy === 'hybrid' ? 'text-indigo-200' : 'text-slate-400'}`}>Locks IP + Identifier pair. Safest for shared networks.</span>
                                     </button>
                                     <button
                                         onClick={() => setSecurityConfig({ ...securityConfig, strategy: 'ip' })}
                                         className={`p-4 rounded-2xl border text-left transition-all ${securityConfig.strategy === 'ip' ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300'}`}
                                     >
                                         <span className="text-xs font-black uppercase block mb-1">Strict IP</span>
-                                        <span className={`text-[10px] ${securityConfig.strategy === 'ip' ? 'text-indigo-200' : 'text-slate-400'}`}>Locks IP address entirely. Good vs Bots.</span>
+                                        <span className={`text-[10px] ${securityConfig.strategy === 'ip' ? 'text-indigo-200' : 'text-slate-400'}`}>Locks IP address entirely. Good vs distributed Bots.</span>
                                     </button>
                                     <button
                                         onClick={() => setSecurityConfig({ ...securityConfig, strategy: 'email' })}
                                         className={`p-4 rounded-2xl border text-left transition-all ${securityConfig.strategy === 'email' ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300'}`}
                                     >
-                                        <span className="text-xs font-black uppercase block mb-1">Email Only</span>
-                                        <span className={`text-[10px] ${securityConfig.strategy === 'email' ? 'text-indigo-200' : 'text-slate-400'}`}>Protects specific account. Vulnerable to distributed attacks.</span>
+                                        <span className="text-xs font-black uppercase block mb-1">Strict Identifier</span>
+                                        <span className={`text-[10px] ${securityConfig.strategy === 'email' ? 'text-indigo-200' : 'text-slate-400'}`}>Protects specific account/phone/email only.</span>
                                     </button>
                                 </div>
                             </div>
@@ -1051,133 +1199,17 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                                 <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3 mb-6 animate-in fade-in slide-in-from-top-2">
                                     <AlertCircle className="text-amber-600 shrink-0 mt-0.5" size={18} />
                                     <div>
-                                        <h4 className="text-xs font-black text-amber-700 uppercase">Atenção: Configuração Agressiva</h4>
+                                        <h4 className="text-xs font-black text-amber-700 uppercase">Warning: Aggressive Thresholds</h4>
                                         <p className="text-[10px] text-amber-600 mt-1 leading-relaxed">
-                                            Você definiu um limite muito baixo de tentativas ou um tempo de bloqueio muito longo. Isso pode causar bloqueios acidentais de administradores ou usuários legítimos. Certifique-se de que o fluxo de "Esqueci minha senha" está funcional.
+                                            A low max attempt or high duration might lock out legitimate users or administrators. Ensure recovery flows are functional.
                                         </p>
                                     </div>
                                 </div>
                             )}
 
                             <button onClick={handleSaveSecurity} disabled={executing} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-600 transition-all flex items-center justify-center gap-2">
-                                {executing ? <Loader2 className="animate-spin" size={14} /> : 'Aplicar Políticas de Segurança'}
+                                {executing ? <Loader2 className="animate-spin" size={14} /> : 'Apply Security Policies'}
                             </button>
-                        </div>
-
-                        {/* SCHEMA CONCATENATION */}
-                        <div className="bg-white border border-slate-200 rounded-[3rem] p-12 shadow-sm">
-                            <div className="flex items-center gap-4 mb-8">
-                                <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center"><Layers size={20} /></div>
-                                <div>
-                                    <h3 className="text-2xl font-black text-slate-900 tracking-tight">Schema Concatenation</h3>
-                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Multi-Table Linking & Foreign Keys</p>
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                                {availableTables.map(table => {
-                                    const isLinked = linkedTables.includes(table);
-                                    return (
-                                        <button
-                                            key={table}
-                                            onClick={() => toggleLinkedTable(table)}
-                                            disabled={executing}
-                                            className={`p-4 rounded-2xl border flex flex-col items-center gap-3 transition-all ${isLinked ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-white hover:shadow-md'}`}
-                                        >
-                                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isLinked ? 'bg-white/20' : 'bg-white'}`}>
-                                                {isLinked ? <Link size={18} /> : <Unlink size={18} />}
-                                            </div>
-                                            <span className="text-xs font-black truncate max-w-full px-2">{table}</span>
-                                        </button>
-                                    );
-                                })}
-                                {availableTables.length === 0 && <p className="col-span-full text-center text-slate-400 text-xs font-medium py-8">Nenhuma tabela pública disponível para vínculo.</p>}
-                            </div>
-                        </div>
-
-                        {/* Social Providers */}
-                        <div className="bg-white border border-slate-200 rounded-[3rem] p-12 shadow-sm">
-                            <div className="flex items-center gap-4 mb-8">
-                                <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center"><Globe size={20} /></div>
-                                <h3 className="text-2xl font-black text-slate-900 tracking-tight">Social & Enterprise Providers</h3>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                {/* Google */}
-                                <button onClick={() => openProviderConfig('google')} className="flex flex-col items-center gap-4 p-8 border-2 border-indigo-50 bg-indigo-50/20 rounded-[2.5rem] hover:border-indigo-200 transition-all group">
-                                    <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-lg text-rose-600"><Globe size={32} /></div>
-                                    <div className="text-center">
-                                        <h4 className="font-black text-slate-900">Google Workspace</h4>
-                                        <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-2 py-1 rounded-lg mt-2 inline-block">Configurar</span>
-                                    </div>
-                                </button>
-                                {/* GitHub */}
-                                <button onClick={() => openProviderConfig('github')} className="flex flex-col items-center gap-4 p-8 border-2 border-slate-100 bg-slate-50/50 rounded-[2.5rem] hover:border-slate-300 transition-all group">
-                                    <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-lg text-slate-900"><Github size={32} /></div>
-                                    <div className="text-center">
-                                        <h4 className="font-black text-slate-900">GitHub</h4>
-                                        <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-2 py-1 rounded-lg mt-2 inline-block">Configurar</span>
-                                    </div>
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Strategy Cards (Custom & System) */}
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between px-4">
-                                <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.4em]">Active Strategies</h3>
-                                <button onClick={() => setShowNewStrategy(true)} className="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:bg-indigo-50 px-4 py-2 rounded-xl transition-all flex items-center gap-2"><Plus size={12} /> New Custom Strategy</button>
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                                {Object.keys(strategies)
-                                    .filter(stKey => !['google', 'github'].includes(stKey)) // Filter out social providers from this list
-                                    .map(stKey => {
-                                        const config = strategies[stKey];
-                                        const isDefault = ['email'].includes(stKey);
-
-                                        return (
-                                            <div key={stKey} className={`relative bg-white border rounded-[2.5rem] p-8 shadow-sm transition-all group ${config.enabled ? 'border-indigo-200' : 'border-slate-200 opacity-70'}`}>
-                                                <div className="flex justify-between items-start mb-6">
-                                                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-lg ${config.enabled ? 'bg-indigo-600' : 'bg-slate-300'}`}>
-                                                        {stKey === 'email' && <Mail size={24} />}
-                                                        {stKey === 'cpf' && <CreditCard size={24} />}
-                                                        {stKey === 'phone' && <Smartphone size={24} />}
-                                                        {!isDefault && <Hash size={24} />}
-                                                    </div>
-                                                    <button onClick={() => toggleStrategy(stKey)} className={`w-12 h-7 rounded-full p-1 transition-colors ${config.enabled ? 'bg-emerald-500' : 'bg-slate-200'}`}>
-                                                        <div className={`w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${config.enabled ? 'translate-x-5' : ''}`}></div>
-                                                    </button>
-                                                </div>
-
-                                                <div className="mb-6">
-                                                    <div className="flex items-center justify-between">
-                                                        <h4 className="text-xl font-black text-slate-900 capitalize truncate" title={stKey}>{stKey}</h4>
-                                                        {!isDefault && (
-                                                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                <button onClick={() => handleDeleteStrategy(stKey)} className="p-1 text-slate-300 hover:text-rose-600"><Trash2 size={12} /></button>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-2">
-                                                        {config.rules?.length || 0} Origin Rules • {config.jwt_expiration || '24h'}
-                                                    </p>
-                                                </div>
-
-                                                <button
-                                                    disabled={!config.enabled}
-                                                    onClick={() => {
-                                                        setSelectedStrategy(stKey);
-                                                        setStrategyConfig({ ...config });
-                                                        setEditingStrategyName(stKey);
-                                                        setShowConfigModal(true);
-                                                    }}
-                                                    className="w-full py-4 border border-slate-200 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                                                >
-                                                    <Settings size={14} /> Advanced Config
-                                                </button>
-                                            </div>
-                                        );
-                                    })}
-                            </div>
                         </div>
                     </div>
                 )}
@@ -1198,13 +1230,12 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                         <div className="flex-1 overflow-y-auto space-y-8 pr-2">
                             <div className="grid grid-cols-2 gap-6">
                                 <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Status (Draft)</label>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Status</label>
                                     <button
                                         onClick={() => setStrategyConfig({ ...strategyConfig, enabled: !strategyConfig.enabled })}
                                         className={`w-full py-3 rounded-xl border flex items-center justify-center gap-2 transition-all ${strategyConfig.enabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
-                                        title="Changes apply after Saving"
                                     >
-                                        {strategyConfig.enabled ? <><CheckCircle2 size={16} /> Enabled (Pending Save)</> : 'Disabled (Pending Save)'}
+                                        {strategyConfig.enabled ? <><CheckCircle2 size={16} /> Active Workflow</> : 'Inactive Workflow'}
                                     </button>
                                 </div>
                                 <div className="space-y-2">
@@ -1306,13 +1337,11 @@ const { user, session } = await cascata.auth.signIn({
                                             onKeyDown={(e) => {
                                                 if (e.key === 'Enter') {
                                                     addRuleToStrategy(strategyConfig.newRule || '', false);
-                                                    setStrategyConfig({ ...strategyConfig, newRule: '' });
                                                 }
                                             }}
                                         />
                                         <button onClick={() => {
                                             addRuleToStrategy(strategyConfig.newRule || '', false);
-                                            setStrategyConfig({ ...strategyConfig, newRule: '' });
                                         }} className="px-5 py-3 bg-indigo-50 text-indigo-600 font-bold text-[10px] uppercase rounded-xl hover:bg-indigo-100 transition-colors shrink-0">Add Origin</button>
                                     </div>
                                 </div>
