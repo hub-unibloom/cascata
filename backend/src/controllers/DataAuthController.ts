@@ -198,7 +198,31 @@ export class DataAuthController {
     static async linkConfig(req: CascataRequest, res: any, next: any) {
         if (req.userRole !== 'service_role') return res.status(403).json({ error: 'Unauthorized' });
         try {
-            const metaUpdates = { auth_strategies: req.body.authStrategies, auth_config: req.body.authConfig, linked_tables: req.body.linked_tables };
+            const metaUpdates: any = { auth_strategies: req.body.authStrategies, auth_config: req.body.authConfig, linked_tables: req.body.linked_tables };
+
+            // Auto-Sync Auth Strategy Origins to Global CORS Perimeter
+            if (req.body.authStrategies) {
+                let currentOrigins = [...(req.project.metadata?.allowed_origins || [])];
+                const originValues = currentOrigins.map((o: any) => typeof o === 'string' ? o : o.url);
+                let added = false;
+
+                Object.values(req.body.authStrategies).forEach((strategy: any) => {
+                    if (strategy.rules && Array.isArray(strategy.rules)) {
+                        strategy.rules.forEach((rule: any) => {
+                            if (rule.origin && !originValues.includes(rule.origin)) {
+                                currentOrigins.push(rule.origin);
+                                originValues.push(rule.origin);
+                                added = true;
+                            }
+                        });
+                    }
+                });
+
+                if (added) {
+                    metaUpdates.allowed_origins = currentOrigins;
+                }
+            }
+
             await systemPool.query(`UPDATE system.projects SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb WHERE slug = $2`, [JSON.stringify(metaUpdates), req.project.slug]);
             if (req.body.linked_tables?.length > 0) {
                 const client = await req.projectPool!.connect();

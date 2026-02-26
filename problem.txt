@@ -1,294 +1,108 @@
- => [frontend build 5/6] COPY . .                                                                                                                        0.3s
- => [frontend build 6/6] RUN npm run build                                                                                                              37.3s
- => [backend_data 6/7] COPY . .                                                                                                                          0.4s
- => ERROR [backend_data 7/7] RUN npm run build                                                                                                          19.6s
- => [frontend stage-1 2/3] COPY --from=build /app/dist /usr/share/nginx/html                                                                             0.1s
- => [frontend stage-1 3/3] COPY nginx.conf /etc/nginx/conf.d/default.conf                                                                                0.1s
- => [frontend] exporting to image                                                                                                                        0.6s
- => => exporting layers                                                                                                                                  0.3s
- => => exporting manifest sha256:798da287312484997f59a62a0f2c4b39dab9da5999fc18c96cc6f04eadd4cfe1                                                        0.0s
- => => exporting config sha256:fff619071eb64639e63103e974ff6d15e3922165323d1651cbb3b780cce5b337                                                          0.0s
- => => exporting attestation manifest sha256:cef310f5b12022c2749487d082d2309ddc1bd4a8fe37de9d449294122d80af4c                                            0.0s
- => => exporting manifest list sha256:961e1dfff45baa95ff4e64bd49da47acb2cd7183b0734afc805b8083ceef17ed                                                   0.0s
- => => naming to docker.io/library/cascata-frontend:latest                                                                                               0.0s
- => => unpacking to docker.io/library/cascata-frontend:latest                                                                                            0.1s
- => [frontend] resolving provenance for metadata file                                                                                                    0.2s
-------
- > [backend_data 7/7] RUN npm run build:
-0.773 
-0.773 > cascata-backend@1.1.0 build
-[+] up 38/44
- ✔ Image edoburu/pgbouncer:latest Pulled                                                                                                                 2.4s
- ✔ Image redis:alpine             Pulled                                                                                                                 4.6s
- ✔ Image qdrant/qdrant:latest     Pulled                                                                                                                 5.8s
- ✔ Image nginx:alpine             Pulled                                                                                                                 4.1s
- ⠙ Image cascata-db               Building                                                                                                               90.2s
- ⠙ Image cascata-nginx_controller Building                                                                                                               90.2s
- ⠙ Image cascata-frontend         Building                                                                                                               90.2s
- ⠙ Image cascata-backend_data     Building                                                                                                               90.2s
- ⠙ Image cascata-backend_control  Building                                                                                                               90.2s
- ⠙ Image cascata-backend_engine   Building                                                                                                               90.2s
-Dockerfile:19
-
---------------------
-
-  17 |     COPY . .
-
-  18 |     
-
-  19 | >>> RUN npm run build
-
-  20 |     EXPOSE 3000
-
-  21 |     CMD ["node", "dist/server.js"]
-
---------------------
-
-target backend_control: failed to solve: process "/bin/sh -c npm run build" did not complete successfully: exit code: 2
+Chamada de API do auth:
+Request URL
+https://teste.unibloom.com.br/auth/v1/signup?
+Referrer Policy
+strict-origin-when-cross-origin
+apikey
+5eb141918df96e46992669dde89e38405ab459db2f2b89a32d1df2a1a7fa5886
+authorization
+Bearer 5eb141918df96e46992669dde89e38405ab459db2f2b89a32d1df2a1a7fa5886
+content-type
+application/json; charset=utf-8
+dnt
+1
+referer
+https://preview.flutterflow.app/
+sec-ch-ua
+"Not:A-Brand";v="99", "Google Chrome";v="145", "Chromium";v="145"
+sec-ch-ua-mobile
+?0
+sec-ch-ua-platform
+"Linux"
+user-agent
+Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36
+x-client-info
+flutterflow
+x-supabase-api-version
+2024-01-01
 
 
-ubuntu@ip-172-26-5-140:~/cascata$ cd ~/cascata
-docker compose build backend_engine --no-cache 2>&1 | tee build_error.log
-cat build_error.log
- Image cascata-db Building 
- Image cascata-backend_engine Building 
-#1 [internal] load local bake definitions
-#1 reading from stdin 981B done
-#1 DONE 0.0s
+Essa oura aqui foifeita logo em seguida e é feit ob falha, ou sejaa teve sucesso de 200 não na verdae daa verdade....
 
-#2 [internal] load build definition from Dockerfile
-#2 transferring dockerfile: 688B done
-#2 DONE 0.0s
 
-#3 [internal] load metadata for docker.io/library/node:20-alpine
-#3 DONE 0.1s
-
-#4 [internal] load .dockerignore
-#4 transferring context: 2B done
-#4 DONE 0.0s
-
-#5 [1/7] FROM docker.io/library/node:20-alpine@sha256:09e2b3d9726018aecf269bd35325f46bf75046a643a66d28360ec71132750ec8
-#5 resolve docker.io/library/node:20-alpine@sha256:09e2b3d9726018aecf269bd35325f46bf75046a643a66d28360ec71132750ec8 0.0s done
-#5 DONE 0.0s
-
-#6 [2/7] WORKDIR /app
-#6 CACHED
-
-#7 [internal] load build context
-#7 transferring context: 4.23kB done
-#7 DONE 0.0s
-
-#8 [3/7] RUN apk add --no-cache certbot openssl docker-cli postgresql-client python3 make g++ tzdata zip unzip
-#8 0.685 ( 1/87) Installing libbz2 (1.0.8-r6)
-#8 0.693 ( 2/87) Installing libexpat (2.7.4-r0)
-#8 0.697 ( 3/87) Installing libffi (3.5.2-r0)
-#8 0.700 ( 4/87) Installing gdbm (1.26-r0)
-.....
-#8 4.094 Executing busybox-1.37.0-r30.trigger
-#8 4.101 Executing ca-certificates-20251003-r0.trigger
-#8 4.144 Executing postgresql-common-1.2-r2.trigger
-#8 4.151 * Setting postgresql18 as the default version
-#8 4.237 * WARNING: opening from cache https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/APKINDEX.tar.gz: No such file or directory
-#8 4.237 * WARNING: opening from cache https://dl-cdn.alpinelinux.org/alpine/v3.23/community/x86_64/APKINDEX.tar.gz: No such file or directory
-#8 4.245 OK: 363.8 MiB in 105 packages
-#8 DONE 4.5s
-
-#9 [4/7] COPY package*.json ./
-#9 DONE 0.1s
-
-#10 [5/7] RUN npm install
-#10 23.41 npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
-#10 24.25 npm warn deprecated are-we-there-yet@2.0.0: This package is no longer supported.
-#10 24.82 npm warn deprecated gauge@3.0.2: This package is no longer supported.
-#10 25.14 npm warn deprecated rimraf@3.0.2: Rimraf versions prior to v4 are no longer supported
-#10 25.38 npm warn deprecated npmlog@5.0.1: This package is no longer supported.
-#10 25.62 npm warn deprecated prebuild-install@7.1.3: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.
-#10 25.79 npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
-#10 26.56 npm warn deprecated multer@1.4.5-lts.2: Multer 1.x is impacted by a number of vulnerabilities, which have been patched in 2.x. You should upgrade to the latest 2.x version.
-#10 26.67 npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
-#10 27.06 npm warn deprecated tar@6.2.1: Old versions of tar are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
-#10 28.06 npm warn deprecated glob@10.5.0: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
-#10 30.69 
-#10 30.69 added 476 packages, and audited 477 packages in 30s
-#10 30.69 
-#10 30.69 52 packages are looking for funding
-#10 30.69   run `npm fund` for details
-#10 30.69 
-#10 30.69 4 high severity vulnerabilities
-#10 30.69 
-#10 30.69 To address all issues (including breaking changes), run:
-#10 30.69   npm audit fix --force
-#10 30.69 
-#10 30.69 Run `npm audit` for details.
-#10 30.69 npm notice
-#10 30.69 npm notice New major version of npm available! 10.8.2 -> 11.11.0
-#10 30.69 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.11.0
-#10 30.69 npm notice To update run: npm install -g npm@11.11.0
-#10 30.69 npm notice
-#10 DONE 31.0s
-
-#11 [6/7] COPY . .
-#11 DONE 0.2s
-
-#12 [7/7] RUN npm run build
-#12 0.456 
-#12 0.456 > cascata-backend@1.1.0 build
-#12 0.456 > tsc
-#12 0.456 
-#12 9.428 services/RateLimitService.ts(524,86): error TS2367: This comparison appears to be unintentional because the types '"ip"' and '"email"' have no overlap.
-#12 9.429 services/RateLimitService.ts(558,86): error TS2367: This comparison appears to be unintentional because the types '"ip"' and '"email"' have no overlap.
-#12 ERROR: process "/bin/sh -c npm run build" did not complete successfully: exit code: 2
-------
- > [7/7] RUN npm run build:
-0.456 
-0.456 > cascata-backend@1.1.0 build
-0.456 > tsc
-0.456 
-9.428 services/RateLimitService.ts(524,86): error TS2367: This comparison appears to be unintentional because the types '"ip"' and '"email"' have no overlap.
-9.429 services/RateLimitService.ts(558,86): error TS2367: This comparison appears to be unintentional because the types '"ip"' and '"email"' have no overlap.
-------
-Dockerfile:19
-
---------------------
-
-  17 |     COPY . .
-
-  18 |     
-
-  19 | >>> RUN npm run build
-
-  20 |     EXPOSE 3000
-
-  21 |     CMD ["node", "dist/server.js"]
-
---------------------
-
-failed to solve: process "/bin/sh -c npm run build" did not complete successfully: exit code: 2
-
- Image cascata-db Building 
- Image cascata-backend_engine Building 
-#1 [internal] load local bake definitions
-#1 reading from stdin 981B done
-#1 DONE 0.0s
-
-#2 [internal] load build definition from Dockerfile
-#2 transferring dockerfile: 688B done
-#2 DONE 0.0s
-
-#3 [internal] load metadata for docker.io/library/node:20-alpine
-#3 DONE 0.1s
-
-#4 [internal] load .dockerignore
-#4 transferring context: 2B done
-#4 DONE 0.0s
-
-#5 [1/7] FROM docker.io/library/node:20-alpine@sha256:09e2b3d9726018aecf269bd35325f46bf75046a643a66d28360ec71132750ec8
-#5 resolve docker.io/library/node:20-alpine@sha256:09e2b3d9726018aecf269bd35325f46bf75046a643a66d28360ec71132750ec8 0.0s done
-#5 DONE 0.0s
-
-#6 [2/7] WORKDIR /app
-#6 CACHED
-
-#7 [internal] load build context
-#7 transferring context: 4.23kB done
-#7 DONE 0.0s
-
-#8 [3/7] RUN apk add --no-cache certbot openssl docker-cli postgresql-client python3 make g++ tzdata zip unzip
-#8 0.685 ( 1/87) Installing libbz2 (1.0.8-r6)
-#8 0.693 ( 2/87) Installing libexpat (2.7.4-r0)
-#8 0.697 ( 3/87) Installing libffi (3.5.2-r0)
-......
-#8 3.581 (78/87) Installing g++ (15.2.0-r2)
-#8 3.956 (79/87) Installing make (4.4.1-r3)
-#8 3.961 (80/87) Installing openssl (3.5.5-r0)
-#8 3.971 (81/87) Installing postgresql-common (1.2-r2)
-#8 3.974   Executing postgresql-common-1.2-r2.pre-install
-#8 3.994 (82/87) Installing lz4-libs (1.10.0-r0)
-#8 3.999 (83/87) Installing libpq (18.2-r0)
-#8 4.006 (84/87) Installing postgresql18-client (18.2-r0)
-#8 4.038 (85/87) Installing tzdata (2025c-r0)
-#8 4.081 (86/87) Installing unzip (6.0-r16)
-#8 4.086 (87/87) Installing zip (3.0-r13)
-#8 4.094 Executing busybox-1.37.0-r30.trigger
-#8 4.101 Executing ca-certificates-20251003-r0.trigger
-#8 4.144 Executing postgresql-common-1.2-r2.trigger
-#8 4.151 * Setting postgresql18 as the default version
-#8 4.237 * WARNING: opening from cache https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/APKINDEX.tar.gz: No such file or directory
-#8 4.237 * WARNING: opening from cache https://dl-cdn.alpinelinux.org/alpine/v3.23/community/x86_64/APKINDEX.tar.gz: No such file or directory
-#8 4.245 OK: 363.8 MiB in 105 packages
-#8 DONE 4.5s
-
-#9 [4/7] COPY package*.json ./
-#9 DONE 0.1s
-
-#10 [5/7] RUN npm install
-#10 23.41 npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
-#10 24.25 npm warn deprecated are-we-there-yet@2.0.0: This package is no longer supported.
-#10 24.82 npm warn deprecated gauge@3.0.2: This package is no longer supported.
-#10 25.14 npm warn deprecated rimraf@3.0.2: Rimraf versions prior to v4 are no longer supported
-#10 25.38 npm warn deprecated npmlog@5.0.1: This package is no longer supported.
-#10 25.62 npm warn deprecated prebuild-install@7.1.3: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.
-#10 25.79 npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
-#10 26.56 npm warn deprecated multer@1.4.5-lts.2: Multer 1.x is impacted by a number of vulnerabilities, which have been patched in 2.x. You should upgrade to the latest 2.x version.
-#10 26.67 npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
-#10 27.06 npm warn deprecated tar@6.2.1: Old versions of tar are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
-#10 28.06 npm warn deprecated glob@10.5.0: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
-#10 30.69 
-#10 30.69 added 476 packages, and audited 477 packages in 30s
-#10 30.69 
-#10 30.69 52 packages are looking for funding
-#10 30.69   run `npm fund` for details
-#10 30.69 
-#10 30.69 4 high severity vulnerabilities
-#10 30.69 
-#10 30.69 To address all issues (including breaking changes), run:
-#10 30.69   npm audit fix --force
-#10 30.69 
-#10 30.69 Run `npm audit` for details.
-#10 30.69 npm notice
-#10 30.69 npm notice New major version of npm available! 10.8.2 -> 11.11.0
-#10 30.69 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.11.0
-#10 30.69 npm notice To update run: npm install -g npm@11.11.0
-#10 30.69 npm notice
-#10 DONE 31.0s
-
-#11 [6/7] COPY . .
-#11 DONE 0.2s
-
-#12 [7/7] RUN npm run build
-#12 0.456 
-#12 0.456 > cascata-backend@1.1.0 build
-#12 0.456 > tsc
-#12 0.456 
-#12 9.428 services/RateLimitService.ts(524,86): error TS2367: This comparison appears to be unintentional because the types '"ip"' and '"email"' have no overlap.
-#12 9.429 services/RateLimitService.ts(558,86): error TS2367: This comparison appears to be unintentional because the types '"ip"' and '"email"' have no overlap.
-#12 ERROR: process "/bin/sh -c npm run build" did not complete successfully: exit code: 2
-------
- > [7/7] RUN npm run build:
-0.456 
-0.456 > cascata-backend@1.1.0 build
-0.456 > tsc
-0.456 
-9.428 services/RateLimitService.ts(524,86): error TS2367: This comparison appears to be unintentional because the types '"ip"' and '"email"' have no overlap.
-9.429 services/RateLimitService.ts(558,86): error TS2367: This comparison appears to be unintentional because the types '"ip"' and '"email"' have no overlap.
-------
-Dockerfile:19
-
---------------------
-
-  17 |     COPY . .
-
-  18 |     
-
-  19 | >>> RUN npm run build
-
-  20 |     EXPOSE 3000
-
-  21 |     CMD ["node", "dist/server.js"]
-
---------------------
-
-failed to solve: process "/bin/sh -c npm run build" did not complete successfully: exit code: 2
-
-ubuntu@ip-172-26-5-140:~/cascata$ 
-
+Request URL
+https://teste.unibloom.com.br/auth/v1/signup?
+Request Method
+OPTIONS
+Status Code
+200 OK
+Remote Address
+[2606:4700:3035::ac43:dfe9]:443
+Referrer Policy
+strict-origin-when-cross-origin
+access-control-allow-credentials
+true
+access-control-allow-headers
+Content-Type,Authorization,apikey,x-cascata-client,Prefer,Range,x-client-info,x-supabase-auth,content-profile,accept-profile,x-supabase-api-version,x-cascata-signature,x-cascata-event
+access-control-allow-methods
+GET,POST,PUT,PATCH,DELETE,OPTIONS
+access-control-expose-headers
+Content-Range, X-Total-Count, Link
+alt-svc
+h3=":443"; ma=86400
+cf-cache-status
+DYNAMIC
+cf-ray
+9d3da6230d8ce2a2-GIG
+date
+Thu, 26 Feb 2026 07:15:02 GMT
+nel
+{"report_to":"cf-nel","success_fraction":0.0,"max_age":604800}
+referrer-policy
+strict-origin-when-cross-origin
+report-to
+{"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=I55g1X%2BxcGZJ8mrW59qZGKsw7xpcGhdZymBdku3AqakuZ0L%2FQeY68qMtNp8j050fDZx%2F1N1HHM%2BRF6MRGx8AoMN3zD6PxbQ7vkqxARfuggpWKBmUZVvA%2FT1OfSPIhi8vBQ%3D%3D"}]}
+server
+cloudflare
+strict-transport-security
+max-age=31536000; includeSubDomains; preload
+x-content-type-options
+nosniff
+x-frame-options
+SAMEORIGIN
+x-permitted-cross-domain-policies
+none
+x-xss-protection
+1; mode=block
+:authority
+teste.unibloom.com.br
+:method
+OPTIONS
+:path
+/auth/v1/signup?
+:scheme
+https
+accept
+*/*
+accept-encoding
+gzip, deflate, br, zstd
+accept-language
+pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7
+access-control-request-headers
+apikey,authorization,content-type,x-client-info,x-supabase-api-version
+access-control-request-method
+POST
+origin
+https://preview.flutterflow.app
+priority
+u=1, i
+referer
+https://preview.flutterflow.app/
+sec-fetch-dest
+empty
+sec-fetch-mode
+cors
+sec-fetch-site
+cross-site
+user-agent
+Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36
