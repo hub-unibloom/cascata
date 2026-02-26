@@ -78,7 +78,7 @@ interface RateCheckResult {
 export interface AuthSecurityConfig {
     max_attempts: number;
     lockout_minutes: number;
-    strategy: 'ip' | 'identifier' | 'hybrid';
+    strategy: 'ip' | 'identifier' | 'hybrid' | 'email';
     disabled?: boolean;
 }
 

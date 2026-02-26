@@ -49,7 +49,7 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
     const [securityConfig, setSecurityConfig] = useState({
         max_attempts: 5,
         lockout_minutes: 15,
-        strategy: 'hybrid' // 'ip' | 'email' | 'hybrid'
+        strategy: 'hybrid' // 'ip' | 'identifier' | 'hybrid' | 'email'
     });
 
     // EMAIL CENTER STATE (New Architecture)
@@ -1186,11 +1186,11 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                                         <span className={`text-[10px] ${securityConfig.strategy === 'ip' ? 'text-indigo-200' : 'text-slate-400'}`}>Locks IP address entirely. Good vs distributed Bots.</span>
                                     </button>
                                     <button
-                                        onClick={() => setSecurityConfig({ ...securityConfig, strategy: 'email' })}
-                                        className={`p-4 rounded-2xl border text-left transition-all ${securityConfig.strategy === 'email' ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300'}`}
+                                        onClick={() => setSecurityConfig({ ...securityConfig, strategy: 'identifier' })}
+                                        className={`p-4 rounded-2xl border text-left transition-all ${securityConfig.strategy === 'identifier' || securityConfig.strategy === 'email' ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300'}`}
                                     >
                                         <span className="text-xs font-black uppercase block mb-1">Strict Identifier</span>
-                                        <span className={`text-[10px] ${securityConfig.strategy === 'email' ? 'text-indigo-200' : 'text-slate-400'}`}>Protects specific account/phone/email only.</span>
+                                        <span className={`text-[10px] ${securityConfig.strategy === 'identifier' || securityConfig.strategy === 'email' ? 'text-indigo-200' : 'text-slate-400'}`}>Protects specific account/phone/email only.</span>
                                     </button>
                                 </div>
                             </div>
