@@ -1,16 +1,441 @@
-Erro de url personalizaadda foi corrigido pelo que foi eprcebido:
-┌─[cocorico@user-550XDA] ~ 
-└─▶ curl -X GET "https://teste.unibloom.com.br/rest/v1/tesste?select=*&limit=10"   -H "apikey: 5eb141918df96e46992669dde89e38405ab459db2f2b89a32d1df2a1a7fa5886"   -H "Authorization: Bearer 5eb141918df96e46992669dde89e38405ab459db2f2b89a32d1df2a1a7fa5886"
-[{"id":"2cb1830e-ba18-4eeb-b1f3-0cd4b510d739","created_at":"2026-02-25T23:02:42.926Z","nome":"teste"}]
+....
+ubuntu@ip-172-26-5-140:~$                                       git clone https://github.com/hub-unibloom/cascata.git
+                                        cd ~/cascata
+                                        mv .env.txt .env
+                                        mv .dockerignore.txt .dockerignore
+                                        mv nginx/nginx.conf.txt nginx/nginx.conf
+                                        mv backend/Dockerfile.txt backend/Dockerfile
+                                        mv database/init.sql.txt database/init.sql
+                                        mv backend/migrations/001_init.sql.txt backend/migrations/001_init.sql
+                                        mv backend/migrations/002_rate_limits.sql.txt backend/migrations/002_rate_limits.sql
+                                        mv backend/migrations/003_n8n_support.sql.txt backend/migrations/003_n8n_support.sql
+                                        mv backend/migrations/004_rate_limit_v2.sql.txt backend/migrations/004_rate_limit_v2.sql
+                                        mv backend/migrations/005_ai_memory.sql.txt backend/migrations/005_ai_memory.sql
+                                        mv backend/migrations/006_asset_history.sql.txt backend/migrations/006_asset_history.sql
+                                        mv backend/migrations/007_ai_sessions.sql.txt backend/migrations/007_ai_sessions.sql
+                                        mv backend/migrations/008_auth_hardening.sql.txt backend/migrations/008_auth_hardening.sql
+                                        mv backend/migrations/009_immutable_logs.sql.txt backend/migrations/009_immutable_logs.sql
+                                        mv backend/migrations/010_auth_confirmation.sql.txt backend/migrations/010_auth_confirmation.sql
+                                        mv backend/migrations/011_webhook_filters.sql.txt backend/migrations/011_webhook_filters.sql
+                                        mv backend/migrations/012_webhook_reliability.sql.txt backend/migrations/012_webhook_reliability.sql
+                                        mv backend/migrations/013_auth_helpers.sql.txt backend/migrations/013_auth_helpers.sql
+                                        mv backend/migrations/014_push_engine.sql.txt backend/migrations/014_push_engine.sql
+                                        mv backend/migrations/015_storage_tracking.sql.txt backend/migrations/015_storage_tracking.sql
+                                        mv backend/migrations/016_fix_notify_payload.sql.txt backend/migrations/016_fix_notify_payload.sql
+                                        mv backend/migrations/017_harden_default_privileges.sql.txt backend/migrations/017_harden_default_privileges.sql
+                                        mv backend/migrations/018_backup_system.sql.txt backend/migrations/018_backup_system.sql
+                                        mv backend/migrations/019_granular_security.sql.txt backend/migrations/019_granular_security.sql
+                                        mv backend/migrations/020_crud_rate_limits.sql.txt backend/migrations/020_crud_rate_limits.sql
+                                        mv backend/migrations/021_nerf_logic.sql.txt backend/migrations/021_nerf_logic.sql
+                                        mv backend/migrations/022_secure_hashing.sql.txt backend/migrations/022_secure_hashing.sql
+                                        mv backend/migrations/023_fix_schema_integrity.sql.txt backend/migrations/023_fix_schema_integrity.sql
+                                        mv backend/migrations/024_secure_vault.sql.txt backend/migrations/024_secure_vault.sql
+                                        mv backend/migrations/025_perf_optimization.sql.txt backend/migrations/025_perf_optimization.sql
+                                        mv backend/migrations/026_log_telemetry.sql.txt backend/migrations/026_log_telemetry.sql
+                                        mv backend/migrations/027_auth_fingerprint.sql.txt backend/migrations/027_auth_fingerprint.sql
+                                        mv backend/migrations/028_async_ops.sql.txt backend/migrations/028_async_ops.sql
+                                        mv backend/migrations/029_extension_registry.sql.txt backend/migrations/029_extension_registry.sql
+                                        docker compose up -d --buildascata-data/qdrant /cascata-data/redis /cascata-data/storage /cascata-data/certs /cascata-
+Cloning into 'cascata'...
+remote: Enumerating objects: 459, done.
+remote: Counting objects: 100% (459/459), done.
+remote: Compressing objects: 100% (351/351), done.
+remote: Total 459 (delta 228), reused 330 (delta 99), pack-reused 0 (from 0)
+Receiving objects: 100% (459/459), 604.43 KiB | 19.50 MiB/s, done.
+Resolving deltas: 100% (228/228), done.
+[+] up 38/38
+ ✔ Image nginx:alpine             Pulled                                                                                                                  4.4s
+ ✔ Image edoburu/pgbouncer:latest Pulled                                                                                                                  2.9s
+ ✔ Image qdrant/qdrant:latest     Pulled                                                                                                                  6.4s
+ ✔ Image redis:alpine             Pulled                                                                                                                  4.9s
+[+] Building 89.2s (51/51) FINISHED                                                                                                                           
+ => [internal] load local bake definitions                                                                                                               0.0s
+ => => reading from stdin 2.76kB                                                                                                                         0.0s
+ => [nginx_controller internal] load build definition from Dockerfile                                                                                    0.6s
+ => => transferring dockerfile: 259B                                                                                                                     0.0s
+ => [frontend internal] load build definition from Dockerfile                                                                                            0.5s
+ => => transferring dockerfile: 438B                                                                                                                     0.0s
+ => [backend_engine internal] load build definition from Dockerfile                                                                                      0.6s
+ => => transferring dockerfile: 688B                                                                                                                     0.0s
+ => [db internal] load build definition from Dockerfile                                                                                                  0.6s
+ => => transferring dockerfile: 3.26kB                                                                                                                   0.0s
+ => [frontend internal] load metadata for docker.io/library/nginx:alpine                                                                                 0.1s
+ => [nginx_controller internal] load metadata for docker.io/library/node:20-alpine                                                                       0.4s
+ => [db internal] load metadata for docker.io/library/postgres:18-alpine                                                                                 0.4s
+ => [backend_control internal] load .dockerignore                                                                                                        0.1s
+ => => transferring context: 2B                                                                                                                          0.0s
+ => [frontend internal] load .dockerignore                                                                                                               0.1s
+ => => transferring context: 2B                                                                                                                          0.0s
+ => [nginx_controller internal] load .dockerignore                                                                                                       0.1s
+ => => transferring context: 2B                                                                                                                          0.0s
+ => [db internal] load .dockerignore                                                                                                                     0.1s
+ => => transferring context: 2B                                                                                                                          0.0s
+ => [frontend build 1/6] FROM docker.io/library/node:20-alpine@sha256:09e2b3d9726018aecf269bd35325f46bf75046a643a66d28360ec71132750ec8                   4.0s
+ => => resolve docker.io/library/node:20-alpine@sha256:09e2b3d9726018aecf269bd35325f46bf75046a643a66d28360ec71132750ec8                                  0.1s
+ => => sha256:e31b2016552274339ed88ed4a438d78bf37e0f6bdf328d02207b2a598c1ef86d 445B / 445B                                                               0.1s
+ => => sha256:eb87f4721c91769ed5206f34a9ab6ec98fc1d5235c12c2fc956665b1155e9ecb 1.26MB / 1.26MB                                                           0.1s
+ => => sha256:ad6d96c196e3198e14ea37df8bba4f54bf92fb525eb65e49fa4027c7dee13f80 42.78MB / 42.78MB                                                         0.5s
+ => => extracting sha256:ad6d96c196e3198e14ea37df8bba4f54bf92fb525eb65e49fa4027c7dee13f80                                                                2.9s
+ => => extracting sha256:eb87f4721c91769ed5206f34a9ab6ec98fc1d5235c12c2fc956665b1155e9ecb                                                                0.1s
+ => => extracting sha256:e31b2016552274339ed88ed4a438d78bf37e0f6bdf328d02207b2a598c1ef86d                                                                0.0s 
+ => [frontend internal] load build context                                                                                                               0.1s 
+ => => transferring context: 1.23MB                                                                                                                      0.0s 
+ => [frontend stage-1 1/3] FROM docker.io/library/nginx:alpine@sha256:1d13701a5f9f3fb01aaa88cef2344d65b6b5bf6b7d9fa4cf0dca557a8d7702ba                   0.6s 
+ => => resolve docker.io/library/nginx:alpine@sha256:1d13701a5f9f3fb01aaa88cef2344d65b6b5bf6b7d9fa4cf0dca557a8d7702ba                                    0.1s 
+ => [backend_data internal] load build context                                                                                                           0.1s 
+ => => transferring context: 652.45kB                                                                                                                    0.0s
+ => [nginx_controller internal] load build context                                                                                                       0.1s
+ => => transferring context: 1.71kB                                                                                                                      0.0s
+ => [db builder 1/3] FROM docker.io/library/postgres:18-alpine@sha256:035b9ab53cfa147d7202b61f5f7782b939ae815b7d6bc81c96b7b42ff1fca950                   7.9s
+ => => resolve docker.io/library/postgres:18-alpine@sha256:035b9ab53cfa147d7202b61f5f7782b939ae815b7d6bc81c96b7b42ff1fca950                              0.1s
+ => => sha256:4d23faa6dee53fb4edb679feecda9152eacce551290774b2c7c12ddd3c2e2977 186B / 186B                                                               0.1s
+ => => sha256:5d4dfe0d66a6ccfb01f3077d6627092564dbc1d9d1039a86774ec4650a35ee66 5.84kB / 5.84kB                                                           0.1s
+ => => sha256:1e3c0b82e14f6efacfdcdfe408f2827be1ce4a3a4134184358d4cc6c68214a77 130B / 130B                                                               0.1s
+ => => sha256:f5d0e9c026d83b37aef7c62b7a9bac4bce098f1c873711ba3f606e24af1673c1 18.92kB / 18.92kB                                                         0.0s
+ => => sha256:0c93a3f7fc721c9b9aadcca0e4746fde5965be41994f6a6e21604274b201e165 116B / 116B                                                               0.0s
+ => => sha256:00f877ddb15ca43c1bf256739ac5c1cd307bf9fbfa64eb4371d2e73d71cf4b5a 973B / 973B                                                               0.0s
+ => => sha256:3e59f79710f333535dd1de41b81cb26ffbf01b552c6128567dc798ecfe96e2aa 109.19MB / 109.19MB                                                       1.8s
+ => => sha256:d4fd599ecd5133145223a9cd7f1b173eab0854a09e90c51805674d797fae1f06 922.94kB / 922.94kB                                                       0.1s
+ => => extracting sha256:00f877ddb15ca43c1bf256739ac5c1cd307bf9fbfa64eb4371d2e73d71cf4b5a                                                                0.0s
+ => => extracting sha256:d4fd599ecd5133145223a9cd7f1b173eab0854a09e90c51805674d797fae1f06                                                                0.1s
+ => => extracting sha256:0c93a3f7fc721c9b9aadcca0e4746fde5965be41994f6a6e21604274b201e165                                                                0.0s
+ => => extracting sha256:3e59f79710f333535dd1de41b81cb26ffbf01b552c6128567dc798ecfe96e2aa                                                                5.3s
+ => => extracting sha256:f5d0e9c026d83b37aef7c62b7a9bac4bce098f1c873711ba3f606e24af1673c1                                                                0.0s
+ => => extracting sha256:1e3c0b82e14f6efacfdcdfe408f2827be1ce4a3a4134184358d4cc6c68214a77                                                                0.0s
+ => => extracting sha256:5d4dfe0d66a6ccfb01f3077d6627092564dbc1d9d1039a86774ec4650a35ee66                                                                0.0s
+ => => extracting sha256:4d23faa6dee53fb4edb679feecda9152eacce551290774b2c7c12ddd3c2e2977                                                                0.0s
+ => [db internal] load build context                                                                                                                     0.1s
+ => => transferring context: 7.09kB                                                                                                                      0.0s
+ => [backend_data build 2/6] WORKDIR /app                                                                                                                0.3s
+ => [frontend build 3/6] COPY package*.json ./                                                                                                           0.4s
+ => [nginx_controller 3/6] RUN apk add --no-cache docker-cli                                                                                             5.1s
+ => [backend_data 3/7] RUN apk add --no-cache certbot openssl docker-cli postgresql-client python3 make g++ tzdata zip unzip                            15.2s
+ => [frontend build 4/6] RUN npm install                                                                                                                44.8s
+ => [db builder 2/3] RUN apk add --no-cache     git     gcc     make     musl-dev     clang19     llvm19     llvm19-dev     postgresql-dev     && ln -  23.2s
+ => [db stage-1 2/9] RUN apk add --no-cache inotify-tools                                                                                                3.1s
+ => [nginx_controller 4/6] COPY package.json .                                                                                                           0.1s
+ => [nginx_controller 5/6] RUN npm install                                                                                                              12.1s
+ => [backend_data 4/7] COPY package*.json ./                                                                                                             0.3s
+ => [backend_engine 5/7] RUN npm install                                                                                                                49.7s
+ => [nginx_controller 6/6] COPY index.js .                                                                                                               0.1s
+ => [nginx_controller] exporting to image                                                                                                                7.5s
+ => => exporting layers                                                                                                                                  5.9s
+ => => exporting manifest sha256:3f00856ad542a17a80c010e7dff68afce3499ac9144b61cea166266da0a8864a                                                        0.0s
+ => => exporting config sha256:d08c0e91e020aea8f1b60d3d928f2b11138b17cc566cc13f3eb283a74a587550                                                          0.0s
+ => => exporting attestation manifest sha256:009ca10ba60269808e006338ac66eb374be773568c7bc7840e21699ab256c8f8                                            0.0s
+ => => exporting manifest list sha256:424261d81bda7837787981bfea80e6c9391ffd6b6e1c9cf070d3f2048830ec2a                                                   0.0s
+ => => naming to docker.io/library/cascata-nginx_controller:latest                                                                                       0.0s
+ => => unpacking to docker.io/library/cascata-nginx_controller:latest                                                                                    1.4s
+ => [nginx_controller] resolving provenance for metadata file                                                                                            0.1s
+ => [db builder 3/3] RUN git clone --branch v1.6.7 --depth 1     https://github.com/citusdata/pg_cron.git /tmp/pg_cron     && cd /tmp/pg_cron     && US  6.6s
+ => [db stage-1 3/9] COPY --from=builder /usr/local/lib/postgresql/pg_cron.so     /usr/local/lib/postgresql/pg_cron.so                                   0.1s
+ => [db stage-1 4/9] COPY --from=builder /usr/local/share/postgresql/extension/pg_cron*     /usr/local/share/postgresql/extension/                       0.1s
+ => [db stage-1 5/9] COPY --from=builder /usr/local/lib/postgresql/bitcode/pg_cron*     /usr/local/lib/postgresql/bitcode/                               0.1s
+ => [db stage-1 6/9] RUN mkdir -p /cascata_extensions/lib /cascata_extensions/share                                                                      0.4s
+ => [db stage-1 7/9] COPY docker-entrypoint-cascata.sh /usr/local/bin/docker-entrypoint-cascata.sh                                                       0.1s
+ => [db stage-1 8/9] COPY phantom_linker.sh /usr/local/bin/phantom_linker.sh                                                                             0.1s
+ => [db stage-1 9/9] RUN chmod +x /usr/local/bin/docker-entrypoint-cascata.sh     /usr/local/bin/phantom_linker.sh                                       0.4s
+ => [db] exporting to image                                                                                                                              1.0s
+ => => exporting layers                                                                                                                                  0.4s
+ => => exporting manifest sha256:a61db2655ac121d0d89245a825d3505b7dd1c3081ee28903dda6f3dcfbafa5e0                                                        0.0s
+ => => exporting config sha256:5edf24dcb81159146ad4eb78d13da49d2ac77dbed015f9ee02d62f102b424d00                                                          0.0s
+ => => exporting attestation manifest sha256:ee88f7f0dc1bce495c636aa17cea8dfda0b5bf4276bb708b955250db31df2729                                            0.0s
+ => => exporting manifest list sha256:991c6f4bf977b9b9dc24f67e82bd1a424363131304247e97c291c738c4a01acc                                                   0.0s
+ => => naming to docker.io/library/cascata-db:latest                                                                                                     0.0s
+ => => unpacking to docker.io/library/cascata-db:latest                                                                                                  0.3s
+ => [db] resolving provenance for metadata file                                                                                                          0.0s
+ => [frontend build 5/6] COPY . .                                                                                                                        0.3s
+ => [frontend build 6/6] RUN npm run build                                                                                                              34.6s
+ => [backend_engine 6/7] COPY . .                                                                                                                        0.4s
+ => ERROR [backend_data 7/7] RUN npm run build                                                                                                          17.8s
+ => [frontend stage-1 2/3] COPY --from=build /app/dist /usr/share/nginx/html                                                                             0.1s
+ => [frontend stage-1 3/3] COPY nginx.conf /etc/nginx/conf.d/default.conf                                                                                0.1s
+ => [frontend] exporting to image                                                                                                                        0.6s
+ => => exporting layers                                                                                                                                  0.3s
+ => => exporting manifest sha256:a3a038c0b4da8b395babac5ea80b0849962d6a0fd1590aa9b72799b34029da9c                                                        0.0s
+ => => exporting config sha256:411da098b8a833a778329d6c5f9e60b6b2ba3ac4cb4559d3cd9ce0acaa9ee061                                                          0.0s
+ => => exporting attestation manifest sha256:ee5133df1fca99a1ce744c8533af19074030fde0bfcf7d39fdc77d8c5b475362                                            0.0s
+ => => exporting manifest list sha256:79e4103654c80c92bc7a88648bf44c26138ba27b60a2d3dcd445c98aca9fa5a3                                                   0.0s
+ => => naming to docker.io/library/cascata-frontend:latest                                                                                               0.0s
+ => => unpacking to docker.io/library/cascata-frontend:latest                                                                                            0.1s
+ => [frontend] resolving provenance for metadata file                                                                                                    0.0s
+------
+ > [backend_data 7/7] RUN npm run build:
+0.726 
+0.726 > cascata-backend@1.1.0 build
+[+] up 38/44
+ ✔ Image nginx:alpine             Pulled                                                                                                                 4.4s
+ ✔ Image edoburu/pgbouncer:latest Pulled                                                                                                                 2.9s
+ ✔ Image qdrant/qdrant:latest     Pulled                                                                                                                 6.4s
+ ✔ Image redis:alpine             Pulled                                                                                                                 4.9s
+ ⠙ Image cascata-backend_engine   Building                                                                                                               89.3s
+ ⠙ Image cascata-db               Building                                                                                                               89.3s
+ ⠙ Image cascata-nginx_controller Building                                                                                                               89.3s
+ ⠙ Image cascata-backend_data     Building                                                                                                               89.3s
+ ⠙ Image cascata-backend_control  Building                                                                                                               89.3s
+ ⠙ Image cascata-frontend         Building                                                                                                               89.3s
+Dockerfile:19
 
-Estamos avançando , agora estamos apenas com esses dois problemas no console do navegador:
+--------------------
 
-"
-service-worker.js:58 Uncaught (in promise) TypeError: Failed to execute 'put' on 'Cache': Request method 'POST' is unsupported
-    at service-worker.js:58:53
-(index):62 SW registered! ServiceWorkerRegistration {installing: null, waiting: null, active: ServiceWorker, navigationPreload: NavigationPreloadManager, scope: 'https://dash.unibloom.com.br/', …}
-service-worker.js:58 Uncaught (in promise) TypeError: Failed to execute 'put' on 'Cache': Request method 'POST' is unsupported
-    at service-worker.js:58:53
-"
+  17 |     COPY . .
 
-Parece que aos poucos estamos chegando lá, preciso que vc se empenhe em estuar e raciocinar de maneira abrangente pois odddeio erros! e nosso sistem é complexo e cheio de detalhes que precisam ser observados com atenção.
+  18 |     
+
+  19 | >>> RUN npm run build
+
+  20 |     EXPOSE 3000
+
+  21 |     CMD ["node", "dist/server.js"]
+
+--------------------
+
+target backend_engine: failed to solve: process "/bin/sh -c npm run build" did not complete successfully: exit code: 2
+
+
+ubuntu@ip-172-26-5-140:~/cascata$ cd ~/cascata
+docker compose build backend_engine --no-cache 2>&1 | tee build_error.log
+cat build_error.log
+ Image cascata-backend_engine Building 
+ Image cascata-db Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 981B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 688B done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/node:20-alpine
+#3 DONE 0.3s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 2B done
+#4 DONE 0.0s
+
+#5 [1/7] FROM docker.io/library/node:20-alpine@sha256:09e2b3d9726018aecf269bd35325f46bf75046a643a66d28360ec71132750ec8
+#5 resolve docker.io/library/node:20-alpine@sha256:09e2b3d9726018aecf269bd35325f46bf75046a643a66d28360ec71132750ec8 0.0s done
+#5 DONE 0.0s
+
+#6 [2/7] WORKDIR /app
+#6 CACHED
+
+#7 [internal] load build context
+#7 transferring context: 4.23kB 0.0s done
+#7 DONE 0.0s
+
+#8 [3/7] RUN apk add --no-cache certbot openssl docker-cli postgresql-client python3 make g++ tzdata zip unzip
+#8 0.913 ( 1/87) Installing libbz2 (1.0.8-r6)
+#8 0.922 ( 2/87) Installing libexpat (2.7.4-r0)
+#8 0.925 ( 3/87) Installing libffi (3.5.2-r0)
+#8 0.928 ( 4/87) Installing gdbm (1.26-r0)
+#8 0.931 ( 5/87) Installing xz-libs (5.8.2-r0)
+#8 0.936 ( 6/87) Installing mpdecimal (4.0.1-r0)
+......
+#8 4.184 (81/87) Installing postgresql-common (1.2-r2)
+#8 4.187   Executing postgresql-common-1.2-r2.pre-install
+#8 4.211 (82/87) Installing lz4-libs (1.10.0-r0)
+#8 4.216 (83/87) Installing libpq (18.2-r0)
+#8 4.223 (84/87) Installing postgresql18-client (18.2-r0)
+#8 4.257 (85/87) Installing tzdata (2025c-r0)
+#8 4.302 (86/87) Installing unzip (6.0-r16)
+#8 4.307 (87/87) Installing zip (3.0-r13)
+#8 4.315 Executing busybox-1.37.0-r30.trigger
+#8 4.326 Executing ca-certificates-20251003-r0.trigger
+#8 4.371 Executing postgresql-common-1.2-r2.trigger
+#8 4.378 * Setting postgresql18 as the default version
+#8 4.467 * WARNING: opening from cache https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/APKINDEX.tar.gz: No such file or directory
+#8 4.467 * WARNING: opening from cache https://dl-cdn.alpinelinux.org/alpine/v3.23/community/x86_64/APKINDEX.tar.gz: No such file or directory
+#8 4.475 OK: 363.8 MiB in 105 packages
+#8 DONE 4.7s
+
+#9 [4/7] COPY package*.json ./
+#9 DONE 0.1s
+
+#10 [5/7] RUN npm install
+#10 23.59 npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+#10 24.49 npm warn deprecated are-we-there-yet@2.0.0: This package is no longer supported.
+#10 25.10 npm warn deprecated prebuild-install@7.1.3: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.
+#10 25.40 npm warn deprecated npmlog@5.0.1: This package is no longer supported.
+#10 25.43 npm warn deprecated rimraf@3.0.2: Rimraf versions prior to v4 are no longer supported
+#10 25.90 npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+#10 26.06 npm warn deprecated gauge@3.0.2: This package is no longer supported.
+#10 26.74 npm warn deprecated multer@1.4.5-lts.2: Multer 1.x is impacted by a number of vulnerabilities, which have been patched in 2.x. You should upgrade to the latest 2.x version.
+#10 26.85 npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#10 27.04 npm warn deprecated tar@6.2.1: Old versions of tar are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#10 27.53 npm warn deprecated glob@10.5.0: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#10 30.45 
+#10 30.45 added 476 packages, and audited 477 packages in 30s
+#10 30.46 
+#10 30.46 52 packages are looking for funding
+#10 30.46   run `npm fund` for details
+#10 30.47 
+#10 30.47 4 high severity vulnerabilities
+#10 30.47 
+#10 30.47 To address all issues (including breaking changes), run:
+#10 30.47   npm audit fix --force
+#10 30.47 
+#10 30.47 Run `npm audit` for details.
+#10 30.47 npm notice
+#10 30.47 npm notice New major version of npm available! 10.8.2 -> 11.11.0
+#10 30.47 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.11.0
+#10 30.47 npm notice To update run: npm install -g npm@11.11.0
+#10 30.47 npm notice
+#10 DONE 31.0s
+
+#11 [6/7] COPY . .
+#11 DONE 0.4s
+
+#12 [7/7] RUN npm run build
+#12 0.528 
+#12 0.528 > cascata-backend@1.1.0 build
+#12 0.528 > tsc
+#12 0.528 
+#12 10.01 services/RateLimitService.ts(507,70): error TS2339: Property 'disabled' does not exist on type 'AuthSecurityConfig'.
+#12 10.01 services/RateLimitService.ts(539,70): error TS2339: Property 'disabled' does not exist on type 'AuthSecurityConfig'.
+#12 ERROR: process "/bin/sh -c npm run build" did not complete successfully: exit code: 2
+------
+ > [7/7] RUN npm run build:
+0.528 
+0.528 > cascata-backend@1.1.0 build
+0.528 > tsc
+0.528 
+10.01 services/RateLimitService.ts(507,70): error TS2339: Property 'disabled' does not exist on type 'AuthSecurityConfig'.
+10.01 services/RateLimitService.ts(539,70): error TS2339: Property 'disabled' does not exist on type 'AuthSecurityConfig'.
+------
+Dockerfile:19
+
+--------------------
+
+  17 |     COPY . .
+
+  18 |     
+
+  19 | >>> RUN npm run build
+
+  20 |     EXPOSE 3000
+
+  21 |     CMD ["node", "dist/server.js"]
+
+--------------------
+
+failed to solve: process "/bin/sh -c npm run build" did not complete successfully: exit code: 2
+
+ Image cascata-backend_engine Building 
+ Image cascata-db Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 981B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 688B done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/node:20-alpine
+#3 DONE 0.3s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 2B done
+#4 DONE 0.0s
+
+#5 [1/7] FROM docker.io/library/node:20-alpine@sha256:09e2b3d9726018aecf269bd35325f46bf75046a643a66d28360ec71132750ec8
+#5 resolve docker.io/library/node:20-alpine@sha256:09e2b3d9726018aecf269bd35325f46bf75046a643a66d28360ec71132750ec8 0.0s done
+#5 DONE 0.0s
+
+#6 [2/7] WORKDIR /app
+#6 CACHED
+
+#7 [internal] load build context
+#7 transferring context: 4.23kB 0.0s done
+#7 DONE 0.0s
+
+#8 [3/7] RUN apk add --no-cache certbot openssl docker-cli postgresql-client python3 make g++ tzdata zip unzip
+#8 0.913 ( 1/87) Installing libbz2 (1.0.8-r6)
+#8 0.922 ( 2/87) Installing libexpat (2.7.4-r0)
+#8 0.925 ( 3/87) Installing libffi (3.5.2-r0)
+#8 0.928 ( 4/87) Installing gdbm (1.26-r0)
+#8 0.931 ( 5/87) Installing xz-libs (5.8.2-r0)
+#8 0.936 ( 6/87) Installing mpdecimal (4.0.1-r0)
+.......
+#8 4.307 (87/87) Installing zip (3.0-r13)
+#8 4.315 Executing busybox-1.37.0-r30.trigger
+#8 4.326 Executing ca-certificates-20251003-r0.trigger
+#8 4.371 Executing postgresql-common-1.2-r2.trigger
+#8 4.378 * Setting postgresql18 as the default version
+#8 4.467 * WARNING: opening from cache https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/APKINDEX.tar.gz: No such file or directory
+#8 4.467 * WARNING: opening from cache https://dl-cdn.alpinelinux.org/alpine/v3.23/community/x86_64/APKINDEX.tar.gz: No such file or directory
+#8 4.475 OK: 363.8 MiB in 105 packages
+#8 DONE 4.7s
+
+#9 [4/7] COPY package*.json ./
+#9 DONE 0.1s
+
+#10 [5/7] RUN npm install
+#10 23.59 npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+#10 24.49 npm warn deprecated are-we-there-yet@2.0.0: This package is no longer supported.
+#10 25.10 npm warn deprecated prebuild-install@7.1.3: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.
+#10 25.40 npm warn deprecated npmlog@5.0.1: This package is no longer supported.
+#10 25.43 npm warn deprecated rimraf@3.0.2: Rimraf versions prior to v4 are no longer supported
+#10 25.90 npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+#10 26.06 npm warn deprecated gauge@3.0.2: This package is no longer supported.
+#10 26.74 npm warn deprecated multer@1.4.5-lts.2: Multer 1.x is impacted by a number of vulnerabilities, which have been patched in 2.x. You should upgrade to the latest 2.x version.
+#10 26.85 npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#10 27.04 npm warn deprecated tar@6.2.1: Old versions of tar are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#10 27.53 npm warn deprecated glob@10.5.0: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#10 30.45 
+#10 30.45 added 476 packages, and audited 477 packages in 30s
+#10 30.46 
+#10 30.46 52 packages are looking for funding
+#10 30.46   run `npm fund` for details
+#10 30.47 
+#10 30.47 4 high severity vulnerabilities
+#10 30.47 
+#10 30.47 To address all issues (including breaking changes), run:
+#10 30.47   npm audit fix --force
+#10 30.47 
+#10 30.47 Run `npm audit` for details.
+#10 30.47 npm notice
+#10 30.47 npm notice New major version of npm available! 10.8.2 -> 11.11.0
+#10 30.47 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.11.0
+#10 30.47 npm notice To update run: npm install -g npm@11.11.0
+#10 30.47 npm notice
+#10 DONE 31.0s
+
+#11 [6/7] COPY . .
+#11 DONE 0.4s
+
+#12 [7/7] RUN npm run build
+#12 0.528 
+#12 0.528 > cascata-backend@1.1.0 build
+#12 0.528 > tsc
+#12 0.528 
+#12 10.01 services/RateLimitService.ts(507,70): error TS2339: Property 'disabled' does not exist on type 'AuthSecurityConfig'.
+#12 10.01 services/RateLimitService.ts(539,70): error TS2339: Property 'disabled' does not exist on type 'AuthSecurityConfig'.
+#12 ERROR: process "/bin/sh -c npm run build" did not complete successfully: exit code: 2
+------
+ > [7/7] RUN npm run build:
+0.528 
+0.528 > cascata-backend@1.1.0 build
+0.528 > tsc
+0.528 
+10.01 services/RateLimitService.ts(507,70): error TS2339: Property 'disabled' does not exist on type 'AuthSecurityConfig'.
+10.01 services/RateLimitService.ts(539,70): error TS2339: Property 'disabled' does not exist on type 'AuthSecurityConfig'.
+------
+Dockerfile:19
+
+--------------------
+
+  17 |     COPY . .
+
+  18 |     
+
+  19 | >>> RUN npm run build
+
+  20 |     EXPOSE 3000
+
+  21 |     CMD ["node", "dist/server.js"]
+
+--------------------
+
+failed to solve: process "/bin/sh -c npm run build" did not complete successfully: exit code: 2
+

@@ -79,6 +79,7 @@ export interface AuthSecurityConfig {
     max_attempts: number;
     lockout_minutes: number;
     strategy: 'ip' | 'email' | 'hybrid';
+    disabled?: boolean;
 }
 
 export class RateLimitService {

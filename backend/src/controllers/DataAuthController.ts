@@ -53,7 +53,8 @@ export class DataAuthController {
         return {
             max_attempts: meta.max_attempts || 5,
             lockout_minutes: meta.lockout_minutes || 15,
-            strategy: meta.strategy || 'hybrid'
+            strategy: meta.strategy || 'hybrid',
+            disabled: meta.disabled || false
         };
     }
 
