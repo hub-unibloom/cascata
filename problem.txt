@@ -1,108 +1,98 @@
-Chamada de API do auth:
-Request URL
-https://teste.unibloom.com.br/auth/v1/signup?
-Referrer Policy
-strict-origin-when-cross-origin
-apikey
-5eb141918df96e46992669dde89e38405ab459db2f2b89a32d1df2a1a7fa5886
-authorization
-Bearer 5eb141918df96e46992669dde89e38405ab459db2f2b89a32d1df2a1a7fa5886
-content-type
-application/json; charset=utf-8
-dnt
-1
-referer
-https://preview.flutterflow.app/
-sec-ch-ua
-"Not:A-Brand";v="99", "Google Chrome";v="145", "Chromium";v="145"
-sec-ch-ua-mobile
-?0
-sec-ch-ua-platform
-"Linux"
-user-agent
-Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36
-x-client-info
-flutterflow
-x-supabase-api-version
-2024-01-01
+ => [backend_data 4/7] COPY package*.json ./                               0.2s
+ => CANCELED [backend_data 5/7] RUN npm install                           38.8s
+ => [nginx_controller 6/6] COPY index.js .                                 0.2s
+ => [nginx_controller] exporting to image                                  7.3s
+ => => exporting layers                                                    5.7s
+ => => exporting manifest sha256:dcd106d5acaa2fdf0c9d61936a6b1ec0058112ea  0.0s
+ => => exporting config sha256:52a796f344bb4cf11d0771c83790d767e344e9371a  0.0s
+ => => exporting attestation manifest sha256:9ca1b512dfc3c8786f80a0904fc2  0.0s
+ => => exporting manifest list sha256:0a5e65d5d535a413495f0972ee2e172c892  0.0s
+ => => naming to docker.io/library/cascata-nginx_controller:latest         0.0s
+ => => unpacking to docker.io/library/cascata-nginx_controller:latest      1.4s
+ => [nginx_controller] resolving provenance for metadata file              0.2s
+ => [db builder 3/3] RUN git clone --branch v1.6.7 --depth 1     https://  6.3s
+ => [db stage-1 3/9] COPY --from=builder /usr/local/lib/postgresql/pg_cro  0.1s
+ => [db stage-1 4/9] COPY --from=builder /usr/local/share/postgresql/exte  0.1s
+ => [db stage-1 5/9] COPY --from=builder /usr/local/lib/postgresql/bitcod  0.1s
+ => [db stage-1 6/9] RUN mkdir -p /cascata_extensions/lib /cascata_extens  0.3s
+ => [db stage-1 7/9] COPY docker-entrypoint-cascata.sh /usr/local/bin/doc  0.1s
+ => [db stage-1 8/9] COPY phantom_linker.sh /usr/local/bin/phantom_linker  0.1s
+ => [db stage-1 9/9] RUN chmod +x /usr/local/bin/docker-entrypoint-cascat  0.4s
+ => [db] exporting to image                                                0.8s
+ => => exporting layers                                                    0.4s
+ => => exporting manifest sha256:4c964b7b2fd7dd861b6a1a81ac2151374bbf3438  0.0s
+ => => exporting config sha256:007972fdb084c8931c7c03a9db619e5f8538236466  0.0s
+ => => exporting attestation manifest sha256:ce6247b3b3506e2c77adb316f783  0.0s
+ => => exporting manifest list sha256:b1c97fec61179f2ff7b3d07b652f0db791d  0.0s
+ => => naming to docker.io/library/cascata-db:latest                       0.0s
+ => => unpacking to docker.io/library/cascata-db:latest                    0.2s
+ => [db] resolving provenance for metadata file                            0.0s
+ => [frontend build 5/6] COPY . .                                          0.3s
+ => ERROR [frontend build 6/6] RUN npm run build                           6.9s
+------
+ > [frontend build 6/6] RUN npm run build:
+1.081 
+1.081 > cascata-frontend@1.0.0 build
+1.081 > vite build
+1.081 
+1.994 vite v5.4.21 building for production...
+2.117 transforming...
+6.739 ✓ 21 modules transformed.
+6.742 x Build failed in 4.70s
+6.742 error during build:
+6.742 [vite:esbuild] Transform failed with 2 errors:
+6.742 /app/pages/AuthConfig.tsx:1009:38: ERROR: Unexpected closing "button" tag does not match opening "div" tag
+6.742 /app/pages/AuthConfig.tsx:1010:38: ERROR: Unterminated regular expression
+6.742 file: /app/pages/AuthConfig.tsx:1009:38
+6.742 
+6.742 Unexpected closing "button" tag does not match opening "div" tag
+6.742 1007|                                      </div>
+6.742 1008|  
+6.742 1009|                                      </button>
+6.742    |                                        ^
+6.742 1010|                                  </div>
+6.742 1011|                              )}
+6.742 
+6.742 Unterminated regular expression
+6.742 1008|  
+6.742 1009|                                      </button>
+6.742 1010|                                  </div>
+6.742    |                                        ^
+6.742 1011|                              )}
+6.742 1012|                          </div>
+6.742 
+6.742     at failureErrorWithLog (/app/node_modules/esbuild/lib/main.js:1472:15)
+6.742     at /app/node_modules/esbuild/lib/main.js:755:50
+6.742     at responseCallbacks.<computed> (/app/node_modules/esbuild/lib/main.js:622:9)
+6.742     at handleIncomingPacket (/app/node_modules/esbuild/lib/main.js:677:12)
+6.742     at Socket.readFromStdout (/app/node_modules/esbuild/lib/main.js:600:7)
+6.742     at Socket.emit (node:events:524:28)
+[+] up 38/44 addChunk (node:internal/streams/readable:561:12)
+ ✔ Image nginx:alpine             Pulled                                   7.1s)
+ ✔ Image edoburu/pgbouncer:latest Pulled                                   5.7s
+ ✔ Image qdrant/qdrant:latest     Pulled                                   8.4s
+ ✔ Image redis:alpine             Pulled                                   7.7s
+ ⠙ Image cascata-backend_control  Building                                 58.5s
+ ⠙ Image cascata-frontend         Building                                 58.5s
+ ⠙ Image cascata-nginx_controller Building                                 58.5s
+ ⠙ Image cascata-backend_engine   Building                                 58.5s
+ ⠙ Image cascata-db               Building                                 58.5s
+ ⠙ Image cascata-backend_data     Building                                 58.5s
+Dockerfile:9
 
+--------------------
 
-Essa oura aqui foifeita logo em seguida e é feit ob falha, ou sejaa teve sucesso de 200 não na verdae daa verdade....
+   7 |     RUN npm install
 
+   8 |     COPY . .
 
-Request URL
-https://teste.unibloom.com.br/auth/v1/signup?
-Request Method
-OPTIONS
-Status Code
-200 OK
-Remote Address
-[2606:4700:3035::ac43:dfe9]:443
-Referrer Policy
-strict-origin-when-cross-origin
-access-control-allow-credentials
-true
-access-control-allow-headers
-Content-Type,Authorization,apikey,x-cascata-client,Prefer,Range,x-client-info,x-supabase-auth,content-profile,accept-profile,x-supabase-api-version,x-cascata-signature,x-cascata-event
-access-control-allow-methods
-GET,POST,PUT,PATCH,DELETE,OPTIONS
-access-control-expose-headers
-Content-Range, X-Total-Count, Link
-alt-svc
-h3=":443"; ma=86400
-cf-cache-status
-DYNAMIC
-cf-ray
-9d3da6230d8ce2a2-GIG
-date
-Thu, 26 Feb 2026 07:15:02 GMT
-nel
-{"report_to":"cf-nel","success_fraction":0.0,"max_age":604800}
-referrer-policy
-strict-origin-when-cross-origin
-report-to
-{"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=I55g1X%2BxcGZJ8mrW59qZGKsw7xpcGhdZymBdku3AqakuZ0L%2FQeY68qMtNp8j050fDZx%2F1N1HHM%2BRF6MRGx8AoMN3zD6PxbQ7vkqxARfuggpWKBmUZVvA%2FT1OfSPIhi8vBQ%3D%3D"}]}
-server
-cloudflare
-strict-transport-security
-max-age=31536000; includeSubDomains; preload
-x-content-type-options
-nosniff
-x-frame-options
-SAMEORIGIN
-x-permitted-cross-domain-policies
-none
-x-xss-protection
-1; mode=block
-:authority
-teste.unibloom.com.br
-:method
-OPTIONS
-:path
-/auth/v1/signup?
-:scheme
-https
-accept
-*/*
-accept-encoding
-gzip, deflate, br, zstd
-accept-language
-pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7
-access-control-request-headers
-apikey,authorization,content-type,x-client-info,x-supabase-api-version
-access-control-request-method
-POST
-origin
-https://preview.flutterflow.app
-priority
-u=1, i
-referer
-https://preview.flutterflow.app/
-sec-fetch-dest
-empty
-sec-fetch-mode
-cors
-sec-fetch-site
-cross-site
-user-agent
-Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36
+   9 | >>> RUN npm run build
+
+  10 |     
+
+  11 |     # Production Stage
+
+--------------------
+
+target frontend: failed to solve: process "/bin/sh -c npm run build" did not complete successfully: exit code: 1
+

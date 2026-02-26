@@ -1005,8 +1005,6 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                                         />
                                         <p className="text-[10px] text-slate-400 mt-2 px-1">If set, a POST request will be sent here every time a user successfully logs in.</p>
                                     </div>
-
-                                    </button>
                                 </div>
                             )}
                         </div>
@@ -1211,396 +1209,396 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                         </div>
                     </div>
                 )}
-        </div>
+            </div>
 
-            {/* STRATEGY CONFIG MODAL */ }
-    {
-        showConfigModal && strategyConfig && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
-                <div className="bg-white rounded-[3.5rem] max-w-2xl w-full p-12 shadow-2xl flex flex-col max-h-[90vh]">
-                    <div className="flex justify-between items-center mb-8">
-                        <div>
-                            <h3 className="text-3xl font-black text-slate-900 capitalize">{selectedStrategy} Settings</h3>
-                            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-1">Lifecycle & Security</p>
-                        </div>
-                        <button onClick={() => setShowConfigModal(false)} className="p-3 bg-slate-50 rounded-full hover:bg-slate-100"><X size={20} /></button>
-                    </div>
+            {/* STRATEGY CONFIG MODAL */}
+            {
+                showConfigModal && strategyConfig && (
+                    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+                        <div className="bg-white rounded-[3.5rem] max-w-2xl w-full p-12 shadow-2xl flex flex-col max-h-[90vh]">
+                            <div className="flex justify-between items-center mb-8">
+                                <div>
+                                    <h3 className="text-3xl font-black text-slate-900 capitalize">{selectedStrategy} Settings</h3>
+                                    <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-1">Lifecycle & Security</p>
+                                </div>
+                                <button onClick={() => setShowConfigModal(false)} className="p-3 bg-slate-50 rounded-full hover:bg-slate-100"><X size={20} /></button>
+                            </div>
 
-                    <div className="flex-1 overflow-y-auto space-y-8 pr-2">
-                        <div className="grid grid-cols-2 gap-6">
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Status</label>
-                                <button
-                                    onClick={() => setStrategyConfig({ ...strategyConfig, enabled: !strategyConfig.enabled })}
-                                    className={`w-full py-3 rounded-xl border flex items-center justify-center gap-2 transition-all ${strategyConfig.enabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
-                                >
-                                    {strategyConfig.enabled ? <><CheckCircle2 size={16} /> Active Workflow</> : 'Inactive Workflow'}
-                                </button>
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">JWT Expiration</label>
-                                <input value={strategyConfig.jwt_expiration || '24h'} onChange={(e) => setStrategyConfig({ ...strategyConfig, jwt_expiration: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none" />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Refresh Validity (Days)</label>
-                                <input type="number" value={strategyConfig.refresh_validity_days || 30} onChange={(e) => setStrategyConfig({ ...strategyConfig, refresh_validity_days: parseInt(e.target.value) })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none" />
-                            </div>
-                        </div>
+                            <div className="flex-1 overflow-y-auto space-y-8 pr-2">
+                                <div className="grid grid-cols-2 gap-6">
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Status</label>
+                                        <button
+                                            onClick={() => setStrategyConfig({ ...strategyConfig, enabled: !strategyConfig.enabled })}
+                                            className={`w-full py-3 rounded-xl border flex items-center justify-center gap-2 transition-all ${strategyConfig.enabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
+                                        >
+                                            {strategyConfig.enabled ? <><CheckCircle2 size={16} /> Active Workflow</> : 'Inactive Workflow'}
+                                        </button>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">JWT Expiration</label>
+                                        <input value={strategyConfig.jwt_expiration || '24h'} onChange={(e) => setStrategyConfig({ ...strategyConfig, jwt_expiration: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none" />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Refresh Validity (Days)</label>
+                                        <input type="number" value={strategyConfig.refresh_validity_days || 30} onChange={(e) => setStrategyConfig({ ...strategyConfig, refresh_validity_days: parseInt(e.target.value) })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none" />
+                                    </div>
+                                </div>
 
-                        {/* EDUCATIONAL SNIPPET FOR CUSTOM STRATEGIES */}
-                        {!isOauth(selectedStrategy || '') && selectedStrategy !== 'email' && (
-                            <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800 shadow-xl overflow-hidden relative group">
-                                <div className="flex justify-between items-center mb-4">
-                                    <h4 className="text-emerald-400 font-black text-xs uppercase tracking-widest flex items-center gap-2"><Code size={14} /> Integration Snippet</h4>
-                                    <button onClick={() => safeCopy(`
+                                {/* EDUCATIONAL SNIPPET FOR CUSTOM STRATEGIES */}
+                                {!isOauth(selectedStrategy || '') && selectedStrategy !== 'email' && (
+                                    <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800 shadow-xl overflow-hidden relative group">
+                                        <div className="flex justify-between items-center mb-4">
+                                            <h4 className="text-emerald-400 font-black text-xs uppercase tracking-widest flex items-center gap-2"><Code size={14} /> Integration Snippet</h4>
+                                            <button onClick={() => safeCopy(`
 // Universal Login (Any Provider)
 const { user, session } = await cascata.auth.signIn({
   provider: '${selectedStrategy}',
   identifier: 'unique_user_id',
   password: 'user_password'
 });`)} className="text-slate-500 hover:text-white transition-colors p-1"><Copy size={14} /></button>
-                                </div>
-                                <pre className="text-[10px] font-mono text-slate-300 whitespace-pre-wrap leading-relaxed">
-                                    {`// Universal Login (Any Provider)
+                                        </div>
+                                        <pre className="text-[10px] font-mono text-slate-300 whitespace-pre-wrap leading-relaxed">
+                                            {`// Universal Login (Any Provider)
 const { user, session } = await cascata.auth.signIn({
   provider: '${selectedStrategy}',
   identifier: 'unique_user_id',
   password: 'user_password'
 });`}
-                                </pre>
-                                <div className="mt-4 p-3 bg-white/5 rounded-xl border border-white/10 text-[10px] text-slate-400 leading-relaxed">
-                                    Use <strong>Universal Login</strong> to authenticate with this custom strategy.
-                                    Unlike standard email login, this endpoint accepts any provider identifier you define.
-                                </div>
-                            </div>
-                        )}
-
-                        {/* RESTORED OTP CONFIGURATION BLOCK (Only for non-OAuth strategies) */}
-                        {!isOauth(selectedStrategy || '') && selectedStrategy !== 'email' && (
-                            <div className="col-span-2 bg-indigo-50 border border-indigo-100 p-6 rounded-3xl space-y-4">
-                                <h5 className="font-bold text-indigo-900 text-sm flex items-center gap-2"><Hash size={14} /> Custom OTP Configuration</h5>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Code Length</label>
-                                        <input
-                                            type="number"
-                                            value={strategyConfig.otp_config?.length || 6}
-                                            onChange={(e) => setStrategyConfig({ ...strategyConfig, otp_config: { ...strategyConfig.otp_config, length: parseInt(e.target.value) } })}
-                                            className="w-full mt-1 bg-white border-none rounded-xl py-2 px-3 text-xs font-bold"
-                                        />
+                                        </pre>
+                                        <div className="mt-4 p-3 bg-white/5 rounded-xl border border-white/10 text-[10px] text-slate-400 leading-relaxed">
+                                            Use <strong>Universal Login</strong> to authenticate with this custom strategy.
+                                            Unlike standard email login, this endpoint accepts any provider identifier you define.
+                                        </div>
                                     </div>
-                                    <div>
-                                        <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Charset</label>
-                                        <select
-                                            value={strategyConfig.otp_config?.charset || 'numeric'}
-                                            onChange={(e) => setStrategyConfig({ ...strategyConfig, otp_config: { ...strategyConfig.otp_config, charset: e.target.value } })}
-                                            className="w-full mt-1 bg-white border-none rounded-xl py-2 px-3 text-xs font-bold outline-none"
-                                        >
-                                            <option value="numeric">Numeric (0-9)</option>
-                                            <option value="alphanumeric">Alphanumeric (A-Z, 0-9)</option>
-                                            <option value="alpha">Alpha (A-Z)</option>
-                                            <option value="hex">Hex (0-9, A-F)</option>
-                                        </select>
-                                    </div>
-                                    <div className="col-span-2">
-                                        <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Identifier Regex (Backend Validation)</label>
-                                        <input
-                                            value={strategyConfig.otp_config?.regex_validation || ''}
-                                            onChange={(e) => setStrategyConfig({ ...strategyConfig, otp_config: { ...strategyConfig.otp_config, regex_validation: e.target.value } })}
-                                            placeholder="e.g. ^\d{11}$ (CPF)"
-                                            className="w-full mt-1 bg-white border-none rounded-xl py-2 px-3 text-xs font-mono font-bold"
-                                        />
-                                    </div>
-                                    <div className="col-span-2">
-                                        <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">OTP Webhook URL</label>
-                                        <input
-                                            value={strategyConfig.webhook_url || ''}
-                                            onChange={(e) => setStrategyConfig({ ...strategyConfig, webhook_url: e.target.value })}
-                                            placeholder="https://n8n.webhook/send-otp"
-                                            className="w-full mt-1 bg-white border-none rounded-xl py-2 px-3 text-xs font-bold"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                        )}
+                                )}
 
-                        <div className="space-y-3">
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Authorized Origins (CORS/Redirects)</label>
-                                <div className="flex gap-2">
-                                    <input
-                                        value={strategyConfig.newRule || ''}
-                                        onChange={(e) => setStrategyConfig({ ...strategyConfig, newRule: e.target.value })}
-                                        placeholder="https://meu-app.com"
-                                        className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-indigo-500/20"
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter') {
-                                                addRuleToStrategy(strategyConfig.newRule || '', false);
-                                            }
-                                        }}
-                                    />
-                                    <button onClick={() => {
-                                        addRuleToStrategy(strategyConfig.newRule || '', false);
-                                    }} className="px-5 py-3 bg-indigo-50 text-indigo-600 font-bold text-[10px] uppercase rounded-xl hover:bg-indigo-100 transition-colors shrink-0">Add Origin</button>
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                {strategyConfig.rules?.map((rule: any, idx: number) => (
-                                    <div key={idx} className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                        <span className="text-xs font-mono font-bold text-slate-600">{rule.origin}</span>
-                                        <button onClick={() => removeRuleFromStrategy(rule.origin)} className="text-rose-400 hover:text-rose-600"><X size={14} /></button>
-                                    </div>
-                                ))}
-                                {(!strategyConfig.rules || strategyConfig.rules.length === 0) && <p className="text-xs text-slate-400 italic">No origin rules defined (Public).</p>}
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="pt-8 border-t border-slate-100 flex justify-end gap-4 mt-auto">
-                        <button onClick={() => setShowConfigModal(false)} className="px-6 py-4 rounded-2xl text-xs font-black text-slate-400 uppercase tracking-widest hover:bg-slate-50">Cancel</button>
-                        <button onClick={handleSaveStrategyConfig} className="px-8 py-4 bg-indigo-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl hover:bg-indigo-700">Save Changes</button>
-                    </div>
-                </div>
-            </div>
-        )
-    }
-
-    {/* CREATE USER MODAL */ }
-    {
-        showCreateUser && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
-                <div className="bg-white rounded-[3rem] w-full max-w-md p-10 shadow-2xl relative">
-                    <button onClick={() => setShowCreateUser(false)} className="absolute top-8 right-8 text-slate-300 hover:text-slate-900"><X size={24} /></button>
-                    <h3 className="text-2xl font-black text-slate-900 mb-6">Create User</h3>
-                    <div className="space-y-4">
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Identifier (Email/Phone)</label>
-                            <input value={createUserForm.identifier} onChange={(e) => setCreateUserForm({ ...createUserForm, identifier: e.target.value })} className="w-full bg-slate-50 border-none rounded-2xl py-3 px-4 text-sm font-bold outline-none" placeholder="user@example.com" />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Password</label>
-                            <input type="password" value={createUserForm.password} onChange={(e) => setCreateUserForm({ ...createUserForm, password: e.target.value })} className="w-full bg-slate-50 border-none rounded-2xl py-3 px-4 text-sm font-bold outline-none" placeholder="••••••••" />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Provider</label>
-                            <select value={createUserForm.provider} onChange={(e) => setCreateUserForm({ ...createUserForm, provider: e.target.value })} className="w-full bg-slate-50 border-none rounded-2xl py-3 px-4 text-sm font-bold outline-none">
-                                <option value="email">Email</option>
-                                <option value="phone">Phone</option>
-                                <option value="cpf">CPF</option>
-                                <option value="gamertag">Gamertag</option>
-                            </select>
-                        </div>
-                        <button onClick={handleCreateUser} disabled={executing} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl mt-4 hover:bg-indigo-700 transition-all">
-                            {executing ? <Loader2 className="animate-spin mx-auto" /> : 'Create User'}
-                        </button>
-                    </div>
-                </div>
-            </div>
-        )
-    }
-
-    {/* NEW STRATEGY MODAL */ }
-    {
-        showNewStrategy && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
-                <div className="bg-white rounded-[3rem] w-full max-w-sm p-10 shadow-2xl relative">
-                    <h3 className="text-xl font-black text-slate-900 mb-4">Add Custom Strategy</h3>
-                    <input autoFocus value={newStrategyName} onChange={(e) => setNewStrategyName(e.target.value)} placeholder="Strategy Name (e.g. biometrics)" className="w-full bg-slate-50 border-none rounded-2xl py-3 px-4 text-sm font-bold outline-none mb-6" />
-                    <div className="flex gap-4">
-                        <button onClick={() => setShowNewStrategy(false)} className="flex-1 py-3 text-slate-400 font-bold text-xs uppercase hover:bg-slate-50 rounded-xl">Cancel</button>
-                        <button onClick={handleCreateCustomStrategy} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold text-xs uppercase shadow-lg hover:bg-indigo-700">Create</button>
-                    </div>
-                </div>
-            </div>
-        )
-    }
-
-    {/* PROVIDER CONFIG MODAL */ }
-    {
-        showProviderConfig && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
-                <div className="bg-white rounded-[3rem] w-full max-w-md p-10 shadow-2xl relative">
-                    <button onClick={() => setShowProviderConfig(null)} className="absolute top-8 right-8 text-slate-300 hover:text-slate-900 transition-colors"><X size={24} /></button>
-                    <div className="flex flex-col items-center mb-6">
-                        <div className="w-16 h-16 bg-slate-900 text-white rounded-[1.5rem] flex items-center justify-center shadow-xl mb-4">
-                            {showProviderConfig === 'github' ? <Github size={32} /> : <Globe size={32} />}
-                        </div>
-                        <h3 className="text-2xl font-black text-slate-900 tracking-tight capitalize">Configure {showProviderConfig}</h3>
-                        <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">OAuth Integration</p>
-                    </div>
-
-                    <div className="space-y-4">
-                        <div className="space-y-1">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Client ID</label>
-                            <input
-                                value={providerConfig.client_id || ''}
-                                onChange={(e) => setProviderConfig({ ...providerConfig, client_id: e.target.value })}
-                                className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-mono text-indigo-600"
-                                placeholder="Received from Provider"
-                            />
-                        </div>
-                        <div className="space-y-1">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Client Secret</label>
-                            <input
-                                type="password"
-                                value={providerConfig.client_secret || ''}
-                                onChange={(e) => setProviderConfig({ ...providerConfig, client_secret: e.target.value })}
-                                className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-mono"
-                                placeholder="••••••••••••••••"
-                            />
-                        </div>
-
-                        <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl">
-                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 block flex items-center gap-1"><Link size={10} /> Callback URL (Redirect URI)</label>
-                            <div className="flex items-center gap-2 bg-white border border-slate-200 p-2 rounded-xl">
-                                <code className="text-[10px] text-slate-600 font-mono truncate flex-1">{getCallbackUrl()}</code>
-                                <button onClick={() => safeCopy(getCallbackUrl())} className="p-1.5 hover:bg-slate-100 rounded-lg text-indigo-500"><Copy size={12} /></button>
-                            </div>
-                            <p className="text-[9px] text-slate-400 mt-2 px-1 leading-tight">
-                                Add this URL to your OAuth App settings in the Provider's Developer Console.
-                            </p>
-                        </div>
-
-                        <button onClick={handleSaveProviderConfig} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 mt-2">
-                            <CheckCircle2 size={16} /> Save Configuration
-                        </button>
-                    </div>
-                </div>
-            </div>
-        )
-    }
-
-    {/* DELETE CONFIRM */ }
-    {
-        showDeleteModal && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[600] flex items-center justify-center p-8 animate-in zoom-in-95">
-                <div className="bg-white rounded-[3rem] w-full max-w-sm p-10 shadow-2xl text-center border border-rose-100">
-                    <AlertCircle size={48} className="text-rose-500 mx-auto mb-4" />
-                    <h3 className="text-xl font-black text-slate-900 mb-2">Delete User?</h3>
-                    <p className="text-xs text-slate-500 mb-6">To confirm, type the User UUID below.</p>
-                    <code className="block bg-slate-100 p-2 rounded-lg text-[10px] font-mono mb-4 text-slate-600 select-all">{showDeleteModal.id}</code>
-                    <input value={deleteConfirmUuid} onChange={(e) => setDeleteConfirmUuid(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold text-center outline-none mb-6 focus:ring-4 focus:ring-rose-500/10" />
-                    <div className="flex gap-4">
-                        <button onClick={() => setShowDeleteModal(null)} className="flex-1 py-3 text-slate-400 font-bold text-xs uppercase hover:bg-slate-50 rounded-xl">Cancel</button>
-                        <button onClick={handleDeleteUser} disabled={deleteConfirmUuid !== showDeleteModal.id || executing} className="flex-1 py-3 bg-rose-600 text-white rounded-xl font-bold text-xs uppercase shadow-lg hover:bg-rose-700 disabled:opacity-50">Delete</button>
-                    </div>
-                </div>
-            </div>
-        )
-    }
-
-    {/* USER DETAIL MODAL (LINK IDENTITIES) */ }
-    {
-        showUserModal && selectedUser && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
-                <div className="bg-white rounded-[3.5rem] w-full max-w-2xl p-12 shadow-2xl border border-slate-100 flex flex-col max-h-[90vh]">
-                    <header className="flex justify-between items-start mb-8">
-                        <div>
-                            <h3 className="text-3xl font-black text-slate-900">User Details</h3>
-                            <div className="flex items-center gap-2 mt-2">
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest ${selectedUser.banned ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}`}>{selectedUser.banned ? 'Banned' : 'Active'}</span>
-                                <span className="text-xs text-slate-400 font-mono">{selectedUser.id}</span>
-                            </div>
-                        </div>
-                        <button onClick={() => setShowUserModal(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400"><X size={24} /></button>
-                    </header>
-
-                    <div className="flex-1 overflow-y-auto space-y-8">
-                        {/* IDENTITIES LIST */}
-                        <div className="space-y-4">
-                            <div className="flex justify-between items-center">
-                                <h4 className="text-sm font-black text-slate-900">Linked Identities</h4>
-                                <button onClick={() => setShowLinkIdentity(true)} className="text-[10px] font-bold text-indigo-600 uppercase hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-all flex items-center gap-1"><Plus size={12} /> Link New</button>
-                            </div>
-
-                            {showLinkIdentity && (
-                                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 animate-in slide-in-from-top-2 space-y-3">
-                                    <div className="grid grid-cols-3 gap-3">
-                                        <select value={linkIdentityForm.provider} onChange={e => setLinkIdentityForm({ ...linkIdentityForm, provider: e.target.value })} className="bg-white border-none rounded-xl py-2 px-3 text-xs font-bold outline-none">
-                                            {Object.keys(strategies).filter(k => strategies[k].enabled).map(k => <option key={k} value={k}>{k}</option>)}
-                                        </select>
-                                        <input value={linkIdentityForm.identifier} onChange={e => setLinkIdentityForm({ ...linkIdentityForm, identifier: e.target.value })} placeholder="Identifier" className="col-span-2 bg-white border-none rounded-xl py-2 px-3 text-xs font-bold outline-none" />
-                                    </div>
-                                    <input type="password" value={linkIdentityForm.password} onChange={e => setLinkIdentityForm({ ...linkIdentityForm, password: e.target.value })} placeholder="Password (Optional)" className="w-full bg-white border-none rounded-xl py-2 px-3 text-xs font-bold outline-none" />
-                                    <div className="flex gap-2 justify-end">
-                                        <button onClick={() => setShowLinkIdentity(false)} className="text-[10px] font-bold text-slate-400 px-3 py-2">Cancel</button>
-                                        <button onClick={handleLinkIdentity} className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-[10px] font-bold uppercase hover:bg-indigo-700">Link</button>
-                                    </div>
-                                </div>
-                            )}
-
-                            <div className="space-y-2">
-                                {selectedUser.identities?.map((id: any) => (
-                                    <div key={id.id} className="flex items-center justify-between bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-sm text-indigo-600">
-                                                {id.provider === 'email' ? <Mail size={16} /> : id.provider === 'phone' ? <Smartphone size={16} /> : <Globe size={16} />}
+                                {/* RESTORED OTP CONFIGURATION BLOCK (Only for non-OAuth strategies) */}
+                                {!isOauth(selectedStrategy || '') && selectedStrategy !== 'email' && (
+                                    <div className="col-span-2 bg-indigo-50 border border-indigo-100 p-6 rounded-3xl space-y-4">
+                                        <h5 className="font-bold text-indigo-900 text-sm flex items-center gap-2"><Hash size={14} /> Custom OTP Configuration</h5>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Code Length</label>
+                                                <input
+                                                    type="number"
+                                                    value={strategyConfig.otp_config?.length || 6}
+                                                    onChange={(e) => setStrategyConfig({ ...strategyConfig, otp_config: { ...strategyConfig.otp_config, length: parseInt(e.target.value) } })}
+                                                    className="w-full mt-1 bg-white border-none rounded-xl py-2 px-3 text-xs font-bold"
+                                                />
                                             </div>
                                             <div>
-                                                <p className="text-xs font-bold text-slate-700">{id.identifier}</p>
-                                                <p className="text-[10px] text-slate-400 font-bold uppercase">{id.provider}</p>
+                                                <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Charset</label>
+                                                <select
+                                                    value={strategyConfig.otp_config?.charset || 'numeric'}
+                                                    onChange={(e) => setStrategyConfig({ ...strategyConfig, otp_config: { ...strategyConfig.otp_config, charset: e.target.value } })}
+                                                    className="w-full mt-1 bg-white border-none rounded-xl py-2 px-3 text-xs font-bold outline-none"
+                                                >
+                                                    <option value="numeric">Numeric (0-9)</option>
+                                                    <option value="alphanumeric">Alphanumeric (A-Z, 0-9)</option>
+                                                    <option value="alpha">Alpha (A-Z)</option>
+                                                    <option value="hex">Hex (0-9, A-F)</option>
+                                                </select>
+                                            </div>
+                                            <div className="col-span-2">
+                                                <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Identifier Regex (Backend Validation)</label>
+                                                <input
+                                                    value={strategyConfig.otp_config?.regex_validation || ''}
+                                                    onChange={(e) => setStrategyConfig({ ...strategyConfig, otp_config: { ...strategyConfig.otp_config, regex_validation: e.target.value } })}
+                                                    placeholder="e.g. ^\d{11}$ (CPF)"
+                                                    className="w-full mt-1 bg-white border-none rounded-xl py-2 px-3 text-xs font-mono font-bold"
+                                                />
+                                            </div>
+                                            <div className="col-span-2">
+                                                <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">OTP Webhook URL</label>
+                                                <input
+                                                    value={strategyConfig.webhook_url || ''}
+                                                    onChange={(e) => setStrategyConfig({ ...strategyConfig, webhook_url: e.target.value })}
+                                                    placeholder="https://n8n.webhook/send-otp"
+                                                    className="w-full mt-1 bg-white border-none rounded-xl py-2 px-3 text-xs font-bold"
+                                                />
                                             </div>
                                         </div>
-                                        <button onClick={() => handleUnlinkIdentity(id.id)} className="p-2 text-slate-300 hover:text-rose-600 hover:bg-white rounded-lg transition-all" title="Unlink"><Unlink size={16} /></button>
                                     </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* ACTIVE SESSIONS */}
-                        <div className="space-y-4 pt-4 border-t border-slate-100">
-                            <div className="flex justify-between items-center">
-                                <h4 className="text-sm font-black text-slate-900">Active Sessions</h4>
-                                {activeSessions.length > 1 && (
-                                    <button onClick={handleRevokeOtherSessions} disabled={executing} className="text-[10px] font-bold text-rose-600 uppercase hover:bg-rose-50 px-3 py-1.5 rounded-lg transition-all flex items-center gap-1"><Ban size={12} /> Revoke All Others</button>
                                 )}
-                            </div>
-                            {loadingSessions ? (
-                                <div className="flex justify-center py-4"><Loader2 className="animate-spin text-indigo-400" size={20} /></div>
-                            ) : activeSessions.length === 0 ? (
-                                <p className="text-xs text-slate-400 italic">No active sessions found.</p>
-                            ) : (
-                                <div className="space-y-2">
-                                    {activeSessions.map((s: any) => (
-                                        <div key={s.id} className="flex items-center justify-between bg-slate-50 p-4 rounded-2xl border border-slate-100 gap-4">
-                                            <div className="flex items-start gap-3 overflow-hidden">
-                                                <div className="w-8 h-8 shrink-0 bg-white rounded-lg flex items-center justify-center shadow-sm text-indigo-600 mt-0.5">
-                                                    <Server size={14} />
-                                                </div>
-                                                <div className="overflow-hidden">
-                                                    <p className="text-xs font-bold text-slate-700 truncate min-w-[100px]" title={s.user_agent}>{s.user_agent || 'Unknown Device'}</p>
-                                                    <div className="flex items-center gap-2 mt-1">
-                                                        <span className="text-[10px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded font-mono truncate">{s.ip_address || 'IP Unknown'}</span>
-                                                        <span className="text-[9px] text-slate-400 font-bold uppercase shrink-0">Created: {new Date(s.created_at).toLocaleDateString()}</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <button onClick={() => handleRevokeSession(s.id)} disabled={executing} className="shrink-0 p-2 text-rose-400 hover:text-rose-600 hover:bg-white rounded-lg transition-all" title="Revoke Device">
-                                                <X size={16} />
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
 
-                        {/* ACTIONS */}
-                        <div className="pt-6 border-t border-slate-100 flex gap-4">
-                            <button onClick={() => handleBlockUser(selectedUser)} className={`flex-1 py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${selectedUser.banned ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-amber-100 text-amber-700 hover:bg-amber-200'}`}>
-                                {selectedUser.banned ? 'Unban User' : 'Ban User'}
-                            </button>
-                            <button onClick={() => { setShowDeleteModal({ id: selectedUser.id }); }} className="flex-1 py-4 bg-rose-50 text-rose-600 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all">
-                                Delete User
-                            </button>
+                                <div className="space-y-3">
+                                    <div className="flex flex-col gap-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Authorized Origins (CORS/Redirects)</label>
+                                        <div className="flex gap-2">
+                                            <input
+                                                value={strategyConfig.newRule || ''}
+                                                onChange={(e) => setStrategyConfig({ ...strategyConfig, newRule: e.target.value })}
+                                                placeholder="https://meu-app.com"
+                                                className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        addRuleToStrategy(strategyConfig.newRule || '', false);
+                                                    }
+                                                }}
+                                            />
+                                            <button onClick={() => {
+                                                addRuleToStrategy(strategyConfig.newRule || '', false);
+                                            }} className="px-5 py-3 bg-indigo-50 text-indigo-600 font-bold text-[10px] uppercase rounded-xl hover:bg-indigo-100 transition-colors shrink-0">Add Origin</button>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {strategyConfig.rules?.map((rule: any, idx: number) => (
+                                            <div key={idx} className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                                <span className="text-xs font-mono font-bold text-slate-600">{rule.origin}</span>
+                                                <button onClick={() => removeRuleFromStrategy(rule.origin)} className="text-rose-400 hover:text-rose-600"><X size={14} /></button>
+                                            </div>
+                                        ))}
+                                        {(!strategyConfig.rules || strategyConfig.rules.length === 0) && <p className="text-xs text-slate-400 italic">No origin rules defined (Public).</p>}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="pt-8 border-t border-slate-100 flex justify-end gap-4 mt-auto">
+                                <button onClick={() => setShowConfigModal(false)} className="px-6 py-4 rounded-2xl text-xs font-black text-slate-400 uppercase tracking-widest hover:bg-slate-50">Cancel</button>
+                                <button onClick={handleSaveStrategyConfig} className="px-8 py-4 bg-indigo-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl hover:bg-indigo-700">Save Changes</button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            </div>
-        )
-    }
+                )
+            }
 
-            </div >
-            );
+            {/* CREATE USER MODAL */}
+            {
+                showCreateUser && (
+                    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+                        <div className="bg-white rounded-[3rem] w-full max-w-md p-10 shadow-2xl relative">
+                            <button onClick={() => setShowCreateUser(false)} className="absolute top-8 right-8 text-slate-300 hover:text-slate-900"><X size={24} /></button>
+                            <h3 className="text-2xl font-black text-slate-900 mb-6">Create User</h3>
+                            <div className="space-y-4">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Identifier (Email/Phone)</label>
+                                    <input value={createUserForm.identifier} onChange={(e) => setCreateUserForm({ ...createUserForm, identifier: e.target.value })} className="w-full bg-slate-50 border-none rounded-2xl py-3 px-4 text-sm font-bold outline-none" placeholder="user@example.com" />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Password</label>
+                                    <input type="password" value={createUserForm.password} onChange={(e) => setCreateUserForm({ ...createUserForm, password: e.target.value })} className="w-full bg-slate-50 border-none rounded-2xl py-3 px-4 text-sm font-bold outline-none" placeholder="••••••••" />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Provider</label>
+                                    <select value={createUserForm.provider} onChange={(e) => setCreateUserForm({ ...createUserForm, provider: e.target.value })} className="w-full bg-slate-50 border-none rounded-2xl py-3 px-4 text-sm font-bold outline-none">
+                                        <option value="email">Email</option>
+                                        <option value="phone">Phone</option>
+                                        <option value="cpf">CPF</option>
+                                        <option value="gamertag">Gamertag</option>
+                                    </select>
+                                </div>
+                                <button onClick={handleCreateUser} disabled={executing} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl mt-4 hover:bg-indigo-700 transition-all">
+                                    {executing ? <Loader2 className="animate-spin mx-auto" /> : 'Create User'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* NEW STRATEGY MODAL */}
+            {
+                showNewStrategy && (
+                    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+                        <div className="bg-white rounded-[3rem] w-full max-w-sm p-10 shadow-2xl relative">
+                            <h3 className="text-xl font-black text-slate-900 mb-4">Add Custom Strategy</h3>
+                            <input autoFocus value={newStrategyName} onChange={(e) => setNewStrategyName(e.target.value)} placeholder="Strategy Name (e.g. biometrics)" className="w-full bg-slate-50 border-none rounded-2xl py-3 px-4 text-sm font-bold outline-none mb-6" />
+                            <div className="flex gap-4">
+                                <button onClick={() => setShowNewStrategy(false)} className="flex-1 py-3 text-slate-400 font-bold text-xs uppercase hover:bg-slate-50 rounded-xl">Cancel</button>
+                                <button onClick={handleCreateCustomStrategy} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold text-xs uppercase shadow-lg hover:bg-indigo-700">Create</button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* PROVIDER CONFIG MODAL */}
+            {
+                showProviderConfig && (
+                    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+                        <div className="bg-white rounded-[3rem] w-full max-w-md p-10 shadow-2xl relative">
+                            <button onClick={() => setShowProviderConfig(null)} className="absolute top-8 right-8 text-slate-300 hover:text-slate-900 transition-colors"><X size={24} /></button>
+                            <div className="flex flex-col items-center mb-6">
+                                <div className="w-16 h-16 bg-slate-900 text-white rounded-[1.5rem] flex items-center justify-center shadow-xl mb-4">
+                                    {showProviderConfig === 'github' ? <Github size={32} /> : <Globe size={32} />}
+                                </div>
+                                <h3 className="text-2xl font-black text-slate-900 tracking-tight capitalize">Configure {showProviderConfig}</h3>
+                                <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">OAuth Integration</p>
+                            </div>
+
+                            <div className="space-y-4">
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Client ID</label>
+                                    <input
+                                        value={providerConfig.client_id || ''}
+                                        onChange={(e) => setProviderConfig({ ...providerConfig, client_id: e.target.value })}
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-mono text-indigo-600"
+                                        placeholder="Received from Provider"
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Client Secret</label>
+                                    <input
+                                        type="password"
+                                        value={providerConfig.client_secret || ''}
+                                        onChange={(e) => setProviderConfig({ ...providerConfig, client_secret: e.target.value })}
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-mono"
+                                        placeholder="••••••••••••••••"
+                                    />
+                                </div>
+
+                                <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl">
+                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 block flex items-center gap-1"><Link size={10} /> Callback URL (Redirect URI)</label>
+                                    <div className="flex items-center gap-2 bg-white border border-slate-200 p-2 rounded-xl">
+                                        <code className="text-[10px] text-slate-600 font-mono truncate flex-1">{getCallbackUrl()}</code>
+                                        <button onClick={() => safeCopy(getCallbackUrl())} className="p-1.5 hover:bg-slate-100 rounded-lg text-indigo-500"><Copy size={12} /></button>
+                                    </div>
+                                    <p className="text-[9px] text-slate-400 mt-2 px-1 leading-tight">
+                                        Add this URL to your OAuth App settings in the Provider's Developer Console.
+                                    </p>
+                                </div>
+
+                                <button onClick={handleSaveProviderConfig} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 mt-2">
+                                    <CheckCircle2 size={16} /> Save Configuration
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* DELETE CONFIRM */}
+            {
+                showDeleteModal && (
+                    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[600] flex items-center justify-center p-8 animate-in zoom-in-95">
+                        <div className="bg-white rounded-[3rem] w-full max-w-sm p-10 shadow-2xl text-center border border-rose-100">
+                            <AlertCircle size={48} className="text-rose-500 mx-auto mb-4" />
+                            <h3 className="text-xl font-black text-slate-900 mb-2">Delete User?</h3>
+                            <p className="text-xs text-slate-500 mb-6">To confirm, type the User UUID below.</p>
+                            <code className="block bg-slate-100 p-2 rounded-lg text-[10px] font-mono mb-4 text-slate-600 select-all">{showDeleteModal.id}</code>
+                            <input value={deleteConfirmUuid} onChange={(e) => setDeleteConfirmUuid(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold text-center outline-none mb-6 focus:ring-4 focus:ring-rose-500/10" />
+                            <div className="flex gap-4">
+                                <button onClick={() => setShowDeleteModal(null)} className="flex-1 py-3 text-slate-400 font-bold text-xs uppercase hover:bg-slate-50 rounded-xl">Cancel</button>
+                                <button onClick={handleDeleteUser} disabled={deleteConfirmUuid !== showDeleteModal.id || executing} className="flex-1 py-3 bg-rose-600 text-white rounded-xl font-bold text-xs uppercase shadow-lg hover:bg-rose-700 disabled:opacity-50">Delete</button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* USER DETAIL MODAL (LINK IDENTITIES) */}
+            {
+                showUserModal && selectedUser && (
+                    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+                        <div className="bg-white rounded-[3.5rem] w-full max-w-2xl p-12 shadow-2xl border border-slate-100 flex flex-col max-h-[90vh]">
+                            <header className="flex justify-between items-start mb-8">
+                                <div>
+                                    <h3 className="text-3xl font-black text-slate-900">User Details</h3>
+                                    <div className="flex items-center gap-2 mt-2">
+                                        <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest ${selectedUser.banned ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}`}>{selectedUser.banned ? 'Banned' : 'Active'}</span>
+                                        <span className="text-xs text-slate-400 font-mono">{selectedUser.id}</span>
+                                    </div>
+                                </div>
+                                <button onClick={() => setShowUserModal(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400"><X size={24} /></button>
+                            </header>
+
+                            <div className="flex-1 overflow-y-auto space-y-8">
+                                {/* IDENTITIES LIST */}
+                                <div className="space-y-4">
+                                    <div className="flex justify-between items-center">
+                                        <h4 className="text-sm font-black text-slate-900">Linked Identities</h4>
+                                        <button onClick={() => setShowLinkIdentity(true)} className="text-[10px] font-bold text-indigo-600 uppercase hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-all flex items-center gap-1"><Plus size={12} /> Link New</button>
+                                    </div>
+
+                                    {showLinkIdentity && (
+                                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 animate-in slide-in-from-top-2 space-y-3">
+                                            <div className="grid grid-cols-3 gap-3">
+                                                <select value={linkIdentityForm.provider} onChange={e => setLinkIdentityForm({ ...linkIdentityForm, provider: e.target.value })} className="bg-white border-none rounded-xl py-2 px-3 text-xs font-bold outline-none">
+                                                    {Object.keys(strategies).filter(k => strategies[k].enabled).map(k => <option key={k} value={k}>{k}</option>)}
+                                                </select>
+                                                <input value={linkIdentityForm.identifier} onChange={e => setLinkIdentityForm({ ...linkIdentityForm, identifier: e.target.value })} placeholder="Identifier" className="col-span-2 bg-white border-none rounded-xl py-2 px-3 text-xs font-bold outline-none" />
+                                            </div>
+                                            <input type="password" value={linkIdentityForm.password} onChange={e => setLinkIdentityForm({ ...linkIdentityForm, password: e.target.value })} placeholder="Password (Optional)" className="w-full bg-white border-none rounded-xl py-2 px-3 text-xs font-bold outline-none" />
+                                            <div className="flex gap-2 justify-end">
+                                                <button onClick={() => setShowLinkIdentity(false)} className="text-[10px] font-bold text-slate-400 px-3 py-2">Cancel</button>
+                                                <button onClick={handleLinkIdentity} className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-[10px] font-bold uppercase hover:bg-indigo-700">Link</button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="space-y-2">
+                                        {selectedUser.identities?.map((id: any) => (
+                                            <div key={id.id} className="flex items-center justify-between bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-sm text-indigo-600">
+                                                        {id.provider === 'email' ? <Mail size={16} /> : id.provider === 'phone' ? <Smartphone size={16} /> : <Globe size={16} />}
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-xs font-bold text-slate-700">{id.identifier}</p>
+                                                        <p className="text-[10px] text-slate-400 font-bold uppercase">{id.provider}</p>
+                                                    </div>
+                                                </div>
+                                                <button onClick={() => handleUnlinkIdentity(id.id)} className="p-2 text-slate-300 hover:text-rose-600 hover:bg-white rounded-lg transition-all" title="Unlink"><Unlink size={16} /></button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* ACTIVE SESSIONS */}
+                                <div className="space-y-4 pt-4 border-t border-slate-100">
+                                    <div className="flex justify-between items-center">
+                                        <h4 className="text-sm font-black text-slate-900">Active Sessions</h4>
+                                        {activeSessions.length > 1 && (
+                                            <button onClick={handleRevokeOtherSessions} disabled={executing} className="text-[10px] font-bold text-rose-600 uppercase hover:bg-rose-50 px-3 py-1.5 rounded-lg transition-all flex items-center gap-1"><Ban size={12} /> Revoke All Others</button>
+                                        )}
+                                    </div>
+                                    {loadingSessions ? (
+                                        <div className="flex justify-center py-4"><Loader2 className="animate-spin text-indigo-400" size={20} /></div>
+                                    ) : activeSessions.length === 0 ? (
+                                        <p className="text-xs text-slate-400 italic">No active sessions found.</p>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            {activeSessions.map((s: any) => (
+                                                <div key={s.id} className="flex items-center justify-between bg-slate-50 p-4 rounded-2xl border border-slate-100 gap-4">
+                                                    <div className="flex items-start gap-3 overflow-hidden">
+                                                        <div className="w-8 h-8 shrink-0 bg-white rounded-lg flex items-center justify-center shadow-sm text-indigo-600 mt-0.5">
+                                                            <Server size={14} />
+                                                        </div>
+                                                        <div className="overflow-hidden">
+                                                            <p className="text-xs font-bold text-slate-700 truncate min-w-[100px]" title={s.user_agent}>{s.user_agent || 'Unknown Device'}</p>
+                                                            <div className="flex items-center gap-2 mt-1">
+                                                                <span className="text-[10px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded font-mono truncate">{s.ip_address || 'IP Unknown'}</span>
+                                                                <span className="text-[9px] text-slate-400 font-bold uppercase shrink-0">Created: {new Date(s.created_at).toLocaleDateString()}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <button onClick={() => handleRevokeSession(s.id)} disabled={executing} className="shrink-0 p-2 text-rose-400 hover:text-rose-600 hover:bg-white rounded-lg transition-all" title="Revoke Device">
+                                                        <X size={16} />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* ACTIONS */}
+                                <div className="pt-6 border-t border-slate-100 flex gap-4">
+                                    <button onClick={() => handleBlockUser(selectedUser)} className={`flex-1 py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${selectedUser.banned ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-amber-100 text-amber-700 hover:bg-amber-200'}`}>
+                                        {selectedUser.banned ? 'Unban User' : 'Ban User'}
+                                    </button>
+                                    <button onClick={() => { setShowDeleteModal({ id: selectedUser.id }); }} className="flex-1 py-4 bg-rose-50 text-rose-600 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all">
+                                        Delete User
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+        </div >
+    );
 };
 
 export default AuthConfig;
