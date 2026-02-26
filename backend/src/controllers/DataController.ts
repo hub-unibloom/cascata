@@ -436,7 +436,11 @@ export class DataController {
             const client = await req.projectPool!.connect();
             try {
                 await client.query("SET LOCAL statement_timeout = '60s'");
-                const result = await client.query(req.body.sql);
+
+                // SECURITY FIX: Support parameterized queries for safe backend execution
+                const sql = req.body.sql;
+                const params = req.body.params || [];
+                const result = await client.query(sql, params);
 
                 // Auto-grant: After DDL, ensure cascata_api_role can access all user schemas
                 const cmd = (result.command || '').toUpperCase();

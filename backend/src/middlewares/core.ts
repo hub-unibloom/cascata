@@ -259,6 +259,13 @@ export const cascataAuth: RequestHandler = async (req: any, res: any, next: any)
         return next();
     }
 
+    // 3. FAIL-SAFE: CONTROL PLANE PROTECTION (Moved up and fortified)
+    // Absolute block: If this is a control route, ONLY true System Admins can pass.
+    // Tenant keys (even Service Keys) NEVER have access to the Control Plane.
+    if (req.baseUrl.includes('/control') || req.path.includes('/api/control')) {
+        return res.status(401).json({ error: 'Unauthorized: Admin Access Required to Global Control Plane' });
+    }
+
     // 2. PROJECT DATA ACCESS
     if (r.project) {
         const authHeader = req.headers['authorization'];
@@ -266,18 +273,18 @@ export const cascataAuth: RequestHandler = async (req: any, res: any, next: any)
         const apiKey = req.headers['apikey'] || (authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : req.query.token);
 
         if (apiKey) {
-            // A. Service Key (Root Access)
+            // A. Service Key (Root Access within Project)
             if (apiKey === r.project.service_key) {
                 r.userRole = 'service_role';
                 return next();
             }
-            // B. Anon Key (Public Access)
+            // B. Anon Key (Public Access within Project)
             if (apiKey === r.project.anon_key) {
                 r.userRole = 'anon';
                 return next();
             }
 
-            // C. User JWT (RLS Access)
+            // C. User JWT (RLS Access within Project)
             try {
                 // Check blacklist/revocation first
                 const isBlacklisted = await RateLimitService.isTokenBlacklisted(apiKey as string);
@@ -292,12 +299,6 @@ export const cascataAuth: RequestHandler = async (req: any, res: any, next: any)
                 // Invalid tokens fall through to 401
             }
         }
-    }
-
-    // 3. FAIL-SAFE: CONTROL PLANE PROTECTION
-    // Double check to prevent unauthorized access to control routes if logic slipped through
-    if (req.baseUrl.includes('/control')) {
-        return res.status(401).json({ error: 'Unauthorized: Admin Access Required' });
     }
 
     // 4. DEFAULT DENY

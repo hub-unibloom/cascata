@@ -165,6 +165,12 @@ export class StorageController {
     static async deleteBucket(req: CascataRequest, res: any, next: any) {
         try {
             const { name } = req.params;
+
+            // SECURITY FIX: Prevent deleting the root directory (Self-Wipe)
+            if (!name || name === '.' || name === '..') {
+                return res.status(400).json({ error: 'Invalid bucket name structure.' });
+            }
+
             const projectSlug = req.project.slug;
             // getSafePath enforces containment — no need for a secondary startsWith check.
             const projRoot = StorageController.getSafePath(STORAGE_ROOT, projectSlug);
@@ -454,6 +460,11 @@ export class StorageController {
     static async deleteObject(req: CascataRequest, res: any, next: any) {
         const storageConfig: StorageConfig = req.project.metadata?.storage_config || { provider: 'local' };
         const objectPath = req.query.path as string;
+
+        // SECURITY FIX: Prevent structural manipulation
+        if (!objectPath || objectPath === '.' || objectPath === '..') {
+            return res.status(400).json({ error: 'Invalid object path structure.' });
+        }
 
         try {
             if (storageConfig.provider === 'local') {

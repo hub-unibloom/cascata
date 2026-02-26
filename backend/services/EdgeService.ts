@@ -62,11 +62,35 @@ export class EdgeService {
             } catch (e) { }
         }
 
+        // 1. Initial pre-flight check
         await validateTargetUrl(url);
 
+        // 2. DNS Rebinding Hardening (Socket-level)
+        const safeLookup = (hostname: string, options: any, callback: any) => {
+            dns.lookup(hostname, options, (err, address, family) => {
+                if (err) return callback(err, address, family);
+                if (typeof address === 'string' && isPrivateIP(address)) {
+                    return callback(new Error(`DNS Block: ${hostname} resolves to private IP ${address}`), address, family);
+                }
+                callback(null, address, family);
+            });
+        };
+        const httpAgent = new HttpAgent({ lookup: safeLookup });
+        const httpsAgent = new HttpsAgent({ lookup: safeLookup });
+
         try {
-            // Secure Fetch for Modules
-            const res = await axios.get(url, { responseType: 'text', timeout: 5000, maxContentLength: MAX_MODULE_SIZE });
+            // Secure Fetch for Modules using hardened agents to defeat TOCTOU SSRF
+            const res = await axios.request({
+                url,
+                method: 'GET',
+                responseType: 'text',
+                timeout: 5000,
+                maxContentLength: MAX_MODULE_SIZE,
+                httpAgent,
+                httpsAgent,
+                // Em ESM, dependências frequentemente redirecionam.
+                // Como os agentes estão travados, redirecionamentos para IP privado falharão na resolução DNS.
+            });
             const source = res.data;
             addToCache(url, source);
             try { fs.writeFileSync(cacheFilePath, source); } catch (e) { }

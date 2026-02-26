@@ -31,16 +31,18 @@ import { DependencyItem } from './ColumnImpactScanner';
 type FetchFn = (url: string, options?: any) => Promise<any>;
 
 // Helper: run a catalog query and return rows (empty array on failure)
+// SECURITY FIX: Added params array for parameterized backend execution
 async function catalogQuery(
     fetchWithAuth: FetchFn,
     projectId: string,
     schema: string,
-    sql: string
+    sql: string,
+    params: any[] = []
 ): Promise<any[]> {
     try {
         const res = await fetchWithAuth(`/api/data/${projectId}/query?schema=${schema}`, {
             method: 'POST',
-            body: JSON.stringify({ sql }),
+            body: JSON.stringify({ sql, params }),
         });
         return res.rows || [];
     } catch {
@@ -89,10 +91,10 @@ export async function scanTableDependencies(
     JOIN pg_namespace tgt_ns ON tgt_rel.relnamespace = tgt_ns.oid
     WHERE con.contype = 'f'
       AND (
-        (tgt_ns.nspname = '${schema}' AND tgt_rel.relname = '${table}')
-        OR (src_ns.nspname = '${schema}' AND src_rel.relname = '${table}')
+        (tgt_ns.nspname = $1 AND tgt_rel.relname = $2)
+        OR (src_ns.nspname = $1 AND src_rel.relname = $2)
       )
-  `);
+  `, [schema, table]);
 
     for (const fk of fkRows) {
         const isTarget = fk.target_table === table && fk.target_schema === schema;
@@ -123,10 +125,10 @@ export async function scanTableDependencies(
     JOIN pg_class t ON t.oid = ix.indrelid
     JOIN pg_class i ON i.oid = ix.indexrelid
     JOIN pg_namespace n ON t.relnamespace = n.oid
-    WHERE n.nspname = '${schema}'
-      AND t.relname = '${table}'
+    WHERE n.nspname = $1
+      AND t.relname = $2
       AND NOT ix.indisprimary
-  `);
+  `, [schema, table]);
 
     for (const idx of indexRows) {
         deps.push({
@@ -160,9 +162,9 @@ export async function scanTableDependencies(
     JOIN pg_namespace tn ON t.relnamespace = tn.oid
     WHERE d.deptype = 'n'
       AND v.relkind = 'v'
-      AND tn.nspname = '${schema}'
-      AND t.relname = '${table}'
-  `);
+      AND tn.nspname = $1
+      AND t.relname = $2
+  `, [schema, table]);
 
     for (const v of viewRows) {
         // Views auto-follow rename via OID dependency, but show as info
@@ -193,9 +195,9 @@ export async function scanTableDependencies(
     JOIN pg_namespace tn ON t.relnamespace = tn.oid
     WHERE d.deptype = 'n'
       AND v.relkind = 'm'
-      AND tn.nspname = '${schema}'
-      AND t.relname = '${table}'
-  `);
+      AND tn.nspname = $1
+      AND t.relname = $2
+  `, [schema, table]);
 
     for (const mv of matViewRows) {
         deps.push({
@@ -224,10 +226,10 @@ export async function scanTableDependencies(
     JOIN pg_namespace n ON c.relnamespace = n.oid
     JOIN pg_proc p ON p.oid = t.tgfoid
     JOIN pg_namespace pn ON p.pronamespace = pn.oid
-    WHERE n.nspname = '${schema}'
-      AND c.relname = '${table}'
+    WHERE n.nspname = $1
+      AND c.relname = $2
       AND NOT t.tgisinternal
-  `);
+  `, [schema, table]);
 
     for (const tr of triggerRows) {
         const funcBody = tr.func_def || '';
@@ -275,11 +277,11 @@ export async function scanTableDependencies(
     JOIN pg_namespace n ON p.pronamespace = n.oid
     JOIN pg_language l ON p.prolang = l.oid
     WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
-      AND pg_get_functiondef(p.oid) ILIKE '%${table}%'
+      AND pg_get_functiondef(p.oid) ILIKE '%' || $1 || '%'
       AND NOT EXISTS (
         SELECT 1 FROM pg_trigger t WHERE t.tgfoid = p.oid
       )
-  `);
+  `, [table]);
 
     for (const fn of funcRows) {
         const funcDef = fn.func_def || '';
@@ -336,13 +338,13 @@ export async function scanTableDependencies(
     FROM pg_policy pol
     JOIN pg_class c ON c.oid = pol.polrelid
     JOIN pg_namespace cn ON c.relnamespace = cn.oid
-    WHERE cn.nspname = '${schema}'
+    WHERE cn.nspname = $1
       AND (
-        c.relname = '${table}'
-        OR pg_get_expr(pol.polqual, pol.polrelid, true) ILIKE '%${table}%'
-        OR pg_get_expr(pol.polwithcheck, pol.polrelid, true) ILIKE '%${table}%'
+        c.relname = $2
+        OR pg_get_expr(pol.polqual, pol.polrelid, true) ILIKE '%' || $2 || '%'
+        OR pg_get_expr(pol.polwithcheck, pol.polrelid, true) ILIKE '%' || $2 || '%'
       )
-  `);
+  `, [schema, table]);
 
     for (const pol of policyRows) {
         const usingExpr = pol.using_expr || '';
@@ -388,8 +390,8 @@ export async function scanTableDependencies(
     const cronRows = await catalogQuery(fetchWithAuth, projectId, schema, `
     SELECT jobid, jobname, schedule, command
     FROM cron.job
-    WHERE command ILIKE '%${table}%'
-  `);
+    WHERE command ILIKE '%' || $1 || '%'
+  `, [table]);
 
     for (const cj of cronRows) {
         const cmd = cj.command || '';
@@ -420,10 +422,10 @@ export async function scanTableDependencies(
     FROM pg_rewrite r
     JOIN pg_class c ON c.oid = r.ev_class
     JOIN pg_namespace n ON c.relnamespace = n.oid
-    WHERE n.nspname = '${schema}'
-      AND c.relname = '${table}'
+    WHERE n.nspname = $1
+      AND c.relname = $2
       AND r.rulename != '_RETURN'
-  `);
+  `, [schema, table]);
 
     for (const rl of ruleRows) {
         deps.push({
@@ -454,9 +456,9 @@ export async function scanTableDependencies(
     JOIN pg_attribute a ON a.attrelid = d.refobjid AND a.attnum = d.refobjsubid
     WHERE s.relkind = 'S'
       AND d.deptype = 'a'
-      AND n.nspname = '${schema}'
-      AND t.relname = '${table}'
-  `);
+      AND n.nspname = $1
+      AND t.relname = $2
+  `, [schema, table]);
 
     for (const seq of seqRows) {
         const expectedOldName = `${table}_${seq.col_name}_seq`;
@@ -492,9 +494,9 @@ export async function scanTableDependencies(
     JOIN pg_namespace cn ON c.relnamespace = cn.oid
     JOIN pg_class p ON p.oid = inh.inhparent
     JOIN pg_namespace pn ON p.relnamespace = pn.oid
-    WHERE (pn.nspname = '${schema}' AND p.relname = '${table}')
-       OR (cn.nspname = '${schema}' AND c.relname = '${table}')
-  `);
+    WHERE (pn.nspname = $1 AND p.relname = $2)
+       OR (cn.nspname = $1 AND c.relname = $2)
+  `, [schema, table]);
 
     for (const inh of inheritRows) {
         const isParent = inh.parent_table === table;
@@ -531,9 +533,9 @@ export async function scanTableDependencies(
       pt.tablename AS pub_table
     FROM pg_publication_tables pt
     JOIN pg_publication p ON p.pubname = pt.pubname
-    WHERE pt.schemaname = '${schema}'
-      AND pt.tablename = '${table}'
-  `);
+    WHERE pt.schemaname = $1
+      AND pt.tablename = $2
+  `, [schema, table]);
 
     for (const pub of pubRows) {
         deps.push({
@@ -554,9 +556,9 @@ export async function scanTableDependencies(
     const uiRows = await catalogQuery(fetchWithAuth, projectId, schema, `
     SELECT table_name
     FROM system.ui_settings
-    WHERE project_slug = '${projectId}'
-      AND table_name = '${table}'
-  `);
+    WHERE project_slug = $1
+      AND table_name = $2
+  `, [projectId, table]);
 
     if (uiRows.length > 0) {
         deps.push({
@@ -623,8 +625,15 @@ export function buildTableRenameCascadeSQL(
     }
 
     // Phase 2: The actual rename
+    // SECURITY FIX: Table names used directly in generated SQL should use proper quotation to prevent injection
+    // but the actual `newName` value is parameterized. Wait, DDL statements do not support parameterized table names!
+    // We must manually escape the identifiers here by duplicating double quotes.
+    const safeSchema = schema.replace(/"/g, '""');
+    const safeOldName = oldName.replace(/"/g, '""');
+    const safeNewName = newName.replace(/"/g, '""');
+
     lines.push('-- ═══ Phase 2: Rename table ═══');
-    lines.push(`ALTER TABLE ${schema}."${oldName}" RENAME TO "${newName}";`);
+    lines.push(`ALTER TABLE "${safeSchema}"."${safeOldName}" RENAME TO "${safeNewName}";`);
     lines.push('');
 
     // Phase 2b: Rename sequences (after table rename)
