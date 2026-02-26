@@ -156,6 +156,9 @@ router.post('/auth/token', DataAuthController.legacyToken as any);
 router.post('/auth/link', DataAuthController.linkConfig as any);
 router.post('/auth/challenge', DataAuthController.challenge as any);
 router.post('/auth/verify-challenge', DataAuthController.verifyChallenge as any);
+router.get('/auth/users/:id/sessions', DataAuthController.getUserSessions as any);
+router.delete('/auth/users/:id/sessions', DataAuthController.revokeOtherSessions as any);
+router.delete('/auth/users/:id/sessions/:sessionId', DataAuthController.revokeSession as any);
 
 // GoTrue
 router.post('/auth/v1/signup', DataAuthController.goTrueSignup as any);

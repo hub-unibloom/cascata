@@ -11,7 +11,7 @@ interface RateLimitRule {
     project_slug: string;
     route_pattern: string;
     method: string;
-    rate_limit: number; 
+    rate_limit: number;
     burst_limit: number;
     rate_limit_anon?: number;
     burst_limit_anon?: number;
@@ -60,9 +60,9 @@ interface KeyGroupData {
 interface ApiKeyData {
     id: string;
     group_id?: string;
-    rate_limit?: number;     
-    burst_limit?: number;    
-    scopes?: string[];      
+    rate_limit?: number;
+    burst_limit?: number;
+    scopes?: string[];
     expires_at?: string;
     is_nerfed?: boolean; // Runtime flag
 }
@@ -84,14 +84,14 @@ export interface AuthSecurityConfig {
 export class RateLimitService {
     private static redis: Redis | null = null;
     private static rulesCache = new Map<string, RateLimitRule[]>();
-    
+
     // L1 Cache
     private static keysCache = new Map<string, { data: ApiKeyData, cachedAt: number }>();
     private static groupsCache = new Map<string, { data: KeyGroupData, cachedAt: number }>();
-    private static CACHE_TTL = 60 * 1000; 
+    private static CACHE_TTL = 60 * 1000;
 
     private static isRedisHealthy = false;
-    
+
     public static init() {
         try {
             this.redis = new Redis({
@@ -100,9 +100,9 @@ export class RateLimitService {
                 maxRetriesPerRequest: 1,
                 retryStrategy: (times) => Math.min(times * 200, 5000),
                 enableOfflineQueue: false,
-                lazyConnect: true 
+                lazyConnect: true
             });
-            
+
             this.redis.connect().catch((e: any) => console.warn("[RateLimit] Initial Redis connect failed:", e.message));
             this.redis.on('error', (err) => { this.isRedisHealthy = false; });
             this.redis.on('connect', () => { console.log('[RateLimit] Redis Connected & Healthy.'); this.isRedisHealthy = true; });
@@ -117,18 +117,18 @@ export class RateLimitService {
     }
 
     // --- STORAGE QUOTA CACHING & LOCKING ---
-    
+
     public static async reserveStorage(projectSlug: string, bytes: number, ttlSeconds: number = 3600) {
         if (!this.redis || !this.isRedisHealthy) return;
         try {
             const key = `storage:reserved:${projectSlug}`;
             const reservationId = crypto.randomUUID();
             const itemKey = `${key}:${reservationId}`;
-            
+
             const pipe = this.redis.multi();
             pipe.set(itemKey, bytes, 'EX', ttlSeconds);
             await pipe.exec();
-            
+
             return reservationId;
         } catch (e) { console.error("[StorageLock] Reserve failed", e); return null; }
     }
@@ -146,7 +146,7 @@ export class RateLimitService {
         try {
             const keys = await this.redis.keys(`storage:reserved:${projectSlug}:*`);
             if (keys.length === 0) return 0;
-            
+
             const values = await this.redis.mget(keys);
             return values.reduce((acc, val) => acc + (parseInt(val || '0') || 0), 0);
         } catch (e) { return 0; }
@@ -158,21 +158,21 @@ export class RateLimitService {
         try {
             const val = await this.redis.get(`storage:usage:${projectSlug}`);
             return val ? parseInt(val) : null;
-        } catch(e) { return null; }
+        } catch (e) { return null; }
     }
 
     public static async setProjectStorageUsage(projectSlug: string, bytes: number, ttlSeconds: number = 3600) {
         if (!this.redis || !this.isRedisHealthy) return;
         try {
             await this.redis.set(`storage:usage:${projectSlug}`, bytes, 'EX', ttlSeconds);
-        } catch(e) {}
+        } catch (e) { }
     }
 
     public static async invalidateProjectStorageUsage(projectSlug: string) {
         if (!this.redis || !this.isRedisHealthy) return;
         try {
             await this.redis.del(`storage:usage:${projectSlug}`);
-        } catch(e) {}
+        } catch (e) { }
     }
 
     // --- PROJECT CACHING (System Protection) ---
@@ -188,7 +188,7 @@ export class RateLimitService {
     public static async cacheProject(project: any) {
         if (!this.redis || !this.isRedisHealthy) return;
         try {
-            await this.redis.set(`sys:project:slug:${project.slug}`, JSON.stringify(project), 'EX', 60); 
+            await this.redis.set(`sys:project:slug:${project.slug}`, JSON.stringify(project), 'EX', 60);
             if (project.custom_domain) {
                 await this.redis.set(`sys:project:domain:${project.custom_domain}`, JSON.stringify(project), 'EX', 60);
             }
@@ -202,7 +202,7 @@ export class RateLimitService {
             return (await this.redis.exists(`blacklist:jwt:${tokenHash}`)) === 1;
         } catch (e) { return false; }
     }
-    
+
     public static async blacklistToken(token: string, ttlSeconds: number): Promise<void> {
         if (!this.redis || !this.isRedisHealthy) return;
         try {
@@ -236,7 +236,7 @@ export class RateLimitService {
     }
 
     public static async checkPanic(slug: string): Promise<boolean> {
-        if (!this.redis || !this.isRedisHealthy) return false; 
+        if (!this.redis || !this.isRedisHealthy) return false;
         try { return (await this.redis.get(`panic:${slug}`)) === 'true'; } catch (e) { return false; }
     }
 
@@ -245,7 +245,7 @@ export class RateLimitService {
         try {
             if (state) await this.redis.set(`panic:${slug}`, 'true');
             else await this.redis.del(`panic:${slug}`);
-        } catch (e) {}
+        } catch (e) { }
     }
 
     // --- DATA FETCHING ---
@@ -256,7 +256,7 @@ export class RateLimitService {
         try {
             const res = await systemPool.query(
                 `SELECT id, name, rate_limit, burst_limit, window_seconds, crud_limits, scopes, rejection_message, nerf_config 
-                 FROM system.api_key_groups WHERE id = $1`, 
+                 FROM system.api_key_groups WHERE id = $1`,
                 [groupId]
             );
             if (res.rows.length > 0) {
@@ -274,10 +274,10 @@ export class RateLimitService {
 
         try {
             let row: any = null;
-            const parts = apiKey.split('_'); 
+            const parts = apiKey.split('_');
             if (parts.length === 4) {
-                const lookupIndex = `${parts[0]}_${parts[1]}_${parts[2]}`; 
-                
+                const lookupIndex = `${parts[0]}_${parts[1]}_${parts[2]}`;
+
                 const res = await systemPool.query(
                     `SELECT id, group_id, rate_limit, burst_limit, scopes, expires_at, key_hash
                      FROM system.api_keys 
@@ -301,21 +301,21 @@ export class RateLimitService {
                     scopes: row.scopes,
                     expires_at: row.expires_at
                 };
-                
+
                 let isNerfed = false;
 
                 if (keyData.expires_at) {
                     const now = new Date();
                     const expiry = new Date(keyData.expires_at);
-                    
+
                     if (now > expiry) {
                         if (keyData.group_id) {
                             const group = await this.getGroupData(keyData.group_id, systemPool);
                             if (group && group.nerf_config?.enabled) {
                                 const secondsSinceExpiry = (now.getTime() - expiry.getTime()) / 1000;
-                                
+
                                 if (secondsSinceExpiry < (group.nerf_config.start_delay_seconds || 0)) {
-                                     // Grace period
+                                    // Grace period
                                 } else {
                                     if (group.nerf_config.stop_after_seconds > -1 && secondsSinceExpiry > (group.nerf_config.start_delay_seconds + group.nerf_config.stop_after_seconds)) {
                                         return null; // Dead
@@ -323,17 +323,17 @@ export class RateLimitService {
                                     isNerfed = true;
                                 }
                             } else {
-                                return null; 
+                                return null;
                             }
                         } else {
                             return null;
                         }
                     }
                 }
-                
+
                 const finalData = { ...keyData, is_nerfed: isNerfed };
                 this.keysCache.set(apiKey, { data: finalData, cachedAt: Date.now() });
-                systemPool.query('UPDATE system.api_keys SET last_used_at = NOW() WHERE id = $1', [keyData.id]).catch(() => {});
+                systemPool.query('UPDATE system.api_keys SET last_used_at = NOW() WHERE id = $1', [keyData.id]).catch(() => { });
                 return finalData;
             }
         } catch (e) { }
@@ -348,17 +348,17 @@ export class RateLimitService {
     }
 
     public static async check(
-        projectSlug: string, 
-        logicalResource: string, 
-        method: string, 
-        userRole: string, 
-        ip: string, 
+        projectSlug: string,
+        logicalResource: string,
+        method: string,
+        userRole: string,
+        ip: string,
         systemPool: Pool,
         authToken?: string
     ): Promise<RateCheckResult> {
         if (!this.redis || !this.isRedisHealthy) return { blocked: false };
-        
-        let subject = ip; 
+
+        let subject = ip;
         let ruleId = 'default';
         let limit = 50;
         let burst = 50;
@@ -372,22 +372,22 @@ export class RateLimitService {
             const keyData = await this.validateCustomKey(authToken, projectSlug, systemPool);
             if (keyData) {
                 tier = 'custom_key';
-                subject = keyData.id; 
+                subject = keyData.id;
                 keyGroupId = keyData.group_id || null;
 
                 if (keyData.group_id) {
                     const gData = await this.getGroupData(keyData.group_id, systemPool);
                     if (gData) {
-                         limit = gData.rate_limit;
-                         burst = gData.burst_limit;
-                         windowSecs = gData.window_seconds || 1;
-                         crudConfig = gData.crud_limits;
-                         keyCustomMessage = gData.rejection_message;
+                        limit = gData.rate_limit;
+                        burst = gData.burst_limit;
+                        windowSecs = gData.window_seconds || 1;
+                        crudConfig = gData.crud_limits;
+                        keyCustomMessage = gData.rejection_message;
 
-                         if (keyData.is_nerfed) {
-                             limit = Math.max(1, Math.floor(limit * 0.1));
-                             burst = 0;
-                         }
+                        if (keyData.is_nerfed) {
+                            limit = Math.max(1, Math.floor(limit * 0.1));
+                            burst = 0;
+                        }
                     }
                 }
                 if (keyData.rate_limit && !keyData.is_nerfed) limit = keyData.rate_limit;
@@ -398,7 +398,7 @@ export class RateLimitService {
             try {
                 const decoded: any = jwt.decode(authToken);
                 if (decoded && decoded.sub) subject = decoded.sub;
-            } catch (e) {}
+            } catch (e) { }
         }
 
         if (!this.rulesCache.has(projectSlug)) {
@@ -451,15 +451,15 @@ export class RateLimitService {
 
         if (operation && crudConfig && crudConfig[operation] !== undefined && crudConfig[operation] !== null) {
             const specificLimit = crudConfig[operation]!;
-            if (specificLimit === -1) return { blocked: false }; 
-            
+            if (specificLimit === -1) return { blocked: false };
+
             const memCached = authToken ? this.keysCache.get(authToken) : null;
             if (memCached?.data.is_nerfed) {
-                 limit = Math.max(1, Math.floor(specificLimit * 0.1));
-                 burst = 0;
+                limit = Math.max(1, Math.floor(specificLimit * 0.1));
+                burst = 0;
             } else {
-                 limit = specificLimit;
-                 burst = Math.ceil(limit / 2);
+                limit = specificLimit;
+                burst = Math.ceil(limit / 2);
             }
             ruleId = `${ruleId}:${operation}`;
         }
@@ -488,11 +488,11 @@ export class RateLimitService {
                     if (tier === 'anon') customMessage = matchedRule.message_anon;
                     if (tier === 'auth') customMessage = matchedRule.message_auth;
                 }
-                
-                return { 
-                    blocked: true, 
-                    limit, 
-                    remaining: 0, 
+
+                return {
+                    blocked: true,
+                    limit,
+                    remaining: 0,
                     retryAfter: currentTtl > 0 ? currentTtl : windowSecs,
                     customMessage
                 };
@@ -502,8 +502,77 @@ export class RateLimitService {
             return { blocked: false };
         }
     }
-    
-    public static async checkAuthLockout(slug: string, ip: string, email?: string, config?: AuthSecurityConfig): Promise<{ locked: boolean, reason?: string }> { return { locked: false }; }
-    public static async registerAuthFailure(slug: string, ip: string, email?: string, config?: AuthSecurityConfig) {}
-    public static async clearAuthFailure(slug: string, ip: string, email?: string) {}
+
+    public static async checkAuthLockout(slug: string, ip: string, identifier?: string, config?: AuthSecurityConfig): Promise<{ locked: boolean, reason?: string }> {
+        if (!this.redis || !this.isRedisHealthy || !config || config.disabled) return { locked: false };
+
+        const strategy = config.strategy || 'hybrid';
+        const maxAttempts = config.max_attempts || 5;
+
+        try {
+            // 1. IP-Level Global Strike Check (Heuristic: 3x the max attempts means someone is spraying this IP)
+            if (strategy === 'hybrid' || strategy === 'ip') {
+                const ipKey = `lockout:ip:${slug}:${ip}`;
+                const ipStrikes = parseInt(await this.redis.get(ipKey) || '0');
+                if (ipStrikes >= (maxAttempts * 3)) {
+                    return { locked: true, reason: `Too many failed attempts from your network. Locked for ${config.lockout_minutes || 15} minutes.` };
+                }
+            }
+
+            // 2. Identifier-Level Check (email, username, etc)
+            if (identifier && (strategy === 'hybrid' || strategy === 'email')) {
+                const idKey = `lockout:id:${slug}:${identifier}`;
+                const idStrikes = parseInt(await this.redis.get(idKey) || '0');
+                if (idStrikes >= maxAttempts) {
+                    return { locked: true, reason: `Too many failed attempts for this account. Locked for ${config.lockout_minutes || 15} minutes.` };
+                }
+            }
+
+            return { locked: false };
+        } catch (e) {
+            console.error("[EdgeFirewall] Redis Check Error:", e);
+            return { locked: false }; // Fail open if Redis drops
+        }
+    }
+
+    public static async registerAuthFailure(slug: string, ip: string, identifier?: string, config?: AuthSecurityConfig) {
+        if (!this.redis || !this.isRedisHealthy || !config || config.disabled) return;
+
+        const strategy = config.strategy || 'hybrid';
+        const lockoutSeconds = (config.lockout_minutes || 15) * 60;
+
+        try {
+            const pipe = this.redis.multi();
+
+            // Record IP Strike
+            if (strategy === 'hybrid' || strategy === 'ip') {
+                const ipKey = `lockout:ip:${slug}:${ip}`;
+                pipe.incr(ipKey);
+                // Only set expire if it's the first strike (or reset the window if you prefer sliding)
+                // Using sliding window for security: every strike resets the lockout timer
+                pipe.expire(ipKey, lockoutSeconds);
+            }
+
+            // Record Identifier Strike
+            if (identifier && (strategy === 'hybrid' || strategy === 'email')) {
+                const idKey = `lockout:id:${slug}:${identifier}`;
+                pipe.incr(idKey);
+                pipe.expire(idKey, lockoutSeconds);
+            }
+
+            await pipe.exec();
+        } catch (e) {
+            console.error("[EdgeFirewall] Redis Register Failure Error:", e);
+        }
+    }
+
+    public static async clearAuthFailure(slug: string, ip: string, identifier?: string) {
+        if (!this.redis || !this.isRedisHealthy) return;
+        try {
+            const pipe = this.redis.multi();
+            pipe.del(`lockout:ip:${slug}:${ip}`);
+            if (identifier) pipe.del(`lockout:id:${slug}:${identifier}`);
+            await pipe.exec();
+        } catch (e) { }
+    }
 }

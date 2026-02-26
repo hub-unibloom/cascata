@@ -98,16 +98,16 @@ export class DataAuthController {
         }
 
         const secConfig = DataAuthController.getSecurityConfig(req);
-        const lockKey = `${provider}:${identifier}`;
 
         try {
-            const lockout = await RateLimitService.checkAuthLockout(req.project.slug, deviceInfo.ip!, lockKey, secConfig);
+            // FIREWALL: Check Redis BEFORE hitting PostgreSQL
+            const lockout = await RateLimitService.checkAuthLockout(req.project.slug, deviceInfo.ip!, identifier, secConfig);
             if (lockout.locked) return res.status(429).json({ error: lockout.reason });
 
             const idRes = await req.projectPool!.query('SELECT * FROM auth.identities WHERE provider = $1 AND identifier = $2', [provider, identifier]);
 
             if (!idRes.rows[0]) {
-                await RateLimitService.registerAuthFailure(req.project.slug, deviceInfo.ip!, lockKey, secConfig);
+                await RateLimitService.registerAuthFailure(req.project.slug, deviceInfo.ip!, identifier, secConfig);
                 return res.status(401).json({ error: 'Invalid credentials' });
             }
 
@@ -128,11 +128,12 @@ export class DataAuthController {
             const isValid = await bcrypt.compare(password, storedHash);
 
             if (!isValid) {
-                await RateLimitService.registerAuthFailure(req.project.slug, deviceInfo.ip!, lockKey, secConfig);
+                await RateLimitService.registerAuthFailure(req.project.slug, deviceInfo.ip!, identifier, secConfig);
                 return res.status(401).json({ error: 'Invalid credentials' });
             }
 
-            await RateLimitService.clearAuthFailure(req.project.slug, deviceInfo.ip!, lockKey);
+            // SUCCESS Phase
+            await RateLimitService.clearAuthFailure(req.project.slug, deviceInfo.ip!, identifier);
 
             // Create session with the specific provider context AND Fingerprint
             const session = await AuthService.createSession(
@@ -241,6 +242,48 @@ export class DataAuthController {
 
             DataAuthController.setAuthCookies(res, session);
             res.json(session);
+        } catch (e: any) { next(e); }
+    }
+
+    static async getUserSessions(req: CascataRequest, res: any, next: any) {
+        if (req.userRole !== 'service_role') {
+            return res.status(403).json({ error: 'Access Denied: Only Service Role can query sessions directly.' });
+        }
+        try {
+            const query = `
+                SELECT id, user_agent, ip_address, created_at, expires_at 
+                FROM auth.refresh_tokens 
+                WHERE user_id = $1 AND revoked = false
+                ORDER BY created_at DESC
+            `;
+            const result = await req.projectPool!.query(query, [req.params.id]);
+            res.json(result.rows);
+        } catch (e: any) { next(e); }
+    }
+
+    static async revokeOtherSessions(req: CascataRequest, res: any, next: any) {
+        if (req.userRole !== 'service_role') {
+            return res.status(403).json({ error: 'Access Denied: Only Service Role can revoke sessions.' });
+        }
+        const { current_session_id } = req.body;
+        try {
+            const query = `
+                UPDATE auth.refresh_tokens 
+                SET revoked = true 
+                WHERE user_id = $1 AND id != $2 AND revoked = false
+            `;
+            await req.projectPool!.query(query, [req.params.id, current_session_id || '00000000-0000-0000-0000-000000000000']);
+            res.json({ success: true, message: 'Other sessions revoked successfully.' });
+        } catch (e: any) { next(e); }
+    }
+
+    static async revokeSession(req: CascataRequest, res: any, next: any) {
+        if (req.userRole !== 'service_role') {
+            return res.status(403).json({ error: 'Access Denied: Only Service Role can revoke sessions.' });
+        }
+        try {
+            await req.projectPool!.query(`UPDATE auth.refresh_tokens SET revoked = true WHERE id = $1 AND user_id = $2`, [req.params.sessionId, req.params.id]);
+            res.json({ success: true, message: 'Session revoked.' });
         } catch (e: any) { next(e); }
     }
 

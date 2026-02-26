@@ -69,7 +69,7 @@ export class AuthService {
     public static async verifyGoogleIdToken(idToken: string, config: ProviderConfig): Promise<UserProfile> {
         try {
             const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`);
-            
+
             if (!res.ok) {
                 throw new Error('Invalid Google ID Token');
             }
@@ -114,7 +114,7 @@ export class AuthService {
             };
             return `${root}?${new URLSearchParams(options).toString()}`;
         }
-        
+
         if (provider === 'github') {
             const root = 'https://github.com/login/oauth/authorize';
             if (!config.clientId) throw new Error("GitHub Client ID missing");
@@ -147,14 +147,14 @@ export class AuthService {
             if (tokens.error) throw new Error(`Google Token Error: ${tokens.error_description}`);
 
             if (tokens.id_token) {
-                 return this.verifyGoogleIdToken(tokens.id_token, config);
+                return this.verifyGoogleIdToken(tokens.id_token, config);
             }
 
             const profileRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
                 headers: { Authorization: `Bearer ${tokens.access_token}` }
             });
             const profile = await profileRes.json();
-            
+
             return {
                 provider: 'google',
                 id: profile.id,
@@ -194,7 +194,7 @@ export class AuthService {
                         const primary = emails.find((e: any) => e.primary && e.verified);
                         if (primary) email = primary.email;
                     }
-                } catch(e) {}
+                } catch (e) { }
             }
 
             return {
@@ -248,7 +248,7 @@ export class AuthService {
             const transporter = nodemailer.createTransport({
                 host: config.smtp_host,
                 port: port,
-                secure: secure, 
+                secure: secure,
                 auth: { user: config.smtp_user, pass: config.smtp_pass },
             });
             try {
@@ -304,15 +304,15 @@ export class AuthService {
         await this.sendEmail(to, subject, html, emailConfig, jwtSecret, 'login_alert');
     }
 
-    public static async sendMagicLink(pool: Pool, email: string, projectUrl: string, emailConfig: EmailConfig, jwtSecret: string, templates?: EmailTemplates) {
-        return this.sendAuthLink(pool, email, projectUrl, emailConfig, jwtSecret, 'magiclink', templates);
+    public static async sendMagicLink(pool: Pool, identifier: string, projectUrl: string, emailConfig: EmailConfig, jwtSecret: string, templates?: EmailTemplates, provider: string = 'email') {
+        return this.sendAuthLink(pool, identifier, projectUrl, emailConfig, jwtSecret, 'magiclink', templates, provider);
     }
 
-    public static async sendRecovery(pool: Pool, email: string, projectUrl: string, emailConfig: EmailConfig, jwtSecret: string, templates?: EmailTemplates) {
-        return this.sendAuthLink(pool, email, projectUrl, emailConfig, jwtSecret, 'recovery', templates);
+    public static async sendRecovery(pool: Pool, identifier: string, projectUrl: string, emailConfig: EmailConfig, jwtSecret: string, templates?: EmailTemplates, provider: string = 'email') {
+        return this.sendAuthLink(pool, identifier, projectUrl, emailConfig, jwtSecret, 'recovery', templates, provider);
     }
 
-    private static async sendAuthLink(pool: Pool, email: string, projectUrl: string, emailConfig: EmailConfig, jwtSecret: string, type: 'magiclink' | 'recovery', templates?: EmailTemplates) {
+    private static async sendAuthLink(pool: Pool, identifier: string, projectUrl: string, emailConfig: EmailConfig, jwtSecret: string, type: 'magiclink' | 'recovery', templates?: EmailTemplates, provider: string = 'email') {
         const token = crypto.randomBytes(32).toString('hex');
         const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
         const expirationMinutes = 60;
@@ -320,10 +320,10 @@ export class AuthService {
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
-            await client.query(`DELETE FROM auth.otp_codes WHERE identifier = $1 AND metadata->>'type' = $2`, [email, type]);
+            await client.query(`DELETE FROM auth.otp_codes WHERE provider = $1 AND identifier = $2 AND metadata->>'type' = $3`, [provider, identifier, type]);
             await client.query(
-                `INSERT INTO auth.otp_codes (provider, identifier, code, expires_at, metadata) VALUES ('email', $1, $2, now() + interval '${expirationMinutes} minutes', $3::jsonb)`,
-                [email, tokenHash, JSON.stringify({ type, generated_at: new Date() })]
+                `INSERT INTO auth.otp_codes (provider, identifier, code, expires_at, metadata) VALUES ($1, $2, $3, now() + interval '${expirationMinutes} minutes', $4::jsonb)`,
+                [provider, identifier, tokenHash, JSON.stringify({ type, generated_at: new Date() })]
             );
             await client.query('COMMIT');
         } catch (e) {
@@ -333,7 +333,8 @@ export class AuthService {
             client.release();
         }
 
-        const actionUrl = `${projectUrl}/auth/v1/verify?token=${token}&type=${type}&email=${encodeURIComponent(email)}`;
+        // Action URLs explicitly carry the provider type down the chain
+        const actionUrl = `${projectUrl}/auth/v1/verify?token=${token}&type=${type}&email=${encodeURIComponent(identifier)}&provider=${encodeURIComponent(provider)}`;
         let subject = type === 'magiclink' ? 'Your Login Link' : 'Reset Your Password';
         let body = type === 'magiclink' ? `<h2>Login Request</h2><p>Click here to login:</p><a href="{{ .ConfirmationURL }}">Sign In</a>` : `<h2>Reset Password</h2><p>Click here to reset your password:</p><a href="{{ .ConfirmationURL }}">Reset Password</a>`;
 
@@ -346,8 +347,12 @@ export class AuthService {
             if (templates.recovery.body) body = templates.recovery.body;
         }
 
-        const html = this.replaceTemplate(body, { ConfirmationURL: actionUrl, Token: token, Email: email });
-        await this.sendEmail(email, subject, html, emailConfig, jwtSecret, type);
+        const html = this.replaceTemplate(body, { ConfirmationURL: actionUrl, Token: token, Email: identifier });
+
+        // If it's the email provider, send physically using the Email Service. 
+        // If it's a custom provider (e.g. CPF, Phone), they trigger webhooks independently via initiatePasswordless, 
+        // but if they hit this legacy path, we attempt dispatching via email if an email config exists.
+        await this.sendEmail(identifier, subject, html, emailConfig, jwtSecret, type);
     }
 
     private static generateCode(config: OtpConfig): string {
@@ -427,7 +432,7 @@ export class AuthService {
             if (dbCode.length !== userCode.length) {
                 match = false;
                 // Dummy comparison to equalize time
-                crypto.timingSafeEqual(dbCode, dbCode); 
+                crypto.timingSafeEqual(dbCode, dbCode);
             } else {
                 match = crypto.timingSafeEqual(dbCode, userCode);
             }
@@ -444,18 +449,18 @@ export class AuthService {
         } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
     }
 
-    public static async verifyMagicLinkToken(pool: Pool, email: string, token: string, type: string): Promise<UserProfile> {
+    public static async verifyMagicLinkToken(pool: Pool, identifier: string, token: string, type: string, provider: string = 'email'): Promise<UserProfile> {
         const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
-            const res = await client.query(`SELECT * FROM auth.otp_codes WHERE provider = 'email' AND identifier = $1 AND metadata->>'type' = $2 AND expires_at > now()`, [tokenHash, type]);
+            const res = await client.query(`SELECT * FROM auth.otp_codes WHERE provider = $1 AND identifier = $2 AND metadata->>'type' = $3 AND expires_at > now()`, [provider, tokenHash, type]);
             if (res.rows.length === 0) throw new Error("Invalid or expired link.");
             const record = res.rows[0];
             await client.query(`DELETE FROM auth.otp_codes WHERE id = $1`, [record.id]);
             await client.query('COMMIT');
-            return { provider: 'email', id: email, email: email, name: email.split('@')[0] };
-        } catch(e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+            return { provider: provider, id: identifier, email: (identifier.includes('@') ? identifier : undefined), name: identifier.split('@')[0] };
+        } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
     }
 
     public static async upsertUser(projectPool: Pool, profile: UserProfile): Promise<string> {
@@ -498,68 +503,68 @@ export class AuthService {
     }
 
     public static async createSession(
-        userId: string, 
-        projectPool: Pool, 
-        jwtSecret: string, 
-        expiresIn: string = '1h', 
+        userId: string,
+        projectPool: Pool,
+        jwtSecret: string,
+        expiresIn: string = '1h',
         refreshTokenExpiresInDays: number = 30,
         loginProvider: string = 'cascata',
         deviceInfo: { ip?: string, userAgent?: string } = {}
     ): Promise<SessionTokens> {
-        
+
         // 1. Create JWT Payload
-        const payload = { 
-            sub: userId, 
-            role: 'authenticated', 
+        const payload = {
+            sub: userId,
+            role: 'authenticated',
             aud: 'authenticated',
-            app_metadata: { 
-                provider: loginProvider, 
-                role: 'authenticated' 
+            app_metadata: {
+                provider: loginProvider,
+                role: 'authenticated'
             }
         };
 
         const accessToken = jwt.sign(payload, jwtSecret, { expiresIn: expiresIn as any });
-        
+
         // 2. Generate Refresh Token
         const rawRefreshToken = crypto.randomBytes(40).toString('hex');
         const tokenHash = crypto.createHash('sha256').update(rawRefreshToken).digest('hex');
         const expiresAt = new Date();
         expiresAt.setDate(expiresAt.getDate() + refreshTokenExpiresInDays);
-        
+
         // Insert with Fingerprint Metadata (Safe insertion even if columns missing due to dynamic migration handling)
         // We use dynamic query construction or just try/catch if column missing, but best is to rely on schema being up to date
         // Since we provided migration 027, we assume it runs.
-        
+
         try {
             await projectPool.query(
-                `INSERT INTO auth.refresh_tokens (token_hash, user_id, expires_at, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5)`, 
+                `INSERT INTO auth.refresh_tokens (token_hash, user_id, expires_at, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5)`,
                 [tokenHash, userId, expiresAt, deviceInfo.ip, deviceInfo.userAgent]
             );
         } catch (e: any) {
-             // Fallback for systems without migration 027 applied yet
-             if (e.code === '42703') { // Undefined column
-                 await projectPool.query(
-                    `INSERT INTO auth.refresh_tokens (token_hash, user_id, expires_at) VALUES ($1, $2, $3)`, 
+            // Fallback for systems without migration 027 applied yet
+            if (e.code === '42703') { // Undefined column
+                await projectPool.query(
+                    `INSERT INTO auth.refresh_tokens (token_hash, user_id, expires_at) VALUES ($1, $2, $3)`,
                     [tokenHash, userId, expiresAt]
                 );
-             } else {
-                 throw e;
-             }
+            } else {
+                throw e;
+            }
         }
-        
+
         const userRes = await projectPool.query(`SELECT id, raw_user_meta_data FROM auth.users WHERE id = $1`, [userId]);
         const user = userRes.rows[0];
-        
-        return { 
-            access_token: accessToken, 
-            refresh_token: rawRefreshToken, 
-            expires_in: this.parseSeconds(expiresIn), 
-            user: { 
-                id: user.id, 
-                email: user.raw_user_meta_data?.email, 
-                user_metadata: user.raw_user_meta_data, 
-                app_metadata: payload.app_metadata 
-            } 
+
+        return {
+            access_token: accessToken,
+            refresh_token: rawRefreshToken,
+            expires_in: this.parseSeconds(expiresIn),
+            user: {
+                id: user.id,
+                email: user.raw_user_meta_data?.email,
+                user_metadata: user.raw_user_meta_data,
+                app_metadata: payload.app_metadata
+            }
         };
     }
 
@@ -573,24 +578,24 @@ export class AuthService {
             const oldToken = res.rows[0];
             if (oldToken.revoked) throw new Error("Token has been revoked (Reuse detected)");
             await client.query(`UPDATE auth.refresh_tokens SET revoked = true WHERE id = $1`, [oldToken.id]);
-            
+
             const newRawRefreshToken = crypto.randomBytes(40).toString('hex');
             const newTokenHash = crypto.createHash('sha256').update(newRawRefreshToken).digest('hex');
             const newExpiresAt = new Date(); newExpiresAt.setDate(newExpiresAt.getDate() + 30);
-            
+
             // Insert New Token with updated Fingerprint
             try {
                 await client.query(
-                    `INSERT INTO auth.refresh_tokens (token_hash, user_id, expires_at, parent_token, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5, $6)`, 
+                    `INSERT INTO auth.refresh_tokens (token_hash, user_id, expires_at, parent_token, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5, $6)`,
                     [newTokenHash, oldToken.user_id, newExpiresAt, oldToken.id, deviceInfo.ip, deviceInfo.userAgent]
                 );
-            } catch(e: any) {
-                 if (e.code === '42703') {
-                     await client.query(
-                        `INSERT INTO auth.refresh_tokens (token_hash, user_id, expires_at, parent_token) VALUES ($1, $2, $3, $4)`, 
+            } catch (e: any) {
+                if (e.code === '42703') {
+                    await client.query(
+                        `INSERT INTO auth.refresh_tokens (token_hash, user_id, expires_at, parent_token) VALUES ($1, $2, $3, $4)`,
                         [newTokenHash, oldToken.user_id, newExpiresAt, oldToken.id]
                     );
-                 } else throw e;
+                } else throw e;
             }
 
             const accessToken = jwt.sign({ sub: oldToken.user_id, role: 'authenticated', aud: 'authenticated' }, jwtSecret, { expiresIn: expiresIn as any });
