@@ -97,6 +97,12 @@ export class AdminController {
                 [name, safeSlug, dbName, keys.anon, keys.service, keys.jwt, SYS_SECRET, JSON.stringify({ timezone: timezone || 'UTC' })]
             );
             await systemPool.query(`CREATE DATABASE "${dbName}"`);
+
+            // FIX: Enforce Temporal Consistency by natively linking the DB to the requested Timezone
+            const tz = timezone || process.env.GENERIC_TIMEZONE || 'UTC';
+            const safeTz = tz.replace(/[^a-zA-Z0-9_\-\/]/g, '');
+            await systemPool.query(`ALTER DATABASE "${dbName}" SET timezone TO '${safeTz}'`);
+
             const tempClient = new pg.Client({ connectionString: `postgresql://${process.env.DB_USER}:${process.env.DB_PASS}@${process.env.DB_DIRECT_HOST}:5432/${dbName}` });
             await tempClient.connect();
             await DatabaseService.initProjectDb(tempClient);
@@ -157,7 +163,20 @@ export class AdminController {
             const fields = []; const values = []; let idx = 1;
             // ...
             if (custom_domain !== undefined) { fields.push(`custom_domain = $${idx++}`); values.push(custom_domain); }
-            if (metadata) { fields.push(`metadata = COALESCE(metadata, '{}'::jsonb) || $${idx++}::jsonb`); values.push(JSON.stringify(metadata)); }
+            if (metadata) {
+                fields.push(`metadata = COALESCE(metadata, '{}'::jsonb) || $${idx++}::jsonb`);
+                values.push(JSON.stringify(metadata));
+
+                // FIX: Hot-Reload database temporal configuration if Admin updates the Timezone
+                if (metadata.timezone) {
+                    const dbNameRow = await systemPool.query('SELECT db_name FROM system.projects WHERE slug = $1', [req.params.slug]);
+                    if (dbNameRow.rows.length > 0) {
+                        const safeTz = metadata.timezone.replace(/[^a-zA-Z0-9_\-\/]/g, '');
+                        await systemPool.query(`ALTER DATABASE "${dbNameRow.rows[0].db_name}" SET timezone TO '${safeTz}'`);
+                        await PoolService.reload(dbNameRow.rows[0].db_name);
+                    }
+                }
+            }
             if (fields.length === 0) return res.json({});
             values.push(req.params.slug);
             const query = `UPDATE system.projects SET ${fields.join(', ')} WHERE slug = $${idx} RETURNING *`;
