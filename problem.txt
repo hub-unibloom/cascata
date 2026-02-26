@@ -1,36 +1,16 @@
-─[cocorico@user-550XDA] ~ 
-└─▶ curl -X GET "https://dash.unibloom.com.br/api/data/teste/rest/v1/tesste?select=*&limit=10" \
-  -H "apikey: 5eb141918df96e46992669dde89e38405ab459db2f2b89a32d1df2a1a7fa5886" \
-  -H "Authorization: Bearer 5eb141918df96e46992669dde89e38405ab459db2f2b89a32d1df2a1a7fa5886"
-[]┌─[cocorico@user-550XDA] ~ 
-└─▶ curl -X GET "https://dash.unibloom.com.br/api/data/teste/rest/v1/tesste?select=*&limit=10"   -H "apikey: 5eb141918df96e46992669dde89e38405ab459db2f2b89a32d1df2a1a7fa5886"   -H "Authorization: Bearer 5eb141918df96e46992669dde89e38405ab459db2f2b89a32d1df2a1a7fa5886"
-[{"id":"2cb1830e-ba18-4eeb-b1f3-0cd4b510d739","created_at":"2026-02-25T23:02:42.926Z","nome":"teste"}]┌─[cocorico@user-550XDA] ~ 
-└─▶ curl -X GET "https://teste.unibloom.com.br/rest/v1/tesste?select=*&limit=10" \
-  -H "apikey: 5eb141918df96e46992669dde89e38405ab459db2f2b89a32d1df2a1a7fa5886" \
-  -H "Authorization: Bearer 5eb141918df96e46992669dde89e38405ab459db2f2b89a32d1df2a1a7fa5886"
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>Error</title>
-</head>
-<body>
-<pre>Cannot GET /rest/v1/tesste</pre>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9d3af35e1f558b8d',t:'MTc3MjA2MTgwOA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
-</html>
+Erro de url personalizaadda foi corrigido pelo que foi eprcebido:
 ┌─[cocorico@user-550XDA] ~ 
-└─▶ 
-É A EMSMA TABELA E O EMSMO PROJETO, A DIFERENÇA É QUE UM ESTOU UTILIZANDO A URL PERSONALIZADA E NO OUTRO NÃO.
+└─▶ curl -X GET "https://teste.unibloom.com.br/rest/v1/tesste?select=*&limit=10"   -H "apikey: 5eb141918df96e46992669dde89e38405ab459db2f2b89a32d1df2a1a7fa5886"   -H "Authorization: Bearer 5eb141918df96e46992669dde89e38405ab459db2f2b89a32d1df2a1a7fa5886"
+[{"id":"2cb1830e-ba18-4eeb-b1f3-0cd4b510d739","created_at":"2026-02-25T23:02:42.926Z","nome":"teste"}]
 
+Estamos avançando , agora estamos apenas com esses dois problemas no console do navegador:
 
-Outros erros encontrados porem se motram no console do navegaddor E SÓ APARECE QUANDO ESTOU USANDO A URL PERSONALIZADA:
-
-SW registered! ServiceWorkerRegistration {installing: null, waiting: null, active: ServiceWorker, navigationPreload: NavigationPreloadManager, scope: 'https://dash.unibloom.com.br/', …}
-Access to fetch at 'https://api.ipify.org/?format=json' from origin 'https://dash.unibloom.com.br' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource.
-The FetchEvent for "https://api.ipify.org/?format=json" resulted in a network error response: the promise was rejected.
-service-worker.js:56   Uncaught (in promise) TypeError: Failed to fetch
-    at service-worker.js:56:28
-index-ZLVExLq2.js:1476  GET https://api.ipify.org/?format=json net::ERR_FAILED
-3service-worker.js:58 Uncaught (in promise) TypeError: Failed to execute 'put' on 'Cache': Request method 'POST' is unsupported
+"
+service-worker.js:58 Uncaught (in promise) TypeError: Failed to execute 'put' on 'Cache': Request method 'POST' is unsupported
     at service-worker.js:58:53
+(index):62 SW registered! ServiceWorkerRegistration {installing: null, waiting: null, active: ServiceWorker, navigationPreload: NavigationPreloadManager, scope: 'https://dash.unibloom.com.br/', …}
+service-worker.js:58 Uncaught (in promise) TypeError: Failed to execute 'put' on 'Cache': Request method 'POST' is unsupported
+    at service-worker.js:58:53
+"
 
+Parece que aos poucos estamos chegando lá, preciso que vc se empenhe em estuar e raciocinar de maneira abrangente pois odddeio erros! e nosso sistem é complexo e cheio de detalhes que precisam ser observados com atenção.

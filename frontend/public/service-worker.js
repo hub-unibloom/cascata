@@ -1,9 +1,7 @@
-const CACHE_NAME = 'cascata-v1';
+const CACHE_NAME = 'cascata-v2';
 const ASSETS = [
   '/',
   '/index.html',
-  '/index.tsx',
-  '/index.css',
   '/manifest.json'
 ];
 
