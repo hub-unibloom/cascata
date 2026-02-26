@@ -414,6 +414,9 @@ export class DataController {
                 [req.params.tableName, schema]
             );
 
+            // TIER-3 UNIVERSAL PADLOCK (Frontend Propagation)
+            const lockedColumns = req.project.metadata?.locked_columns || {};
+
             // Parse format patterns from comments
             const enriched = result.rows.map((row: any) => {
                 const parsed = parseColumnFormat(row.rawComment);
@@ -421,6 +424,7 @@ export class DataController {
                     ...row,
                     description: parsed.description || '',
                     formatPattern: parsed.formatPattern || null,
+                    lockLevel: lockedColumns[row.name] || 'unlocked', // Expose the padlock tier statically
                     rawComment: undefined // Don't expose raw comment to client
                 };
             });
@@ -498,9 +502,42 @@ export class DataController {
                 return def;
             }).join(', ');
             const sql = `CREATE TABLE ${safeSchema}.${safeName} (${colDefs});`;
+
+            // Execute the schema creation
             await req.projectPool!.query(sql);
             await req.projectPool!.query(`ALTER TABLE ${safeSchema}.${safeName} ENABLE ROW LEVEL SECURITY`);
+
+            // 1. Core Event Webhook Trigger
             await req.projectPool!.query(`CREATE TRIGGER ${name}_changes AFTER INSERT OR UPDATE OR DELETE ON ${safeSchema}.${safeName} FOR EACH ROW EXECUTE FUNCTION public.notify_changes();`);
+
+            // 2. TIER-3 UNIVERSAL PADLOCK (Auto-Injection for Temporal Columns)
+            // As per Commander's directive: created_at and updated_at get the Database 'Iron-Clad' Trigger automatically.
+            const hasCreatedAt = columns.some((c: any) => c.name === 'created_at');
+            const hasUpdatedAt = columns.some((c: any) => c.name === 'updated_at');
+
+            if (hasCreatedAt || hasUpdatedAt) {
+                // Determine which fields to freeze on update and which to strictly override with now()
+                const lockStatements = [];
+                if (hasCreatedAt) lockStatements.push('NEW.created_at = OLD.created_at;');
+                if (hasUpdatedAt) lockStatements.push('NEW.updated_at = now();'); // Force updated_at strictly to server time
+
+                const triggerFuncName = `lock_temporal_state_${name}`;
+                const triggerSql = `
+                    CREATE OR REPLACE FUNCTION ${safeSchema}.${quoteId(triggerFuncName)}()
+                    RETURNS TRIGGER AS $$
+                    BEGIN
+                        ${lockStatements.join('\n                        ')}
+                        RETURN NEW;
+                    END;
+                    $$ LANGUAGE plpgsql;
+
+                    CREATE TRIGGER ensure_temporal_integrity_${name}
+                    BEFORE UPDATE ON ${safeSchema}.${safeName}
+                    FOR EACH ROW EXECUTE FUNCTION ${safeSchema}.${quoteId(triggerFuncName)}();
+                `;
+                await req.projectPool!.query(triggerSql);
+            }
+
             if (description) await req.projectPool!.query(`COMMENT ON TABLE ${safeSchema}.${safeName} IS $1`, [description]);
             res.json({ success: true });
         } catch (e: any) { next(e); }
@@ -648,6 +685,15 @@ export class DataController {
     static async handlePostgrest(req: CascataRequest, res: any, next: any) {
         if (!['GET', 'POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method)) return next();
         try {
+            // TIER-3 UNIVERSAL PADLOCK (Gateway Extraction & Injection)
+            // Extract the locked columns metadata configured via the Frontend Table Builder
+            const lockedColumns = req.project.metadata?.locked_columns;
+            if (lockedColumns) {
+                req.headers['x-cascata-locked-columns'] = JSON.stringify(lockedColumns);
+                req.headers['x-cascata-role'] = req.userRole;
+                req.headers['x-cascata-project-id'] = req.project.id;
+            }
+
             const { text, values, countQuery } = PostgrestService.buildQuery(
                 req.params.tableName,
                 req.method,

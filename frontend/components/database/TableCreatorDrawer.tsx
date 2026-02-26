@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Plus, Loader2, Link as LinkIcon, Shield, ShieldOff, Regex, Cpu } from 'lucide-react';
+import { X, Plus, Loader2, Link as LinkIcon, Shield, ShieldOff, Regex, Cpu, Lock } from 'lucide-react';
 
 // ============================================================
 // TableCreatorDrawer — Enterprise Schema Designer
@@ -23,6 +23,7 @@ interface ColumnDef {
     description?: string;
     formatPreset?: string;
     formatPattern?: string;
+    lockLevel?: 'unlocked' | 'immutable' | 'insert_only' | 'service_role_only';
 }
 
 // Format presets for column validation (mirrored from backend)
@@ -46,7 +47,7 @@ interface TableCreatorDrawerProps {
     activeSchema: string;
     projectId: string;
     fetchWithAuth: (url: string, options?: any) => Promise<any>;
-    onSqlGenerated: (sql: string, metaConfig: { tableName: string, mcpEnabled: boolean, mcpPerms: { r: boolean, c: boolean, u: boolean, d: boolean } }) => void;
+    onSqlGenerated: (sql: string, metaConfig: { tableName: string, mcpEnabled: boolean, mcpPerms: { r: boolean, c: boolean, u: boolean, d: boolean }, lockedColumns?: Record<string, string> }) => void;
     initialTableName?: string;
     initialColumns?: ColumnDef[];
 }
@@ -115,8 +116,8 @@ const formatDefaultValue = (type: string, raw: string): string => {
 };
 
 const DEFAULT_COLUMNS: ColumnDef[] = [
-    { id: '1', name: 'id', type: 'uuid', defaultValue: 'gen_random_uuid()', isPrimaryKey: true, isNullable: false, isUnique: true, isArray: false },
-    { id: '2', name: 'created_at', type: 'timestamptz', defaultValue: 'now()', isPrimaryKey: false, isNullable: false, isUnique: false, isArray: false },
+    { id: '1', name: 'id', type: 'uuid', defaultValue: 'gen_random_uuid()', isPrimaryKey: true, isNullable: false, isUnique: true, isArray: false, lockLevel: 'immutable' },
+    { id: '2', name: 'created_at', type: 'timestamptz', defaultValue: 'now()', isPrimaryKey: false, isNullable: false, isUnique: false, isArray: false, lockLevel: 'insert_only' },
 ];
 
 const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
@@ -335,11 +336,20 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
             }
         }
 
+        // TIER-3 PADLOCK: Collect locked columns
+        const lockedColumns: Record<string, string> = {};
+        columns.forEach(c => {
+            if (c.lockLevel && c.lockLevel !== 'unlocked') {
+                lockedColumns[sanitizeName(c.name || 'unnamed')] = c.lockLevel;
+            }
+        });
+
         const sql = lines.join('\n');
         onSqlGenerated(sql, {
             tableName: safeName,
             mcpEnabled,
-            mcpPerms
+            mcpPerms,
+            lockedColumns
         });
         onClose();
     }, [tableName, tableDesc, columns, enableRLS, activeSchema, mcpEnabled, mcpPerms, onSqlGenerated, onClose, canGenerate]);
@@ -446,6 +456,7 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
                                         {(col.type === 'text' || col.type === 'varchar') && (
                                             <div title="Format Validation" onClick={() => handleColumnChange(col.id, 'formatPreset', col.formatPreset ? undefined : 'email')} className={`px-1.5 py-1 rounded cursor-pointer select-none transition-colors flex items-center gap-0.5 ${col.formatPreset || col.formatPattern ? 'bg-amber-100 text-amber-700' : 'text-slate-300 hover:bg-slate-200'}`}><Regex size={10} strokeWidth={3} /></div>
                                         )}
+                                        <div title="Security Lock (Immutability)" onClick={() => handleColumnChange(col.id, 'lockLevel', col.lockLevel && col.lockLevel !== 'unlocked' ? 'unlocked' : 'immutable')} className={`px-1.5 py-1 rounded cursor-pointer select-none transition-colors flex items-center gap-0.5 ${col.lockLevel && col.lockLevel !== 'unlocked' ? 'bg-rose-100 text-rose-700 border border-rose-300' : 'text-slate-300 hover:bg-slate-200'}`}><Lock size={10} strokeWidth={3} /></div>
                                     </div>
                                 </div>
 
@@ -483,6 +494,25 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
                                                 className="w-full mt-1.5 bg-white border border-amber-200 rounded py-1.5 px-2 text-[10px] font-mono text-slate-600 outline-none"
                                             />
                                         )}
+                                    </div>
+                                )}
+
+                                {/* Security Lock Editor (inline) */}
+                                {col.lockLevel && col.lockLevel !== 'unlocked' && (
+                                    <div className="mt-2 bg-rose-50/50 border border-rose-200 rounded-lg p-2 animate-in slide-in-from-top-1">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <Lock size={12} className="text-rose-500" />
+                                            <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest">Universal Security Lock</span>
+                                        </div>
+                                        <select
+                                            value={col.lockLevel}
+                                            onChange={(e) => handleColumnChange(col.id, 'lockLevel', e.target.value)}
+                                            className="w-full bg-white border border-rose-200 rounded py-1.5 px-2 text-[10px] font-bold text-slate-700 outline-none cursor-pointer"
+                                        >
+                                            <option value="immutable">IMMUTABLE (API Blocks both INSERT & UPDATE)</option>
+                                            <option value="insert_only">INSERT ONLY (API Blocks UPDATE)</option>
+                                            <option value="service_role_only">SERVICE ROLE ONLY (API Blocks Anon & Authenticated users)</option>
+                                        </select>
                                     </div>
                                 )}
 

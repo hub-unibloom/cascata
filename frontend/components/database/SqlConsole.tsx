@@ -1,15 +1,17 @@
 
 import React, { useState, useEffect } from 'react';
 import { Terminal, Play, Loader2, Sparkles, History, FileJson, FileSpreadsheet, X, CheckCircle2 } from 'lucide-react';
+import { Parser } from 'node-sql-parser';
 
 interface SqlConsoleProps {
     onExecute: (sql: string) => Promise<any>;
     onFix: (sql: string, error: string) => Promise<string | null>;
+    onInterceptCreateTable?: (tableName: string, columns: any[]) => void;
     onClose?: () => void;
     initialQuery?: string;
 }
 
-const SqlConsole: React.FC<SqlConsoleProps> = ({ onExecute, onFix, onClose, initialQuery = '' }) => {
+const SqlConsole: React.FC<SqlConsoleProps> = ({ onExecute, onFix, onInterceptCreateTable, onClose, initialQuery = '' }) => {
     const [query, setQuery] = useState(initialQuery);
     const [result, setResult] = useState<any>(null);
     const [history, setHistory] = useState<string[]>([]);
@@ -26,6 +28,38 @@ const SqlConsole: React.FC<SqlConsoleProps> = ({ onExecute, onFix, onClose, init
         setExecuting(true);
         setResult(null);
         setError(null);
+
+        // TIER-3 UNIVERSAL PADLOCK: AST Interceptor 
+        // We catch DDL CREATE TABLE statements here so the user can configure immutability locks before execution.
+        if (onInterceptCreateTable && query.toUpperCase().includes('CREATE TABLE')) {
+            try {
+                const parser = new Parser();
+                const astList = parser.astify(query, { database: 'PostgresQL' });
+                const astArray = Array.isArray(astList) ? astList : [astList];
+
+                for (const ast of astArray) {
+                    if (ast.type === 'create' && ast.keyword === 'table') {
+                        const tableName = ast.table?.[0]?.table;
+                        const columns = ast.create_definitions?.map((col: any) => ({
+                            name: col.column?.column,
+                            type: col.definition?.dataType || 'TEXT',
+                            isPrimaryKey: col.definition?.primary_key || false,
+                            nullable: !col.definition?.not_null,
+                            default: col.definition?.default_val?.value
+                        })) || [];
+
+                        if (tableName) {
+                            onInterceptCreateTable(tableName, columns);
+                            setExecuting(false);
+                            return; // Intercepted! Do not execute.
+                        }
+                    }
+                }
+            } catch (astError) {
+                console.warn('[AST Interceptor] Failed to parse SQL for DDL extraction. Falling back to native execution.', astError);
+            }
+        }
+
         try {
             const data = await onExecute(query);
             setResult(data);

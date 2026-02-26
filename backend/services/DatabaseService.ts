@@ -26,11 +26,58 @@ export interface GranularMergePlan {
 
 export class DatabaseService {
     /**
+     * Initializes the standard Cascata database structure for the system database.
+     */
+    public static async initSystemDb(client?: PoolClient) {
+        console.log('[System] Verifying/Initializing system structure...');
+        const workerClient = client || await systemPool.connect();
+        try {
+            await workerClient.query(`
+                CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+                
+                CREATE SCHEMA IF NOT EXISTS system;
+
+                CREATE TABLE IF NOT EXISTS system.projects (
+                    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    name TEXT NOT NULL,
+                    db_name TEXT NOT NULL UNIQUE,
+                    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'paused', 'archived', 'provisioning', 'failed')),
+                    created_at TIMESTAMPTZ DEFAULT now(),
+                    metadata JSONB DEFAULT '{}'
+                );
+                
+                -- NEW: Intrusion Logger (Tier-3 Column Padlock)
+                CREATE TABLE IF NOT EXISTS system.security_events (
+                    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    project_id UUID REFERENCES system.projects(id) ON DELETE CASCADE,
+                    table_name TEXT NOT NULL,
+                    column_name TEXT NOT NULL,
+                    attempted_value TEXT,
+                    ip TEXT,
+                    created_at TIMESTAMPTZ DEFAULT now()
+                );
+                CREATE INDEX IF NOT EXISTS idx_security_events_project ON system.security_events(project_id);
+
+                CREATE TABLE IF NOT EXISTS system.db_migrations (
+                    id SERIAL PRIMARY KEY,
+                    project_id UUID REFERENCES system.projects(id) ON DELETE CASCADE,
+                    version VARCHAR(255) NOT NULL,
+                    name VARCHAR(255) NOT NULL,
+                    executed_at TIMESTAMPTZ DEFAULT now(),
+                    UNIQUE(project_id, version)
+                );
+            `);
+        } finally {
+            if (!client) workerClient.release();
+        }
+    }
+
+    /**
      * Initializes the standard Cascata database structure for a project.
      */
     public static async initProjectDb(client: PoolClient | Client) {
         console.log('[DatabaseService] Initializing project structure (Push Engine Enabled)...');
-        
+
         await client.query(`
             -- Extensions
             CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -142,7 +189,7 @@ export class DatabaseService {
                 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO anon, authenticated;
             END $$;
         `);
-        
+
         await client.query(`
             CREATE OR REPLACE FUNCTION public.notify_changes()
             RETURNS trigger AS $$
@@ -305,27 +352,27 @@ export class DatabaseService {
     // --- ROLLBACK & RECOVERY ENGINE ---
 
     public static async restoreSnapshot(
-        liveDb: string, 
-        snapshotDb: string, 
+        liveDb: string,
+        snapshotDb: string,
         mode: 'hard' | 'smart'
     ) {
         console.log(`[Rollback] Initiating ${mode.toUpperCase()} Rollback: ${liveDb} <- ${snapshotDb}`);
-        
+
         // 0. Extract Timestamp from Snapshot Name for Data Salvage
         const match = snapshotDb.match(/_backup_(\d+)$/);
         const snapshotTs = match ? parseInt(match[1]) : 0;
-        
+
         // Quarantine Name
         const quarantineDb = `${liveDb}_quarantine_${Date.now()}`;
 
         // 1. DATA SALVAGE (Smart Mode Only)
         // Extract rows created AFTER the snapshot timestamp from the CURRENT live DB.
         const salvagedData: Record<string, any[]> = {};
-        
+
         if (mode === 'smart' && snapshotTs > 0) {
             console.log(`[Rollback] Salvaging data created after ${new Date(snapshotTs).toISOString()}...`);
             const livePool = PoolService.get(liveDb, { useDirect: true });
-            
+
             try {
                 // Get all tables with 'created_at' column
                 const tablesRes = await livePool.query(`
@@ -333,10 +380,10 @@ export class DatabaseService {
                     FROM information_schema.columns 
                     WHERE table_schema = 'public' AND column_name = 'created_at'
                 `);
-                
+
                 // Cutoff date (Buffer 1s to avoid boundary misses)
                 const cutoff = new Date(snapshotTs - 1000).toISOString();
-                
+
                 for (const row of tablesRes.rows) {
                     const table = row.table_name;
                     // Select new rows
@@ -359,13 +406,13 @@ export class DatabaseService {
         // Kill connections
         await this.terminateConnections(liveDb);
         await this.terminateConnections(snapshotDb);
-        
+
         // Rename Live -> Quarantine
         await this.killAndRename(systemPool, liveDb, quarantineDb);
-        
+
         // Rename Snapshot -> Live (Clone logic: We actually want to CLONE the snapshot to Live, 
         // so the snapshot remains available for future rollbacks if this one fails too)
-        
+
         try {
             await systemPool.query(`CREATE DATABASE "${liveDb}" WITH TEMPLATE "${snapshotDb}" OWNER "${process.env.DB_USER}"`);
         } catch (cloneErr) {
@@ -379,7 +426,7 @@ export class DatabaseService {
             console.log("[Rollback] Re-injecting salvaged data...");
             const newLivePool = PoolService.get(liveDb, { useDirect: true });
             const client = await newLivePool.connect();
-            
+
             try {
                 await client.query('BEGIN');
                 await client.query("SET session_replication_role = 'replica';"); // Bypass constraints
@@ -400,8 +447,8 @@ export class DatabaseService {
 
                     for (const row of rows) {
                         const values = cols.map(c => row[c]);
-                        const placeholders = values.map((_, i) => `$${i+1}`).join(', ');
-                        
+                        const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
+
                         // Try Insert (Ignore conflicts, as old ID might exist in backup if timestamps overlap)
                         await client.query(
                             `INSERT INTO public.${quoteId(table)} (${colNames}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`,
@@ -425,7 +472,7 @@ export class DatabaseService {
                 client.release();
             }
         }
-        
+
         await PoolService.reload(liveDb);
         return { quarantineDb };
     }
@@ -456,11 +503,11 @@ export class DatabaseService {
     private static async killAndRename(pool: Pool, from: string, to: string) {
         const exists = await pool.query(`SELECT 1 FROM pg_database WHERE datname = $1`, [from]);
         if (exists.rowCount === 0) return;
-        
+
         // Redundant kill just in case
         await pool.query(`UPDATE pg_database SET datallowconn = 'false' WHERE datname = '${from}'`);
         await pool.query(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${from}' AND pid <> pg_backend_pid()`);
-        
+
         await pool.query(`ALTER DATABASE "${from}" RENAME TO "${to}"`);
         await pool.query(`UPDATE pg_database SET datallowconn = 'true' WHERE datname = '${to}'`);
     }
@@ -472,14 +519,14 @@ export class DatabaseService {
     public static async generateDataDiff(sourceDb: string, targetDb: string): Promise<DataDiffSummary[]> {
         const sourcePool = PoolService.get(sourceDb, { useDirect: true });
         const targetPool = PoolService.get(targetDb, { useDirect: true });
-        
+
         const getTables = async (pool: Pool) => {
             const res = await pool.query(`SELECT relname as table_name FROM pg_stat_user_tables WHERE schemaname = 'public'`);
             return res.rows.map(r => r.table_name);
         };
         const sourceTables = await getTables(sourcePool);
         const summary: DataDiffSummary[] = [];
-        
+
         for (const table of sourceTables) {
             try {
                 // Get PK column to use for intersection
@@ -499,7 +546,7 @@ export class DatabaseService {
                 try {
                     const targetIdsRes = await targetPool.query(`SELECT "${pkCol}"::text as id FROM public.${quoteId(table)}`);
                     targetIds = new Set(targetIdsRes.rows.map(r => r.id));
-                } catch(e) { /* Table likely missing in target */ }
+                } catch (e) { /* Table likely missing in target */ }
 
                 let intersectionCount = 0;
                 let newRowsCount = 0;
@@ -515,10 +562,10 @@ export class DatabaseService {
                     table,
                     total_source: sourceIds.size,
                     total_target: targetIds.size,
-                    new_rows: newRowsCount,         
-                    update_rows: intersectionCount, 
-                    missing_rows: missingRows, 
-                    conflicts: intersectionCount    
+                    new_rows: newRowsCount,
+                    update_rows: intersectionCount,
+                    missing_rows: missingRows,
+                    conflicts: intersectionCount
                 });
 
             } catch (e) {
@@ -541,10 +588,10 @@ export class DatabaseService {
                 JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name
                 WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public'
             `);
-            
+
             const graph: Record<string, Set<string>> = {};
             tables.forEach(t => graph[t] = new Set());
-            
+
             res.rows.forEach(r => {
                 if (tables.includes(r.table_name) && tables.includes(r.foreign_table_name)) {
                     // Dependency: table_name depends on foreign_table_name
@@ -593,7 +640,7 @@ export class DatabaseService {
             AND T.relname NOT LIKE '_deleted_%'
         `);
         for (const row of res.rows) {
-            try { await client.query(row.fix_sql); } catch(e) {}
+            try { await client.query(row.fix_sql); } catch (e) { }
         }
     }
 
@@ -601,9 +648,9 @@ export class DatabaseService {
      * ATOMIC MERGE ENGINE (Fixed for Schema Visibility & Transaction Safety)
      */
     public static async mergeData(
-        sourceDb: string, 
-        targetDb: string, 
-        specificTable: string | undefined, 
+        sourceDb: string,
+        targetDb: string,
+        specificTable: string | undefined,
         globalStrategy: string,
         granularPlan?: GranularMergePlan,
         externalClient?: PoolClient | Client // Must be passed if inside a transaction!
@@ -612,7 +659,7 @@ export class DatabaseService {
 
         const sourcePool = PoolService.get(sourceDb, { useDirect: true });
         const targetPool = PoolService.get(targetDb, { useDirect: true });
-        
+
         const clientTarget = externalClient || await targetPool.connect();
         const clientSource = await sourcePool.connect();
         let ownTransaction = !externalClient;
@@ -621,19 +668,19 @@ export class DatabaseService {
 
         try {
             if (ownTransaction) await clientTarget.query('BEGIN');
-            
+
             // Force schema refresh visibility
             const targetMeta = await this.getSchemaFromClient(clientTarget);
             const sourceMeta = await this.getSchemaFromClient(clientSource);
 
             const sourceTables: Record<string, string[]> = {};
             sourceMeta.forEach(r => { if (!sourceTables[r.table_name]) sourceTables[r.table_name] = []; sourceTables[r.table_name].push(r.column_name); });
-            
+
             const targetTables: Record<string, string[]> = {};
             targetMeta.forEach(r => { if (!targetTables[r.table_name]) targetTables[r.table_name] = []; targetTables[r.table_name].push(r.column_name); });
 
             let tablesToSync: string[] = specificTable ? [specificTable] : Object.keys(sourceTables);
-            
+
             if (tablesToSync.length > 1) {
                 try {
                     tablesToSync = await this.getDependencyOrder(sourcePool, tablesToSync);
@@ -643,18 +690,18 @@ export class DatabaseService {
             }
 
             // Disable constraints for bulk insert
-            await clientTarget.query("SET session_replication_role = 'replica';"); 
+            await clientTarget.query("SET session_replication_role = 'replica';");
 
             for (const table of tablesToSync) {
                 // FIX: Strictly verify strategy before checking table existence or syncing
                 const plan = granularPlan?.[table];
-                let strategy = plan?.strategy || globalStrategy || 'upsert'; 
-                
+                let strategy = plan?.strategy || globalStrategy || 'upsert';
+
                 // SAFETY: Explicitly SKIP if ignore strategy is set
-                if (strategy === 'ignore') { 
+                if (strategy === 'ignore') {
                     console.log(`[SmartMerge] Ignoring table ${table} explicitly.`);
-                    results.push({ table, rows: 0, strategy: 'ignored' }); 
-                    continue; 
+                    results.push({ table, rows: 0, strategy: 'ignored' });
+                    continue;
                 }
 
                 if (!targetTables[table]) {
@@ -665,7 +712,7 @@ export class DatabaseService {
                 const commonCols = sourceTables[table].filter(col => targetTables[table].includes(col));
                 if (commonCols.length === 0) continue;
                 const colsList = commonCols.map(quoteId).join(', ');
-                
+
                 let pkColumn = 'id';
                 try {
                     const pkRes = await clientTarget.query(`
@@ -673,7 +720,7 @@ export class DatabaseService {
                         WHERE i.indrelid = 'public.${quoteId(table)}'::regclass AND i.indisprimary;
                     `);
                     if (pkRes.rows.length > 0) pkColumn = pkRes.rows[0].attname;
-                } catch(e) {}
+                } catch (e) { }
 
                 console.log(`[SmartMerge] Syncing ${table} using strategy: ${strategy}...`);
 
@@ -682,8 +729,8 @@ export class DatabaseService {
                 // which might crash but not delete. 
                 // Overwrite is the only destructive op.
                 if (strategy === 'overwrite') {
-                     console.log(`[SmartMerge] Truncating ${table} for overwrite...`);
-                     await clientTarget.query(`TRUNCATE TABLE public.${quoteId(table)} CASCADE`);
+                    console.log(`[SmartMerge] Truncating ${table} for overwrite...`);
+                    await clientTarget.query(`TRUNCATE TABLE public.${quoteId(table)} CASCADE`);
                 }
 
                 const cursor = clientSource.query(new Cursor(`SELECT ${colsList} FROM public.${quoteId(table)}`));
@@ -698,7 +745,7 @@ export class DatabaseService {
                     const valueParams: any[] = [];
                     const valuePlaceholders: string[] = [];
                     let paramCounter = 1;
-                    
+
                     rows.forEach((row) => {
                         const rowPh: string[] = [];
                         commonCols.forEach((col) => {
@@ -709,7 +756,7 @@ export class DatabaseService {
                     });
 
                     let insertSql = `INSERT INTO public.${quoteId(table)} (${colsList}) VALUES ${valuePlaceholders.join(',')}`;
-                    
+
                     if (strategy === 'append' || strategy === 'missing_only') {
                         insertSql += ` ON CONFLICT ("${pkColumn}") DO NOTHING`;
                     } else if (strategy === 'upsert' || strategy === 'smart_sync') {
@@ -726,7 +773,7 @@ export class DatabaseService {
                     rowCount += res.rowCount || 0;
                     rows = await readNext();
                 }
-                
+
                 console.log(`[SmartMerge] Processed ${rowCount} rows into ${table}`);
                 results.push({ table, rows: rowCount, strategy });
             }
@@ -740,12 +787,46 @@ export class DatabaseService {
             if (ownTransaction) await clientTarget.query('ROLLBACK');
             throw err;
         } finally {
-            try { await clientTarget.query("SET session_replication_role = 'origin';"); } catch(e) {}
-            
+            try { await clientTarget.query("SET session_replication_role = 'origin';"); } catch (e) { }
+
             clientSource.release();
             if (ownTransaction) (clientTarget as PoolClient).release();
         }
 
         return results;
+    }
+
+    /**
+     * TIER-3 UNIVERSAL PADLOCK LOGGER
+     * Asynchronous "fire-and-forget" method to persist intrusion records without 
+     * blocking or risking the actual HTTP response payload.
+     */
+    public static logSecurityEvent(payload: {
+        projectId: string;
+        tableName: string;
+        columnName: string;
+        attemptedValue: string;
+        ip: string;
+    }) {
+        // Run completely asynchronously (detached from the current request's promise tree)
+        setImmediate(async () => {
+            try {
+                await systemPool.query(`
+                    INSERT INTO system.security_events 
+                        (project_id, table_name, column_name, attempted_value, ip) 
+                    VALUES ($1, $2, $3, $4, $5)
+                `, [
+                    payload.projectId,
+                    payload.tableName,
+                    payload.columnName,
+                    payload.attemptedValue,
+                    payload.ip
+                ]);
+            } catch (err) {
+                console.error('[Security Firewall] Failed to log intrusion event:', err);
+                // We swallow the error here because the actual API request must not fail 
+                // just because the intrusion log failed to save.
+            }
+        });
     }
 }

@@ -40,7 +40,7 @@ export class PostgrestService {
         // 1. Extract Reserved Params (Pagination, Select, Order)
         let selectParam = query.select || '*';
         if (selectParam === '%2A') selectParam = '*';
-        
+
         const orderParam = query.order;
         const limitParam = query.limit;
         const offsetParam = query.offset;
@@ -50,7 +50,7 @@ export class PostgrestService {
         const filters: string[] = [];
         Object.keys(query).forEach(key => {
             if (['select', 'order', 'limit', 'offset', 'on_conflict', 'columns'].includes(key)) return;
-            
+
             // SANITIZATION: Key must be valid identifier
             if (!/^[a-zA-Z0-9_]+$/.test(key)) return;
 
@@ -74,7 +74,7 @@ export class PostgrestService {
         if (method === 'GET') {
             const columns = this.parseSelect(selectParam);
             const orderBy = this.parseOrder(orderParam);
-            
+
             let limitClause = '';
             let offsetClause = '';
 
@@ -89,12 +89,12 @@ export class PostgrestService {
                     }
                 }
             }
-            
+
             if (limitParam) limitClause = `LIMIT ${parseInt(limitParam)}`;
             if (offsetParam) offsetClause = `OFFSET ${parseInt(offsetParam)}`;
 
             sql = `SELECT ${columns} FROM public.${safeTable} ${whereClause} ${orderBy} ${limitClause} ${offsetClause}`;
-            
+
             // DoS PROTECTION: Cap count query execution time
             if (headers['prefer'] && headers['prefer'].includes('count=exact')) {
                 countQuery = `SELECT COUNT(*) as total FROM public.${safeTable} ${whereClause}`;
@@ -104,16 +104,65 @@ export class PostgrestService {
             const rows = Array.isArray(body) ? body : [body];
             if (rows.length === 0) throw new Error("No data to insert");
 
+            // TIER-3 PADLOCK SANITIZER (Payload Stripping & Logging)
+            const lockedColumnsStr = headers['x-cascata-locked-columns'];
+            const userRole = headers['x-cascata-role'] || 'anon';
+            const projectId = headers['x-cascata-project-id'];
+            const clientIp = headers['x-forwarded-for'] || headers['x-real-ip'] || '0.0.0.0';
+
+            if (lockedColumnsStr) {
+                try {
+                    const lockedColumns = JSON.parse(lockedColumnsStr);
+                    // Iterate and sanitize ALL objects in the BULK array
+                    for (const row of rows) {
+                        for (const [colName, lockLevel] of Object.entries(lockedColumns)) {
+                            // If the column exists in the payload, evaluate the lock
+                            if (row[colName] !== undefined) {
+                                let shouldStrip = false;
+
+                                if (lockLevel === 'immutable') {
+                                    shouldStrip = true; // Never allowed externally
+                                } else if (lockLevel === 'service_role_only' && userRole !== 'service_role') {
+                                    shouldStrip = true; // Blocked for anon/authenticated
+                                }
+                                // Note: 'insert_only' is allowed during POST/INSERT.
+
+                                if (shouldStrip) {
+                                    const spoofedValue = row[colName];
+                                    delete row[colName]; // Silently remove the threat
+
+                                    // Fire-and-Forget Radar Log
+                                    if (projectId) {
+                                        const { DatabaseService } = require('./DatabaseService.js');
+                                        DatabaseService.logSecurityEvent({
+                                            projectId,
+                                            tableName,
+                                            columnName: colName,
+                                            attemptedValue: JSON.stringify(spoofedValue),
+                                            ip: clientIp
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error('[PostgrestService] Failed to parse locked columns metadata', e);
+                }
+            }
+
             const keys = Object.keys(rows[0]);
+            if (keys.length === 0) throw new Error("No valid data to insert after sanitization");
+
             // SANITIZATION
             keys.forEach(k => {
                 if (!/^[a-zA-Z0-9_]+$/.test(k)) throw new Error(`Invalid column name: ${k}`);
             });
             const cols = keys.map(k => `"${k}"`).join(', ');
-            
+
             const valueGroups: string[] = [];
             let paramIdx = 1;
-            
+
             // To use Prepared Statements with batch inserts, the structure must be identical.
             // We assume consistent row structure for the batch here.
             rows.forEach(row => {
@@ -142,8 +191,56 @@ export class PostgrestService {
             const keys = Object.keys(body);
             if (keys.length === 0) throw new Error("No data to update");
 
+            // TIER-3 PADLOCK SANITIZER (Payload Stripping & Logging for UPDATE)
+            const lockedColumnsStr = headers['x-cascata-locked-columns'];
+            const userRole = headers['x-cascata-role'] || 'anon';
+            const projectId = headers['x-cascata-project-id'];
+            const clientIp = headers['x-forwarded-for'] || headers['x-real-ip'] || '0.0.0.0';
+
+            if (lockedColumnsStr) {
+                try {
+                    const lockedColumns = JSON.parse(lockedColumnsStr);
+                    // Single object iteration for PATCH
+                    for (const [colName, lockLevel] of Object.entries(lockedColumns)) {
+                        if (body[colName] !== undefined) {
+                            let shouldStrip = false;
+
+                            if (lockLevel === 'immutable') {
+                                shouldStrip = true; // Never allowed externally
+                            } else if (lockLevel === 'insert_only') {
+                                shouldStrip = true; // NEVER allowed on UPDATE
+                            } else if (lockLevel === 'service_role_only' && userRole !== 'service_role') {
+                                shouldStrip = true; // Blocked for anon/authenticated
+                            }
+
+                            if (shouldStrip) {
+                                const spoofedValue = body[colName];
+                                delete body[colName]; // Silently remove the threat
+
+                                // Fire-and-Forget Radar Log
+                                if (projectId) {
+                                    const { DatabaseService } = require('./DatabaseService.js');
+                                    DatabaseService.logSecurityEvent({
+                                        projectId,
+                                        tableName,
+                                        columnName: colName,
+                                        attemptedValue: JSON.stringify(spoofedValue),
+                                        ip: clientIp
+                                    });
+                                }
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error('[PostgrestService] Failed to parse locked columns metadata', e);
+                }
+            }
+
+            const cleanKeys = Object.keys(body);
+            if (cleanKeys.length === 0) throw new Error("No valid data to update after sanitization");
+
             const setClauses: string[] = [];
-            keys.forEach(k => {
+            cleanKeys.forEach(k => {
                 if (!/^[a-zA-Z0-9_]+$/.test(k)) throw new Error(`Invalid column name: ${k}`);
                 setClauses.push(`"${k}" = $${params.length + 1}`);
                 params.push(body[k]);
@@ -154,7 +251,7 @@ export class PostgrestService {
                 if (['select', 'order', 'limit', 'offset'].includes(key)) return;
                 // SANITIZATION
                 if (!/^[a-zA-Z0-9_]+$/.test(key)) return;
-                
+
                 const value = query[key];
                 const { clause, val } = this.parseFilter(key, value, params.length + 1);
                 if (clause) {
@@ -176,7 +273,7 @@ export class PostgrestService {
                 if (['select', 'order', 'limit', 'offset'].includes(key)) return;
                 // SANITIZATION
                 if (!/^[a-zA-Z0-9_]+$/.test(key)) return;
-                
+
                 const value = query[key];
                 const { clause, val } = this.parseFilter(key, value, params.length + 1);
                 if (clause) {
@@ -205,7 +302,7 @@ export class PostgrestService {
         return selectParam.split(',').map(c => {
             const part = c.trim();
             // Basic sanitization, ideally should be stricter
-            if (!/^[a-zA-Z0-9_:\->.\s\(\)]+$/.test(part)) return ''; 
+            if (!/^[a-zA-Z0-9_:\->.\s\(\)]+$/.test(part)) return '';
 
             if (part.includes(':') && !part.includes('::')) {
                 const [col, alias] = part.split(':');
@@ -235,12 +332,12 @@ export class PostgrestService {
     }
 
     private static parseFilter(key: string, value: string, paramIndex: number): { clause: string, val: any } {
-        const column = `"${key}"`; 
+        const column = `"${key}"`;
 
         // ROBUST PARSER FIX: Split only on the first dot
         // This preserves values like "user.name@domain.com"
         const dotIndex = value.indexOf('.');
-        
+
         if (dotIndex === -1) {
             // Implicit Equality (no operator)
             return { clause: `${column} = $${paramIndex}`, val: value };
@@ -258,7 +355,7 @@ export class PostgrestService {
             case 'lte': return { clause: `${column} <= $${paramIndex}`, val: rawVal };
             case 'like': return { clause: `${column} LIKE $${paramIndex}`, val: rawVal.replace(/\*/g, '%') };
             case 'ilike': return { clause: `${column} ILIKE $${paramIndex}`, val: rawVal.replace(/\*/g, '%') };
-            case 'is': 
+            case 'is':
                 if (rawVal === 'null') return { clause: `${column} IS NULL`, val: undefined };
                 if (rawVal === 'true') return { clause: `${column} IS TRUE`, val: undefined };
                 if (rawVal === 'false') return { clause: `${column} IS FALSE`, val: undefined };

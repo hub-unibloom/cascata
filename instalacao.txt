@@ -43,17 +43,3 @@
 					nano .env
 					mkdir -p /cascata-data/pg /cascata-data/qdrant /cascata-data/redis /cascata-data/storage /cascata-data/certs /cascata-data/acme_challenge /cascata-data/nginx_dynamic
 					docker compose up -d --build
-
-# ═══════════════════════════════════════════════════════
-#  ⚠️  ATUALIZAÇÃO SEGURA (NUNCA use docker compose down -v)
-# ═══════════════════════════════════════════════════════
-#  O flag -v DESTRÓI os dados! Para atualizar, use:
-#
-#     chmod +x safe-update.sh
-#     ./safe-update.sh
-#
-#  Ou manualmente:
-#     docker compose down          (SEM -v!)
-#     git pull
-#     docker compose up -d --build
-# ═══════════════════════════════════════════════════════

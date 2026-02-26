@@ -16,7 +16,8 @@
     "clsx": "^2.1.0",
     "tailwind-merge": "^2.2.1",
     "jspdf": "^2.5.1",
-    "jspdf-autotable": "^3.8.2"
+    "jspdf-autotable": "^3.8.2",
+    "node-sql-parser": "^5.3.5"
   },
   "devDependencies": {
     "@types/react": "^18.2.56",
