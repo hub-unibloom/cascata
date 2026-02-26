@@ -783,15 +783,17 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                                             </div>
                                         </div>
 
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Sender Email (From)</label>
-                                            <input
-                                                value={emailGateway.from_email}
-                                                onChange={(e) => setEmailGateway({ ...emailGateway, from_email: e.target.value })}
-                                                className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none"
-                                                placeholder="noreply@myapp.com"
-                                            />
-                                        </div>
+                                        {emailGateway.delivery_method !== 'webhook' && (
+                                            <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Sender Email (From)</label>
+                                                <input
+                                                    value={emailGateway.from_email || ''}
+                                                    onChange={(e) => setEmailGateway({ ...emailGateway, from_email: e.target.value })}
+                                                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none"
+                                                    placeholder="noreply@myapp.com"
+                                                />
+                                            </div>
+                                        )}
                                     </div>
 
                                     {emailGateway.delivery_method === 'resend' && (
@@ -1196,12 +1198,13 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                         <div className="flex-1 overflow-y-auto space-y-8 pr-2">
                             <div className="grid grid-cols-2 gap-6">
                                 <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Status</label>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Status (Draft)</label>
                                     <button
                                         onClick={() => setStrategyConfig({ ...strategyConfig, enabled: !strategyConfig.enabled })}
                                         className={`w-full py-3 rounded-xl border flex items-center justify-center gap-2 transition-all ${strategyConfig.enabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
+                                        title="Changes apply after Saving"
                                     >
-                                        {strategyConfig.enabled ? <><CheckCircle2 size={16} /> Enabled</> : 'Disabled'}
+                                        {strategyConfig.enabled ? <><CheckCircle2 size={16} /> Enabled (Pending Save)</> : 'Disabled (Pending Save)'}
                                     </button>
                                 </div>
                                 <div className="space-y-2">
@@ -1292,9 +1295,26 @@ const { user, session } = await cascata.auth.signIn({
                             )}
 
                             <div className="space-y-3">
-                                <div className="flex justify-between items-center">
+                                <div className="flex flex-col gap-2">
                                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Authorized Origins (CORS/Redirects)</label>
-                                    <button onClick={() => addRuleToStrategy(strategyConfig.newRule || '', false)} className="text-[10px] font-black text-indigo-600 uppercase hover:underline">+ Add Origin</button>
+                                    <div className="flex gap-2">
+                                        <input
+                                            value={strategyConfig.newRule || ''}
+                                            onChange={(e) => setStrategyConfig({ ...strategyConfig, newRule: e.target.value })}
+                                            placeholder="https://meu-app.com"
+                                            className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    addRuleToStrategy(strategyConfig.newRule || '', false);
+                                                    setStrategyConfig({ ...strategyConfig, newRule: '' });
+                                                }
+                                            }}
+                                        />
+                                        <button onClick={() => {
+                                            addRuleToStrategy(strategyConfig.newRule || '', false);
+                                            setStrategyConfig({ ...strategyConfig, newRule: '' });
+                                        }} className="px-5 py-3 bg-indigo-50 text-indigo-600 font-bold text-[10px] uppercase rounded-xl hover:bg-indigo-100 transition-colors shrink-0">Add Origin</button>
+                                    </div>
                                 </div>
                                 <div className="space-y-2">
                                     {strategyConfig.rules?.map((rule: any, idx: number) => (
