@@ -202,6 +202,9 @@ else {
         if (err.message === "Invalid login credentials") {
             return res.status(400).json({ error: "invalid_grant", error_description: "Invalid login credentials" });
         }
+        if (err.message === "Email not confirmed") {
+            return res.status(400).json({ error: "email_not_confirmed", error_description: "Email not confirmed" });
+        }
 
         if (err.code) {
             const pgMap: Record<string, { s: number, m: string }> = {

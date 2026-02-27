@@ -312,6 +312,10 @@ export class GoTrueService {
                 throw new Error("Email not confirmed");
             }
 
+            if (!identity.password_hash) {
+                throw new Error("Invalid login credentials");
+            }
+
             const match = await bcrypt.compare(params.password, identity.password_hash);
             if (!match) throw new Error("Invalid login credentials");
 

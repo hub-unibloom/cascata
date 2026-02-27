@@ -1,70 +1,21 @@
-
-
-DELETEI TODAS AS CONTAS NOVAMENTE, TODAS TODAS.
-Testes realizados com a conta uniblloom@gmail.com:
-
-1. Criei a conta com google pelo flutterflow
-2. Desloguei após ter a conta criada, (NO nqvegador cliquei em clear site data no storage e forcei recarregamento da pagina)
-3. Tentei logar novamente com google pelo flutterflow e não consegui "{"error":"could not determine data type of parameter $1","code":"42P18"}"
-
-até aqui identities:
-id,user_id,provider,identifier,password_hash,identity_data,created_at,last_sign_in_at
-76cd72e8-11b6-4f2c-bd07-aec08758d50f,94683467-ba68-478a-9795-6a1d1946ce59,google,105831375503607572785,,[object Object],2026-02-27 14:58:28.854991-03,2026-02-27 14:58:28.854991-03
-
-até tabela users(nativa do cascata):
-id,created_at,last_sign_in_at,banned,raw_user_meta_data,confirmation_token,confirmation_sent_at,recovery_token,recovery_sent_at,email_change_token_new,email_change,email_change_sent_at,email_confirmed_at
-94683467-ba68-478a-9795-6a1d1946ce59,2026-02-27 14:58:28.854991-03,2026-02-27 14:58:28.854991-03,false,[object Object],,,,,,,,2026-02-27 14:58:28.854991-03
-
-Erro ao tentar login pelo flutterflow:
-https://api.unibloom.com.br/auth/v1/authorize?provider=google
-Response:
-{"error":"Token Revoked"}
-
-Erro ao tentar login pelo html puro::
-{"error":"could not determine data type of parameter $1","code":"42P18"}
-
-
-
-Então deletei a conta novamente e alternei a criação, ou seja criei pelo html puro e deu todo o ciclo ok, escolhi a conta, autorizei e deu como logado com sucesso.
-
-Tabela users quando criada pelo html puro:
-
-id,created_at,last_sign_in_at,banned,raw_user_meta_data,confirmation_token,confirmation_sent_at,recovery_token,recovery_sent_at,email_change_token_new,email_change,email_change_sent_at,email_confirmed_at
-00dfacff-4e1e-4b72-847e-899f0016dbdb,2026-02-27 15:12:37.029954-03,2026-02-27 15:12:37.029954-03,false,[object Object],,,,,,,,2026-02-27 15:12:37.029954-03
-
-tabela identities quando criada pelo html puro:
-id,user_id,provider,identifier,password_hash,identity_data,created_at,last_sign_in_at
-f16c42e6-9d3f-4ce2-98d5-714f2c0f0510,00dfacff-4e1e-4b72-847e-899f0016dbdb,google,105831375503607572785,,[object Object],2026-02-27 15:12:37.029954-03,2026-02-27 15:12:37.029954-03
-
-Parece que deu certo e deu certo, até que eu decii eslogar no html limano cache e forçando recarregamento
-ao da errado de novo essa questão e login "{"error":"could not determine data type of parameter $1","code":"42P18"}"
-
-
-
-
-Entrando pós ter conta criada  pelo html puro ou em flutterflow, temos o seguinte resultado:
-Código do erro "{"error":"could not determine data type of parameter $1","code":"42P18"}"
-
-A url onde fico paralisado é:
-https://api.unibloom.com.br/auth/v1/callback?state=eyJyZWRpcmVjdFRvIjoiaHR0cHM6Ly9sb2dpbi04MjkucGFnZXMuZGV2IiwicHJvdmlkZXIiOiJnb29nbGUiLCJjbGllbnRfaWQiOm51bGx9&iss=https%3A%2F%2Faccounts.google.com&code=4%2F0AfrIepCZhTA_8-TbRLH7QfxxmS2C2mUwggk7JDzN-HVEXvKwNoKhT86FFuHHIvQXRRXMTw&scope=email+profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email+openid&authuser=0&prompt=consent
-
-
 Request URL
-https://api.unibloom.com.br/auth/v1/callback?state=eyJyZWRpcmVjdFRvIjoiaHR0cHM6Ly9sb2dpbi04MjkucGFnZXMuZGV2IiwicHJvdmlkZXIiOiJnb29nbGUiLCJjbGllbnRfaWQiOm51bGx9&iss=https%3A%2F%2Faccounts.google.com&code=4%2F0AfrIepCZhTA_8-TbRLH7QfxxmS2C2mUwggk7JDzN-HVEXvKwNoKhT86FFuHHIvQXRRXMTw&scope=email+profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email+openid&authuser=0&prompt=consent
+https://api.unibloom.com.br/auth/v1/token?grant_type=password
 Request Method
-GET
+POST
 Status Code
 500 Internal Server Error
 Remote Address
-[2606:4700:3035::ac43:dfe9]:443
+[2606:4700:3031::6815:2695]:443
 Referrer Policy
-origin
+strict-origin-when-cross-origin
 access-control-allow-credentials
 true
 access-control-allow-headers
 Content-Type,Authorization,apikey,x-cascata-client,Prefer,Range,x-client-info,x-supabase-auth,content-profile,accept-profile,x-supabase-api-version,x-cascata-signature,x-cascata-event
 access-control-allow-methods
 GET,POST,PUT,PATCH,DELETE,OPTIONS
+access-control-allow-origin
+https://boba-m62i0a.flutterflow.app
 access-control-expose-headers
 Content-Range, X-Total-Count, Link
 alt-svc
@@ -72,33 +23,27 @@ h3=":443"; ma=86400
 cf-cache-status
 DYNAMIC
 cf-ray
-9d497890bcfdd5e8-GIG
+9d4a542e58d7725a-GRU
 content-length
-72
+58
 content-type
 application/json; charset=utf-8
 date
-Fri, 27 Feb 2026 17:41:05 GMT
+Fri, 27 Feb 2026 20:11:00 GMT
 etag
-W/"48-5/dBb4kujYAbLqDITTqQ7F+lH7c"
+W/"3a-jwfL/FxenUdn3e0e1ZrYMh5mAlk"
 nel
 {"report_to":"cf-nel","success_fraction":0.0,"max_age":604800}
 priority
-u=0,i
+u=1,i
 referrer-policy
 strict-origin-when-cross-origin
 report-to
-{"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=WYtszVzHViJgsAg3AthXbfqi325oSktcf3NRq7BGaqW6t5%2FyEhB3NGiYeOrbKGynMBaEWGU9V1n4S1AihYJBD5BDKKgNk14xPhOiLPNJGcwaNFMJq7jmgOF6HPzFNJw%3D"}]}
+{"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=1ScqHAuYH8Umnaqc6a19HcjAOLmwTEr7WfEgbqmP%2Fbx9cFbXtI64iT9DawRapbjQaYOwaKGMw12pzDtY9Wsbz%2BoHfMw4FWlMP6z%2BCnRyxX5P%2F%2FCti%2FzbmA1yKoGd6IU%3D"}]}
 server
 cloudflare
 server-timing
-cfCacheStatus;desc="DYNAMIC"
-server-timing
-cfEdge;dur=6,cfOrigin;dur=579
-server-timing
 cfExtPri
-speculation-rules
-"/cdn-cgi/speculation"
 strict-transport-security
 max-age=31536000; includeSubDomains; preload
 x-content-type-options
@@ -116,23 +61,33 @@ x-xss-protection
 :authority
 api.unibloom.com.br
 :method
-GET
+POST
 :path
-/auth/v1/callback?state=eyJyZWRpcmVjdFRvIjoiaHR0cHM6Ly9sb2dpbi04MjkucGFnZXMuZGV2IiwicHJvdmlkZXIiOiJnb29nbGUiLCJjbGllbnRfaWQiOm51bGx9&iss=https%3A%2F%2Faccounts.google.com&code=4%2F0AfrIepCZhTA_8-TbRLH7QfxxmS2C2mUwggk7JDzN-HVEXvKwNoKhT86FFuHHIvQXRRXMTw&scope=email+profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email+openid&authuser=0&prompt=consent
+/auth/v1/token?grant_type=password
 :scheme
 https
 accept
-text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7
+*/*
 accept-encoding
 gzip, deflate, br, zstd
 accept-language
 pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7
+apikey
+0e024dceb36ad1ebea14e8b699e107e1e2a8e1aa97cfa62f1f006f073cdbb2e2
+authorization
+Bearer 0e024dceb36ad1ebea14e8b699e107e1e2a8e1aa97cfa62f1f006f073cdbb2e2
+content-length
+97
+content-type
+application/json; charset=utf-8
 dnt
 1
+origin
+https://boba-m62i0a.flutterflow.app
 priority
-u=0, i
+u=1, i
 referer
-https://accounts.google.com/
+https://boba-m62i0a.flutterflow.app/
 sec-ch-ua
 "Not:A-Brand";v="99", "Google Chrome";v="145", "Chromium";v="145"
 sec-ch-ua-mobile
@@ -140,34 +95,14 @@ sec-ch-ua-mobile
 sec-ch-ua-platform
 "Linux"
 sec-fetch-dest
-document
+empty
 sec-fetch-mode
-navigate
+cors
 sec-fetch-site
 cross-site
-sec-fetch-user
-?1
-upgrade-insecure-requests
-1
 user-agent
 Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36
-
-payload:
-state
-eyJyZWRpcmVjdFRvIjoiaHR0cHM6Ly9sb2dpbi04MjkucGFnZXMuZGV2IiwicHJvdmlkZXIiOiJnb29nbGUiLCJjbGllbnRfaWQiOm51bGx9
-iss
-https://accounts.google.com
-code
-4/0AfrIepCZhTA_8-TbRLH7QfxxmS2C2mUwggk7JDzN-HVEXvKwNoKhT86FFuHHIvQXRRXMTw
-scope
-email profile https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email openid
-authuser
-0
-prompt
-consent
-
-#preview:
-{error: "could not determine data type of parameter $1", code: "42P18"}
-
-
-
+x-client-info
+flutterflow
+x-supabase-api-version
+2024-01-01

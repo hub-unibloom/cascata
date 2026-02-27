@@ -318,6 +318,12 @@ export class DataAuthController {
 
     static async goTrueToken(req: CascataRequest, res: any, next: any) {
         const deviceInfo = DataAuthController.getDeviceInfo(req);
+
+        // Supabase-JS e Flutterflow enviam grant_type pelo Query String (URL) e não no corpo (Body JSON)
+        if (!req.body.grant_type && req.query.grant_type) {
+            req.body.grant_type = req.query.grant_type;
+        }
+
         const email = req.body.email;
         const secConfig = DataAuthController.getSecurityConfig(req);
         try {
