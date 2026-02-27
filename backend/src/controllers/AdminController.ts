@@ -163,6 +163,40 @@ export class AdminController {
             const fields = []; const values = []; let idx = 1;
             // ...
             if (custom_domain !== undefined) { fields.push(`custom_domain = $${idx++}`); values.push(custom_domain); }
+
+            // VALIDATE GLOBAL CONNECTION CAP
+            if (metadata && metadata.db_config) {
+                const requestedMax = parseInt(metadata.db_config.max_connections || metadata.db_config.maxConnections || '10', 10);
+
+                const sysConfigRes = await systemPool.query(
+                    "SELECT settings FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'system_config'"
+                );
+                const sysConfig = sysConfigRes.rows[0]?.settings || {};
+                const globalMax = parseInt(sysConfig.maxConnections || sysConfig.max_connections || '100', 10);
+
+                const sumRes = await systemPool.query(`
+                    SELECT 
+                        SUM(
+                            COALESCE(
+                                (metadata->'db_config'->>'max_connections')::int, 
+                                (metadata->'db_config'->>'maxConnections')::int, 
+                                10
+                            )
+                        ) as total_used 
+                    FROM system.projects 
+                    WHERE slug != $1
+                `, [req.params.slug]);
+
+                const totalUsed = parseInt(sumRes.rows[0]?.total_used || '0', 10);
+                const remaining = globalMax - totalUsed;
+
+                if (requestedMax > remaining) {
+                    return res.status(400).json({
+                        error: `Exceeds global infrastructure limits. Only ${remaining} connections remaining for allocation.`
+                    });
+                }
+            }
+
             if (metadata) {
                 fields.push(`metadata = COALESCE(metadata, '{}'::jsonb) || $${idx++}::jsonb`);
                 values.push(JSON.stringify(metadata));
