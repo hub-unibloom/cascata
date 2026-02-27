@@ -175,6 +175,24 @@ const AUTH_ENDPOINTS = [
         description: 'Retrieve details of the currently logged-in user.',
         body: {},
         auth_required: true // Needs Bearer
+    },
+    {
+        id: 'auth_update_user',
+        name: 'Update User / Link Password',
+        method: 'PUT',
+        path: '/auth/v1/user',
+        description: 'Update user data or link a native password. Supports custom strategies (e.g. CPF).',
+        body: { password: "new_secure_password", provider: "cpf", identifier: "123.456.789-00" },
+        auth_required: true // Needs Bearer
+    },
+    {
+        id: 'auth_recover',
+        name: 'Recover Password',
+        method: 'POST',
+        path: '/auth/v1/recover',
+        description: 'Send a recovery mechanism. Use provider/identifier for custom logic (like CPF/Phone).',
+        body: { identifier: "user@example.com", provider: "email" },
+        auth_required: false
     }
 ];
 

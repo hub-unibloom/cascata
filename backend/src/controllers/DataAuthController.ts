@@ -446,8 +446,43 @@ export class DataAuthController {
 
             if (finalRedirect || fallbackSiteUrl) {
                 const target = finalRedirect || fallbackSiteUrl;
-                res.redirect(`${target.endsWith('/') ? target.slice(0, -1) : target}#${hash}`);
-            } else res.json(session);
+                res.redirect(`${target!.endsWith('/') ? target!.slice(0, -1) : target!}#${hash}`);
+            } else {
+                res.json(session);
+            }
+
+        } catch (e: any) { next(e); }
+    }
+
+    static async goTrueRecover(req: CascataRequest, res: any, next: any) {
+        try {
+            const identifier = req.body.identifier || req.body.email;
+            const provider = req.body.provider || 'email';
+
+            if (!identifier) return res.status(400).json({ error: "Identifier (or email) is required" });
+
+            const projectUrl = req.project.metadata?.auth_config?.site_url || `https://${req.headers.host}`;
+            const emailConfig = req.project.metadata?.auth_config?.auth_strategies?.email || { delivery_method: 'smtp' };
+
+            await GoTrueService.handleRecover(
+                req.projectPool!,
+                identifier,
+                provider,
+                projectUrl,
+                emailConfig,
+                req.project.jwt_secret,
+                req.project.metadata?.auth_config?.email_templates
+            );
+
+            res.json({ success: true, message: "If an account exists, a recovery instruction was sent." });
+        } catch (e: any) { next(e); }
+    }
+
+    static async goTrueUpdateUser(req: CascataRequest, res: any, next: any) {
+        if (!req.user?.sub) return res.status(401).json({ error: "unauthorized" });
+        try {
+            const updatedUser = await GoTrueService.handleUpdateUser(req.projectPool!, req.user.sub, req.body);
+            res.json(updatedUser);
         } catch (e: any) { next(e); }
     }
 }

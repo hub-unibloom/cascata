@@ -232,25 +232,84 @@ export class GoTrueService {
 
     public static async handleRecover(
         pool: Pool,
-        email: string,
+        identifier: string,
+        provider: string,
         projectUrl: string,
         emailConfig: any,
         jwtSecret: string,
         templates?: any
     ) {
-        if (!email) throw new Error("Email required");
+        if (!identifier) throw new Error("Identifier required");
 
+        // Locate user via identity table using custom provider/identifier
         const userCheck = await pool.query(
-            `SELECT id FROM auth.users WHERE raw_user_meta_data->>'email' = $1`,
-            [email]
+            `SELECT user_id FROM auth.identities WHERE identifier = $1 AND provider = $2`,
+            [identifier, provider]
         );
 
         if (userCheck.rows.length === 0) {
             return {};
         }
 
-        await AuthService.sendRecovery(pool, email, projectUrl, emailConfig, jwtSecret, templates);
+        // Send recovery (Currently mapped to email transport only, but technically triggers AuthService logic using the generic identifier)
+        await AuthService.sendRecovery(pool, identifier, projectUrl, emailConfig, jwtSecret, templates, provider);
         return {};
+    }
+
+    public static async handleUpdateUser(pool: Pool, userId: string, data: { password?: string; provider?: string; identifier?: string; email?: string }) {
+        if (!data.password) return {}; // We only handle password updates right now
+
+        const passwordHash = await bcrypt.hash(data.password, 10);
+        const provider = data.provider || 'email';
+
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            // Check if identity exists for this specific provider
+            const identityRes = await client.query(
+                `SELECT id, identifier FROM auth.identities WHERE user_id = $1 AND provider = $2`,
+                [userId, provider]
+            );
+
+            if (identityRes.rows.length > 0) {
+                // Identity exists -> Update its password hash
+                await client.query(
+                    `UPDATE auth.identities SET password_hash = $1, updated_at = now() WHERE id = $2`,
+                    [passwordHash, identityRes.rows[0].id]
+                );
+            } else {
+                // Identity doesn't exist -> we need to create it (Assign native login to social-only account)
+                // Determine identifier from payload or fallback to users metadata email
+                let identifier = data.identifier || data.email;
+
+                if (!identifier && provider === 'email') {
+                    const userRes = await client.query(`SELECT raw_user_meta_data->>'email' as email FROM auth.users WHERE id = $1`, [userId]);
+                    identifier = userRes.rows[0]?.email;
+                }
+
+                if (!identifier) throw new Error("Identifier required to bind this password strategy.");
+
+                await client.query(
+                    `INSERT INTO auth.identities (user_id, provider, identifier, password_hash, created_at) VALUES ($1, $2, $3, $4, now())`,
+                    [userId, provider, identifier, passwordHash]
+                );
+            }
+
+            await client.query(`UPDATE auth.users SET updated_at = now() WHERE id = $1`, [userId]);
+            await client.query('COMMIT');
+
+            // Find user details to return (standard gotrue response shape)
+            const updatedUser = await client.query(
+                `SELECT id, raw_user_meta_data, email_confirmed_at, banned FROM auth.users WHERE id = $1`, [userId]
+            );
+            return updatedUser.rows[0];
+        } catch (e) {
+            await client.query('ROLLBACK');
+            throw e;
+        } finally {
+            client.release();
+        }
     }
 
     public static async handleMagicLink(

@@ -164,8 +164,10 @@ router.delete('/auth/users/:id/sessions/:sessionId', DataAuthController.revokeSe
 router.post('/auth/v1/signup', DataAuthController.goTrueSignup as any);
 router.post('/auth/v1/token', DataAuthController.goTrueToken as any);
 router.get('/auth/v1/user', DataAuthController.goTrueUser as any);
+router.put('/auth/v1/user', DataAuthController.goTrueUpdateUser as any);
 router.post('/auth/v1/logout', DataAuthController.goTrueLogout as any);
 router.get('/auth/v1/verify', DataAuthController.goTrueVerify as any);
+router.post('/auth/v1/recover', DataAuthController.goTrueRecover as any);
 router.get('/auth/v1/authorize', DataAuthController.goTrueAuthorize as any);
 router.get('/auth/v1/callback', DataAuthController.goTrueCallback as any);
 
