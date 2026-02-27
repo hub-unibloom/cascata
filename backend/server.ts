@@ -23,6 +23,14 @@ import { EdgeService } from './services/EdgeService.js'; // Importado para uso n
 // --- ROUTES ---
 import mainRouter from './src/routes/index.js';
 
+// --- TIMEZONE GLOBAL OVERRIDE (TIER-1) ---
+// By default, the `pg` driver parses Postgres 'timestamptz' (1184) and 'timestamp' (1114) into JS Date objects.
+// When passed to `res.json()`, JS Dates lose their timezone offset and are forcibly cast to UTC (Z).
+// We intercept the driver here and tell it to return the RAW string, preserving the exact offset (-03, etc) sent by Postgres.
+import pg from 'pg';
+pg.types.setTypeParser(1184, (stringValue) => stringValue); // timestamptz
+pg.types.setTypeParser(1114, (stringValue) => stringValue); // timestamp
+
 // --- MIDDLEWARES ---
 import { dynamicCors, hostGuard } from './src/middlewares/security.js';
 import { resolveProject } from './src/middlewares/core.js';

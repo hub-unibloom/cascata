@@ -5,35 +5,10 @@
 					mv nginx/nginx.conf.txt nginx/nginx.conf
 					mv backend/Dockerfile.txt backend/Dockerfile
 					mv database/init.sql.txt database/init.sql
-					mv backend/migrations/001_init.sql.txt backend/migrations/001_init.sql
-					mv backend/migrations/002_rate_limits.sql.txt backend/migrations/002_rate_limits.sql
-					mv backend/migrations/003_n8n_support.sql.txt backend/migrations/003_n8n_support.sql
-					mv backend/migrations/004_rate_limit_v2.sql.txt backend/migrations/004_rate_limit_v2.sql
-					mv backend/migrations/005_ai_memory.sql.txt backend/migrations/005_ai_memory.sql
-					mv backend/migrations/006_asset_history.sql.txt backend/migrations/006_asset_history.sql
-					mv backend/migrations/007_ai_sessions.sql.txt backend/migrations/007_ai_sessions.sql
-					mv backend/migrations/008_auth_hardening.sql.txt backend/migrations/008_auth_hardening.sql
-					mv backend/migrations/009_immutable_logs.sql.txt backend/migrations/009_immutable_logs.sql
-					mv backend/migrations/010_auth_confirmation.sql.txt backend/migrations/010_auth_confirmation.sql
-					mv backend/migrations/011_webhook_filters.sql.txt backend/migrations/011_webhook_filters.sql
-					mv backend/migrations/012_webhook_reliability.sql.txt backend/migrations/012_webhook_reliability.sql
-					mv backend/migrations/013_auth_helpers.sql.txt backend/migrations/013_auth_helpers.sql
-					mv backend/migrations/014_push_engine.sql.txt backend/migrations/014_push_engine.sql
-					mv backend/migrations/015_storage_tracking.sql.txt backend/migrations/015_storage_tracking.sql
-					mv backend/migrations/016_fix_notify_payload.sql.txt backend/migrations/016_fix_notify_payload.sql
-					mv backend/migrations/017_harden_default_privileges.sql.txt backend/migrations/017_harden_default_privileges.sql
-					mv backend/migrations/018_backup_system.sql.txt backend/migrations/018_backup_system.sql
-					mv backend/migrations/019_granular_security.sql.txt backend/migrations/019_granular_security.sql
-					mv backend/migrations/020_crud_rate_limits.sql.txt backend/migrations/020_crud_rate_limits.sql
-					mv backend/migrations/021_nerf_logic.sql.txt backend/migrations/021_nerf_logic.sql
-					mv backend/migrations/022_secure_hashing.sql.txt backend/migrations/022_secure_hashing.sql
-					mv backend/migrations/023_fix_schema_integrity.sql.txt backend/migrations/023_fix_schema_integrity.sql
-					mv backend/migrations/024_secure_vault.sql.txt backend/migrations/024_secure_vault.sql
-					mv backend/migrations/025_perf_optimization.sql.txt backend/migrations/025_perf_optimization.sql
-					mv backend/migrations/026_log_telemetry.sql.txt backend/migrations/026_log_telemetry.sql
-					mv backend/migrations/027_auth_fingerprint.sql.txt backend/migrations/027_auth_fingerprint.sql
-					mv backend/migrations/028_async_ops.sql.txt backend/migrations/028_async_ops.sql
-					mv backend/migrations/029_extension_registry.sql.txt backend/migrations/029_extension_registry.sql
+
+# Migrations
+for i in backend/migrations/*.txt; do mv "$i" "${i%.txt}"; done
+
 					mv database/Dockerfile.txt database/Dockerfile
 					mv database/phantom_linker.sh.txt database/phantom_linker.sh
 					mv database/docker-entrypoint-cascata.sh.txt database/docker-entrypoint-cascata.sh
@@ -43,3 +18,44 @@
 					nano .env
 					mkdir -p /cascata-data/pg /cascata-data/qdrant /cascata-data/redis /cascata-data/storage /cascata-data/certs /cascata-data/acme_challenge /cascata-data/nginx_dynamic
 					docker compose up -d --build
+
+
+
+					em vsp nova:
+
+# Clonar repositório
+git clone https://github.com/hub-unibloom/cascata.git
+
+# Entrar na pasta
+cd ~/cascata
+
+# Ajustar arquivos .txt
+mv .env.txt .env
+mv .dockerignore.txt .dockerignore
+mv nginx/nginx.conf.txt nginx/nginx.conf
+mv backend/Dockerfile.txt backend/Dockerfile
+mv database/init.sql.txt database/init.sql
+
+# Migrations
+for i in backend/migrations/*.txt; do mv "$i" "${i%.txt}"; done
+
+# Outros Dockerfiles e configs
+mv database/Dockerfile.txt database/Dockerfile
+mv database/phantom_linker.sh.txt database/phantom_linker.sh
+mv database/docker-entrypoint-cascata.sh.txt database/docker-entrypoint-cascata.sh
+mv frontend/Dockerfile.txt frontend/Dockerfile
+mv frontend/nginx.conf.txt frontend/nginx.conf
+mv nginx-controller/Dockerfile.txt nginx-controller/Dockerfile
+
+# Editar variáveis de ambiente
+nano .env
+
+# Criar diretórios de dados (modo produção correto)
+sudo mkdir -p /cascata-data/{pg,qdrant,redis,storage,certs,acme_challenge,nginx_dynamic}
+
+# Dar permissão ao usuário atual
+sudo chown -R $USER:$USER /cascata-data
+sudo chmod -R 755 /cascata-data
+
+# Subir containers
+docker compose up -d --build
