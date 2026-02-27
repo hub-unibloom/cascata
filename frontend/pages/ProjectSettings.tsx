@@ -132,7 +132,8 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
 
                 if (current.metadata?.db_config) {
                     setDbConfig({
-                        maxConnections: current.metadata.db_config.maxConnections || 10,
+                        max_connections: current.metadata.db_config.max_connections || current.metadata.db_config.maxConnections || 10,
+                        maxConnections: current.metadata.db_config.max_connections || current.metadata.db_config.maxConnections || 10,
                         idleTimeout: current.metadata.db_config.idleTimeout || 60,
                         statementTimeout: current.metadata.db_config.statementTimeout || 15000
                     });
@@ -646,11 +647,11 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
                     {/* DOMAIN CONFIG */}
                     <div className="bg-white border border-slate-200 rounded-[4rem] p-12 shadow-sm relative overflow-hidden">
                         <div className="absolute top-0 right-0 p-10 opacity-5"><Globe size={160} /></div>
-                        <h3 className="text-2xl font-black text-slate-900 tracking-tight mb-8 flex items-center gap-4">
+                        <h3 className="text-2xl font-black text-slate-900 tracking-tight mb-8 flex items-center gap-4 relative z-10">
                             <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center shadow-lg"><Globe size={20} /></div> Custom Domain
                         </h3>
 
-                        <div className="flex gap-4 items-center mb-6">
+                        <div className="flex gap-4 items-center mb-6 relative z-10">
                             <input
                                 value={customDomain}
                                 onChange={(e) => setCustomDomain(e.target.value)}
@@ -666,7 +667,7 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
                         </div>
 
                         {project?.custom_domain && (
-                            <div className={`p-6 rounded-[2.5rem] flex items-center gap-4 ${bestCertMatch ? 'bg-emerald-50 border border-emerald-100' : 'bg-amber-50 border border-amber-100'}`}>
+                            <div className={`p-6 rounded-[2.5rem] flex items-center gap-4 relative z-10 ${bestCertMatch ? 'bg-emerald-50 border border-emerald-100' : 'bg-amber-50 border border-amber-100'}`}>
                                 {bestCertMatch ? <CheckCircle2 size={24} className="text-emerald-500" /> : <AlertTriangle size={24} className="text-amber-500" />}
                                 <div>
                                     <h4 className={`font-bold text-sm ${bestCertMatch ? 'text-emerald-900' : 'text-amber-900'}`}>{bestCertMatch ? 'SSL Certificate Active' : 'No Valid Certificate Found'}</h4>

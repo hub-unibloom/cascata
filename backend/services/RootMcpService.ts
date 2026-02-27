@@ -9,7 +9,7 @@ import axios from 'axios';
 const generateKey = () => crypto.randomBytes(32).toString('hex');
 
 export class RootMcpService {
-    
+
     /**
      * Contexto Global do Sistema
      */
@@ -20,9 +20,9 @@ export class RootMcpService {
                 (SELECT COUNT(*) FROM system.api_logs WHERE created_at > NOW() - INTERVAL '1 hour') as reqs_last_hour,
                 (SELECT settings->>'domain' FROM system.ui_settings WHERE table_name = 'domain_config') as system_domain
         `);
-        
+
         const stats = res.rows[0];
-        
+
         let output = `--- CASCATA OMNI-GATEWAY (ROOT CONTEXT) ---\n`;
         output += `STATUS: OPERATIONAL\n`;
         output += `PROJECTS: ${stats.total_projects}\n`;
@@ -32,7 +32,7 @@ export class RootMcpService {
         output += `- Provision new isolated tenants (Projects)\n`;
         output += `- List and Audit existing projects\n`;
         output += `- Manage System Certificates\n`;
-        
+
         return output;
     }
 
@@ -51,45 +51,50 @@ export class RootMcpService {
             const safeSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '');
             const dbName = `cascata_db_${safeSlug.replace(/-/g, '_')}`;
             const qdrantUrl = `http://${process.env.QDRANT_HOST || 'qdrant'}:${process.env.QDRANT_PORT || '6333'}`;
-            
+
             try {
                 // 1. Generate Keys
                 const keys = { anon: generateKey(), service: generateKey(), jwt: generateKey() };
-                
+
                 // 2. Register in System
                 await systemPool.query(
-                    "INSERT INTO system.projects (name, slug, db_name, anon_key, service_key, jwt_secret, metadata) VALUES ($1, $2, $3, pgp_sym_encrypt($4, $7), pgp_sym_encrypt($5, $7), pgp_sym_encrypt($6, $7), $8)", 
+                    "INSERT INTO system.projects (name, slug, db_name, anon_key, service_key, jwt_secret, metadata) VALUES ($1, $2, $3, pgp_sym_encrypt($4, $7), pgp_sym_encrypt($5, $7), pgp_sym_encrypt($6, $7), $8)",
                     [name, safeSlug, dbName, keys.anon, keys.service, keys.jwt, SYS_SECRET, JSON.stringify({ timezone: 'UTC' })]
                 );
-                
+
                 // 3. Provision DB
                 await systemPool.query(`CREATE DATABASE "${dbName}"`);
-                
+
                 const dbHost = process.env.DB_DIRECT_HOST || 'db';
                 const dbPort = process.env.DB_DIRECT_PORT || '5432';
                 const user = process.env.DB_USER || 'cascata_admin';
                 const pass = process.env.DB_PASS || 'secure_pass';
-                
+
                 const tempClient = new pg.Client({ connectionString: `postgresql://${user}:${pass}@${dbHost}:${dbPort}/${dbName}` });
                 await tempClient.connect();
-                await DatabaseService.initProjectDb(tempClient);
-                await tempClient.end();
-                
+                try {
+                    await DatabaseService.initProjectDb(tempClient);
+                } finally {
+                    await tempClient.end().catch(console.error);
+                }
+
                 // 4. Provision Vector Store
                 try {
                     await axios.put(`${qdrantUrl}/collections/${safeSlug}`, { vectors: { size: 1536, distance: 'Cosine' } });
-                } catch (qError) {}
+                } catch (qError) { }
 
                 // 5. Rebuild Routing
                 await CertificateService.rebuildNginxConfigs(systemPool);
 
-                return { 
-                    content: [{ type: "text", text: JSON.stringify({ 
-                        success: true, 
-                        message: "Project Provisioned Successfully",
-                        keys: keys,
-                        slug: safeSlug
-                    }, null, 2) }] 
+                return {
+                    content: [{
+                        type: "text", text: JSON.stringify({
+                            success: true,
+                            message: "Project Provisioned Successfully",
+                            keys: keys,
+                            slug: safeSlug
+                        }, null, 2)
+                    }]
                 };
 
             } catch (e: any) {
@@ -98,8 +103,8 @@ export class RootMcpService {
         }
 
         if (toolName === 'get_system_logs') {
-             const res = await systemPool.query(`SELECT * FROM system.api_logs ORDER BY created_at DESC LIMIT 10`);
-             return { content: [{ type: "text", text: JSON.stringify(res.rows, null, 2) }] };
+            const res = await systemPool.query(`SELECT * FROM system.api_logs ORDER BY created_at DESC LIMIT 10`);
+            return { content: [{ type: "text", text: JSON.stringify(res.rows, null, 2) }] };
         }
 
         throw new Error("Unknown Tool");

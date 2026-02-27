@@ -105,8 +105,11 @@ export class AdminController {
 
             const tempClient = new pg.Client({ connectionString: `postgresql://${process.env.DB_USER}:${process.env.DB_PASS}@${process.env.DB_DIRECT_HOST}:5432/${dbName}` });
             await tempClient.connect();
-            await DatabaseService.initProjectDb(tempClient);
-            await tempClient.end();
+            try {
+                await DatabaseService.initProjectDb(tempClient);
+            } finally {
+                await tempClient.end().catch(console.error);
+            }
             try { await axios.put(`http://${process.env.QDRANT_HOST}:6333/collections/${safeSlug}`, { vectors: { size: 1536, distance: 'Cosine' } }); } catch (e) { }
             await CertificateService.rebuildNginxConfigs(systemPool);
             res.json({ ...insertRes.rows[0], anon_key: keys.anon, service_key: keys.service, jwt_secret: keys.jwt });
