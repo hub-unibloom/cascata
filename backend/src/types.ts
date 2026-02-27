@@ -7,6 +7,7 @@ export interface CascataRequest extends Request {
   projectPool?: pg.Pool;
   user?: any;
   userRole?: 'service_role' | 'authenticated' | 'anon';
+  appClient?: any; // Identifies which Specific Anon Key / App Client initiated the request
   isSystemRequest?: boolean;
   file?: any;
   files?: any;

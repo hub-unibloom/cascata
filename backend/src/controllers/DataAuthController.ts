@@ -384,7 +384,8 @@ export class DataAuthController {
 
             const state = Buffer.from(JSON.stringify({
                 redirectTo: req.query.redirect_to || '',
-                provider: providerName
+                provider: providerName,
+                client_id: req.appClient?.id || null // Identity-Aware Key Bridging
             })).toString('base64');
 
             res.redirect(AuthService.getAuthUrl(providerName, { clientId: prov.client_id, redirectUri: callbackUrl }, state));
@@ -396,11 +397,13 @@ export class DataAuthController {
         try {
             let finalRedirect = '';
             let providerName = 'google';
+            let requestClientId = null;
 
             try {
                 const stateData = JSON.parse(Buffer.from(req.query.state as string, 'base64').toString('utf8'));
                 finalRedirect = stateData.redirectTo;
                 if (stateData.provider) providerName = stateData.provider;
+                if (stateData.client_id) requestClientId = stateData.client_id;
             } catch (e) { }
 
             const prov = req.project.metadata?.auth_config?.providers?.[providerName];
@@ -425,8 +428,18 @@ export class DataAuthController {
             DataAuthController.setAuthCookies(res, session);
 
             const hash = `access_token=${session.access_token}&refresh_token=${session.refresh_token}&expires_in=${session.expires_in}&token_type=bearer&type=recovery`;
-            if (finalRedirect || req.project.metadata?.auth_config?.site_url) {
-                const target = finalRedirect || req.project.metadata.auth_config.site_url;
+
+            // --- IDENTITY-AWARE FALLBACK TARGET ---
+            let fallbackSiteUrl = req.project.metadata?.auth_config?.site_url;
+            if (requestClientId && req.project.metadata?.app_clients && Array.isArray(req.project.metadata.app_clients)) {
+                const matchedClient = req.project.metadata.app_clients.find((c: any) => c.id === requestClientId);
+                if (matchedClient && matchedClient.site_url) {
+                    fallbackSiteUrl = matchedClient.site_url;
+                }
+            }
+
+            if (finalRedirect || fallbackSiteUrl) {
+                const target = finalRedirect || fallbackSiteUrl;
                 res.redirect(`${target.endsWith('/') ? target.slice(0, -1) : target}#${hash}`);
             } else res.json(session);
         } catch (e: any) { next(e); }

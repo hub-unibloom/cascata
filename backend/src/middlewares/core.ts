@@ -284,6 +284,16 @@ export const cascataAuth: RequestHandler = async (req: any, res: any, next: any)
                 return next();
             }
 
+            // B.2 App Client Anon Keys (Identity-Aware Keys)
+            if (r.project.metadata?.app_clients && Array.isArray(r.project.metadata.app_clients)) {
+                const matchedClient = r.project.metadata.app_clients.find((c: any) => c.anon_key === apiKey);
+                if (matchedClient) {
+                    r.userRole = 'anon';
+                    r.appClient = matchedClient;
+                    return next();
+                }
+            }
+
             // C. User JWT (RLS Access within Project)
             try {
                 // Check blacklist/revocation first

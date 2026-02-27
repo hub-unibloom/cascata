@@ -8,7 +8,7 @@ import { RateLimitService } from '../../services/RateLimitService.js';
 
 export const dynamicCors: RequestHandler = (req: any, res: any, next: any) => {
     const origin = req.headers.origin;
-    
+
     // Headers padrão para suportar PostgREST/Supabase Clients
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
@@ -17,7 +17,7 @@ export const dynamicCors: RequestHandler = (req: any, res: any, next: any) => {
 
     // SECURITY FIX: Removed implicit trust for FlutterFlow/AppSmith.
     // Logic now depends entirely on `req.project` context resolved by the previous middleware.
-    
+
     if (!req.project) {
         // Pre-flight check para rotas do sistema/dashboard (sem projeto associado)
         // Permite acesso se a origem bater com o domínio do sistema configurado (implícito),
@@ -27,18 +27,32 @@ export const dynamicCors: RequestHandler = (req: any, res: any, next: any) => {
     }
 
     // 3. Project Security Policy (Carregado do Banco via resolveProject)
-    const allowedOrigins = req.project.metadata?.allowed_origins || [];
+    let allowedOrigins = req.project.metadata?.allowed_origins || [];
+
+    // --- IDENTIDADE REVERSA: OVERRIDE POR APP CLIENT ---
+    const authHeader = req.headers['authorization'];
+    const apiKey = req.headers['apikey'] || (authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : req.query.token);
+
+    if (apiKey && req.project.metadata?.app_clients && Array.isArray(req.project.metadata.app_clients)) {
+        const matchedClient = req.project.metadata.app_clients.find((c: any) => c.anon_key === apiKey);
+        if (matchedClient && matchedClient.allowed_origins) {
+            // Se o client foi achado e possui uma lista (mesmo vazia), ela sobrepõe a global.
+            // Se ele for null/undefined, assumimos que ele não quer override (usa global).
+            allowedOrigins = matchedClient.allowed_origins;
+        }
+    }
+
     const safeOrigins = allowedOrigins.map((o: any) => typeof o === 'string' ? o : o.url);
-    
+
     if (safeOrigins.length === 0) {
         // MODO PÚBLICO (Dev): Permite localhost de forma ESTRITA
         // Regex fixa para evitar 'evil-localhost.com'
         const isLocalhost = /^http:\/\/localhost(:\d+)?$/.test(origin) || /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin);
-        
+
         if (isLocalhost) {
-             res.setHeader('Access-Control-Allow-Origin', origin);
+            res.setHeader('Access-Control-Allow-Origin', origin);
         }
-    } 
+    }
     else {
         // MODO ESTRITO (Prod): Verifica Whitelist do Banco
         // FlutterFlow/AppSmith devem ser adicionados explicitamente aqui pelo usuário.
@@ -60,9 +74,9 @@ export const hostGuard: RequestHandler = async (req: any, res: any, next: any) =
             "SELECT settings->>'domain' as domain FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'domain_config'"
         );
         const systemDomain = settingsRes.rows[0]?.domain;
-        const host = req.headers.host?.split(':')[0] || ''; 
+        const host = req.headers.host?.split(':')[0] || '';
 
-        const isIp = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(host); 
+        const isIp = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(host);
         const isLocal = host === 'localhost' || host === '127.0.0.1' || host === 'cascata-backend-control' || host.startsWith('172.') || host.startsWith('10.');
 
         if (isIp || isLocal) return next();
@@ -80,45 +94,45 @@ export const hostGuard: RequestHandler = async (req: any, res: any, next: any) =
 };
 
 export const controlPlaneFirewall: RequestHandler = async (req: any, res: any, next: any) => {
-  if (req.method !== 'OPTIONS' && req.path.startsWith('/api/control/projects/')) {
-    const slug = req.path.split('/')[4]; 
-    if (slug) {
-        const forwarded = req.headers['x-forwarded-for'];
-        const realIp = req.headers['x-real-ip'];
-        const socketIp = req.socket?.remoteAddress;
-        let clientIp = (realIp as string) || (forwarded ? (forwarded as string).split(',')[0].trim() : socketIp) || '';
-        clientIp = clientIp.replace('::ffff:', '');
+    if (req.method !== 'OPTIONS' && req.path.startsWith('/api/control/projects/')) {
+        const slug = req.path.split('/')[4];
+        if (slug) {
+            const forwarded = req.headers['x-forwarded-for'];
+            const realIp = req.headers['x-real-ip'];
+            const socketIp = req.socket?.remoteAddress;
+            let clientIp = (realIp as string) || (forwarded ? (forwarded as string).split(',')[0].trim() : socketIp) || '';
+            clientIp = clientIp.replace('::ffff:', '');
 
-        if (clientIp === '127.0.0.1' || clientIp === '::1' || clientIp.startsWith('172.') || clientIp.startsWith('10.')) {
-            return next();
-        }
-
-        try {
-            const result = await systemPool.query('SELECT blocklist FROM system.projects WHERE slug = $1', [slug]);
-            if (result.rows.length > 0) {
-                const blocklist = result.rows[0].blocklist || [];
-                if (blocklist.includes(clientIp)) {
-                    res.status(403).json({ error: 'Firewall: Access Denied' });
-                    return;
-                }
+            if (clientIp === '127.0.0.1' || clientIp === '::1' || clientIp.startsWith('172.') || clientIp.startsWith('10.')) {
+                return next();
             }
-        } catch (e) { }
+
+            try {
+                const result = await systemPool.query('SELECT blocklist FROM system.projects WHERE slug = $1', [slug]);
+                if (result.rows.length > 0) {
+                    const blocklist = result.rows[0].blocklist || [];
+                    if (blocklist.includes(clientIp)) {
+                        res.status(403).json({ error: 'Firewall: Access Denied' });
+                        return;
+                    }
+                }
+            } catch (e) { }
+        }
     }
-  }
-  next();
+    next();
 };
 
 export const dynamicBodyParser: RequestHandler = (req, res, next) => {
-    const SYSTEM_HARD_CAP_BYTES = 50 * 1024 * 1024; 
-    let limitStr = '2mb'; 
+    const SYSTEM_HARD_CAP_BYTES = 50 * 1024 * 1024;
+    let limitStr = '2mb';
 
     const proj = (req as any).project;
     if (proj?.metadata?.security?.max_json_size) {
         limitStr = proj.metadata.security.max_json_size;
     } else if (req.path.includes('/edge/')) {
-        limitStr = '10mb'; 
+        limitStr = '10mb';
     } else if (req.path.includes('/import/')) {
-        limitStr = '10mb'; 
+        limitStr = '10mb';
     }
 
     const requestedBytes = parseBytes(limitStr);
@@ -138,7 +152,7 @@ export const dynamicBodyParser: RequestHandler = (req, res, next) => {
 
 export const dynamicRateLimiter: RequestHandler = async (req: any, res: any, next: any) => {
     if (!req.project) return next();
-    
+
     // 1. IP Extraction
     const forwarded = req.headers['x-forwarded-for'];
     const realIp = req.headers['x-real-ip'];
@@ -148,7 +162,7 @@ export const dynamicRateLimiter: RequestHandler = async (req: any, res: any, nex
     if (clientIp === '127.0.0.1' || clientIp === '::1') return next();
 
     const r = req as CascataRequest;
-    
+
     // 2. Global RPS Tracking (For Dashboard Graph)
     // This feeds the 'Traffic Pulse' chart with real-time data
     await RateLimitService.trackGlobalRPS(r.project.slug);
@@ -156,7 +170,7 @@ export const dynamicRateLimiter: RequestHandler = async (req: any, res: any, nex
     // 3. Path Normalization (The Window/Door Fix)
     // Converts /rest/v1/users AND /tables/users/data -> table:users
     let logicalResource = req.path.replace(`/api/data/${r.project.slug}`, '') || '/';
-    
+
     // Detect Resource Type for Logical Matching
     if (logicalResource.includes('/tables/')) {
         const parts = logicalResource.split('/tables/');
@@ -185,11 +199,11 @@ export const dynamicRateLimiter: RequestHandler = async (req: any, res: any, nex
 
     // 4. Check Limits
     const result = await RateLimitService.check(
-        r.project.slug, 
-        logicalResource, 
-        req.method, 
-        r.userRole || 'anon', 
-        clientIp, 
+        r.project.slug,
+        logicalResource,
+        req.method,
+        r.userRole || 'anon',
+        clientIp,
         systemPool
     );
 
