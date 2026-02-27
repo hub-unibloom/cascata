@@ -269,55 +269,65 @@ export const cascataAuth: RequestHandler = async (req: any, res: any, next: any)
     // 2. PROJECT DATA ACCESS
     if (r.project) {
         const authHeader = req.headers['authorization'];
-        // Support both Bearer token and 'apikey' header, or query parameters
-        const apiKey = req.headers['apikey'] || (authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : (req.query.token || req.query.apikey || req.query.anon_key));
+        const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : (req.query.token as string);
+        const apiKeyHeader = (req.headers['apikey'] || req.query.apikey || req.query.anon_key) as string;
 
-        if (apiKey) {
-            // A. Service Key (Root Access within Project)
-            if (apiKey === r.project.service_key) {
+        const checkApiKeyLogic = (token: string) => {
+            if (token === r.project!.service_key) {
                 r.userRole = 'service_role';
-                return next();
+                return true;
             }
-            // B. Anon Key (Public Access within Project)
-            if (apiKey === r.project.anon_key) {
+            if (token === r.project!.anon_key) {
                 r.userRole = 'anon';
-                return next();
+                return true;
             }
-
-            // B.2 App Client Anon Keys (Identity-Aware Keys)
-            if (r.project.metadata?.app_clients && Array.isArray(r.project.metadata.app_clients)) {
-                const matchedClient = r.project.metadata.app_clients.find((c: any) => c.anon_key === apiKey);
+            if (r.project!.metadata?.app_clients && Array.isArray(r.project!.metadata.app_clients)) {
+                const matchedClient = r.project!.metadata.app_clients.find((c: any) => c.anon_key === token);
                 if (matchedClient) {
                     r.userRole = 'anon';
                     r.appClient = matchedClient;
-                    return next();
+                    return true;
                 }
             }
+            return false;
+        };
 
-            // C. User JWT (RLS Access within Project)
-            try {
-                // Check blacklist/revocation first
-                const isBlacklisted = await RateLimitService.isTokenBlacklisted(apiKey as string);
-                if (isBlacklisted) return res.status(401).json({ error: 'Token Revoked' });
+        if (bearerToken) {
+            if (bearerToken.split('.').length === 3) {
+                try {
+                    const isBlacklisted = await RateLimitService.isTokenBlacklisted(bearerToken);
+                    if (isBlacklisted) return res.status(401).json({ error: 'Token Revoked' });
 
-                // Verify against Project Secret — algorithm pinned to HS256 to prevent 'none' bypass.
-                const decoded: any = jwt.verify(apiKey as string, r.project.jwt_secret, { algorithms: ['HS256'] });
-                r.user = decoded;
-                r.userRole = decoded.role || 'authenticated';
-                return next();
-            } catch (e) {
-                // Invalid tokens fall through to 401
-            }
-        } else {
-            // BYPASS FOR OAUTH BROWSER REDIRECTS (No headers possible)
-            const publicBrowserPaths = ['/auth/v1/authorize', '/auth/v1/callback', '/auth/v1/verify', '/auth/v1/recover'];
-            const isPublicBrowserFlow = req.method === 'GET' && publicBrowserPaths.some(p => req.path.includes(p));
+                    const decoded: any = jwt.verify(bearerToken, r.project.jwt_secret, { algorithms: ['HS256'] });
+                    r.user = decoded;
+                    r.userRole = decoded.role || 'authenticated';
 
-            if (isPublicBrowserFlow) {
-                r.userRole = 'anon';
-                return next();
+                    if (apiKeyHeader && r.project.metadata?.app_clients && Array.isArray(r.project.metadata.app_clients)) {
+                        const matchedClient = r.project.metadata.app_clients.find((c: any) => c.anon_key === apiKeyHeader);
+                        if (matchedClient) r.appClient = matchedClient;
+                    }
+                    return next();
+                } catch (e) {
+                    return res.status(401).json({ error: 'Invalid JWT Token' });
+                }
+            } else {
+                if (checkApiKeyLogic(bearerToken)) return next();
             }
         }
+
+        if (apiKeyHeader) {
+            if (checkApiKeyLogic(apiKeyHeader)) return next();
+        }
+
+        const publicBrowserPaths = ['/auth/v1/authorize', '/auth/v1/callback', '/auth/v1/verify', '/auth/v1/recover'];
+        const isPublicBrowserFlow = req.method === 'GET' && publicBrowserPaths.some(p => req.path.includes(p));
+
+        if (isPublicBrowserFlow) {
+            r.userRole = 'anon';
+            return next();
+        }
+
+        return res.status(401).json({ error: 'Missing or Invalid Authentication Token' });
     }
 
     // 4. DEFAULT DENY
