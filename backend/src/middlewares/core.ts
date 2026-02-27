@@ -268,6 +268,22 @@ export const cascataAuth: RequestHandler = async (req: any, res: any, next: any)
 
     // 2. PROJECT DATA ACCESS
     if (r.project) {
+        const publicBrowserPaths = ['/auth/v1/authorize', '/auth/v1/callback', '/auth/v1/verify', '/auth/v1/recover'];
+        const isPublicBrowserFlow = req.method === 'GET' && publicBrowserPaths.some(p => req.path.includes(p));
+
+        // Always allow public OAuth/Auth paths, even if dirty tokens are in the headers
+        if (isPublicBrowserFlow) {
+            r.userRole = 'anon';
+
+            // Still try to extract appClient for identity-aware routing if an anon_key is sent in queries
+            const apiKeyHeader = (req.headers['apikey'] || req.query.apikey || req.query.anon_key) as string;
+            if (apiKeyHeader && r.project.metadata?.app_clients && Array.isArray(r.project.metadata.app_clients)) {
+                const matchedClient = r.project.metadata.app_clients.find((c: any) => c.anon_key === apiKeyHeader);
+                if (matchedClient) r.appClient = matchedClient;
+            }
+            return next();
+        }
+
         const authHeader = req.headers['authorization'];
         const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : (req.query.token as string);
         const apiKeyHeader = (req.headers['apikey'] || req.query.apikey || req.query.anon_key) as string;
@@ -317,14 +333,6 @@ export const cascataAuth: RequestHandler = async (req: any, res: any, next: any)
 
         if (apiKeyHeader) {
             if (checkApiKeyLogic(apiKeyHeader)) return next();
-        }
-
-        const publicBrowserPaths = ['/auth/v1/authorize', '/auth/v1/callback', '/auth/v1/verify', '/auth/v1/recover'];
-        const isPublicBrowserFlow = req.method === 'GET' && publicBrowserPaths.some(p => req.path.includes(p));
-
-        if (isPublicBrowserFlow) {
-            r.userRole = 'anon';
-            return next();
         }
 
         return res.status(401).json({ error: 'Missing or Invalid Authentication Token' });

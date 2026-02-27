@@ -547,7 +547,7 @@ const TablePanel = forwardRef<TablePanelHandle, TablePanelProps>(({
                                     >
                                         {row[col.name] === null
                                             ? <span className="text-slate-300 italic">null</span>
-                                            : String(row[col.name])}
+                                            : (typeof row[col.name] === 'object' ? JSON.stringify(row[col.name]) : String(row[col.name]))}
                                     </td>
                                 ))}
                                 <td className="border-b border-slate-100"></td>
@@ -561,9 +561,11 @@ const TablePanel = forwardRef<TablePanelHandle, TablePanelProps>(({
             {editingCell && (() => {
                 const row = tableData.find(r => r[pkCol] === editingCell.rowId);
                 if (!row) return null;
+                const cellVal = row[editingCell.col] ?? '';
+                const displayVal = typeof cellVal === 'object' ? JSON.stringify(cellVal) : String(cellVal);
                 return (
                     <CellEditorPortal
-                        value={String(row[editingCell.col] ?? '')}
+                        value={displayVal}
                         rect={editingCell.rect}
                         onSave={(val) => { handleUpdateCell(row, editingCell.col, val); setEditingCell(null); }}
                         onCancel={() => setEditingCell(null)}

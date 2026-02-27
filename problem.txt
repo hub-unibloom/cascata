@@ -1,61 +1,173 @@
-[07:05:39]🔧 Inicializando aplicação...
-[07:05:39]📡 API Base: https://api.unibloom.com.br
-[07:05:39]🎯 Project: teste
-[07:05:39]🔐 Anon Key: d70d751c-c53f-4d34-a...
-[07:05:39]🔍 Tokens detectados no hash da URL
-[07:05:39]✅ Tokens recebidos no hash!
-[07:05:39]📝 Access Token: eyJhbGciOiJIUzI1NiIsInR5cCI6Ik...
-[07:05:39]🔄 Refresh Token: dd43a425fe5805cccfee6aeef7c7c3...
-[07:05:39]⏱️ Expira em: 3600s
-[07:05:39]✅ Sessão salva no localStorage
-[07:05:39]👤 Carregando perfil do usuário...
-[07:05:39]❌ Erro ao carregar perfil: Failed to fetch
 
-esse foi o resultaddo o html puro, logo em seguiaa fui no flutterflow e tive umr esultado ruim:
+
+DELETEI TODAS AS CONTAS NOVAMENTE, TODAS TODAS.
+Testes realizados com a conta uniblloom@gmail.com:
+
+1. Criei a conta com google pelo flutterflow
+2. Desloguei após ter a conta criada, (NO nqvegador cliquei em clear site data no storage e forcei recarregamento da pagina)
+3. Tentei logar novamente com google pelo flutterflow e não consegui "{"error":"could not determine data type of parameter $1","code":"42P18"}"
+
+até aqui identities:
+id,user_id,provider,identifier,password_hash,identity_data,created_at,last_sign_in_at
+76cd72e8-11b6-4f2c-bd07-aec08758d50f,94683467-ba68-478a-9795-6a1d1946ce59,google,105831375503607572785,,[object Object],2026-02-27 14:58:28.854991-03,2026-02-27 14:58:28.854991-03
+
+até tabela users(nativa do cascata):
+id,created_at,last_sign_in_at,banned,raw_user_meta_data,confirmation_token,confirmation_sent_at,recovery_token,recovery_sent_at,email_change_token_new,email_change,email_change_sent_at,email_confirmed_at
+94683467-ba68-478a-9795-6a1d1946ce59,2026-02-27 14:58:28.854991-03,2026-02-27 14:58:28.854991-03,false,[object Object],,,,,,,,2026-02-27 14:58:28.854991-03
+
+Erro ao tentar login pelo flutterflow:
+https://api.unibloom.com.br/auth/v1/authorize?provider=google
+Response:
+{"error":"Token Revoked"}
+
+Erro ao tentar login pelo html puro::
+{"error":"could not determine data type of parameter $1","code":"42P18"}
+
+
+
+Então deletei a conta novamente e alternei a criação, ou seja criei pelo html puro e deu todo o ciclo ok, escolhi a conta, autorizei e deu como logado com sucesso.
+
+Tabela users quando criada pelo html puro:
+
+id,created_at,last_sign_in_at,banned,raw_user_meta_data,confirmation_token,confirmation_sent_at,recovery_token,recovery_sent_at,email_change_token_new,email_change,email_change_sent_at,email_confirmed_at
+00dfacff-4e1e-4b72-847e-899f0016dbdb,2026-02-27 15:12:37.029954-03,2026-02-27 15:12:37.029954-03,false,[object Object],,,,,,,,2026-02-27 15:12:37.029954-03
+
+tabela identities quando criada pelo html puro:
+id,user_id,provider,identifier,password_hash,identity_data,created_at,last_sign_in_at
+f16c42e6-9d3f-4ce2-98d5-714f2c0f0510,00dfacff-4e1e-4b72-847e-899f0016dbdb,google,105831375503607572785,,[object Object],2026-02-27 15:12:37.029954-03,2026-02-27 15:12:37.029954-03
+
+Parece que deu certo e deu certo, até que eu decii eslogar no html limano cache e forçando recarregamento
+ao da errado de novo essa questão e login "{"error":"could not determine data type of parameter $1","code":"42P18"}"
+
+
+
+
+Entrando pós ter conta criada  pelo html puro ou em flutterflow, temos o seguinte resultado:
+Código do erro "{"error":"could not determine data type of parameter $1","code":"42P18"}"
+
+A url onde fico paralisado é:
+https://api.unibloom.com.br/auth/v1/callback?state=eyJyZWRpcmVjdFRvIjoiaHR0cHM6Ly9sb2dpbi04MjkucGFnZXMuZGV2IiwicHJvdmlkZXIiOiJnb29nbGUiLCJjbGllbnRfaWQiOm51bGx9&iss=https%3A%2F%2Faccounts.google.com&code=4%2F0AfrIepCZhTA_8-TbRLH7QfxxmS2C2mUwggk7JDzN-HVEXvKwNoKhT86FFuHHIvQXRRXMTw&scope=email+profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email+openid&authuser=0&prompt=consent
+
+
 Request URL
-https://api.unibloom.com.br/auth/v1/callback?state=eyJyZWRpcmVjdFRvIjoiIiwicHJvdmlkZXIiOiJnb29nbGUiLCJjbGllbnRfaWQiOm51bGx9&iss=https%3A%2F%2Faccounts.google.com&code=4%2F0AfrIepDT5plqD0VagPkKwG1FH8w3IDh9PzkD5B0ziFdYXj3EF0NBDauGzeRxm7vgY4pn-g&scope=email+profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email+openid&authuser=1&prompt=consent
+https://api.unibloom.com.br/auth/v1/callback?state=eyJyZWRpcmVjdFRvIjoiaHR0cHM6Ly9sb2dpbi04MjkucGFnZXMuZGV2IiwicHJvdmlkZXIiOiJnb29nbGUiLCJjbGllbnRfaWQiOm51bGx9&iss=https%3A%2F%2Faccounts.google.com&code=4%2F0AfrIepCZhTA_8-TbRLH7QfxxmS2C2mUwggk7JDzN-HVEXvKwNoKhT86FFuHHIvQXRRXMTw&scope=email+profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email+openid&authuser=0&prompt=consent
 Request Method
 GET
 Status Code
 500 Internal Server Error
 Remote Address
-[2606:4700:3031::6815:2695]:443
+[2606:4700:3035::ac43:dfe9]:443
 Referrer Policy
 origin
+access-control-allow-credentials
+true
+access-control-allow-headers
+Content-Type,Authorization,apikey,x-cascata-client,Prefer,Range,x-client-info,x-supabase-auth,content-profile,accept-profile,x-supabase-api-version,x-cascata-signature,x-cascata-event
+access-control-allow-methods
+GET,POST,PUT,PATCH,DELETE,OPTIONS
+access-control-expose-headers
+Content-Range, X-Total-Count, Link
+alt-svc
+h3=":443"; ma=86400
+cf-cache-status
+DYNAMIC
+cf-ray
+9d497890bcfdd5e8-GIG
+content-length
+72
+content-type
+application/json; charset=utf-8
+date
+Fri, 27 Feb 2026 17:41:05 GMT
+etag
+W/"48-5/dBb4kujYAbLqDITTqQ7F+lH7c"
+nel
+{"report_to":"cf-nel","success_fraction":0.0,"max_age":604800}
+priority
+u=0,i
+referrer-policy
+strict-origin-when-cross-origin
+report-to
+{"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=WYtszVzHViJgsAg3AthXbfqi325oSktcf3NRq7BGaqW6t5%2FyEhB3NGiYeOrbKGynMBaEWGU9V1n4S1AihYJBD5BDKKgNk14xPhOiLPNJGcwaNFMJq7jmgOF6HPzFNJw%3D"}]}
+server
+cloudflare
+server-timing
+cfCacheStatus;desc="DYNAMIC"
+server-timing
+cfEdge;dur=6,cfOrigin;dur=579
+server-timing
+cfExtPri
+speculation-rules
+"/cdn-cgi/speculation"
+strict-transport-security
+max-age=31536000; includeSubDomains; preload
+x-content-type-options
+nosniff
+x-frame-options
+SAMEORIGIN
+x-permitted-cross-domain-policies
+none
+x-ratelimit-limit
+50
+x-ratelimit-remaining
+99
+x-xss-protection
+1; mode=block
+:authority
+api.unibloom.com.br
+:method
+GET
+:path
+/auth/v1/callback?state=eyJyZWRpcmVjdFRvIjoiaHR0cHM6Ly9sb2dpbi04MjkucGFnZXMuZGV2IiwicHJvdmlkZXIiOiJnb29nbGUiLCJjbGllbnRfaWQiOm51bGx9&iss=https%3A%2F%2Faccounts.google.com&code=4%2F0AfrIepCZhTA_8-TbRLH7QfxxmS2C2mUwggk7JDzN-HVEXvKwNoKhT86FFuHHIvQXRRXMTw&scope=email+profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email+openid&authuser=0&prompt=consent
+:scheme
+https
+accept
+text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7
+accept-encoding
+gzip, deflate, br, zstd
+accept-language
+pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7
+dnt
+1
+priority
+u=0, i
+referer
+https://accounts.google.com/
+sec-ch-ua
+"Not:A-Brand";v="99", "Google Chrome";v="145", "Chromium";v="145"
+sec-ch-ua-mobile
+?0
+sec-ch-ua-platform
+"Linux"
+sec-fetch-dest
+document
+sec-fetch-mode
+navigate
+sec-fetch-site
+cross-site
+sec-fetch-user
+?1
+upgrade-insecure-requests
+1
+user-agent
+Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36
 
-a resposta foi:
-{"error":"could not determine data type of parameter $1","code":"42P18"}
+payload:
+state
+eyJyZWRpcmVjdFRvIjoiaHR0cHM6Ly9sb2dpbi04MjkucGFnZXMuZGV2IiwicHJvdmlkZXIiOiJnb29nbGUiLCJjbGllbnRfaWQiOm51bGx9
+iss
+https://accounts.google.com
+code
+4/0AfrIepCZhTA_8-TbRLH7QfxxmS2C2mUwggk7JDzN-HVEXvKwNoKhT86FFuHHIvQXRRXMTw
+scope
+email profile https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email openid
+authuser
+0
+prompt
+consent
 
-a pagina da url one o processo foi ecerrdo:
-https://api.unibloom.com.br/auth/v1/callback?state=eyJyZWRpcmVjdFRvIjoiIiwicHJvdmlkZXIiOiJnb29nbGUiLCJjbGllbnRfaWQiOm51bGx9&iss=https%3A%2F%2Faccounts.google.com&code=4%2F0AfrIepDT5plqD0VagPkKwG1FH8w3IDh9PzkD5B0ziFdYXj3EF0NBDauGzeRxm7vgY4pn-g&scope=email+profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email+openid&authuser=1&prompt=consent
+#preview:
+{error: "could not determine data type of parameter $1", code: "42P18"}
 
 
-e se eu tentar fazer login com a mesma conta no html, então terei um erro similar a esse após a conta ter sido criada
 
-achei um bug esquisito aqui no caso onde o proveor é meio bagunçado no caso na tabela iddentities:
-id,user_id,provider,identifier,password_hash,identity_data,created_at,last_sign_in_at
-6ff6081e-1d98-4593-9b48-93345a14c869,a1a8dae1-7a8e-450a-aa96-5a03b79bb07b,email,THALES@UNIBLOOM.SHOP,$2b$10$X7AJ0IHNoAFwoIokb/66AuslKFvkhNUQwSbmla3KR.HytdqSHYe/a,[object Object],2026-02-26 20:42:32.00006-03,2026-02-26 20:42:32.00006-03
-19b527c9-4a95-4a62-b9ff-b18fbe309107,7761ea59-4ae8-4a3f-8eff-deec60a05154,email,uniblloom@gmail.com,$2b$10$Uy/JpqpyrqBucbySoJrooOoXMrIrq9Vr5ngCZIf1suHrI34l4W03m,[object Object],2026-02-26 21:08:42.282242-03,2026-02-26 21:08:42.282242-03
-9fd23fce-d074-408c-9cf2-e9df5c4bed69,ee1c5afb-9993-437b-b7d9-c08a7c207aef,email,tt@gg.com,$2b$10$ShJfsdMOVo31stVhCGrwo.fDeLEaqcT2p74ckh0kR9DVhVlUD92Kq,[object Object],2026-02-26 21:32:39.698721-03,2026-02-26 21:32:39.698721-03
-54d4cde2-9d8c-498b-bb15-7bc934d9ec77,d8852106-de07-4e65-acee-80d58ed97e47,email,THALES3@UNIBLOOM.SHOP,$2b$10$e2lDRMp7YoePNKnfH9XqSu4YXEcs8dBYrx30XSrN6J1S6b8.zHxeW,[object Object],2026-02-27 00:34:08.469191-03,2026-02-27 00:34:08.469191-03
-ddea6511-4a2e-460b-9e17-f5755dfc29f8,9a8be67e-a206-463e-b845-2fa9a1439202,email,uniblloom2@gmail.com,$2b$10$C27A2THLJzV4mgG1JDBFk.1R.QewrN8RrF0.O.1x.BBaKmG3rUi4e,[object Object],2026-02-27 00:51:30.675961-03,2026-02-27 00:51:30.675961-03
-0565caae-bbbe-4a58-a2d2-5d3acaf68780,866f340f-8e0b-42a5-bd89-dfb4a5433113,email,thales78@unibloom.shop,$2b$10$tj8.de5FTcVdMs1HnUWzh.U7M388fDSjM1W17MHDb5gHnyY4jIHfe,[object Object],2026-02-27 01:22:16.909604-03,2026-02-27 01:22:16.909604-03
-8b1305f0-efba-4050-9693-ec4d4c2608ca,bcd09fc6-ac37-4eb8-bd38-9dd36ab092fd,email,tes2@gg.com,$2b$10$3nqYh62XW3Z2VBu9l/NjY.Bukgi3tAIZHFbXAmpMWRgxmXA4fPm3W,[object Object],2026-02-27 05:55:00.283231-03,2026-02-27 05:55:00.283231-03
-f11b19c4-a9c9-42d7-ac48-1e97e3627c73,7761ea59-4ae8-4a3f-8eff-deec60a05154,google,105831375503607572785,,[object Object],2026-02-27 07:05:38.918483-03,2026-02-27 07:05:38.918483-03
-5616a83c-b971-4c41-bd7e-0896b973aaaf,81a9ecf8-87a9-46a8-b342-39c8a0f82706,google,109357990777259224722,,[object Object],2026-02-27 07:10:51.78178-03,2026-02-27 07:10:51.78178-03
-f7f91b0f-bbee-4a36-bcfb-ab31cd4ec31c,81a9ecf8-87a9-46a8-b342-39c8a0f82706,email,cidadeslivre@gmail.com,,[object Object],2026-02-27 07:10:51.78178-03,2026-02-27 07:10:51.78178-03
-
-o cidaeslivre@gmail.com eu usei o google ele ta marcando como se fosse email 
-
-já esse aqui eu havia criaado a conta com email:
-19b527c9-4a95-4a62-b9ff-b18fbe309107	7761ea59-4ae8-4a3f-8eff-deec60a05154	email	uniblloom@gmail.com	$2b$10$Uy/JpqpyrqBucbySoJrooOoXMrIrq9Vr5ngCZIf1suHrI34l4W03m	[object Object]	2026-02-26 21:08:42.282242-03	2026-02-26 21:08:42.282242-03
-depois eu tentei entrar com o google em locais diferentrs um no flutterflow e outro no html puro e n caso gerou uas novas identitiles oq eu aprece ser bom já que em users foi criado:
-id,created_at,last_sign_in_at,banned,raw_user_meta_data,confirmation_token,confirmation_sent_at,recovery_token,recovery_sent_at,email_change_token_new,email_change,email_change_sent_at,email_confirmed_at
-a1a8dae1-7a8e-450a-aa96-5a03b79bb07b,2026-02-26 20:42:32.00006-03,2026-02-26 20:42:32.00006-03,false,[object Object],,,,,,,,2026-02-26 20:42:32.00006-03
-ee1c5afb-9993-437b-b7d9-c08a7c207aef,2026-02-26 21:32:39.698721-03,2026-02-26 21:32:39.698721-03,false,[object Object],,,,,,,,2026-02-26 21:32:39.698721-03
-d8852106-de07-4e65-acee-80d58ed97e47,2026-02-27 00:34:08.469191-03,2026-02-27 00:34:08.469191-03,false,[object Object],,,,,,,,2026-02-27 00:34:08.469191-03
-9a8be67e-a206-463e-b845-2fa9a1439202,2026-02-27 00:51:30.675961-03,2026-02-27 00:51:30.675961-03,false,[object Object],,,,,,,,2026-02-27 00:51:30.675961-03
-866f340f-8e0b-42a5-bd89-dfb4a5433113,2026-02-27 01:22:16.909604-03,2026-02-27 01:22:16.909604-03,false,[object Object],,,,,,,,2026-02-27 01:22:16.909604-03
-bcd09fc6-ac37-4eb8-bd38-9dd36ab092fd,2026-02-27 05:55:00.283231-03,2026-02-27 05:55:00.283231-03,false,[object Object],,,,,,,,2026-02-27 05:55:00.283231-03
-7761ea59-4ae8-4a3f-8eff-deec60a05154,2026-02-26 21:08:42.282242-03,2026-02-26 21:08:42.282242-03,false,[object Object],,,,,,,,2026-02-26 21:08:42.282242-03
-81a9ecf8-87a9-46a8-b342-39c8a0f82706,2026-02-27 07:10:51.78178-03,2026-02-27 07:10:51.78178-03,false,[object Object],,,,,,,,2026-02-27 07:10:51.78178-03

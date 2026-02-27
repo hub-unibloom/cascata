@@ -488,7 +488,7 @@ export class AuthService {
             if (identityRes.rows.length > 0) {
                 userId = identityRes.rows[0].user_id;
                 await client.query('UPDATE auth.users SET last_sign_in_at = now() WHERE id = $1', [userId]);
-                await client.query(`UPDATE auth.identities SET last_sign_in_at = now(), identity_data = $2::jsonb WHERE provider = $3 AND identifier = $4`, [userId, JSON.stringify(profile), profile.provider, profile.id]);
+                await client.query(`UPDATE auth.identities SET last_sign_in_at = now(), identity_data = $1::jsonb WHERE provider = $2 AND identifier = $3`, [JSON.stringify(profile), profile.provider, profile.id]);
             } else {
                 if (profile.email) {
                     const emailRes = await client.query(`SELECT id FROM auth.users WHERE raw_user_meta_data->>'email' = $1`, [profile.email]);

@@ -55,7 +55,7 @@ const sanitizeName = (val: string) => {
 
 const sanitizeForCSV = (value: any) => {
   if (value === null || value === undefined) return '';
-  const str = String(value);
+  const str = typeof value === 'object' ? JSON.stringify(value) : String(value);
   if (['=', '+', '-', '@'].includes(str.charAt(0))) return "'" + str;
   return str;
 };
