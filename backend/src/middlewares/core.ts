@@ -269,8 +269,8 @@ export const cascataAuth: RequestHandler = async (req: any, res: any, next: any)
     // 2. PROJECT DATA ACCESS
     if (r.project) {
         const authHeader = req.headers['authorization'];
-        // Support both Bearer token and 'apikey' header
-        const apiKey = req.headers['apikey'] || (authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : req.query.token);
+        // Support both Bearer token and 'apikey' header, or query parameters
+        const apiKey = req.headers['apikey'] || (authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : (req.query.token || req.query.apikey || req.query.anon_key));
 
         if (apiKey) {
             // A. Service Key (Root Access within Project)
@@ -307,6 +307,15 @@ export const cascataAuth: RequestHandler = async (req: any, res: any, next: any)
                 return next();
             } catch (e) {
                 // Invalid tokens fall through to 401
+            }
+        } else {
+            // BYPASS FOR OAUTH BROWSER REDIRECTS (No headers possible)
+            const publicBrowserPaths = ['/auth/v1/authorize', '/auth/v1/callback', '/auth/v1/verify', '/auth/v1/recover'];
+            const isPublicBrowserFlow = req.method === 'GET' && publicBrowserPaths.some(p => req.path.includes(p));
+
+            if (isPublicBrowserFlow) {
+                r.userRole = 'anon';
+                return next();
             }
         }
     }
