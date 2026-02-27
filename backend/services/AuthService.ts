@@ -507,12 +507,6 @@ export class AuthService {
                 const newMeta = { ...currentMeta, name: profile.name || currentMeta.name, avatar_url: profile.avatar_url || currentMeta.avatar_url, email: profile.email || currentMeta.email };
                 await client.query(`UPDATE auth.users SET raw_user_meta_data = $1::jsonb WHERE id = $2`, [JSON.stringify(newMeta), userId]);
             }
-            if (userId && profile.email && profile.provider !== 'email') {
-                const checkEmailIdentity = await client.query(`SELECT 1 FROM auth.identities WHERE provider = 'email' AND user_id = $1`, [userId]);
-                if (checkEmailIdentity.rowCount === 0) {
-                    await client.query(`INSERT INTO auth.identities (user_id, provider, identifier, identity_data, created_at, last_sign_in_at) VALUES ($1, 'email', $2, $3::jsonb, now(), now())`, [userId, profile.email, JSON.stringify({ email: profile.email, sub: userId })]);
-                }
-            }
             await client.query('COMMIT');
             return userId as string;
         } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }

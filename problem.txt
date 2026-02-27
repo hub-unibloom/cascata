@@ -1,0 +1,61 @@
+[07:05:39]🔧 Inicializando aplicação...
+[07:05:39]📡 API Base: https://api.unibloom.com.br
+[07:05:39]🎯 Project: teste
+[07:05:39]🔐 Anon Key: d70d751c-c53f-4d34-a...
+[07:05:39]🔍 Tokens detectados no hash da URL
+[07:05:39]✅ Tokens recebidos no hash!
+[07:05:39]📝 Access Token: eyJhbGciOiJIUzI1NiIsInR5cCI6Ik...
+[07:05:39]🔄 Refresh Token: dd43a425fe5805cccfee6aeef7c7c3...
+[07:05:39]⏱️ Expira em: 3600s
+[07:05:39]✅ Sessão salva no localStorage
+[07:05:39]👤 Carregando perfil do usuário...
+[07:05:39]❌ Erro ao carregar perfil: Failed to fetch
+
+esse foi o resultaddo o html puro, logo em seguiaa fui no flutterflow e tive umr esultado ruim:
+Request URL
+https://api.unibloom.com.br/auth/v1/callback?state=eyJyZWRpcmVjdFRvIjoiIiwicHJvdmlkZXIiOiJnb29nbGUiLCJjbGllbnRfaWQiOm51bGx9&iss=https%3A%2F%2Faccounts.google.com&code=4%2F0AfrIepDT5plqD0VagPkKwG1FH8w3IDh9PzkD5B0ziFdYXj3EF0NBDauGzeRxm7vgY4pn-g&scope=email+profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email+openid&authuser=1&prompt=consent
+Request Method
+GET
+Status Code
+500 Internal Server Error
+Remote Address
+[2606:4700:3031::6815:2695]:443
+Referrer Policy
+origin
+
+a resposta foi:
+{"error":"could not determine data type of parameter $1","code":"42P18"}
+
+a pagina da url one o processo foi ecerrdo:
+https://api.unibloom.com.br/auth/v1/callback?state=eyJyZWRpcmVjdFRvIjoiIiwicHJvdmlkZXIiOiJnb29nbGUiLCJjbGllbnRfaWQiOm51bGx9&iss=https%3A%2F%2Faccounts.google.com&code=4%2F0AfrIepDT5plqD0VagPkKwG1FH8w3IDh9PzkD5B0ziFdYXj3EF0NBDauGzeRxm7vgY4pn-g&scope=email+profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email+openid&authuser=1&prompt=consent
+
+
+e se eu tentar fazer login com a mesma conta no html, então terei um erro similar a esse após a conta ter sido criada
+
+achei um bug esquisito aqui no caso onde o proveor é meio bagunçado no caso na tabela iddentities:
+id,user_id,provider,identifier,password_hash,identity_data,created_at,last_sign_in_at
+6ff6081e-1d98-4593-9b48-93345a14c869,a1a8dae1-7a8e-450a-aa96-5a03b79bb07b,email,THALES@UNIBLOOM.SHOP,$2b$10$X7AJ0IHNoAFwoIokb/66AuslKFvkhNUQwSbmla3KR.HytdqSHYe/a,[object Object],2026-02-26 20:42:32.00006-03,2026-02-26 20:42:32.00006-03
+19b527c9-4a95-4a62-b9ff-b18fbe309107,7761ea59-4ae8-4a3f-8eff-deec60a05154,email,uniblloom@gmail.com,$2b$10$Uy/JpqpyrqBucbySoJrooOoXMrIrq9Vr5ngCZIf1suHrI34l4W03m,[object Object],2026-02-26 21:08:42.282242-03,2026-02-26 21:08:42.282242-03
+9fd23fce-d074-408c-9cf2-e9df5c4bed69,ee1c5afb-9993-437b-b7d9-c08a7c207aef,email,tt@gg.com,$2b$10$ShJfsdMOVo31stVhCGrwo.fDeLEaqcT2p74ckh0kR9DVhVlUD92Kq,[object Object],2026-02-26 21:32:39.698721-03,2026-02-26 21:32:39.698721-03
+54d4cde2-9d8c-498b-bb15-7bc934d9ec77,d8852106-de07-4e65-acee-80d58ed97e47,email,THALES3@UNIBLOOM.SHOP,$2b$10$e2lDRMp7YoePNKnfH9XqSu4YXEcs8dBYrx30XSrN6J1S6b8.zHxeW,[object Object],2026-02-27 00:34:08.469191-03,2026-02-27 00:34:08.469191-03
+ddea6511-4a2e-460b-9e17-f5755dfc29f8,9a8be67e-a206-463e-b845-2fa9a1439202,email,uniblloom2@gmail.com,$2b$10$C27A2THLJzV4mgG1JDBFk.1R.QewrN8RrF0.O.1x.BBaKmG3rUi4e,[object Object],2026-02-27 00:51:30.675961-03,2026-02-27 00:51:30.675961-03
+0565caae-bbbe-4a58-a2d2-5d3acaf68780,866f340f-8e0b-42a5-bd89-dfb4a5433113,email,thales78@unibloom.shop,$2b$10$tj8.de5FTcVdMs1HnUWzh.U7M388fDSjM1W17MHDb5gHnyY4jIHfe,[object Object],2026-02-27 01:22:16.909604-03,2026-02-27 01:22:16.909604-03
+8b1305f0-efba-4050-9693-ec4d4c2608ca,bcd09fc6-ac37-4eb8-bd38-9dd36ab092fd,email,tes2@gg.com,$2b$10$3nqYh62XW3Z2VBu9l/NjY.Bukgi3tAIZHFbXAmpMWRgxmXA4fPm3W,[object Object],2026-02-27 05:55:00.283231-03,2026-02-27 05:55:00.283231-03
+f11b19c4-a9c9-42d7-ac48-1e97e3627c73,7761ea59-4ae8-4a3f-8eff-deec60a05154,google,105831375503607572785,,[object Object],2026-02-27 07:05:38.918483-03,2026-02-27 07:05:38.918483-03
+5616a83c-b971-4c41-bd7e-0896b973aaaf,81a9ecf8-87a9-46a8-b342-39c8a0f82706,google,109357990777259224722,,[object Object],2026-02-27 07:10:51.78178-03,2026-02-27 07:10:51.78178-03
+f7f91b0f-bbee-4a36-bcfb-ab31cd4ec31c,81a9ecf8-87a9-46a8-b342-39c8a0f82706,email,cidadeslivre@gmail.com,,[object Object],2026-02-27 07:10:51.78178-03,2026-02-27 07:10:51.78178-03
+
+o cidaeslivre@gmail.com eu usei o google ele ta marcando como se fosse email 
+
+já esse aqui eu havia criaado a conta com email:
+19b527c9-4a95-4a62-b9ff-b18fbe309107	7761ea59-4ae8-4a3f-8eff-deec60a05154	email	uniblloom@gmail.com	$2b$10$Uy/JpqpyrqBucbySoJrooOoXMrIrq9Vr5ngCZIf1suHrI34l4W03m	[object Object]	2026-02-26 21:08:42.282242-03	2026-02-26 21:08:42.282242-03
+depois eu tentei entrar com o google em locais diferentrs um no flutterflow e outro no html puro e n caso gerou uas novas identitiles oq eu aprece ser bom já que em users foi criado:
+id,created_at,last_sign_in_at,banned,raw_user_meta_data,confirmation_token,confirmation_sent_at,recovery_token,recovery_sent_at,email_change_token_new,email_change,email_change_sent_at,email_confirmed_at
+a1a8dae1-7a8e-450a-aa96-5a03b79bb07b,2026-02-26 20:42:32.00006-03,2026-02-26 20:42:32.00006-03,false,[object Object],,,,,,,,2026-02-26 20:42:32.00006-03
+ee1c5afb-9993-437b-b7d9-c08a7c207aef,2026-02-26 21:32:39.698721-03,2026-02-26 21:32:39.698721-03,false,[object Object],,,,,,,,2026-02-26 21:32:39.698721-03
+d8852106-de07-4e65-acee-80d58ed97e47,2026-02-27 00:34:08.469191-03,2026-02-27 00:34:08.469191-03,false,[object Object],,,,,,,,2026-02-27 00:34:08.469191-03
+9a8be67e-a206-463e-b845-2fa9a1439202,2026-02-27 00:51:30.675961-03,2026-02-27 00:51:30.675961-03,false,[object Object],,,,,,,,2026-02-27 00:51:30.675961-03
+866f340f-8e0b-42a5-bd89-dfb4a5433113,2026-02-27 01:22:16.909604-03,2026-02-27 01:22:16.909604-03,false,[object Object],,,,,,,,2026-02-27 01:22:16.909604-03
+bcd09fc6-ac37-4eb8-bd38-9dd36ab092fd,2026-02-27 05:55:00.283231-03,2026-02-27 05:55:00.283231-03,false,[object Object],,,,,,,,2026-02-27 05:55:00.283231-03
+7761ea59-4ae8-4a3f-8eff-deec60a05154,2026-02-26 21:08:42.282242-03,2026-02-26 21:08:42.282242-03,false,[object Object],,,,,,,,2026-02-26 21:08:42.282242-03
+81a9ecf8-87a9-46a8-b342-39c8a0f82706,2026-02-27 07:10:51.78178-03,2026-02-27 07:10:51.78178-03,false,[object Object],,,,,,,,2026-02-27 07:10:51.78178-03

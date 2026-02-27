@@ -40,6 +40,19 @@ export const dynamicCors: RequestHandler = (req: any, res: any, next: any) => {
             // Se ele for null/undefined, assumimos que ele não quer override (usa global).
             allowedOrigins = matchedClient.allowed_origins;
         }
+    } else if (req.method === 'OPTIONS' && origin && req.project.metadata?.app_clients && Array.isArray(req.project.metadata.app_clients)) {
+        // PREFLIGHT BYPASS: O navegador não envia headers 'apikey' em requisições OPTIONS.
+        // Se a origem estiver autorizada em ALGUM App Client, nós liberamos o preflight.
+        // O request real subsequente (GET/POST) trará a apikey e será estritamente validado.
+        const originAllowedInAnyClient = req.project.metadata.app_clients.some((c: any) =>
+            c.allowed_origins && c.allowed_origins.some((o: any) => {
+                const url = typeof o === 'string' ? o : o.url;
+                return url === origin;
+            })
+        );
+        if (originAllowedInAnyClient) {
+            allowedOrigins = [origin];
+        }
     }
 
     const safeOrigins = allowedOrigins.map((o: any) => typeof o === 'string' ? o : o.url);
