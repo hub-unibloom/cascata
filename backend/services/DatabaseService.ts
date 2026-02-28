@@ -118,6 +118,34 @@ export class DatabaseService {
                 UNIQUE(provider, identifier)
             );
 
+            -- IRON-CLAD TRIGGER: auth.identities (Universal Security Lock — Defense-in-Depth)
+            -- Enforces at the DATABASE LAYER (impossible to bypass from application code):
+            --   id:          IMMUTABLE (frozen on update)
+            --   created_at:  IMMUTABLE (frozen on update)
+            --   verified_at: WRITE-ONCE SEAL (once set, permanently sealed — cannot be overwritten or cleared)
+            --   updated_at:  SERVER-CONTROLLED (forced to now() on every update, never client-spoofable)
+            CREATE OR REPLACE FUNCTION auth.lock_identities_integrity()
+            RETURNS TRIGGER AS $$
+            BEGIN
+                -- IMMUTABLE: id can never be changed
+                NEW.id = OLD.id;
+                -- IMMUTABLE: created_at frozen at birth
+                NEW.created_at = OLD.created_at;
+                -- WRITE-ONCE SEAL: verified_at, once stamped, is permanent evidence
+                IF OLD.verified_at IS NOT NULL THEN
+                    NEW.verified_at = OLD.verified_at;
+                END IF;
+                -- SERVER-CONTROLLED: updated_at always reflects true server time
+                NEW.updated_at = now();
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql;
+
+            DROP TRIGGER IF EXISTS ensure_identities_integrity ON auth.identities;
+            CREATE TRIGGER ensure_identities_integrity
+            BEFORE UPDATE ON auth.identities
+            FOR EACH ROW EXECUTE FUNCTION auth.lock_identities_integrity();
+
             -- Auth Tables: User Devices (PUSH ENGINE)
             CREATE TABLE IF NOT EXISTS auth.user_devices (
                 id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
