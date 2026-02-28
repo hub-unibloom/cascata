@@ -478,10 +478,111 @@ export class DataAuthController {
         } catch (e: any) { next(e); }
     }
 
+    private static maskIdentifier(provider: string, id: string): string {
+        if (!id) return id;
+        if (provider === 'email') {
+            const parts = id.split('@');
+            if (parts.length !== 2) return id;
+            return parts[0].substring(0, 2) + '*'.repeat(Math.max(1, parts[0].length - 2)) + '@' + parts[1];
+        }
+        return '*'.repeat(Math.max(1, id.length - 3)) + id.substring(id.length - 3);
+    }
+
     static async goTrueUpdateUser(req: CascataRequest, res: any, next: any) {
         if (!req.user?.sub) return res.status(401).json({ error: "unauthorized" });
         try {
-            const updatedUser = await GoTrueService.handleUpdateUser(req.projectPool!, req.user.sub, req.body);
+            const userId = req.user.sub;
+            const provider = req.body.provider || 'email';
+            const reqOtp = req.body.otp_code;
+
+            // Check Project's specific configuration for this provider
+            const strategies = req.project.metadata?.auth_strategies || {};
+            const providerConfig = strategies[provider] || {};
+            const dispatchMode = providerConfig.otp_dispatch_mode || 'delegated';
+
+            // Bank-Grade Security Lock (Zero Trust OTP Validation for Password/Identity Linking) 
+            if (providerConfig.require_otp_on_update === true) {
+                let targetIdentifier = req.body.identifier || req.body.email;
+
+                // If the user hasn't explicitly supplied an identifier to bind, we must query the DB 
+                // to find their existing identifier for this provider to match against the OTP challenge table.
+                if (!targetIdentifier) {
+                    const identityCheck = await req.projectPool!.query(
+                        `SELECT identifier FROM auth.identities WHERE user_id = $1 AND provider = $2`,
+                        [userId, provider]
+                    );
+
+                    if (identityCheck.rows.length > 0) {
+                        targetIdentifier = identityCheck.rows[0].identifier;
+                    } else if (provider === 'email') {
+                        // Fallback to internal user metadata email
+                        const userCheck = await req.projectPool!.query(
+                            `SELECT raw_user_meta_data->>'email' as email FROM auth.users WHERE id = $1`,
+                            [userId]
+                        );
+                        targetIdentifier = userCheck.rows[0]?.email;
+                    }
+                }
+
+                if (!reqOtp) {
+                    // OTP is strictly required, let's process the Dispatch Routing
+
+                    if (dispatchMode === 'delegated') {
+                        const channels = [];
+                        const idResult = await req.projectPool!.query(`SELECT provider, identifier FROM auth.identities WHERE user_id = $1`, [userId]);
+                        idResult.rows.forEach((r: any) => {
+                            channels.push({ provider: r.provider, identifier: DataAuthController.maskIdentifier(r.provider, r.identifier) });
+                        });
+
+                        if (!channels.find((c: any) => c.provider === 'email')) {
+                            const userCheck = await req.projectPool!.query(`SELECT raw_user_meta_data->>'email' as email FROM auth.users WHERE id = $1`, [userId]);
+                            if (userCheck.rows[0]?.email) {
+                                channels.push({ provider: 'email', identifier: DataAuthController.maskIdentifier('email', userCheck.rows[0].email) });
+                            }
+                        }
+                        return res.status(403).json({
+                            error: "otp_required",
+                            message: `Bank-Grade Lock activated. Please challenge an OTP code via /auth/challenge to one of your channels.`,
+                            available_channels: channels
+                        });
+                    }
+
+                    if (dispatchMode === 'auto_current') {
+                        if (!targetIdentifier) return res.status(400).json({ error: `Cannot trigger auto_current OTP format for ${provider}: no target identifier specified or found in DB.` });
+                        if (!providerConfig.webhook_url) return res.status(500).json({ error: `Missing webhook_url in '${provider}' config for auto_current dispatch.` });
+                        await AuthService.initiatePasswordless(req.projectPool!, provider, targetIdentifier, providerConfig.webhook_url, req.project.jwt_secret, providerConfig.otp_config || { length: 6, charset: 'numeric' });
+                        return res.status(403).json({ error: "otp_dispatched", message: "OTP automatically dispatched to the current target.", channel: provider });
+                    }
+
+                    if (dispatchMode === 'auto_primary') {
+                        const userCheck = await req.projectPool!.query(`SELECT raw_user_meta_data->>'email' as email FROM auth.users WHERE id = $1`, [userId]);
+                        const primaryEmail = userCheck.rows[0]?.email;
+                        if (!primaryEmail) return res.status(500).json({ error: "Sys: Cannot find root email for auto_primary dispatch." });
+                        const emailCfg = strategies['email'] || {};
+                        if (!emailCfg.webhook_url) return res.status(500).json({ error: "Missing webhook_url in 'email' config for auto_primary dispatch." });
+                        await AuthService.initiatePasswordless(req.projectPool!, 'email', primaryEmail, emailCfg.webhook_url, req.project.jwt_secret, emailCfg.otp_config || { length: 6, charset: 'numeric' });
+                        return res.status(403).json({ error: "otp_dispatched", message: "OTP automatically dispatched to the root email account.", channel: "email" });
+                    }
+                }
+
+                if (!targetIdentifier) {
+                    throw new Error(`Cannot verify OTP. No identifier passed in request nor found internally for provider '${provider}'.`);
+                }
+
+                // If verifying against auto_primary, the challenge code was routed to the raw email
+                let validationProvider = provider;
+                let validationIdentifier = targetIdentifier;
+                if (dispatchMode === 'auto_primary') {
+                    validationProvider = 'email';
+                    const userCheck = await req.projectPool!.query(`SELECT raw_user_meta_data->>'email' as email FROM auth.users WHERE id = $1`, [userId]);
+                    validationIdentifier = userCheck.rows[0]?.email;
+                }
+
+                // Extremely secure verification (With built-in Timing-Attack defense)
+                await AuthService.verifyPasswordless(req.projectPool!, validationProvider, validationIdentifier, reqOtp);
+            }
+
+            const updatedUser = await GoTrueService.handleUpdateUser(req.projectPool!, userId, req.body);
             res.json(updatedUser);
         } catch (e: any) { next(e); }
     }

@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Unibloom (Cascata)</title>
+    <title>Unibloom — Auth Tester</title>
     <style>
         * {
             margin: 0;
@@ -12,22 +13,29 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             justify-content: center;
-            padding: 20px;
+            padding: 30px 20px;
         }
 
+        .main-container {
+            width: 100%;
+            max-width: 720px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* ======= GOOGLE LOGIN CARD ======= */
         .login-container {
             background: white;
             padding: 40px;
             border-radius: 16px;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            max-width: 500px;
-            width: 100%;
             text-align: center;
         }
 
@@ -47,7 +55,7 @@
         .google-btn {
             width: 100%;
             padding: 14px 20px;
-            border: none;
+            border: 1px solid #dadce0;
             border-radius: 8px;
             background: white;
             color: #333;
@@ -59,8 +67,7 @@
             justify-content: center;
             gap: 12px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-            border: 1px solid #dadce0;
-            transition: all 0.3s ease;
+            transition: all 0.3s;
         }
 
         .google-btn:hover:not(:disabled) {
@@ -120,14 +127,15 @@
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            to {
+                transform: rotate(360deg);
+            }
         }
 
         .user-info {
             margin-top: 20px;
             padding: 20px;
-            background: linear-gradient(135deg, #e7f3ff 0%, #f0e7ff 100%);
+            background: linear-gradient(135deg, #e7f3ff, #f0e7ff);
             border-radius: 12px;
             display: none;
             text-align: left;
@@ -145,19 +153,32 @@
         .user-detail strong {
             color: #667eea;
             display: inline-block;
-            width: 120px;
+            width: 130px;
         }
 
         .token-display {
             margin-top: 15px;
             padding: 12px;
-            background: rgba(255,255,255,0.8);
+            background: rgba(255, 255, 255, 0.8);
             border-radius: 8px;
             font-family: monospace;
             font-size: 11px;
             word-break: break-all;
-            max-height: 120px;
+            max-height: 80px;
             overflow-y: auto;
+        }
+
+        /* "Token ativo" badge inside user-info */
+        .token-active-badge {
+            display: inline-block;
+            margin-top: 12px;
+            background: #28a745;
+            color: white;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 20px;
+            letter-spacing: 0.3px;
         }
 
         .logout-btn {
@@ -171,19 +192,45 @@
             cursor: pointer;
             font-size: 14px;
             font-weight: 500;
+            transition: background 0.2s;
         }
 
         .logout-btn:hover {
             background: #c82333;
         }
 
-        .debug-panel {
+        .tip {
             margin-top: 20px;
+            padding: 12px;
+            background: #fff3cd;
+            border-radius: 8px;
+            font-size: 12px;
+            color: #856404;
+        }
+
+        .toggle-debug {
+            margin-top: 15px;
+            padding: 8px 16px;
+            background: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.2s;
+        }
+
+        .toggle-debug:hover {
+            background: #5a6268;
+        }
+
+        .debug-panel {
+            margin-top: 10px;
             padding: 15px;
             background: #f8f9fa;
             border-radius: 8px;
             text-align: left;
-            max-height: 250px;
+            max-height: 220px;
             overflow-y: auto;
             display: none;
         }
@@ -220,211 +267,784 @@
             color: #17a2b8;
         }
 
-        .toggle-debug {
-            margin-top: 15px;
-            padding: 8px 16px;
-            background: #6c757d;
+        /* ======= GLOBAL TOKEN BANNER ======= */
+        #token-banner {
+            background: rgba(255, 255, 255, 0.18);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.35);
+            border-radius: 12px;
+            padding: 12px 18px;
             color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
+            font-size: 13px;
+            display: none;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #token-banner.active {
+            display: flex;
+        }
+
+        #token-banner .tb-label {
+            font-weight: 700;
+            white-space: nowrap;
             font-size: 12px;
         }
 
-        .api-test {
-            margin-top: 20px;
-            padding: 15px;
-            background: #fff3cd;
-            border-radius: 8px;
-            display: none;
+        #token-banner .tb-value {
+            font-family: monospace;
+            font-size: 11px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            flex: 1;
+            opacity: 0.85;
         }
 
-        .api-test.active {
+        #token-banner .tb-source {
+            font-size: 11px;
+            opacity: 0.65;
+            white-space: nowrap;
+        }
+
+        #token-banner .tb-clear {
+            background: rgba(255, 255, 255, 0.25);
+            border: none;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 11px;
+            white-space: nowrap;
+            transition: background 0.2s;
+        }
+
+        #token-banner .tb-clear:hover {
+            background: rgba(255, 255, 255, 0.4);
+        }
+
+        /* ======= API PANEL ======= */
+        .api-panel {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .api-panel-header {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            padding: 20px 24px;
+            color: white;
+        }
+
+        .api-panel-header h2 {
+            font-size: 18px;
+            margin-bottom: 4px;
+        }
+
+        .api-panel-header p {
+            font-size: 12px;
+            opacity: 0.85;
+        }
+
+        .endpoint-list {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .endpoint-item {
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .endpoint-item:last-child {
+            border-bottom: none;
+        }
+
+        .endpoint-header {
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+            transition: background 0.2s;
+            user-select: none;
+        }
+
+        .endpoint-header:hover {
+            background: #f8f9ff;
+        }
+
+        .endpoint-header.open {
+            background: #f0f4ff;
+        }
+
+        .method-badge {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 4px;
+            min-width: 44px;
+            text-align: center;
+        }
+
+        .badge-post {
+            background: #fff0e6;
+            color: #e67300;
+        }
+
+        .badge-get {
+            background: #e6f4ea;
+            color: #1a7c39;
+        }
+
+        .badge-put {
+            background: #e8f0fe;
+            color: #1a56a8;
+        }
+
+        .endpoint-path {
+            font-family: monospace;
+            font-size: 13px;
+            color: #333;
+            flex: 1;
+        }
+
+        .endpoint-desc {
+            font-size: 12px;
+            color: #999;
+        }
+
+        .chevron {
+            color: #bbb;
+            transition: transform 0.2s;
+            font-size: 12px;
+        }
+
+        .endpoint-header.open .chevron {
+            transform: rotate(90deg);
+        }
+
+        .endpoint-body {
+            display: none;
+            padding: 4px 20px 20px;
+        }
+
+        .endpoint-body.open {
             display: block;
         }
 
-        .test-btn {
-            margin-top: 10px;
-            padding: 8px 16px;
+        .field-group {
+            margin-bottom: 12px;
+        }
+
+        .field-group label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 4px;
+        }
+
+        .field-group input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #dde1ea;
+            border-radius: 6px;
+            font-size: 13px;
+            font-family: inherit;
+            transition: border-color 0.2s;
+            background: #fafbff;
+        }
+
+        .field-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            background: white;
+        }
+
+        .fields-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        @media (max-width: 520px) {
+            .fields-row {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .run-btn {
+            padding: 8px 20px;
             background: #667eea;
             color: white;
             border: none;
             border-radius: 6px;
             cursor: pointer;
-            font-size: 14px;
+            font-size: 13px;
+            font-weight: 600;
+            transition: background 0.2s;
         }
 
-        .test-btn:hover {
+        .run-btn:hover {
             background: #5568d3;
         }
 
-        .tip {
-            margin-top: 20px;
-            padding: 12px;
-            background: #fff3cd;
+        .run-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        /* dark terminal response */
+        .response-box {
+            margin-top: 12px;
+            background: #1e1e2e;
             border-radius: 8px;
+            padding: 14px;
+            font-family: 'Fira Code', 'Courier New', monospace;
             font-size: 12px;
-            color: #856404;
+            color: #cdd6f4;
+            max-height: 260px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            display: none;
+            line-height: 1.6;
+        }
+
+        .response-box.show {
+            display: block;
+        }
+
+        .response-box.ok {
+            border-left: 3px solid #a6e3a1;
+        }
+
+        .response-box.err {
+            border-left: 3px solid #f38ba8;
+        }
+
+        .res-status-ok {
+            color: #a6e3a1;
+            font-weight: 700;
+        }
+
+        .res-status-err {
+            color: #f38ba8;
+            font-weight: 700;
+        }
+
+        .res-time {
+            color: #6c7086;
+            font-size: 11px;
+        }
+
+        /* token helpers */
+        .token-hint {
+            font-size: 11px;
+            color: #667eea;
+            margin-top: 5px;
+            cursor: pointer;
+            text-decoration: underline;
+            display: inline-block;
+        }
+
+        .token-hint:hover {
+            color: #4a52c2;
+        }
+
+        .token-hint-ok {
+            color: #28a745 !important;
+            text-decoration: none !important;
+            cursor: default !important;
+        }
+
+        .paste-hint {
+            font-size: 11px;
+            margin-top: 5px;
+            cursor: pointer;
+            display: inline-block;
+        }
+
+        .paste-hint.has-token {
+            color: #28a745;
+            text-decoration: underline;
+        }
+
+        .paste-hint.no-token {
+            color: #aaa;
         }
     </style>
 </head>
+
 <body>
-    <div class="login-container">
-        <div class="logo">🌸 Unibloom</div>
-        <div class="subtitle">Teste de Autenticação Cascata</div>
-        
-        <button class="google-btn" id="loginBtn">
-            <svg class="google-icon" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"></path>
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"></path>
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"></path>
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"></path>
-            </svg>
-            Entrar com Google
-        </button>
+    <div class="main-container">
 
-        <div class="tip">
-            💡 Clique para testar o login OAuth com Google via Cascata
+        <!-- ====================== GOOGLE LOGIN CARD ====================== -->
+        <div class="login-container">
+            <div class="logo">🌸 Unibloom</div>
+            <div class="subtitle">Autenticação Cascata — Dev Tester</div>
+
+            <button class="google-btn" id="loginBtn">
+                <svg class="google-icon" viewBox="0 0 24 24">
+                    <path fill="#4285F4"
+                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                    <path fill="#34A853"
+                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                    <path fill="#FBBC05"
+                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                    <path fill="#EA4335"
+                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                </svg>
+                Entrar com Google
+            </button>
+
+            <div class="tip">💡 Após o login, o token é aplicado <strong>automaticamente</strong> em todos os endpoints
+                abaixo.</div>
+
+            <div class="spinner" id="spinner"></div>
+            <div class="status" id="status"></div>
+
+            <div class="user-info" id="userInfo">
+                <h3 style="margin-bottom:14px;color:#667eea;">✅ Login com Google — Sucesso!</h3>
+                <div class="user-detail"><strong>User ID:</strong> <span id="userId"></span></div>
+                <div class="user-detail"><strong>Email:</strong> <span id="userEmail"></span></div>
+                <div class="user-detail"><strong>Provider:</strong> <span id="userProvider"></span></div>
+                <div class="user-detail"><strong>Token expira:</strong> <span id="tokenExpiry"></span></div>
+                <div class="token-display"><strong>Access Token:</strong><br><span id="accessToken"></span></div>
+                <span class="token-active-badge">🔑 Token ativo nos endpoints abaixo</span>
+                <button class="logout-btn" id="logoutBtn">Fazer Logout</button>
+            </div>
+
+            <button class="toggle-debug" id="toggleDebug">🛠 Debug Console</button>
+            <div class="debug-panel" id="debugPanel"></div>
         </div>
 
-        <div class="spinner" id="spinner"></div>
-        <div class="status" id="status"></div>
-        
-        <div class="user-info" id="userInfo">
-            <h3 style="margin-bottom: 15px; color: #667eea;">✅ Login Bem Sucedido!</h3>
-            <div class="user-detail">
-                <strong>User ID:</strong>
-                <span id="userId"></span>
-            </div>
-            <div class="user-detail">
-                <strong>Email:</strong>
-                <span id="userEmail"></span>
-            </div>
-            <div class="user-detail">
-                <strong>Provider:</strong>
-                <span id="userProvider"></span>
-            </div>
-            <div class="user-detail">
-                <strong>Token expira em:</strong>
-                <span id="tokenExpiry"></span>
-            </div>
-            <div class="token-display">
-                <strong>Access Token:</strong><br>
-                <span id="accessToken"></span>
-            </div>
-            <button class="logout-btn" id="logoutBtn">Fazer Logout</button>
+        <!-- ====================== TOKEN BANNER ====================== -->
+        <div id="token-banner">
+            <span class="tb-label">🔑 Token ativo:</span>
+            <span class="tb-value" id="tbValue"></span>
+            <span class="tb-source" id="tbSource"></span>
+            <button class="tb-clear" onclick="clearGlobalToken()">✕ Limpar</button>
         </div>
 
-        <div class="api-test" id="apiTest">
-            <h4 style="margin-bottom: 10px; color: #667eea;">🧪 Teste de API Autenticada</h4>
-            <p style="font-size: 13px; margin-bottom: 10px;">Teste se o token funciona fazendo uma chamada autenticada:</p>
-            <button class="test-btn" id="testApiBtn">Testar GET /auth/v1/user</button>
-            <div id="apiResult" style="margin-top: 10px; font-size: 12px;"></div>
-        </div>
+        <!-- ====================== API TEST PANEL ====================== -->
+        <div class="api-panel">
+            <div class="api-panel-header">
+                <h2>🧪 Painel de Testes da API</h2>
+                <p>Teste todos os endpoints — o token é propagado automaticamente após login</p>
+            </div>
 
-        <button class="toggle-debug" id="toggleDebug">Mostrar Debug Console</button>
-        
-        <div class="debug-panel" id="debugPanel"></div>
-    </div>
+            <div class="endpoint-list">
+
+                <!-- 1. Signup -->
+                <div class="endpoint-item">
+                    <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                        <span class="method-badge badge-post">POST</span>
+                        <span class="endpoint-path">/auth/v1/signup</span>
+                        <span class="endpoint-desc">Cadastrar usuário</span>
+                        <span class="chevron">▶</span>
+                    </div>
+                    <div class="endpoint-body">
+                        <div class="fields-row">
+                            <div class="field-group">
+                                <label>Email</label>
+                                <input type="email" id="signup-email" value="user@example.com">
+                            </div>
+                            <div class="field-group">
+                                <label>Senha</label>
+                                <input type="text" id="signup-password" value="secure_password_123">
+                            </div>
+                        </div>
+                        <div class="field-group">
+                            <label>Nome completo</label>
+                            <input type="text" id="signup-name" value="John Doe">
+                        </div>
+                        <button class="run-btn" onclick="runSignup(event)">▶ Executar</button>
+                        <div class="response-box" id="res-signup"></div>
+                    </div>
+                </div>
+
+                <!-- 2. Token / Login -->
+                <div class="endpoint-item">
+                    <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                        <span class="method-badge badge-post">POST</span>
+                        <span class="endpoint-path">/auth/v1/token</span>
+                        <span class="endpoint-desc">Login com email/senha</span>
+                        <span class="chevron">▶</span>
+                    </div>
+                    <div class="endpoint-body">
+                        <div class="fields-row">
+                            <div class="field-group">
+                                <label>Email</label>
+                                <input type="email" id="token-email" value="user@example.com">
+                            </div>
+                            <div class="field-group">
+                                <label>Senha</label>
+                                <input type="text" id="token-password" value="secure_password_123">
+                            </div>
+                        </div>
+                        <button class="run-btn" onclick="runToken(event)">▶ Executar</button>
+                        <div class="response-box" id="res-token"></div>
+                        <span class="token-hint" id="token-save-hint" onclick="saveTokenFromEndpoint('res-token')"
+                            style="display:none">
+                            📋 Salvar access_token e propagar para todos os endpoints
+                        </span>
+                    </div>
+                </div>
+
+                <!-- 3. Challenge -->
+                <div class="endpoint-item">
+                    <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                        <span class="method-badge badge-post">POST</span>
+                        <span class="endpoint-path">/auth/challenge</span>
+                        <span class="endpoint-desc">Enviar código de desafio (OTP)</span>
+                        <span class="chevron">▶</span>
+                    </div>
+                    <div class="endpoint-body">
+                        <div class="fields-row">
+                            <div class="field-group">
+                                <label>Provider</label>
+                                <input type="text" id="challenge-provider" value="email">
+                            </div>
+                            <div class="field-group">
+                                <label>Identifier (email/CPF/tel)</label>
+                                <input type="text" id="challenge-identifier" value="user@example.com">
+                            </div>
+                        </div>
+                        <button class="run-btn" onclick="runChallenge(event)">▶ Executar</button>
+                        <div class="response-box" id="res-challenge"></div>
+                    </div>
+                </div>
+
+                <!-- 4. Verify Challenge -->
+                <div class="endpoint-item">
+                    <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                        <span class="method-badge badge-post">POST</span>
+                        <span class="endpoint-path">/auth/verify-challenge</span>
+                        <span class="endpoint-desc">Verificar código de desafio</span>
+                        <span class="chevron">▶</span>
+                    </div>
+                    <div class="endpoint-body">
+                        <div class="fields-row">
+                            <div class="field-group">
+                                <label>Provider</label>
+                                <input type="text" id="verify-provider" value="email">
+                            </div>
+                            <div class="field-group">
+                                <label>Identifier</label>
+                                <input type="text" id="verify-identifier" value="user@example.com">
+                            </div>
+                        </div>
+                        <div class="field-group">
+                            <label>Código recebido</label>
+                            <input type="text" id="verify-code" value="123456" placeholder="Digite o código">
+                        </div>
+                        <button class="run-btn" onclick="runVerifyChallenge(event)">▶ Executar</button>
+                        <div class="response-box" id="res-verify"></div>
+                    </div>
+                </div>
+
+                <!-- 5. Get User -->
+                <div class="endpoint-item">
+                    <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                        <span class="method-badge badge-get">GET</span>
+                        <span class="endpoint-path">/auth/v1/user</span>
+                        <span class="endpoint-desc">Buscar dados do usuário logado</span>
+                        <span class="chevron">▶</span>
+                    </div>
+                    <div class="endpoint-body">
+                        <div class="field-group">
+                            <label>Access Token (Bearer)</label>
+                            <input type="text" id="getuser-token"
+                                placeholder="Cole o token ou use o token salvo automaticamente">
+                            <span class="paste-hint no-token" id="ph-getuser"
+                                onclick="pasteFromSaved('getuser-token', 'ph-getuser')">📋 Colar token salvo</span>
+                        </div>
+                        <button class="run-btn" onclick="runGetUser(event)">▶ Executar</button>
+                        <div class="response-box" id="res-getuser"></div>
+                    </div>
+                </div>
+
+                <!-- 6. Update User / Bind Password -->
+                <div class="endpoint-item" id="endpoint-bind">
+                    <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                        <span class="method-badge badge-put">PUT</span>
+                        <span class="endpoint-path">/auth/v1/user</span>
+                        <span class="endpoint-desc">Atribuir Senha / Relacionar Identidade (Identity Linking)</span>
+                        <span class="chevron">▶</span>
+                    </div>
+                    <div class="endpoint-body">
+                        <p
+                            style="font-size: 11px; color: #333; margin-bottom: 15px; background: #eef2ff; padding: 10px; border-radius: 6px; border-left: 4px solid #667eea;">
+                            <strong>Como usar com Google:</strong> Contas sociais não possuem senha nativa. Digite uma
+                            senha abaixo, deixe Provider e Identifier vazios (ou preencha com 'email' e o seu email), e
+                            execute! O Cascata criará o slot dessa senha atrelada a você.
+                        </p>
+                        <div class="field-group">
+                            <label>Access Token (Bearer)</label>
+                            <input type="text" id="putuser-token"
+                                placeholder="Cole o token ou use o token salvo automaticamente">
+                            <span class="paste-hint no-token" id="ph-putuser"
+                                onclick="pasteFromSaved('putuser-token', 'ph-putuser')">📋 Colar token salvo</span>
+                        </div>
+                        <div class="fields-row">
+                            <div class="field-group">
+                                <label>Nova senha (Para atrelar login nativo)</label>
+                                <input type="text" id="putuser-password" value="nova_senha_super_segura">
+                            </div>
+                            <div class="field-group">
+                                <label>Provider (Opcional - Ex: cpf, phone, email)</label>
+                                <input type="text" id="putuser-provider" placeholder="Vazio = email padrao">
+                            </div>
+                        </div>
+                        <div class="field-group">
+                            <label>Identifier (Opcional - Ex: 123.456.789-00)</label>
+                            <input type="text" id="putuser-identifier" placeholder="Vazio = email da conta logada">
+                        </div>
+                        <div class="field-group"
+                            style="border-left: 3px solid #ff4757; padding-left: 10px; background: #fff5f5; border-radius: 4px;">
+                            <label style="color: #ff4757;">OTP Code (Apenas se o Bank-Grade Lock estiver ativo na
+                                origem)</label>
+                            <input type="text" id="putuser-otp" placeholder="Ex: 582491">
+                        </div>
+                        <button class="run-btn" onclick="runUpdateUser(event)">▶ Executar (Vincular Identidade)</button>
+                        <div class="response-box" id="res-putuser"></div>
+                    </div>
+                </div>
+
+                <!-- 7. Recover -->
+                <div class="endpoint-item">
+                    <div class="endpoint-header" onclick="toggleEndpoint(this)">
+                        <span class="method-badge badge-post">POST</span>
+                        <span class="endpoint-path">/auth/v1/recover</span>
+                        <span class="endpoint-desc">Recuperar senha / magic link</span>
+                        <span class="chevron">▶</span>
+                    </div>
+                    <div class="endpoint-body">
+                        <div class="fields-row">
+                            <div class="field-group">
+                                <label>Identifier (email/CPF/tel)</label>
+                                <input type="text" id="recover-identifier" value="user@example.com">
+                            </div>
+                            <div class="field-group">
+                                <label>Provider</label>
+                                <input type="text" id="recover-provider" value="email">
+                            </div>
+                        </div>
+                        <button class="run-btn" onclick="runRecover(event)">▶ Executar</button>
+                        <div class="response-box" id="res-recover"></div>
+                    </div>
+                </div>
+
+            </div><!-- /endpoint-list -->
+        </div><!-- /api-panel -->
+
+    </div><!-- /main-container -->
 
     <script>
         // ============================================
-        // CONFIGURAÇÃO DA API CASCATA
+        // CONFIG
         // ============================================
         const API_BASE = 'https://api.unibloom.com.br';
-        const PROJECT_SLUG = 'teste'; // Slug do projeto
+        const PROJECT_SLUG = 'teste';
         const ANON_KEY = 'd70d751c-c53f-4d34-adf0-c537fa60d9d2';
         const REDIRECT_URI = 'https://login-829.pages.dev';
+        const API_KEY = '0e024dceb36ad1ebea14e8b699e107e1e2a8e1aa97cfa62f1f006f073cdbb2e2';
+
+        // Global saved token (Google OAuth or /token endpoint)
+        let savedToken = '';
+        let tokenSource = '';
 
         // ============================================
-        // ELEMENTOS DA UI
+        // DOM REFS
         // ============================================
         const loginBtn = document.getElementById('loginBtn');
         const spinner = document.getElementById('spinner');
-        const status = document.getElementById('status');
+        const statusEl = document.getElementById('status');
         const userInfo = document.getElementById('userInfo');
-        const apiTest = document.getElementById('apiTest');
         const debugPanel = document.getElementById('debugPanel');
         const toggleDebugBtn = document.getElementById('toggleDebug');
 
         // ============================================
-        // FUNÇÕES DE DEBUG
+        // TOKEN MANAGEMENT
         // ============================================
-        function addDebug(message, type = 'info') {
-            const time = new Date().toLocaleTimeString();
-            const entry = document.createElement('div');
-            entry.className = `debug-entry debug-${type}`;
-            entry.innerHTML = `<span class="debug-time">[${time}]</span>${message}`;
-            debugPanel.appendChild(entry);
-            debugPanel.scrollTop = debugPanel.scrollHeight;
-            console.log(`[${type.toUpperCase()}]`, message);
+        function setGlobalToken(token, source) {
+            savedToken = token;
+            tokenSource = source;
+
+            // Banner
+            document.getElementById('tbValue').textContent = token.substring(0, 72) + '…';
+            document.getElementById('tbSource').textContent = '(' + source + ')';
+            document.getElementById('token-banner').classList.add('active');
+
+            // Auto-fill all token inputs
+            ['getuser-token', 'putuser-token'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.value = token;
+            });
+
+            // Update paste-hints to green
+            ['ph-getuser', 'ph-putuser'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.textContent = '✅ Token preenchido automaticamente';
+                    el.className = 'paste-hint has-token';
+                }
+            });
+
+            addDebug('🔑 Token global definido via ' + source, 'success');
         }
 
-        toggleDebugBtn.addEventListener('click', () => {
-            debugPanel.classList.toggle('active');
-            toggleDebugBtn.textContent = debugPanel.classList.contains('active') 
-                ? 'Esconder Debug Console' 
-                : 'Mostrar Debug Console';
-        });
-
-        // ============================================
-        // FUNÇÕES DE STATUS
-        // ============================================
-        function showStatus(message, type) {
-            status.textContent = message;
-            status.className = `status ${type}`;
+        function clearGlobalToken() {
+            savedToken = '';
+            document.getElementById('token-banner').classList.remove('active');
+            ['getuser-token', 'putuser-token'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.value = '';
+            });
+            ['ph-getuser', 'ph-putuser'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) { el.textContent = '📋 Colar token salvo'; el.className = 'paste-hint no-token'; }
+            });
+            addDebug('🗑️ Token global removido', 'info');
         }
 
-        function showLoading(show) {
-            spinner.classList.toggle('active', show);
-            loginBtn.disabled = show;
+        function pasteFromSaved(inputId, hintId) {
+            if (savedToken) {
+                document.getElementById(inputId).value = savedToken;
+                const hint = document.getElementById(hintId);
+                if (hint) { hint.textContent = '✅ Token colado'; hint.className = 'paste-hint has-token'; }
+            } else {
+                alert('⚠️ Nenhum token salvo. Faça login com Google ou execute /auth/v1/token primeiro.');
+            }
+        }
+
+        function saveTokenFromEndpoint(resId) {
+            const box = document.getElementById(resId);
+            try {
+                // strip status line if present
+                const text = box.textContent.replace(/^HTTP \d+[^\n]*\n\n/, '');
+                const data = JSON.parse(text);
+                const token = data.access_token;
+                if (token) {
+                    setGlobalToken(token, '/auth/v1/token');
+                    const hint = document.getElementById('token-save-hint');
+                    if (hint) { hint.textContent = '✅ Token salvo e propagado!'; hint.className = 'token-hint token-hint-ok'; }
+                } else {
+                    alert('❌ access_token não encontrado na resposta.');
+                }
+            } catch (e) {
+                alert('❌ Resposta inválida ou request ainda não executado.');
+            }
         }
 
         // ============================================
-        // GERENCIAMENTO DE SESSÃO (LocalStorage)
+        // SESSION (localStorage)
         // ============================================
         function saveSession(tokens) {
             localStorage.setItem('cascata_session', JSON.stringify(tokens));
             addDebug('✅ Sessão salva no localStorage', 'success');
         }
-
         function getSession() {
-            const data = localStorage.getItem('cascata_session');
-            return data ? JSON.parse(data) : null;
+            const d = localStorage.getItem('cascata_session');
+            return d ? JSON.parse(d) : null;
         }
-
         function clearSession() {
             localStorage.removeItem('cascata_session');
             addDebug('🗑️ Sessão removida do localStorage', 'info');
         }
 
         // ============================================
-        // FUNÇÕES DE AUTENTICAÇÃO
+        // DEBUG
+        // ============================================
+        function addDebug(message, type = 'info') {
+            const time = new Date().toLocaleTimeString('pt-BR');
+            const entry = document.createElement('div');
+            entry.className = `debug-entry debug-${type}`;
+            entry.innerHTML = `<span class="debug-time">[${time}]</span>${message}`;
+            debugPanel.appendChild(entry);
+            debugPanel.scrollTop = debugPanel.scrollHeight;
+        }
+
+        toggleDebugBtn.addEventListener('click', () => {
+            debugPanel.classList.toggle('active');
+            toggleDebugBtn.textContent = debugPanel.classList.contains('active') ? '🛠 Esconder Debug' : '🛠 Debug Console';
+        });
+
+        function showStatus(message, type) {
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+        }
+        function showLoading(show) {
+            spinner.classList.toggle('active', show);
+            loginBtn.disabled = show;
+        }
+
+        // ============================================
+        // ACCORDION
+        // ============================================
+        function toggleEndpoint(header) {
+            const body = header.nextElementSibling;
+            const isOpen = header.classList.contains('open');
+            document.querySelectorAll('.endpoint-header.open').forEach(h => {
+                h.classList.remove('open');
+                h.nextElementSibling.classList.remove('open');
+            });
+            if (!isOpen) {
+                header.classList.add('open');
+                body.classList.add('open');
+            }
+        }
+
+        // ============================================
+        // RESPONSE HELPERS
+        // ============================================
+        async function renderResponse(resId, response, startTime) {
+            const box = document.getElementById(resId);
+            const ms = Date.now() - startTime;
+            let body;
+            try { body = await response.json(); }
+            catch (e) { body = await response.text().catch(() => '(sem corpo)'); }
+
+            const isOk = response.ok;
+            box.classList.add('show');
+            box.className = `response-box show ${isOk ? 'ok' : 'err'}`;
+
+            const statusLine = `<span class="${isOk ? 'res-status-ok' : 'res-status-err'}">HTTP ${response.status} ${response.statusText}</span>  <span class="res-time">${ms}ms</span>\n\n`;
+            box.innerHTML = statusLine + escapeHtml(JSON.stringify(body, null, 2));
+        }
+
+        function renderError(resId, err) {
+            const box = document.getElementById(resId);
+            box.classList.add('show');
+            box.className = 'response-box show err';
+            box.textContent = `❌ Erro de rede: ${err.message}`;
+        }
+
+        function escapeHtml(str) {
+            return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function setLoading(btn, loading) {
+            btn.disabled = loading;
+            btn.textContent = loading ? '⏳ Aguardando…' : '▶ Executar';
+        }
+
+        // ============================================
+        // GOOGLE OAUTH
         // ============================================
         async function startGoogleLogin() {
-            try {
-                addDebug('🚀 Iniciando fluxo OAuth com Google...', 'info');
-                showLoading(true);
-
-                const authUrl = `${API_BASE}/api/data/${PROJECT_SLUG}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(REDIRECT_URI)}`;
-                
-                addDebug(`📍 URL de autorização: ${authUrl}`, 'info');
-                addDebug('🌐 Redirecionando para Google...', 'info');
-
-                // Redirecionar para o Google
-                window.location.href = authUrl;
-
-            } catch (error) {
-                addDebug(`❌ ERRO: ${error.message}`, 'error');
-                showStatus('Erro ao iniciar login: ' + error.message, 'error');
-                showLoading(false);
-            }
+            addDebug('🚀 Iniciando OAuth com Google…', 'info');
+            showLoading(true);
+            const authUrl = `${API_BASE}/api/data/${PROJECT_SLUG}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(REDIRECT_URI)}`;
+            addDebug(`📍 Redirecionando para: ${authUrl}`, 'info');
+            window.location.href = authUrl;
         }
 
         async function handleCallback() {
             const hash = window.location.hash.substring(1);
             const params = new URLSearchParams(hash);
-
             const accessToken = params.get('access_token');
             const refreshToken = params.get('refresh_token');
             const expiresIn = params.get('expires_in');
@@ -435,175 +1055,250 @@
                 showStatus('Erro: ' + (params.get('error_description') || error), 'error');
                 return;
             }
-
             if (accessToken) {
                 addDebug('✅ Tokens recebidos no hash!', 'success');
-                addDebug(`📝 Access Token: ${accessToken.substring(0, 30)}...`, 'info');
-                addDebug(`🔄 Refresh Token: ${refreshToken ? refreshToken.substring(0, 30) + '...' : 'N/A'}`, 'info');
-                addDebug(`⏱️ Expira em: ${expiresIn}s`, 'info');
-
                 const tokens = {
                     access_token: accessToken,
                     refresh_token: refreshToken,
                     expires_in: parseInt(expiresIn),
-                    expires_at: Date.now() + (parseInt(expiresIn) * 1000)
+                    expires_at: Date.now() + parseInt(expiresIn) * 1000
                 };
-
                 saveSession(tokens);
-                
-                // Limpar hash da URL
                 window.history.replaceState(null, '', window.location.pathname);
-
                 await loadUserProfile(tokens);
             }
         }
 
         async function loadUserProfile(tokens) {
+            showLoading(true);
+            addDebug('👤 Carregando perfil…', 'info');
             try {
-                addDebug('👤 Carregando perfil do usuário...', 'info');
-                showLoading(true);
-
                 const response = await fetch(`${API_BASE}/api/data/${PROJECT_SLUG}/auth/v1/user`, {
-                    headers: {
-                        'Authorization': `Bearer ${tokens.access_token}`,
-                        'apikey': ANON_KEY
-                    }
+                    headers: { 'Authorization': `Bearer ${tokens.access_token}`, 'apikey': ANON_KEY }
                 });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-                }
-
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const user = await response.json();
-                addDebug(`✅ Perfil carregado: ${user.email}`, 'success');
 
-                displayUserInfo(user, tokens);
-                showStatus('Login realizado com sucesso!', 'success');
-                showLoading(false);
+                document.getElementById('userId').textContent = user.id;
+                document.getElementById('userEmail').textContent = user.email || 'N/A';
+                document.getElementById('userProvider').textContent = user.app_metadata?.provider || 'google';
+                document.getElementById('tokenExpiry').textContent = new Date(tokens.expires_at).toLocaleString('pt-BR');
+                document.getElementById('accessToken').textContent = tokens.access_token.substring(0, 72) + '…';
 
-            } catch (error) {
-                addDebug(`❌ Erro ao carregar perfil: ${error.message}`, 'error');
-                showStatus('Erro ao carregar perfil: ' + error.message, 'error');
-                showLoading(false);
+                userInfo.classList.add('active');
+                loginBtn.style.display = 'none';
+                showStatus('Login com Google realizado com sucesso! 🎉', 'success');
+                addDebug(`✅ Logado como ${user.email}`, 'success');
+
+                // 🔑 Propagar token automaticamente para todos os endpoints
+                setGlobalToken(tokens.access_token, 'Google OAuth');
+
+            } catch (e) {
+                addDebug(`❌ Erro ao carregar perfil: ${e.message}`, 'error');
+                showStatus('Erro ao carregar perfil: ' + e.message, 'error');
             }
-        }
-
-        function displayUserInfo(user, tokens) {
-            document.getElementById('userId').textContent = user.id;
-            document.getElementById('userEmail').textContent = user.email || 'N/A';
-            document.getElementById('userProvider').textContent = user.app_metadata?.provider || 'email';
-            
-            const expiryDate = new Date(tokens.expires_at);
-            document.getElementById('tokenExpiry').textContent = expiryDate.toLocaleString();
-            document.getElementById('accessToken').textContent = tokens.access_token.substring(0, 60) + '...';
-
-            userInfo.classList.add('active');
-            apiTest.classList.add('active');
-            loginBtn.style.display = 'none';
+            showLoading(false);
         }
 
         async function logout() {
-            try {
-                addDebug('🚪 Fazendo logout...', 'info');
-                const session = getSession();
-
-                if (session) {
-                    await fetch(`${API_BASE}/api/data/${PROJECT_SLUG}/auth/v1/logout`, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${session.access_token}`,
-                            'apikey': ANON_KEY
-                        }
-                    });
-                }
-
-                clearSession();
-                userInfo.classList.remove('active');
-                apiTest.classList.remove('active');
-                loginBtn.style.display = 'flex';
-                showStatus('Logout realizado com sucesso', 'info');
-                addDebug('✅ Logout concluído', 'success');
-
-            } catch (error) {
-                addDebug(`❌ Erro no logout: ${error.message}`, 'error');
-            }
-        }
-
-        // ============================================
-        // TESTE DE API AUTENTICADA
-        // ============================================
-        async function testAuthenticatedAPI() {
             const session = getSession();
-            if (!session) {
-                showStatus('Nenhuma sessão ativa', 'error');
-                return;
+            if (session) {
+                await fetch(`${API_BASE}/api/data/${PROJECT_SLUG}/auth/v1/logout`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${session.access_token}`, 'apikey': ANON_KEY }
+                }).catch(() => { });
             }
-
-            const resultDiv = document.getElementById('apiResult');
-            resultDiv.innerHTML = '<em>Testando...</em>';
-
-            try {
-                addDebug('🧪 Testando chamada autenticada...', 'info');
-
-                const response = await fetch(`${API_BASE}/api/data/${PROJECT_SLUG}/auth/v1/user`, {
-                    headers: {
-                        'Authorization': `Bearer ${session.access_token}`,
-                        'apikey': ANON_KEY
-                    }
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    resultDiv.innerHTML = `<strong style="color: #28a745;">✅ Sucesso!</strong><br>
-                        <pre style="margin-top: 8px; background: white; padding: 8px; border-radius: 4px; text-align: left;">${JSON.stringify(data, null, 2)}</pre>`;
-                    addDebug('✅ API respondeu corretamente', 'success');
-                } else {
-                    resultDiv.innerHTML = `<strong style="color: #dc3545;">❌ Erro ${response.status}</strong><br>${JSON.stringify(data)}`;
-                    addDebug(`❌ API retornou erro ${response.status}`, 'error');
-                }
-
-            } catch (error) {
-                resultDiv.innerHTML = `<strong style="color: #dc3545;">❌ Erro de rede:</strong><br>${error.message}`;
-                addDebug(`❌ Erro na chamada: ${error.message}`, 'error');
-            }
+            clearSession();
+            clearGlobalToken();
+            userInfo.classList.remove('active');
+            loginBtn.style.display = 'flex';
+            showStatus('Logout realizado', 'info');
+            addDebug('🚪 Logout concluído', 'info');
         }
 
-        // ============================================
-        // EVENT LISTENERS
-        // ============================================
         loginBtn.addEventListener('click', startGoogleLogin);
         document.getElementById('logoutBtn').addEventListener('click', logout);
-        document.getElementById('testApiBtn').addEventListener('click', testAuthenticatedAPI);
 
         // ============================================
-        // INICIALIZAÇÃO
+        // ENDPOINT HANDLERS
+        // ============================================
+        async function runSignup(e) {
+            const btn = e.target; setLoading(btn, true);
+            const t0 = Date.now();
+            try {
+                const res = await fetch(`${API_BASE}/api/data/${PROJECT_SLUG}/auth/v1/signup`, {
+                    method: 'POST',
+                    headers: { 'apikey': API_KEY, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: document.getElementById('signup-email').value,
+                        password: document.getElementById('signup-password').value,
+                        data: { full_name: document.getElementById('signup-name').value }
+                    })
+                });
+                await renderResponse('res-signup', res, t0);
+            } catch (err) { renderError('res-signup', err); }
+            setLoading(btn, false);
+        }
+
+        async function runToken(e) {
+            const btn = e.target; setLoading(btn, true);
+            const t0 = Date.now();
+            try {
+                const res = await fetch(`${API_BASE}/api/data/${PROJECT_SLUG}/auth/v1/token`, {
+                    method: 'POST',
+                    headers: { 'apikey': API_KEY, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: document.getElementById('token-email').value,
+                        password: document.getElementById('token-password').value,
+                        grant_type: 'password'
+                    })
+                });
+                await renderResponse('res-token', res, t0);
+                // Show save hint on success
+                if (res.ok) {
+                    const hint = document.getElementById('token-save-hint');
+                    if (hint) hint.style.display = 'inline-block';
+                }
+            } catch (err) { renderError('res-token', err); }
+            setLoading(btn, false);
+        }
+
+        async function runChallenge(e) {
+            const btn = e.target; setLoading(btn, true);
+            const t0 = Date.now();
+            try {
+                const res = await fetch(`${API_BASE}/api/data/${PROJECT_SLUG}/auth/challenge`, {
+                    method: 'POST',
+                    headers: { 'apikey': API_KEY, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        provider: document.getElementById('challenge-provider').value,
+                        identifier: document.getElementById('challenge-identifier').value
+                    })
+                });
+                await renderResponse('res-challenge', res, t0);
+            } catch (err) { renderError('res-challenge', err); }
+            setLoading(btn, false);
+        }
+
+        async function runVerifyChallenge(e) {
+            const btn = e.target; setLoading(btn, true);
+            const t0 = Date.now();
+            try {
+                const res = await fetch(`${API_BASE}/api/data/${PROJECT_SLUG}/auth/verify-challenge`, {
+                    method: 'POST',
+                    headers: { 'apikey': API_KEY, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        provider: document.getElementById('verify-provider').value,
+                        identifier: document.getElementById('verify-identifier').value,
+                        code: document.getElementById('verify-code').value
+                    })
+                });
+                await renderResponse('res-verify', res, t0);
+            } catch (err) { renderError('res-verify', err); }
+            setLoading(btn, false);
+        }
+
+        async function runGetUser(e) {
+            const btn = e.target; setLoading(btn, true);
+            const t0 = Date.now();
+            const token = document.getElementById('getuser-token').value.trim() || savedToken;
+            if (!token) { alert('⚠️ Nenhum token disponível. Faça login ou execute /auth/v1/token.'); setLoading(btn, false); return; }
+            try {
+                const res = await fetch(`${API_BASE}/api/data/${PROJECT_SLUG}/auth/v1/user`, {
+                    headers: { 'apikey': API_KEY, 'Authorization': `Bearer ${token}` }
+                });
+                await renderResponse('res-getuser', res, t0);
+            } catch (err) { renderError('res-getuser', err); }
+            setLoading(btn, false);
+        }
+
+        async function runUpdateUser(e) {
+            const btn = e.target; setLoading(btn, true);
+            const t0 = Date.now();
+            const token = document.getElementById('putuser-token').value.trim() || savedToken;
+            if (!token) { alert('⚠️ Nenhum token disponível. Faça login ou execute /auth/v1/token.'); setLoading(btn, false); return; }
+            const body = {};
+            const pw = document.getElementById('putuser-password').value;
+            const prov = document.getElementById('putuser-provider').value;
+            const id = document.getElementById('putuser-identifier').value;
+            const otp = document.getElementById('putuser-otp').value;
+
+            if (pw) body.password = pw;
+            if (prov) body.provider = prov;
+            if (id) body.identifier = id;
+            if (otp) body.otp_code = otp;
+
+            try {
+                const res = await fetch(`${API_BASE}/api/data/${PROJECT_SLUG}/auth/v1/user`, {
+                    method: 'PUT',
+                    headers: { 'apikey': API_KEY, 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+
+                // Advanced OTP Routing Orchestrator (Delegated Mode Interceptor)
+                if (res.status === 403) {
+                    const errorBody = await res.clone().json();
+                    if (errorBody.error === 'otp_required' && errorBody.available_channels) {
+                        await renderResponse('res-putuser', res, t0);
+                        const resBox = document.getElementById('res-putuser');
+
+                        let html = `<div style="margin-top:20px; padding:15px; background:#fff3e0; border:1px solid #ffcc80; border-radius:6px;">`;
+                        html += `<h4 style="margin:0 0 10px; color:#e65100;">🛡️ Escolha onde receber seu código OTP:</h4>`;
+                        html += `<p style="margin:0 0 15px; font-size:12px; color:#555;">O painel ativou o modo 'Delegated'. Escolha um canal abaixo para auto-preencher o form do '/auth/challenge'.</p>`;
+
+                        errorBody.available_channels.forEach(ch => {
+                            html += `<button onclick="document.getElementById('challenge-provider').value='${ch.provider}'; document.getElementById('challenge-identifier').value=''; alert('Vá até o endpoint 3 (Challenge) e preencha este canal para pedir seu código!');" style="margin-right: 10px; padding: 6px 12px; border:1px solid #e65100; border-radius:4px; background:white; color:#e65100; cursor:pointer;" onmouseover="this.style.background='#ffe0b2'" onmouseout="this.style.background='white'">Enviar para ${ch.provider.toUpperCase()} (${ch.identifier})</button>`;
+                        });
+                        html += `</div>`;
+
+                        resBox.innerHTML += html;
+                        setLoading(btn, false);
+                        return; // Prevent standard overwriting
+                    }
+                }
+
+                await renderResponse('res-putuser', res, t0);
+            } catch (err) { renderError('res-putuser', err); }
+            setLoading(btn, false);
+        }
+
+        async function runRecover(e) {
+            const btn = e.target; setLoading(btn, true);
+            const t0 = Date.now();
+            try {
+                const res = await fetch(`${API_BASE}/api/data/${PROJECT_SLUG}/auth/v1/recover`, {
+                    method: 'POST',
+                    headers: { 'apikey': API_KEY, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        identifier: document.getElementById('recover-identifier').value,
+                        provider: document.getElementById('recover-provider').value
+                    })
+                });
+                await renderResponse('res-recover', res, t0);
+            } catch (err) { renderError('res-recover', err); }
+            setLoading(btn, false);
+        }
+
+        // ============================================
+        // INIT
         // ============================================
         (async () => {
-            addDebug('🔧 Inicializando aplicação...', 'info');
             addDebug(`📡 API Base: ${API_BASE}`, 'info');
-            addDebug(`🎯 Project: ${PROJECT_SLUG}`, 'info');
-            addDebug(`🔐 Anon Key: ${ANON_KEY.substring(0, 20)}...`, 'info');
+            addDebug(`🔑 apikey: ${API_KEY.substring(0, 24)}…`, 'info');
 
-            // Verificar se há tokens no hash (callback do OAuth)
             if (window.location.hash.includes('access_token')) {
-                addDebug('🔍 Tokens detectados no hash da URL', 'info');
+                addDebug('🔍 Tokens detectados no hash — processando callback…', 'info');
                 await handleCallback();
-            } 
-            // Verificar se há sessão salva
-            else {
+            } else {
                 const session = getSession();
                 if (session) {
-                    addDebug('🔍 Sessão encontrada no localStorage', 'info');
-                    
-                    // Verificar se ainda é válida
                     if (session.expires_at > Date.now()) {
-                        addDebug('✅ Sessão ainda válida', 'success');
+                        addDebug('✅ Sessão válida encontrada no localStorage', 'success');
                         await loadUserProfile(session);
                     } else {
-                        addDebug('⚠️ Sessão expirada', 'error');
                         clearSession();
-                        showStatus('Sessão expirada, faça login novamente', 'info');
+                        showStatus('Sessão expirada — faça login novamente', 'info');
+                        addDebug('⚠️ Sessão expirada e removida', 'error');
                     }
                 } else {
                     addDebug('ℹ️ Nenhuma sessão ativa', 'info');
@@ -612,4 +1307,5 @@
         })();
     </script>
 </body>
+
 </html>

@@ -181,8 +181,8 @@ const AUTH_ENDPOINTS = [
         name: 'Update User / Link Password',
         method: 'PUT',
         path: '/auth/v1/user',
-        description: 'Update user data or link a native password. Supports custom strategies (e.g. CPF).',
-        body: { password: "new_secure_password", provider: "cpf", identifier: "123.456.789-00" },
+        description: 'Update user data or link a native password. Supports custom strategies (e.g. CPF). Se o gestor ativar "require_otp_on_update" no provedor, o envio de `otp_code` é OBRIGATÓRIO (Bank-Grade Lock). Comportamento de disparo OTP configurável via `otp_dispatch_mode` (delegated, auto_current, auto_primary).',
+        body: { password: "new_secure_password", provider: "cpf", identifier: "123.456.789-00", otp_code: "582491" },
         auth_required: true // Needs Bearer
     },
     {
