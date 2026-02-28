@@ -244,7 +244,22 @@ export class DataAuthController {
             const strategies = req.project.metadata?.auth_strategies || {};
             const config = strategies[req.body.provider];
             if (!config?.enabled || !config?.webhook_url) throw new Error("Strategy not configured.");
-            await AuthService.initiatePasswordless(req.projectPool!, req.body.provider, req.body.identifier, config.webhook_url, req.project.jwt_secret, config.otp_config || { length: 6, charset: 'numeric' });
+
+            const language = req.body.language || 'en-US';
+            const messagingTemplates = req.project.metadata?.auth_config?.messaging_templates;
+            const templateBindings = config.template_bindings;
+
+            await AuthService.initiatePasswordless(
+                req.projectPool!,
+                req.body.provider,
+                req.body.identifier,
+                config.webhook_url,
+                req.project.jwt_secret,
+                config.otp_config || { length: 6, charset: 'numeric' },
+                language,
+                messagingTemplates,
+                templateBindings
+            );
             res.json({ success: true, message: 'Challenge sent' });
         } catch (e: any) { next(e); }
     }
@@ -321,7 +336,10 @@ export class DataAuthController {
     }
 
     static async goTrueSignup(req: CascataRequest, res: any, next: any) {
-        try { res.json(await GoTrueService.handleSignup(req.projectPool!, req.body, req.project.jwt_secret, req.project.metadata || {})); } catch (e: any) { next(e); }
+        try {
+            const language = req.body.language || 'en-US';
+            res.json(await GoTrueService.handleSignup(req.projectPool!, { ...req.body, language }, req.project.jwt_secret, req.project.metadata || {}));
+        } catch (e: any) { next(e); }
     }
 
     static async goTrueToken(req: CascataRequest, res: any, next: any) {
@@ -343,6 +361,8 @@ export class DataAuthController {
             // GoTrueService doesn't accept deviceInfo yet for standard flow unless passed deep,
             // but we can augment it later or update GoTrueService separately.
             // For now, cookies are set here.
+
+            req.body.language = req.body.language || 'en-US';
 
             const response = await GoTrueService.handleToken(req.projectPool!, req.body, req.project.jwt_secret, req.project.metadata || {});
 
@@ -396,10 +416,13 @@ export class DataAuthController {
             const host = req.headers.host;
             const callbackUrl = req.project.custom_domain && host === req.project.custom_domain ? `https://${host}/auth/v1/callback` : `https://${host}/api/data/${req.project.slug}/auth/v1/callback`;
 
+            const language = req.query.language || 'en-US';
+
             const state = Buffer.from(JSON.stringify({
                 redirectTo: req.query.redirect_to || '',
                 provider: providerName,
-                client_id: req.appClient?.id || null // Identity-Aware Key Bridging
+                client_id: req.appClient?.id || null, // Identity-Aware Key Bridging
+                language: language
             })).toString('base64');
 
             res.redirect(AuthService.getAuthUrl(providerName, { clientId: prov.client_id, redirectUri: callbackUrl }, state));
@@ -471,6 +494,7 @@ export class DataAuthController {
 
             const projectUrl = req.project.metadata?.auth_config?.site_url || `https://${req.headers.host}`;
             const emailConfig = req.project.metadata?.auth_config?.auth_strategies?.email || { delivery_method: 'smtp' };
+            const language = req.body.language || 'en-US';
 
             await GoTrueService.handleRecover(
                 req.projectPool!,
@@ -479,7 +503,10 @@ export class DataAuthController {
                 projectUrl,
                 emailConfig,
                 req.project.jwt_secret,
-                req.project.metadata?.auth_config?.email_templates
+                req.project.metadata?.auth_config?.email_templates,
+                language,
+                req.project.metadata?.auth_config?.messaging_templates,
+                req.project.metadata?.auth_config?.auth_strategies?.email?.template_bindings
             );
 
             res.json({ success: true, message: "If an account exists, a recovery instruction was sent." });
@@ -502,6 +529,8 @@ export class DataAuthController {
             const userId = req.user.sub;
             const provider = req.body.provider || 'email';
             const reqOtp = req.body.otp_code;
+            const language = req.body.language || 'en-US';
+            const messagingTemplates = req.project.metadata?.auth_config?.messaging_templates;
 
             // Check Project's specific configuration for this provider
             const strategies = req.project.metadata?.auth_strategies || {};
@@ -558,7 +587,7 @@ export class DataAuthController {
                     if (dispatchMode === 'auto_current') {
                         if (!targetIdentifier) return res.status(400).json({ error: `Cannot trigger auto_current OTP format for ${provider}: no target identifier specified or found in DB.` });
                         if (!providerConfig.webhook_url) return res.status(500).json({ error: `Missing webhook_url in '${provider}' config for auto_current dispatch.` });
-                        await AuthService.initiatePasswordless(req.projectPool!, provider, targetIdentifier, providerConfig.webhook_url, req.project.jwt_secret, providerConfig.otp_config || { length: 6, charset: 'numeric' });
+                        await AuthService.initiatePasswordless(req.projectPool!, provider, targetIdentifier, providerConfig.webhook_url, req.project.jwt_secret, providerConfig.otp_config || { length: 6, charset: 'numeric' }, language, messagingTemplates, providerConfig.template_bindings);
                         return res.status(403).json({ error: "otp_dispatched", message: "OTP automatically dispatched to the current target.", channel: provider });
                     }
 
@@ -568,7 +597,7 @@ export class DataAuthController {
                         if (!primaryEmail) return res.status(500).json({ error: "Sys: Cannot find root email for auto_primary dispatch." });
                         const emailCfg = strategies['email'] || {};
                         if (!emailCfg.webhook_url) return res.status(500).json({ error: "Missing webhook_url in 'email' config for auto_primary dispatch." });
-                        await AuthService.initiatePasswordless(req.projectPool!, 'email', primaryEmail, emailCfg.webhook_url, req.project.jwt_secret, emailCfg.otp_config || { length: 6, charset: 'numeric' });
+                        await AuthService.initiatePasswordless(req.projectPool!, 'email', primaryEmail, emailCfg.webhook_url, req.project.jwt_secret, emailCfg.otp_config || { length: 6, charset: 'numeric' }, language, messagingTemplates, emailCfg.template_bindings);
                         return res.status(403).json({ error: "otp_dispatched", message: "OTP automatically dispatched to the root email account.", channel: "email" });
                     }
                 }

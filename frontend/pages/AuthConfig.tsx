@@ -53,7 +53,7 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
     });
 
     // EMAIL CENTER STATE (New Architecture)
-    const [emailTab, setEmailTab] = useState<'gateway' | 'templates' | 'policies'>('gateway');
+    const [emailTab, setEmailTab] = useState<'gateway' | 'templates' | 'library' | 'policies'>('gateway');
 
     // 1. Gateway Config (SMTP/Resend)
     const [emailGateway, setEmailGateway] = useState<any>({
@@ -77,6 +77,14 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
         welcome_email: { subject: 'Welcome!', body: '<h2>Welcome to our platform!</h2><p>We are glad to have you with us.</p>' }
     });
     const [activeTemplateTab, setActiveTemplateTab] = useState<'confirmation' | 'recovery' | 'magic_link' | 'login_alert' | 'welcome_email'>('confirmation');
+
+    // 2.5 New Messaging Templates Library
+    const [messagingTemplates, setMessagingTemplates] = useState<any>({});
+    const [selectedLibraryTemplate, setSelectedLibraryTemplate] = useState<string | null>(null);
+    const [editingTemplate, setEditingTemplate] = useState<string | null>(null);
+    const [editingVariantLang, setEditingVariantLang] = useState<string>('en-US');
+    const [showCreateTemplateModal, setShowCreateTemplateModal] = useState(false);
+    const [newTemplateForm, setNewTemplateForm] = useState({ name: '', type: 'otp_challenge', default_language: 'en-US' });
 
     // 3. Policies Config
     const [emailPolicies, setEmailPolicies] = useState({
@@ -198,6 +206,9 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
             if (authConfig.email_templates) {
                 setEmailTemplates((prev: any) => ({ ...prev, ...authConfig.email_templates }));
             }
+            if (authConfig.messaging_templates) {
+                setMessagingTemplates(authConfig.messaging_templates);
+            }
 
             // Load Global Origins
             const rawOrigins = currentProj?.metadata?.allowed_origins || [];
@@ -269,12 +280,16 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
         finally { setExecuting(false); }
     };
 
-    const saveStrategies = async (newStrategies: any, authConfig?: any, newLinkedTables?: string[]) => {
+    const saveStrategies = async (newStrategies: any, authConfig?: any, newLinkedTables?: string[], messagingTemplatesOverride?: any) => {
         setExecuting(true);
         try {
             const body: any = { authStrategies: newStrategies };
             if (authConfig) body.authConfig = authConfig;
             if (newLinkedTables) body.linked_tables = newLinkedTables;
+            if (messagingTemplatesOverride) {
+                if (!body.authConfig) body.authConfig = {};
+                body.authConfig.messaging_templates = messagingTemplatesOverride;
+            }
 
             // Optimistic Update
             setStrategies(newStrategies);
@@ -290,6 +305,13 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
             if (authConfig) {
                 // Merge All Top Level Keys
                 finalAuthConfig = { ...finalAuthConfig, ...authConfig };
+            }
+
+            // Ensure messaging_templates is preserved if not explicitly overridden
+            if (!messagingTemplatesOverride && Object.keys(messagingTemplates).length > 0) {
+                finalAuthConfig.messaging_templates = messagingTemplates;
+            } else if (messagingTemplatesOverride) {
+                finalAuthConfig.messaging_templates = messagingTemplatesOverride;
             }
 
             body.authConfig = finalAuthConfig;
@@ -627,6 +649,81 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
         saveStrategies(rest);
     };
 
+    // --- TEMPLATE LIBRARY HANDLERS ---
+    const handleCreateTemplate = () => {
+        if (!newTemplateForm.name) return;
+        const id = 'tpl_' + Math.random().toString(36).substr(2, 9);
+        const newTpl = {
+            id,
+            name: newTemplateForm.name,
+            type: newTemplateForm.type,
+            default_language: newTemplateForm.default_language,
+            variants: {
+                [newTemplateForm.default_language]: { subject: '', body: '' }
+            }
+        };
+        const updated = { ...messagingTemplates, [id]: newTpl };
+        setMessagingTemplates(updated);
+        setEditingTemplate(id);
+        setEditingVariantLang(newTemplateForm.default_language);
+        setShowCreateTemplateModal(false);
+        setNewTemplateForm({ name: '', type: 'otp_challenge', default_language: 'en-US' });
+    };
+
+    const handleDeleteTemplate = (tplId: string) => {
+        if (!confirm('Permanently delete this template and all its language variants?')) return;
+        const { [tplId]: _, ...rest } = messagingTemplates;
+        setMessagingTemplates(rest);
+        if (editingTemplate === tplId) setEditingTemplate(null);
+    };
+
+    const handleUpdateVariant = (tplId: string, lang: string, field: 'subject' | 'body', value: string) => {
+        setMessagingTemplates((prev: any) => ({
+            ...prev,
+            [tplId]: {
+                ...prev[tplId],
+                variants: {
+                    ...prev[tplId].variants,
+                    [lang]: { ...prev[tplId].variants[lang], [field]: value }
+                }
+            }
+        }));
+    };
+
+    const handleAddVariant = (tplId: string, lang: string) => {
+        if (!lang || messagingTemplates[tplId]?.variants?.[lang]) return;
+        setMessagingTemplates((prev: any) => ({
+            ...prev,
+            [tplId]: {
+                ...prev[tplId],
+                variants: { ...prev[tplId].variants, [lang]: { subject: '', body: '' } }
+            }
+        }));
+        setEditingVariantLang(lang);
+    };
+
+    const handleRemoveVariant = (tplId: string, lang: string) => {
+        const tpl = messagingTemplates[tplId];
+        if (!tpl || Object.keys(tpl.variants).length <= 1) {
+            setError('A template must have at least one language variant.');
+            return;
+        }
+        if (tpl.default_language === lang) {
+            setError('Cannot remove the default language. Change the default first.');
+            return;
+        }
+        const { [lang]: _, ...restVariants } = tpl.variants;
+        setMessagingTemplates((prev: any) => ({
+            ...prev,
+            [tplId]: { ...prev[tplId], variants: restVariants }
+        }));
+        setEditingVariantLang(Object.keys(restVariants)[0]);
+    };
+
+    const handleSaveTemplateLibrary = () => {
+        saveStrategies(strategies, undefined, undefined, messagingTemplates);
+    };
+
     const filteredUsers = useMemo(() => {
         if (!Array.isArray(users)) return [];
 
@@ -864,7 +961,7 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
 
                             {/* TABS */}
                             <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl mb-8 w-fit">
-                                {['gateway', 'templates', 'policies'].map((t) => (
+                                {['gateway', 'templates', 'library', 'policies'].map((t) => (
                                     <button
                                         key={t}
                                         onClick={() => setEmailTab(t as any)}
@@ -1038,6 +1135,143 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
 
                                     <button onClick={handleSaveEmailCenter} disabled={executing} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-600 transition-all flex items-center justify-center gap-2">
                                         {executing ? <Loader2 className="animate-spin" size={14} /> : 'Save Templates'}
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* TAB: TEMPLATE LIBRARY (i18n) */}
+                            {emailTab === 'library' && (
+                                <div className="space-y-6 animate-in fade-in slide-in-from-right-2">
+                                    <div className="flex justify-between items-center">
+                                        <div>
+                                            <h4 className="text-sm font-black text-slate-900">Message Template Library</h4>
+                                            <p className="text-[10px] text-slate-400 font-bold mt-1">Reusable i18n templates for OTPs, Confirmations, Alerts, and more — across all strategies.</p>
+                                        </div>
+                                        <button onClick={() => setShowCreateTemplateModal(true)} className="bg-indigo-600 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg">
+                                            <Plus size={14} /> New Template
+                                        </button>
+                                    </div>
+
+                                    {Object.keys(messagingTemplates).length === 0 && (
+                                        <div className="py-16 text-center border-2 border-dashed border-slate-200 rounded-3xl">
+                                            <LayoutTemplate size={40} className="mx-auto text-slate-300 mb-4" />
+                                            <p className="text-sm font-bold text-slate-400">No templates yet</p>
+                                            <p className="text-[10px] text-slate-400 mt-1">Create your first messaging template to enable i18n across all strategies.</p>
+                                        </div>
+                                    )}
+
+                                    {/* Template Gallery Cards */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {Object.values(messagingTemplates).map((tpl: any) => (
+                                            <div
+                                                key={tpl.id}
+                                                onClick={() => { setEditingTemplate(tpl.id); setEditingVariantLang(tpl.default_language); }}
+                                                className={`relative p-6 rounded-[2rem] border cursor-pointer transition-all group ${editingTemplate === tpl.id ? 'bg-indigo-50 border-indigo-300 shadow-lg' : 'bg-white border-slate-200 hover:shadow-md hover:border-slate-300'}`}
+                                            >
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(tpl.id); }}
+                                                    className="absolute top-4 right-4 p-1.5 text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"
+                                                ><Trash2 size={14} /></button>
+                                                <div className="flex items-start gap-3 mb-3">
+                                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${editingTemplate === tpl.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                                                        <LayoutTemplate size={18} />
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <h5 className="font-bold text-slate-900 text-sm truncate">{tpl.name}</h5>
+                                                        <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest mt-0.5">{tpl.type.replace(/_/g, ' ')}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className="text-[9px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-lg">Default: {tpl.default_language}</span>
+                                                    <span className="text-[9px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-lg">{Object.keys(tpl.variants || {}).length} variant{Object.keys(tpl.variants || {}).length !== 1 ? 's' : ''}</span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {/* INLINE VARIANT EDITOR */}
+                                    {editingTemplate && messagingTemplates[editingTemplate] && (() => {
+                                        const tpl = messagingTemplates[editingTemplate];
+                                        const variantKeys = Object.keys(tpl.variants || {});
+                                        const currentVariant = tpl.variants?.[editingVariantLang] || { subject: '', body: '' };
+
+                                        return (
+                                            <div className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm space-y-6">
+                                                <div className="flex items-center justify-between">
+                                                    <div>
+                                                        <h4 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                                                            <Edit2 size={16} className="text-indigo-600" /> {tpl.name}
+                                                        </h4>
+                                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">{tpl.type.replace(/_/g, ' ')} • Default: {tpl.default_language}</p>
+                                                    </div>
+                                                    <button onClick={() => setEditingTemplate(null)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl"><X size={18} /></button>
+                                                </div>
+
+                                                {/* Language Variant Tabs */}
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    {variantKeys.map(lang => (
+                                                        <button
+                                                            key={lang}
+                                                            onClick={() => setEditingVariantLang(lang)}
+                                                            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${editingVariantLang === lang ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                                                        >
+                                                            <Globe size={12} /> {lang}
+                                                            {lang === tpl.default_language && <span className="text-[8px] opacity-70">(default)</span>}
+                                                        </button>
+                                                    ))}
+                                                    <div className="flex items-center gap-1 ml-2">
+                                                        <input
+                                                            placeholder="es-ES"
+                                                            className="w-20 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-[10px] font-bold outline-none"
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === 'Enter') {
+                                                                    handleAddVariant(editingTemplate!, (e.target as HTMLInputElement).value.trim());
+                                                                    (e.target as HTMLInputElement).value = '';
+                                                                }
+                                                            }}
+                                                        />
+                                                        <span className="text-[9px] text-slate-400 font-bold">Enter to add</span>
+                                                    </div>
+                                                </div>
+
+                                                {/* Subject + Body Editor */}
+                                                <div className="space-y-4">
+                                                    <div className="space-y-2">
+                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Subject ({editingVariantLang})</label>
+                                                        <input
+                                                            value={currentVariant.subject}
+                                                            onChange={(e) => handleUpdateVariant(editingTemplate!, editingVariantLang, 'subject', e.target.value)}
+                                                            className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-6 text-sm font-bold text-slate-900 outline-none"
+                                                            placeholder="e.g. Your Verification Code"
+                                                        />
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Body ({editingVariantLang})</label>
+                                                        <textarea
+                                                            value={currentVariant.body}
+                                                            onChange={(e) => handleUpdateVariant(editingTemplate!, editingVariantLang, 'body', e.target.value)}
+                                                            className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-6 text-sm font-medium text-slate-900 outline-none min-h-[180px] font-mono"
+                                                            placeholder="HTML or plain text body..."
+                                                        />
+                                                        <p className="text-[10px] text-slate-400 px-2">Variables: <code>{"{{ .Code }}"}</code>, <code>{"{{ .ConfirmationURL }}"}</code>, <code>{"{{ .Email }}"}</code>, <code>{"{{ .AppName }}"}</code>, <code>{"{{ .Expiration }}"}</code>, <code>{"{{ .Date }}"}</code>, <code>{"{{ .Identifier }}"}</code>, <code>{"{{ .Strategy }}"}</code></p>
+                                                    </div>
+                                                </div>
+
+                                                {/* Remove Variant */}
+                                                {variantKeys.length > 1 && editingVariantLang !== tpl.default_language && (
+                                                    <button
+                                                        onClick={() => handleRemoveVariant(editingTemplate!, editingVariantLang)}
+                                                        className="text-[10px] font-bold text-rose-500 hover:text-rose-700 flex items-center gap-1"
+                                                    >
+                                                        <Trash2 size={12} /> Remove &quot;{editingVariantLang}&quot; variant
+                                                    </button>
+                                                )}
+                                            </div>
+                                        );
+                                    })()}
+
+                                    <button onClick={handleSaveTemplateLibrary} disabled={executing} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-600 transition-all flex items-center justify-center gap-2">
+                                        {executing ? <Loader2 className="animate-spin" size={14} /> : 'Save Template Library'}
                                     </button>
                                 </div>
                             )}
@@ -1419,6 +1653,39 @@ const { user, session } = await cascata.auth.signIn({
                                                 />
                                             </div>
                                         </div>
+
+                                        {/* TEMPLATE BINDING (i18n) */}
+                                        {Object.keys(messagingTemplates).length > 0 && (
+                                            <div className="mt-2 pt-4 border-t border-indigo-200/50 space-y-3">
+                                                <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">OTP Message Template (i18n Library)</label>
+                                                <select
+                                                    value={strategyConfig.template_bindings?.otp_challenge || ''}
+                                                    onChange={(e) => setStrategyConfig({
+                                                        ...strategyConfig,
+                                                        template_bindings: { ...(strategyConfig.template_bindings || {}), otp_challenge: e.target.value || undefined }
+                                                    })}
+                                                    className="w-full bg-white border-none rounded-xl py-2.5 px-3 text-xs font-bold outline-none shadow-sm"
+                                                >
+                                                    <option value="">System Default (No i18n)</option>
+                                                    {Object.values(messagingTemplates)
+                                                        .filter((t: any) => t.type === 'otp_challenge')
+                                                        .map((t: any) => (
+                                                            <option key={t.id} value={t.id}>{t.name} ({Object.keys(t.variants).join(', ')})</option>
+                                                        ))
+                                                    }
+                                                </select>
+                                                {strategyConfig.template_bindings?.otp_challenge && messagingTemplates[strategyConfig.template_bindings.otp_challenge] && (
+                                                    <div className="bg-white/80 rounded-xl p-3 border border-indigo-100">
+                                                        <p className="text-[9px] font-black text-indigo-500 uppercase tracking-widest mb-1">
+                                                            Preview ({messagingTemplates[strategyConfig.template_bindings.otp_challenge].default_language})
+                                                        </p>
+                                                        <p className="text-[10px] text-slate-600 font-mono leading-relaxed whitespace-pre-wrap max-h-20 overflow-y-auto">
+                                                            {messagingTemplates[strategyConfig.template_bindings.otp_challenge].variants?.[messagingTemplates[strategyConfig.template_bindings.otp_challenge].default_language]?.body || '(empty body)'}
+                                                        </p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
 
@@ -1817,6 +2084,66 @@ const { user, session } = await cascata.auth.signIn({
                         <div className="p-6 border-t border-slate-100 flex justify-end gap-3 bg-white">
                             <button onClick={() => setShowAppClientModal(false)} className="px-6 py-3 rounded-2xl text-xs font-black text-slate-500 uppercase tracking-widest hover:bg-slate-50 transition-all">Cancel</button>
                             <button onClick={handleSaveAppClient} disabled={executing || !newAppClientConfig.name} className="bg-indigo-600 text-white px-8 py-3 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-200 disabled:opacity-50">Create Key</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* CREATE TEMPLATE MODAL */}
+            {showCreateTemplateModal && (
+                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+                    <div className="bg-white rounded-[3rem] w-full max-w-md p-10 shadow-2xl relative">
+                        <button onClick={() => setShowCreateTemplateModal(false)} className="absolute top-8 right-8 text-slate-300 hover:text-slate-900"><X size={24} /></button>
+                        <div className="flex items-center gap-3 mb-6">
+                            <div className="w-12 h-12 bg-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-lg"><LayoutTemplate size={24} /></div>
+                            <div>
+                                <h3 className="text-xl font-black text-slate-900">New Message Template</h3>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">i18n Reusable Template</p>
+                            </div>
+                        </div>
+                        <div className="space-y-4">
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Template Name</label>
+                                <input
+                                    autoFocus
+                                    value={newTemplateForm.name}
+                                    onChange={(e) => setNewTemplateForm({ ...newTemplateForm, name: e.target.value })}
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none"
+                                    placeholder="e.g. OTP SMS Code"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Message Type</label>
+                                <select
+                                    value={newTemplateForm.type}
+                                    onChange={(e) => setNewTemplateForm({ ...newTemplateForm, type: e.target.value })}
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none"
+                                >
+                                    <option value="otp_challenge">OTP Challenge</option>
+                                    <option value="confirmation">Confirmation</option>
+                                    <option value="recovery">Recovery</option>
+                                    <option value="magic_link">Magic Link</option>
+                                    <option value="login_alert">Login Alert</option>
+                                    <option value="welcome">Welcome</option>
+                                </select>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Default Language (ISO Code)</label>
+                                <input
+                                    value={newTemplateForm.default_language}
+                                    onChange={(e) => setNewTemplateForm({ ...newTemplateForm, default_language: e.target.value })}
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none font-mono"
+                                    placeholder="en-US"
+                                />
+                                <p className="text-[9px] text-slate-400 px-1">ISO 639 code. Examples: en-US, pt-BR, es-ES, fr-FR, de-DE, ja-JP</p>
+                            </div>
+                            <button
+                                onClick={handleCreateTemplate}
+                                disabled={!newTemplateForm.name}
+                                className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl mt-2 hover:bg-indigo-700 transition-all disabled:opacity-50"
+                            >
+                                Create Template
+                            </button>
                         </div>
                     </div>
                 </div>

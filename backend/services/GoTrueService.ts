@@ -21,6 +21,7 @@ interface GoTrueTokenParams {
     provider?: string;
     grant_type: 'password' | 'refresh_token' | 'id_token' | 'magic_link';
     token?: string; // For magic link
+    language?: string; // I18N injection
 }
 
 export class GoTrueService {
@@ -76,6 +77,7 @@ export class GoTrueService {
             await client.query('COMMIT');
 
             const emailConfig = authConfig.auth_strategies?.email || { delivery_method: 'smtp' };
+            const language = params.language || 'en-US';
 
             if (requiresConfirmation) {
                 const token = crypto.randomBytes(32).toString('hex');
@@ -99,14 +101,17 @@ export class GoTrueService {
                     projectUrl,
                     emailConfig,
                     authConfig.email_templates,
-                    jwtSecret
+                    jwtSecret,
+                    language,
+                    authConfig.messaging_templates,
+                    emailConfig.template_bindings
                 );
 
                 return this.formatUserObject(user, []);
             }
 
             if (!requiresConfirmation && authConfig.send_welcome_email) {
-                AuthService.sendWelcomeEmail(email, emailConfig, authConfig.email_templates, jwtSecret).catch(e => console.error("Welcome Email Failed", e));
+                AuthService.sendWelcomeEmail(email, emailConfig, authConfig.email_templates, jwtSecret, language, authConfig.messaging_templates, emailConfig.template_bindings).catch(e => console.error("Welcome Email Failed", e));
             }
 
             // Create session for 'email' provider
@@ -242,7 +247,10 @@ export class GoTrueService {
         projectUrl: string,
         emailConfig: any,
         jwtSecret: string,
-        templates?: any
+        templates?: any,
+        language: string = 'en-US',
+        messagingTemplates?: any,
+        templateBindings?: any
     ) {
         if (!identifier) throw new Error("Identifier required");
 
@@ -257,7 +265,7 @@ export class GoTrueService {
         }
 
         // Send recovery (Currently mapped to email transport only, but technically triggers AuthService logic using the generic identifier)
-        await AuthService.sendRecovery(pool, identifier, projectUrl, emailConfig, jwtSecret, templates, provider);
+        await AuthService.sendRecovery(pool, identifier, projectUrl, emailConfig, jwtSecret, templates, provider, language, messagingTemplates, templateBindings);
         return {};
     }
 
@@ -324,7 +332,10 @@ export class GoTrueService {
         emailConfig: any,
         jwtSecret: string,
         templates?: any,
-        authConfig?: any
+        authConfig?: any,
+        language: string = 'en-US',
+        messagingTemplates?: any,
+        templateBindings?: any
     ) {
         if (!email) throw new Error("Email required");
 
@@ -344,7 +355,7 @@ export class GoTrueService {
             return {};
         }
 
-        await AuthService.sendMagicLink(pool, email, projectUrl, emailConfig, jwtSecret, templates);
+        await AuthService.sendMagicLink(pool, email, projectUrl, emailConfig, jwtSecret, templates, 'email', language, messagingTemplates, templateBindings);
         return {};
     }
 
@@ -398,7 +409,8 @@ export class GoTrueService {
 
             if (authConfig.send_login_alert && params.email) {
                 const emailConfig = authConfig.auth_strategies?.email || { delivery_method: 'smtp' };
-                AuthService.sendLoginAlert(params.email, emailConfig, authConfig.email_templates, jwtSecret).catch(() => { });
+                const language = params.language || 'en-US';
+                AuthService.sendLoginAlert(params.email, emailConfig, authConfig.email_templates, jwtSecret, language, authConfig.messaging_templates, emailConfig.template_bindings).catch(() => { });
             }
 
             // Create session for 'email'
@@ -442,7 +454,8 @@ export class GoTrueService {
 
             if (authConfig.send_login_alert && profile.email) {
                 const emailConfig = authConfig.auth_strategies?.email || { delivery_method: 'smtp' };
-                AuthService.sendLoginAlert(profile.email, emailConfig, authConfig.email_templates, jwtSecret).catch(() => { });
+                const language = params.language || 'en-US';
+                AuthService.sendLoginAlert(profile.email, emailConfig, authConfig.email_templates, jwtSecret, language, authConfig.messaging_templates, emailConfig.template_bindings).catch(() => { });
             }
 
             // Create session for the specific social provider

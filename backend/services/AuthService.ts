@@ -62,6 +62,19 @@ interface EmailTemplates {
     welcome_email?: { subject: string; body: string };
 }
 
+export interface MessageVariant {
+    subject: string;
+    body: string;
+}
+
+export interface MessagingTemplate {
+    id: string;
+    name: string;
+    type: 'confirmation' | 'recovery' | 'magic_link' | 'login_alert' | 'welcome_email' | 'otp_challenge';
+    default_language: string;
+    variants: Record<string, MessageVariant>;
+}
+
 export class AuthService {
 
     /**
@@ -210,6 +223,59 @@ export class AuthService {
         throw new Error(`Provider ${provider} not implemented in callback`);
     }
 
+    public static resolveTemplate(
+        templates: Record<string, MessagingTemplate> | undefined,
+        templateId: string | undefined,
+        legacyTemplates: EmailTemplates | undefined,
+        type: 'confirmation' | 'recovery' | 'magic_link' | 'login_alert' | 'welcome_email' | 'otp_challenge',
+        language: string = 'en-US',
+        defaultSubject: string,
+        defaultBody: string
+    ): { subject: string; body: string } {
+        // 1. If a specific library template is bound and exists
+        if (templateId && templates && templates[templateId]) {
+            const tpl = templates[templateId];
+
+            // Try exact language match (e.g., pt-BR)
+            if (tpl.variants[language]) {
+                return tpl.variants[language];
+            }
+
+            // Try base language match (e.g., pt)
+            const baseLang = language.split('-')[0];
+            const baseMatchKey = Object.keys(tpl.variants).find(k => k.split('-')[0] === baseLang);
+            if (baseMatchKey) {
+                return tpl.variants[baseMatchKey];
+            }
+
+            // Try default language of the template
+            if (tpl.variants[tpl.default_language]) {
+                return tpl.variants[tpl.default_language];
+            }
+
+            // Fallback to the first available variant if everything else fails
+            const firstVariantKey = Object.keys(tpl.variants)[0];
+            if (firstVariantKey) {
+                return tpl.variants[firstVariantKey];
+            }
+        }
+
+        // 2. Legacy Fallback: check if old email_templates have an override for this type
+        // Note: otp_challenge doesn't exist in legacy EmailTemplates
+        if (legacyTemplates && type !== 'otp_challenge') {
+            const legacyType = type as keyof EmailTemplates;
+            if (legacyTemplates[legacyType]) {
+                return {
+                    subject: legacyTemplates[legacyType]?.subject || defaultSubject,
+                    body: legacyTemplates[legacyType]?.body || defaultBody
+                };
+            }
+        }
+
+        // 3. Absolute Fallback: hardcoded system defaults
+        return { subject: defaultSubject, body: defaultBody };
+    }
+
     private static async sendEmail(to: string, subject: string, htmlContent: string, config: EmailConfig, projectSecret: string, actionType: string) {
         const fromEmail = config.from_email || 'noreply@cascata.io';
         const methods = config.delivery_methods || (config.delivery_method ? [config.delivery_method] : []);
@@ -286,49 +352,58 @@ export class AuthService {
         return result;
     }
 
-    public static async sendConfirmationEmail(to: string, token: string, projectUrl: string, emailConfig: EmailConfig, templates: EmailTemplates | undefined, jwtSecret: string) {
+    public static async sendConfirmationEmail(to: string, token: string, projectUrl: string, emailConfig: EmailConfig, templates: EmailTemplates | undefined, jwtSecret: string, language: string = 'en-US', messagingTemplates?: Record<string, MessagingTemplate>, templateBindings?: Record<string, string>) {
         const actionUrl = `${projectUrl}/auth/v1/verify?token=${token}&type=signup&email=${encodeURIComponent(to)}`;
-        let subject = "Confirm Your Email";
-        let body = `<h2>Confirm your email</h2><p>Click the link below to confirm your email address:</p><p><a href="{{ .ConfirmationURL }}">Confirm Email</a></p>`;
-        if (templates?.confirmation) {
-            if (templates.confirmation.subject) subject = templates.confirmation.subject;
-            if (templates.confirmation.body) body = templates.confirmation.body;
-        }
-        const html = this.replaceTemplate(body, { ConfirmationURL: actionUrl, Token: token, Email: to });
+        const { subject, body } = this.resolveTemplate(
+            messagingTemplates,
+            templateBindings?.['confirmation'],
+            templates,
+            'confirmation',
+            language,
+            'Confirm Your Email',
+            `<h2>Confirm your email</h2><p>Click the link below to confirm your email address:</p><p><a href="{{ .ConfirmationURL }}">Confirm Email</a></p>`
+        );
+        const html = this.replaceTemplate(body, { ConfirmationURL: actionUrl, Token: token, Email: to, AppName: 'Cascata' });
         await this.sendEmail(to, subject, html, emailConfig, jwtSecret, 'signup_confirmation');
     }
 
-    public static async sendWelcomeEmail(to: string, emailConfig: EmailConfig, templates: EmailTemplates | undefined, jwtSecret: string) {
-        let subject = "Welcome!";
-        let body = `<h2>Welcome!</h2><p>We are excited to have you on board.</p>`;
-        if (templates?.welcome_email) {
-            if (templates.welcome_email.subject) subject = templates.welcome_email.subject;
-            if (templates.welcome_email.body) body = templates.welcome_email.body;
-        }
-        const html = this.replaceTemplate(body, { Email: to, Date: new Date().toLocaleString() });
+    public static async sendWelcomeEmail(to: string, emailConfig: EmailConfig, templates: EmailTemplates | undefined, jwtSecret: string, language: string = 'en-US', messagingTemplates?: Record<string, MessagingTemplate>, templateBindings?: Record<string, string>) {
+        const { subject, body } = this.resolveTemplate(
+            messagingTemplates,
+            templateBindings?.['welcome_email'],
+            templates,
+            'welcome_email',
+            language,
+            'Welcome!',
+            `<h2>Welcome!</h2><p>We are excited to have you on board.</p>`
+        );
+        const html = this.replaceTemplate(body, { Email: to, Date: new Date().toLocaleString(), AppName: 'Cascata' });
         await this.sendEmail(to, subject, html, emailConfig, jwtSecret, 'welcome_email');
     }
 
-    public static async sendLoginAlert(to: string, emailConfig: EmailConfig, templates: EmailTemplates | undefined, jwtSecret: string) {
-        let subject = "New Login Alert";
-        let body = `<h2>New Login Detected</h2><p>We detected a new login to your account at {{ .Date }}.</p>`;
-        if (templates?.login_alert) {
-            if (templates.login_alert.subject) subject = templates.login_alert.subject;
-            if (templates.login_alert.body) body = templates.login_alert.body;
-        }
-        const html = this.replaceTemplate(body, { Email: to, Date: new Date().toLocaleString() });
+    public static async sendLoginAlert(to: string, emailConfig: EmailConfig, templates: EmailTemplates | undefined, jwtSecret: string, language: string = 'en-US', messagingTemplates?: Record<string, MessagingTemplate>, templateBindings?: Record<string, string>, reqIp?: string, reqUa?: string) {
+        const { subject, body } = this.resolveTemplate(
+            messagingTemplates,
+            templateBindings?.['login_alert'],
+            templates,
+            'login_alert',
+            language,
+            'New Login Alert',
+            `<h2>New Login Detected</h2><p>We detected a new login to your account at {{ .Date }} from IP {{ .IP }}.</p>`
+        );
+        const html = this.replaceTemplate(body, { Email: to, Date: new Date().toLocaleString(), IP: reqIp || 'Unknown', UserAgent: reqUa || 'Unknown', AppName: 'Cascata' });
         await this.sendEmail(to, subject, html, emailConfig, jwtSecret, 'login_alert');
     }
 
-    public static async sendMagicLink(pool: Pool, identifier: string, projectUrl: string, emailConfig: EmailConfig, jwtSecret: string, templates?: EmailTemplates, provider: string = 'email') {
-        return this.sendAuthLink(pool, identifier, projectUrl, emailConfig, jwtSecret, 'magiclink', templates, provider);
+    public static async sendMagicLink(pool: Pool, identifier: string, projectUrl: string, emailConfig: EmailConfig, jwtSecret: string, templates?: EmailTemplates, provider: string = 'email', language: string = 'en-US', messagingTemplates?: Record<string, MessagingTemplate>, templateBindings?: Record<string, string>) {
+        return this.sendAuthLink(pool, identifier, projectUrl, emailConfig, jwtSecret, 'magiclink', templates, provider, language, messagingTemplates, templateBindings);
     }
 
-    public static async sendRecovery(pool: Pool, identifier: string, projectUrl: string, emailConfig: EmailConfig, jwtSecret: string, templates?: EmailTemplates, provider: string = 'email') {
-        return this.sendAuthLink(pool, identifier, projectUrl, emailConfig, jwtSecret, 'recovery', templates, provider);
+    public static async sendRecovery(pool: Pool, identifier: string, projectUrl: string, emailConfig: EmailConfig, jwtSecret: string, templates?: EmailTemplates, provider: string = 'email', language: string = 'en-US', messagingTemplates?: Record<string, MessagingTemplate>, templateBindings?: Record<string, string>) {
+        return this.sendAuthLink(pool, identifier, projectUrl, emailConfig, jwtSecret, 'recovery', templates, provider, language, messagingTemplates, templateBindings);
     }
 
-    private static async sendAuthLink(pool: Pool, identifier: string, projectUrl: string, emailConfig: EmailConfig, jwtSecret: string, type: 'magiclink' | 'recovery', templates?: EmailTemplates, provider: string = 'email') {
+    private static async sendAuthLink(pool: Pool, identifier: string, projectUrl: string, emailConfig: EmailConfig, jwtSecret: string, type: 'magiclink' | 'recovery', templates?: EmailTemplates, provider: string = 'email', language: string = 'en-US', messagingTemplates?: Record<string, MessagingTemplate>, templateBindings?: Record<string, string>) {
         const token = crypto.randomBytes(32).toString('hex');
         const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
         const expirationMinutes = 60;
@@ -351,19 +426,18 @@ export class AuthService {
 
         // Action URLs explicitly carry the provider type down the chain
         const actionUrl = `${projectUrl}/auth/v1/verify?token=${token}&type=${type}&email=${encodeURIComponent(identifier)}&provider=${encodeURIComponent(provider)}`;
-        let subject = type === 'magiclink' ? 'Your Login Link' : 'Reset Your Password';
-        let body = type === 'magiclink' ? `<h2>Login Request</h2><p>Click here to login:</p><a href="{{ .ConfirmationURL }}">Sign In</a>` : `<h2>Reset Password</h2><p>Click here to reset your password:</p><a href="{{ .ConfirmationURL }}">Reset Password</a>`;
 
-        if (type === 'magiclink' && templates?.magic_link) {
-            if (templates.magic_link.subject) subject = templates.magic_link.subject;
-            if (templates.magic_link.body) body = templates.magic_link.body;
-        }
-        if (type === 'recovery' && templates?.recovery) {
-            if (templates.recovery.subject) subject = templates.recovery.subject;
-            if (templates.recovery.body) body = templates.recovery.body;
-        }
+        const { subject, body } = this.resolveTemplate(
+            messagingTemplates,
+            templateBindings?.[type === 'magiclink' ? 'magic_link' : type],
+            templates,
+            type === 'magiclink' ? 'magic_link' : type,
+            language,
+            type === 'magiclink' ? 'Your Login Link' : 'Reset Your Password',
+            type === 'magiclink' ? `<h2>Login Request</h2><p>Click here to login:</p><a href="{{ .ConfirmationURL }}">Sign In</a>` : `<h2>Reset Password</h2><p>Click here to reset your password:</p><a href="{{ .ConfirmationURL }}">Reset Password</a>`
+        );
 
-        const html = this.replaceTemplate(body, { ConfirmationURL: actionUrl, Token: token, Email: identifier });
+        const html = this.replaceTemplate(body, { ConfirmationURL: actionUrl, Token: token, Email: identifier, AppName: 'Cascata' });
 
         // If it's the email provider, send physically using the Email Service. 
         // If it's a custom provider (e.g. CPF, Phone), they trigger webhooks independently via initiatePasswordless, 
@@ -409,19 +483,40 @@ export class AuthService {
         }
     }
 
-    public static async initiatePasswordless(pool: Pool, provider: string, identifier: string, webhookUrl: string, serviceKey: string, otpConfig: OtpConfig = {}): Promise<void> {
+    public static async initiatePasswordless(pool: Pool, provider: string, identifier: string, webhookUrl: string, serviceKey: string, otpConfig: OtpConfig = {}, language: string = 'en-US', messagingTemplates?: Record<string, MessagingTemplate>, templateBindings?: Record<string, string>): Promise<void> {
         if (otpConfig.regex_validation) {
             const isValid = this.validateIdentifier(identifier, otpConfig.regex_validation);
             if (!isValid) throw new Error(`Invalid format for ${provider}. Please check your input.`);
         }
         const code = this.generateCode(otpConfig);
         const expirationMinutes = otpConfig.expiration_minutes || 15;
+
+        const { subject, body } = this.resolveTemplate(
+            messagingTemplates,
+            templateBindings?.['otp_challenge'],
+            undefined, // Legacy EmailTemplates does not support otp_challenge
+            'otp_challenge',
+            language,
+            'Verification Code',
+            `Your code is: {{ .Code }}. Valid for {{ .Expiration }} minutes.`
+        );
+
+        const finalMessageBody = this.replaceTemplate(body, { Code: code, Expiration: String(expirationMinutes), Identifier: identifier, Strategy: provider, AppName: 'Cascata' });
+
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
             await client.query(`DELETE FROM auth.otp_codes WHERE provider = $1 AND identifier = $2`, [provider, identifier]);
-            await client.query(`INSERT INTO auth.otp_codes (provider, identifier, code, expires_at, metadata) VALUES ($1, $2, $3, now() + interval '${expirationMinutes} minutes', $4::jsonb)`, [provider, identifier, code, JSON.stringify({ generated_at: new Date(), format: otpConfig.charset })]);
-            const payload = { action: 'send_challenge', strategy: provider, identifier, code, timestamp: new Date().toISOString(), meta: { expiration: `${expirationMinutes}m`, format: otpConfig.charset || 'numeric' } };
+            await client.query(`INSERT INTO auth.otp_codes (provider, identifier, code, expires_at, metadata) VALUES ($1, $2, $3, now() + interval '${expirationMinutes} minutes', $4::jsonb)`, [provider, identifier, code, JSON.stringify({ generated_at: new Date(), format: otpConfig.charset, language })]);
+            const payload = {
+                action: 'send_challenge',
+                strategy: provider,
+                identifier,
+                code,
+                timestamp: new Date().toISOString(),
+                meta: { expiration: `${expirationMinutes}m`, format: otpConfig.charset || 'numeric' },
+                message: { subject, body: finalMessageBody, language }
+            };
             await this.dispatchWebhook(webhookUrl, payload, serviceKey);
             await client.query('COMMIT');
         } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
