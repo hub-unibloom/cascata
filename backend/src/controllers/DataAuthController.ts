@@ -528,7 +528,7 @@ export class DataAuthController {
                     // OTP is strictly required, let's process the Dispatch Routing
 
                     if (dispatchMode === 'delegated') {
-                        const channels = [];
+                        const channels: any[] = [];
                         const idResult = await req.projectPool!.query(`SELECT provider, identifier FROM auth.identities WHERE user_id = $1`, [userId]);
                         idResult.rows.forEach((r: any) => {
                             channels.push({ provider: r.provider, identifier: DataAuthController.maskIdentifier(r.provider, r.identifier) });
