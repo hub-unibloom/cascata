@@ -265,8 +265,16 @@ export class DataAuthController {
                 deviceInfo
             );
 
+            // TIER-3 PADLOCK: Issue a temporary Step-Up Token for sensitive queries
+            const jwt = require('jsonwebtoken');
+            const stepUpToken = jwt.sign(
+                { type: 'otp_stepup', sub: userId, aud: req.project.id },
+                req.project.jwt_secret,
+                { expiresIn: '15m' }
+            );
+
             DataAuthController.setAuthCookies(res, session);
-            res.json(session);
+            res.json({ ...session, otp_stepup_token: stepUpToken });
         } catch (e: any) { next(e); }
     }
 

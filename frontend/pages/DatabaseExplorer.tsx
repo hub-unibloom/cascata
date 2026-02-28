@@ -1471,6 +1471,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                   <option value="immutable">IMMUTABLE (Blocks INSERT & UPDATE)</option>
                   <option value="insert_only">INSERT ONLY (Blocks UPDATE)</option>
                   <option value="service_role_only">SERVICE ROLE ONLY (Blocks Anon/Auth)</option>
+                  <option value="otp_protected">OTP PROTECTED (Blocks UPDATE unless step-up challenge is provided)</option>
                 </select>
 
                 {editLock.currentLevel !== 'unlocked' && (

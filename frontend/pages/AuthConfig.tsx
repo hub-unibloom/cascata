@@ -1409,6 +1409,38 @@ const { user, session } = await cascata.auth.signIn({
                                     </div>
                                 )}
 
+                                {/* BANK-GRADE SECURITY (OTP ENFORCEMENT) */}
+                                <div className="col-span-2 bg-rose-50 border border-rose-100 p-6 rounded-3xl space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <h5 className="font-bold text-rose-900 text-sm flex items-center gap-2">🔐 Bank-Grade Security Lock</h5>
+                                            <p className="text-[10px] text-rose-700 font-bold mt-1">Require OTP challenge for sensitive updates (e.g., password, new identity)</p>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" className="sr-only peer" checked={strategyConfig.require_otp_on_update || false} onChange={(e) => setStrategyConfig({ ...strategyConfig, require_otp_on_update: e.target.checked })} />
+                                            <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-rose-600"></div>
+                                        </label>
+                                    </div>
+
+                                    {strategyConfig.require_otp_on_update && (
+                                        <div className="pt-4 border-t border-rose-200/50">
+                                            <label className="text-[9px] font-black text-rose-800 uppercase tracking-widest">OTP Dispatch Mode</label>
+                                            <select
+                                                value={strategyConfig.otp_dispatch_mode || 'delegated'}
+                                                onChange={(e) => setStrategyConfig({ ...strategyConfig, otp_dispatch_mode: e.target.value })}
+                                                className="w-full mt-2 bg-white border-none rounded-xl py-3 px-4 text-xs font-bold outline-none text-slate-700 shadow-sm"
+                                            >
+                                                <option value="delegated">Delegated (Frontend prompts User to choose Channel)</option>
+                                                <option value="auto_current">Auto-Current (Send OTP to the Identity being updated)</option>
+                                                <option value="auto_primary">Auto-Primary (Send OTP to Account's root email)</option>
+                                            </select>
+                                            <p className="text-[9px] text-rose-600/70 font-semibold mt-2">
+                                                Determines how the API routes the security code when an update is blocked.
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+
                                 <div className="space-y-3">
                                     <div className="flex flex-col gap-2">
                                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Authorized Origins (CORS/Redirects)</label>

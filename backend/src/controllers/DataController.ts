@@ -692,6 +692,7 @@ export class DataController {
                 req.headers['x-cascata-locked-columns'] = JSON.stringify(lockedColumns);
                 req.headers['x-cascata-role'] = req.userRole;
                 req.headers['x-cascata-project-id'] = req.project.id;
+                req.headers['x-cascata-jwt-secret'] = req.project.jwt_secret;
             }
 
             const { text, values, countQuery } = PostgrestService.buildQuery(

@@ -1,6 +1,7 @@
 
 import { PoolClient } from 'pg';
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 import { DatabaseService } from './DatabaseService.js';
 
 interface PostgrestQuery {
@@ -184,7 +185,25 @@ export class PostgrestService {
                 if (lockedColumnsStr) {
                     try {
                         const lockedColumns = JSON.parse(lockedColumnsStr);
-                        updateKeys = keys.filter(k => lockedColumns[k] !== 'insert_only');
+                        updateKeys = keys.filter(k => {
+                            const lockLevel = lockedColumns[k];
+                            // Default unlocked if undefined
+                            if (!lockLevel) return true;
+                            if (lockLevel === 'insert_only' || lockLevel === 'immutable') return false;
+                            if (lockLevel === 'service_role_only' && userRole !== 'service_role') return false;
+                            if (lockLevel === 'otp_protected') {
+                                const stepUpToken = headers['x-cascata-otp-token'];
+                                const jwtSecret = headers['x-cascata-jwt-secret'];
+                                if (!stepUpToken || !jwtSecret) return false;
+                                try {
+                                    const decoded = jwt.verify(stepUpToken as string, jwtSecret as string) as any;
+                                    if (!decoded || decoded.type !== 'otp_stepup') return false;
+                                } catch (e) {
+                                    return false;
+                                }
+                            }
+                            return true;
+                        });
                     } catch (e) { /* silent fail */ }
                 }
 
@@ -227,6 +246,21 @@ export class PostgrestService {
                                 shouldStrip = true; // NEVER allowed on UPDATE
                             } else if (lockLevel === 'service_role_only' && userRole !== 'service_role') {
                                 shouldStrip = true; // Blocked for anon/authenticated
+                            } else if (lockLevel === 'otp_protected') {
+                                const stepUpToken = headers['x-cascata-otp-token'];
+                                const jwtSecret = headers['x-cascata-jwt-secret'];
+                                if (!stepUpToken || !jwtSecret) {
+                                    shouldStrip = true; // Blocked without Step-Up Token
+                                } else {
+                                    try {
+                                        const decoded = jwt.verify(stepUpToken as string, jwtSecret as string) as any;
+                                        if (!decoded || decoded.type !== 'otp_stepup') {
+                                            shouldStrip = true;
+                                        }
+                                    } catch (e) {
+                                        shouldStrip = true; // Token invalid or expired
+                                    }
+                                }
                             }
 
                             if (shouldStrip) {

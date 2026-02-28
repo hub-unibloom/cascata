@@ -23,7 +23,7 @@ interface ColumnDef {
     description?: string;
     formatPreset?: string;
     formatPattern?: string;
-    lockLevel?: 'unlocked' | 'immutable' | 'insert_only' | 'service_role_only';
+    lockLevel?: 'unlocked' | 'immutable' | 'insert_only' | 'service_role_only' | 'otp_protected';
 }
 
 // Format presets for column validation (mirrored from backend)
@@ -512,6 +512,7 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
                                             <option value="immutable">IMMUTABLE (API Blocks both INSERT & UPDATE)</option>
                                             <option value="insert_only">INSERT ONLY (API Blocks UPDATE)</option>
                                             <option value="service_role_only">SERVICE ROLE ONLY (API Blocks Anon & Authenticated users)</option>
+                                            <option value="otp_protected">OTP PROTECTED (API Blocks UPDATE unless step-up challenge is provided)</option>
                                         </select>
                                     </div>
                                 )}
