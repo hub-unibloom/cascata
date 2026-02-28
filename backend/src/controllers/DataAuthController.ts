@@ -61,7 +61,7 @@ export class DataAuthController {
     static async listUsers(req: CascataRequest, res: any, next: any) {
         if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         try {
-            const result = await req.projectPool!.query(`SELECT u.id, u.created_at, u.banned, u.last_sign_in_at, u.email_confirmed_at, jsonb_agg(jsonb_build_object('id', i.id, 'provider', i.provider, 'identifier', i.identifier)) as identities FROM auth.users u LEFT JOIN auth.identities i ON u.id = i.user_id GROUP BY u.id ORDER BY u.created_at DESC`);
+            const result = await req.projectPool!.query(`SELECT u.id, u.created_at, u.banned, u.last_sign_in_at, jsonb_agg(jsonb_build_object('id', i.id, 'provider', i.provider, 'identifier', i.identifier, 'verified_at', i.verified_at)) as identities FROM auth.users u LEFT JOIN auth.identities i ON u.id = i.user_id GROUP BY u.id ORDER BY u.created_at DESC`);
             res.json(result.rows);
         } catch (e: any) { next(e); }
     }
@@ -427,7 +427,7 @@ export class DataAuthController {
             const callbackUrl = req.project.custom_domain && host === req.project.custom_domain ? `https://${host}/auth/v1/callback` : `https://${host}/api/data/${req.project.slug}/auth/v1/callback`;
 
             const profile = await AuthService.handleCallback(providerName, req.query.code as string, { clientId: prov.client_id, clientSecret: prov.client_secret, redirectUri: callbackUrl });
-            const userId = await AuthService.upsertUser(req.projectPool!, profile);
+            const userId = await AuthService.upsertUser(req.projectPool!, profile, req.project.metadata?.auth_config);
 
             const session = await AuthService.createSession(
                 userId,

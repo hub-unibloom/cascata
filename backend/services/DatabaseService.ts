@@ -112,7 +112,9 @@ export class DatabaseService {
                 password_hash TEXT,
                 identity_data JSONB DEFAULT '{}',
                 created_at TIMESTAMPTZ DEFAULT now(),
+                updated_at TIMESTAMPTZ,
                 last_sign_in_at TIMESTAMPTZ,
+                verified_at TIMESTAMPTZ,
                 UNIQUE(provider, identifier)
             );
 

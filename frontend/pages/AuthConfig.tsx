@@ -752,7 +752,11 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                                                     </h4>
                                                     <div className="flex gap-4 mt-1">
                                                         <p className="text-[10px] text-slate-400 font-bold">Created: {new Date(u.created_at).toLocaleDateString()}</p>
-                                                        {u.email_confirmed_at && <p className="text-[10px] text-emerald-500 font-bold flex items-center gap-1"><CheckCircle2 size={10} /> Verified</p>}
+                                                        {u.identities?.some((i: any) => i.verified_at) ? (
+                                                            <p className="text-[10px] text-emerald-500 font-bold flex items-center gap-1"><CheckCircle2 size={10} /> Verified</p>
+                                                        ) : (
+                                                            <p className="text-[10px] text-amber-500 font-bold flex items-center gap-1"><AlertCircle size={10} /> Unverified</p>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </div>
@@ -761,6 +765,11 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                                                 {u.identities?.map((id: any, idx: number) => (
                                                     <div key={idx} className="bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-lg flex items-center gap-2">
                                                         <span className="text-[9px] font-black uppercase text-indigo-600">{id.provider}</span>
+                                                        {id.verified_at ? (
+                                                            <CheckCircle2 size={10} className="text-emerald-500" />
+                                                        ) : (
+                                                            <AlertCircle size={10} className="text-amber-400" />
+                                                        )}
                                                     </div>
                                                 ))}
                                                 <div className="px-4 text-slate-300"><ChevronRight size={16} /></div>
@@ -1582,6 +1591,23 @@ const { user, session } = await cascata.auth.signIn({
                                     </p>
                                 </div>
 
+                                <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl">
+                                    <label className="flex items-center gap-3 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={providerConfig.auto_verify || false}
+                                            onChange={(e) => setProviderConfig({ ...providerConfig, auto_verify: e.target.checked })}
+                                            className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                        />
+                                        <div>
+                                            <span className="text-xs font-bold text-slate-700">Auto-Verify Identities</span>
+                                            <p className="text-[9px] text-slate-400 leading-tight mt-0.5">
+                                                Automatically mark identities from this provider as verified upon account creation.
+                                            </p>
+                                        </div>
+                                    </label>
+                                </div>
+
                                 <button onClick={handleSaveProviderConfig} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 mt-2">
                                     <CheckCircle2 size={16} /> Save Configuration
                                 </button>
@@ -1663,6 +1689,11 @@ const { user, session } = await cascata.auth.signIn({
                                                     </div>
                                                 </div>
                                                 <button onClick={() => handleUnlinkIdentity(id.id)} className="p-2 text-slate-300 hover:text-rose-600 hover:bg-white rounded-lg transition-all" title="Unlink"><Unlink size={16} /></button>
+                                                {id.verified_at ? (
+                                                    <span className="text-[9px] font-black text-emerald-500 bg-emerald-50 px-2 py-1 rounded-lg uppercase tracking-widest flex items-center gap-1"><CheckCircle2 size={10} /> Verified</span>
+                                                ) : (
+                                                    <span className="text-[9px] font-black text-amber-500 bg-amber-50 px-2 py-1 rounded-lg uppercase tracking-widest flex items-center gap-1"><AlertCircle size={10} /> Unverified</span>
+                                                )}
                                             </div>
                                         ))}
                                     </div>

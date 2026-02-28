@@ -59,8 +59,8 @@ export class GoTrueService {
             const confirmedAt = requiresConfirmation ? null : 'now()';
 
             const userRes = await client.query(
-                `INSERT INTO auth.users (raw_user_meta_data, created_at, last_sign_in_at, banned, email_confirmed_at) 
-                 VALUES ($1::jsonb, now(), now(), false, ${confirmedAt}) RETURNING *`,
+                `INSERT INTO auth.users (raw_user_meta_data, created_at, last_sign_in_at, banned) 
+                 VALUES ($1::jsonb, now(), now(), false) RETURNING *`,
                 [JSON.stringify(meta)]
             );
             const user = userRes.rows[0];
@@ -68,8 +68,8 @@ export class GoTrueService {
             const passwordHash = await bcrypt.hash(password, 10);
 
             await client.query(
-                `INSERT INTO auth.identities (user_id, provider, identifier, password_hash, identity_data, created_at, last_sign_in_at)
-                 VALUES ($1, 'email', $2, $3, $4::jsonb, now(), now())`,
+                `INSERT INTO auth.identities (user_id, provider, identifier, password_hash, identity_data, created_at, last_sign_in_at, verified_at)
+                 VALUES ($1, 'email', $2, $3, $4::jsonb, now(), now(), ${requiresConfirmation ? 'NULL' : 'now()'})`,
                 [user.id, email, passwordHash, JSON.stringify({ sub: user.id, email })]
             );
 
@@ -142,7 +142,7 @@ export class GoTrueService {
 
             if (type === 'signup') {
                 const res = await client.query(
-                    `SELECT id, email_confirmed_at, raw_user_meta_data->>'email' as email FROM auth.users WHERE confirmation_token = $1`,
+                    `SELECT u.id, u.raw_user_meta_data->>'email' as email FROM auth.users u WHERE u.confirmation_token = $1`,
                     [token]
                 );
 
@@ -152,10 +152,15 @@ export class GoTrueService {
                 userId = user.id;
                 userEmail = user.email;
 
+                // Set verified_at on the email identity (the source of truth)
                 await client.query(
-                    `UPDATE auth.users 
-                     SET email_confirmed_at = now(), confirmation_token = NULL 
-                     WHERE id = $1`,
+                    `UPDATE auth.identities SET verified_at = now() WHERE user_id = $1 AND provider = 'email' AND verified_at IS NULL`,
+                    [userId]
+                );
+
+                // Clear confirmation token from users table
+                await client.query(
+                    `UPDATE auth.users SET confirmation_token = NULL WHERE id = $1`,
                     [userId]
                 );
 
@@ -203,9 +208,9 @@ export class GoTrueService {
                 // 4. Consume Token (One-time use)
                 await client.query(`DELETE FROM auth.otp_codes WHERE id = $1`, [otpRecord.id]);
 
-                // 5. Ensure Email is Confirmed (Implicit confirmation via magic link/recovery)
+                // 5. Ensure identity is marked as verified (Implicit confirmation via magic link/recovery)
                 await client.query(
-                    `UPDATE auth.users SET email_confirmed_at = now() WHERE id = $1 AND email_confirmed_at IS NULL`,
+                    `UPDATE auth.identities SET verified_at = now() WHERE user_id = $1 AND provider = 'email' AND verified_at IS NULL`,
                     [userId]
                 );
             }
@@ -301,7 +306,7 @@ export class GoTrueService {
 
             // Find user details to return (standard gotrue response shape)
             const updatedUser = await client.query(
-                `SELECT id, raw_user_meta_data, email_confirmed_at, banned FROM auth.users WHERE id = $1`, [userId]
+                `SELECT id, raw_user_meta_data, banned FROM auth.users WHERE id = $1`, [userId]
             );
             return updatedUser.rows[0];
         } catch (e) {
@@ -362,13 +367,13 @@ export class GoTrueService {
             if (idRes.rows.length === 0) throw new Error("Invalid login credentials");
             const identity = idRes.rows[0];
 
-            const userCheck = await pool.query(`SELECT banned, email_confirmed_at, raw_user_meta_data FROM auth.users WHERE id = $1`, [identity.user_id]);
+            const userCheck = await pool.query(`SELECT banned, raw_user_meta_data FROM auth.users WHERE id = $1`, [identity.user_id]);
             const user = userCheck.rows[0];
 
             if (user?.banned) throw new Error("Invalid login credentials");
 
-            if (authConfig.email_confirmation && !user.email_confirmed_at) {
-                throw new Error("Email not confirmed");
+            if (authConfig.email_confirmation && !identity.verified_at) {
+                throw new Error("Identity not confirmed");
             }
 
             if (!identity.password_hash) {
@@ -424,7 +429,7 @@ export class GoTrueService {
                 throw new Error(`Provider ${provider} not supported for id_token flow yet`);
             }
 
-            const userId = await AuthService.upsertUser(pool, profile);
+            const userId = await AuthService.upsertUser(pool, profile, authConfig);
 
             const userCheck = await pool.query(`SELECT banned FROM auth.users WHERE id = $1`, [userId]);
             if (userCheck.rows[0]?.banned) {
@@ -457,6 +462,7 @@ export class GoTrueService {
 
         return this.formatUserObject(user, identitiesRes.rows);
     }
+
 
     /**
      * SECURE LOGOUT (Blacklist JTI)
@@ -497,22 +503,25 @@ export class GoTrueService {
                 raw_user_meta_data: session.user.user_metadata,
                 created_at: new Date().toISOString(),
                 last_sign_in_at: new Date().toISOString(),
-                email: session.user.email,
-                email_confirmed_at: new Date().toISOString()
+                email: session.user.email
             }, [])
         };
     }
 
     private static formatUserObject(user: any, identities: any[]) {
+        // Derive the global confirmed_at from identities (first verified identity wins for legacy compat)
+        const firstVerified = identities.find(i => i.verified_at);
+        const confirmedAt = firstVerified?.verified_at || null;
+
         return {
             id: user.id,
             aud: "authenticated",
             role: "authenticated",
             email: user.email || user.raw_user_meta_data?.email,
-            email_confirmed_at: user.email_confirmed_at,
+            email_confirmed_at: confirmedAt,
             phone: "",
             confirmation_sent_at: user.confirmation_sent_at,
-            confirmed_at: user.email_confirmed_at,
+            confirmed_at: confirmedAt,
             last_sign_in_at: user.last_sign_in_at,
             app_metadata: {
                 provider: "email",
@@ -526,7 +535,8 @@ export class GoTrueService {
                 provider: i.provider,
                 last_sign_in_at: i.last_sign_in_at,
                 created_at: i.created_at,
-                updated_at: i.created_at
+                updated_at: i.updated_at || i.created_at,
+                verified_at: i.verified_at
             })),
             created_at: user.created_at,
             updated_at: user.created_at

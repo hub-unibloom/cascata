@@ -479,8 +479,12 @@ export class AuthService {
         } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
     }
 
-    public static async upsertUser(projectPool: Pool, profile: UserProfile): Promise<string> {
+    public static async upsertUser(projectPool: Pool, profile: UserProfile, authConfig?: any): Promise<string> {
         const client = await projectPool.connect();
+
+        // Determine if this provider should auto-verify identities
+        const providerAutoVerify = authConfig?.providers?.[profile.provider]?.auto_verify === true;
+
         try {
             await client.query('BEGIN');
             const identityRes = await client.query(`SELECT user_id FROM auth.identities WHERE provider = $1 AND identifier = $2`, [profile.provider, profile.id]);
@@ -496,10 +500,14 @@ export class AuthService {
                 }
                 if (!userId) {
                     const meta = { name: profile.name, avatar_url: profile.avatar_url, email: profile.email };
-                    const newUserRes = await client.query(`INSERT INTO auth.users (raw_user_meta_data, created_at, last_sign_in_at, email_confirmed_at) VALUES ($1::jsonb, now(), now(), now()) RETURNING id`, [JSON.stringify(meta)]);
+                    const newUserRes = await client.query(`INSERT INTO auth.users (raw_user_meta_data, created_at, last_sign_in_at) VALUES ($1::jsonb, now(), now()) RETURNING id`, [JSON.stringify(meta)]);
                     userId = newUserRes.rows[0].id;
                 }
-                await client.query(`INSERT INTO auth.identities (user_id, provider, identifier, identity_data, created_at, last_sign_in_at) VALUES ($1, $2, $3, $4::jsonb, now(), now())`, [userId, profile.provider, profile.id, JSON.stringify(profile)]);
+                // Insert identity with verified_at if auto_verify is enabled for this provider
+                await client.query(
+                    `INSERT INTO auth.identities (user_id, provider, identifier, identity_data, created_at, last_sign_in_at, verified_at) VALUES ($1, $2, $3, $4::jsonb, now(), now(), ${providerAutoVerify ? 'now()' : 'NULL'})`,
+                    [userId, profile.provider, profile.id, JSON.stringify(profile)]
+                );
             }
             if (userId) {
                 const currentMetaRes = await client.query(`SELECT raw_user_meta_data FROM auth.users WHERE id = $1`, [userId]);
