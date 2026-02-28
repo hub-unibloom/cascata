@@ -734,8 +734,12 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                                         {u.banned && <div className="absolute top-0 right-0 bg-rose-500 text-white text-[9px] font-black px-4 py-1 rounded-bl-xl uppercase tracking-widest">Banned</div>}
                                         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
                                             <div className="flex items-center gap-6">
-                                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white text-xl font-bold shadow-lg ${u.banned ? 'bg-rose-400' : 'bg-slate-900'}`}>
-                                                    {u.identities?.[0]?.identifier?.[0]?.toUpperCase() || <Users />}
+                                                <div className={`w-14 h-14 rounded-2xl overflow-hidden flex items-center justify-center text-white text-xl font-bold shadow-lg ${u.banned ? 'bg-rose-400' : 'bg-slate-900'}`}>
+                                                    {(u.raw_user_meta_data?.avatar_url || u.raw_user_meta_data?.picture) ? (
+                                                        <img src={u.raw_user_meta_data?.avatar_url || u.raw_user_meta_data?.picture} alt="Avatar" className="w-full h-full object-cover" />
+                                                    ) : (
+                                                        u.identities?.[0]?.identifier?.[0]?.toUpperCase() || <Users />
+                                                    )}
                                                 </div>
                                                 <div>
                                                     <div className="flex items-center gap-2 mb-1">
@@ -1715,6 +1719,31 @@ const { user, session } = await cascata.auth.signIn({
                     </div>
                 )
             }
+
+            {/* Verify Password Modal (For Revealing Sensitive Data) */}
+            {showVerifyModal && (
+                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[800] flex items-center justify-center p-8 animate-in zoom-in-95">
+                    <div className="bg-white rounded-[3rem] p-10 max-w-sm w-full shadow-2xl text-center border border-slate-200">
+                        <Lock size={40} className="mx-auto text-slate-900 mb-6" />
+                        <h3 className="text-xl font-black text-slate-900 mb-2">Confirmação de Segurança</h3>
+                        <p className="text-xs text-slate-500 font-bold mb-8">Digite sua senha administrativa para revelar os dados sensíveis dos usuários.</p>
+                        <form onSubmit={(e) => { e.preventDefault(); handleVerifyPassword(); }}>
+                            <input
+                                type="password"
+                                autoFocus
+                                value={verifyPassword}
+                                onChange={e => setVerifyPassword(e.target.value)}
+                                className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 text-center font-bold text-slate-900 outline-none mb-6 focus:ring-4 focus:ring-indigo-500/10"
+                                placeholder="••••••••"
+                            />
+                            <button type="submit" disabled={executing} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-600 transition-all flex items-center justify-center gap-2">
+                                {executing ? <Loader2 className="animate-spin" size={16} /> : 'Confirmar Acesso'}
+                            </button>
+                        </form>
+                        <button onClick={() => { setShowVerifyModal(false); setVerifyPassword(''); }} className="mt-4 text-xs font-bold text-slate-400 hover:text-slate-600">Cancelar</button>
+                    </div>
+                </div>
+            )}
 
             {/* APP CLIENT CREATION MODAL */}
             {showAppClientModal && (
