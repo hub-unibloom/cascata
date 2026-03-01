@@ -503,6 +503,8 @@ const TablePanel = forwardRef<TablePanelHandle, TablePanelProps>(({
         try {
             const payload: any = {};
             columns.forEach(col => {
+                // UNIVERSAL PADLOCK: never send immutable columns in INSERT
+                if (col.lockLevel === 'immutable') return;
                 const rawVal = inlineNewRow[col.name];
                 if (rawVal === '' || rawVal === undefined) {
                     if (col.defaultValue) return;
@@ -548,6 +550,20 @@ const TablePanel = forwardRef<TablePanelHandle, TablePanelProps>(({
 
     // --- OPEN CELL EDITOR ---
     const openCellEditor = (row: any, colName: string, e: React.MouseEvent) => {
+        // UNIVERSAL PADLOCK: block editing for locked columns
+        const colMeta = columns.find((c: any) => c.name === colName);
+        if (colMeta?.lockLevel === 'immutable') {
+            onError('Security Lock: Column "' + colName + '" is IMMUTABLE — cannot be modified.');
+            return;
+        }
+        if (colMeta?.lockLevel === 'insert_only') {
+            onError('Security Lock: Column "' + colName + '" is INSERT ONLY — cannot be updated.');
+            return;
+        }
+        if (colMeta?.lockLevel === 'service_role_only') {
+            onError('Security Lock: Column "' + colName + '" is restricted to SERVICE ROLE ONLY.');
+            return;
+        }
         const td = (e.target as HTMLElement).closest('td');
         if (!td) return;
         const rect = td.getBoundingClientRect();
@@ -728,6 +744,7 @@ const TablePanel = forwardRef<TablePanelHandle, TablePanelProps>(({
                         <tr className="bg-indigo-50/30 border-b border-indigo-100 group">
                             <td className="p-0 text-center border-r border-slate-200 bg-indigo-50/50 sticky left-0 z-20"><Plus size={13} className="mx-auto text-indigo-400" /></td>
                             {displayColumns.map((col: any, idx) => {
+                                const isImmutable = col.lockLevel === 'immutable';
                                 const colType = (col.type || '').toLowerCase();
                                 const isBool = colType.includes('bool');
                                 const isDate = colType === 'date';
@@ -740,7 +757,12 @@ const TablePanel = forwardRef<TablePanelHandle, TablePanelProps>(({
                                 return (
                                     <td key={col.name} className="p-0 border-r border-slate-200 relative">
                                         <div className="h-9 flex items-center">
-                                            {isBool ? (
+                                            {isImmutable ? (
+                                                <div className="flex items-center gap-1.5 px-2 h-full w-full select-none cursor-not-allowed" title={`IMMUTABLE — managed by database`}>
+                                                    <Lock size={10} className="text-rose-400 shrink-0" />
+                                                    <span className="text-[10px] font-bold text-rose-300 uppercase tracking-wider truncate">{getSmartPlaceholder(col) || 'Locked'}</span>
+                                                </div>
+                                            ) : isBool ? (
                                                 <select
                                                     ref={idx === 0 ? firstInputRef as any : undefined}
                                                     value={inlineNewRow[col.name] || ''}

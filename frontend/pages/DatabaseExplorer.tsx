@@ -258,6 +258,11 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [duplicateConfig, setDuplicateConfig] = useState({ source: '', newName: '', withData: false });
 
+  // --- SECURE TABLE DELETION ---
+  const [deleteTableConfirm, setDeleteTableConfirm] = useState<{ table: string } | null>(null);
+  const [deleteTablePassword, setDeleteTablePassword] = useState('');
+  const [deleteTableError, setDeleteTableError] = useState('');
+
   // --- EDIT FORMAT MODAL ---
   const [editFormat, setEditFormat] = useState<{
     column: string;
@@ -274,6 +279,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
     const handler = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       // Priority order: innermost popups first, then modals, then drawers
+      if (deleteTableConfirm) { setDeleteTableConfirm(null); setDeleteTablePassword(''); setDeleteTableError(''); return; }
       if (recycleBinAction) { setRecycleBinAction(null); setRecycleBinPassword(''); setRecycleBinError(''); return; }
       if (showRecycleBinModal) { setShowRecycleBinModal(false); return; }
       if (editLock) { setEditLock(null); return; }
@@ -283,12 +289,13 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
       if (showAddColumn) { setShowAddColumn(false); return; }
       if (showImportModal) { setShowImportModal(false); return; }
       if (showExportMenu) { setShowExportMenu(false); return; }
+      if (showDuplicateModal) { setShowDuplicateModal(false); return; }
       if (showExtensions) { setShowExtensions(false); return; }
       if (showCreateTable) { setShowCreateTable(false); setInitialColumns(undefined); return; }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [recycleBinAction, showRecycleBinModal, editLock, columnContextMenu, impactScan, tableImpactScan, showAddColumn, showImportModal, showExportMenu, showExtensions, showCreateTable]);
+  }, [deleteTableConfirm, recycleBinAction, showRecycleBinModal, editLock, columnContextMenu, impactScan, tableImpactScan, showAddColumn, showImportModal, showExportMenu, showDuplicateModal, showExtensions, showCreateTable]);
 
   // --- NOTIFICATION AUTO-DISMISS (3.8s with hover pause) ---
   const notifyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1065,16 +1072,29 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   };
 
   const handleDeleteTable = async (tableName: string) => {
-    if (!confirm(`Are you sure you want to delete ${tableName}?`)) return;
+    setDeleteTableConfirm({ table: tableName });
+    setDeleteTablePassword('');
+    setDeleteTableError('');
+    setContextMenu(null);
+  };
+
+  const handleDeleteTableConfirm = async () => {
+    if (!deleteTableConfirm) return;
+    setDeleteTableError('');
+    const valid = await verifyAdminPassword(deleteTablePassword);
+    if (!valid) { setDeleteTableError('Invalid admin password.'); return; }
     try {
-      await fetchWithAuth(`/api/data/${projectId}/tables/${tableName}`, {
+      await fetchWithAuth(`/api/data/${projectId}/tables/${deleteTableConfirm.table}`, {
         method: 'DELETE',
         body: JSON.stringify({ mode: 'SOFT' })
       });
-      setSuccessMsg("Moved to Recycle Bin");
+      setSuccessMsg('Moved to Recycle Bin');
       fetchTables();
-      if (selectedTable === tableName) setSelectedTable(null);
-    } catch (e: any) { setError(e.message); }
+      if (selectedTable === deleteTableConfirm.table) setSelectedTable(null);
+      setDeleteTableConfirm(null);
+      setDeleteTablePassword('');
+      setDeleteTableError('');
+    } catch (e: any) { setDeleteTableError(e.message); }
   };
 
   const handleCopyStructure = async (tableName: string) => {
@@ -2075,6 +2095,53 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                 {executing ? <Loader2 className="animate-spin" size={16} /> : 'Save Format'}
               </button>
               <button onClick={() => setEditFormat(null)} className="mt-4 text-xs font-bold text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
+            </div>
+          </div>
+        )
+      }
+
+      {/* SECURE TABLE DELETION MODAL */}
+      {
+        deleteTableConfirm && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+            <div className="bg-white rounded-[3rem] p-10 max-w-sm w-full shadow-2xl border border-slate-200 text-center">
+              <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+                <Trash2 size={32} />
+              </div>
+              <h3 className="text-xl font-black text-slate-900 mb-2">Delete Table</h3>
+              <p className="text-xs text-slate-500 font-medium mb-1">
+                You are about to send <strong className="text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded">{deleteTableConfirm.table}</strong> to the Recycle Bin.
+              </p>
+              <p className="text-[10px] text-slate-400 font-bold mb-6">
+                Enter your admin password to confirm this action.
+              </p>
+
+              <div className="space-y-4 mb-8 text-left">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Admin Password</label>
+                  <input
+                    type="password"
+                    autoFocus
+                    value={deleteTablePassword}
+                    onChange={(e: any) => setDeleteTablePassword(e.target.value)}
+                    onKeyDown={(e: any) => { if (e.key === 'Enter' && deleteTablePassword) handleDeleteTableConfirm(); }}
+                    placeholder="••••••••"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none focus:ring-2 focus:ring-rose-500/20"
+                  />
+                </div>
+                {deleteTableError && (
+                  <div className="flex items-center gap-2 text-xs font-bold text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-4 py-2">
+                    <AlertCircle size={14} /> {deleteTableError}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-4">
+                <button onClick={() => { setDeleteTableConfirm(null); setDeleteTablePassword(''); setDeleteTableError(''); }} disabled={executing} className="flex-1 py-4 text-xs font-black text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-colors disabled:opacity-50">Cancel</button>
+                <button onClick={handleDeleteTableConfirm} disabled={executing || !deleteTablePassword} className="flex-[2] py-4 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-rose-600/20 transition-all flex justify-center items-center gap-2 disabled:opacity-50">
+                  {executing ? <Loader2 size={16} className="animate-spin" /> : <><Trash2 size={16} /> Delete</>}
+                </button>
+              </div>
             </div>
           </div>
         )

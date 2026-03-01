@@ -217,6 +217,26 @@ export class DataController {
             }
             // --- END FORMAT VALIDATION ---
 
+            // --- UNIVERSAL PADLOCK ENFORCEMENT (INSERT) ---
+            // Lock levels are absolute — they override everything, including RLS.
+            // IMMUTABLE columns are silently stripped from the payload so the DB DEFAULT handles them.
+            const lockedColumns: Record<string, string> = req.project.metadata?.locked_columns || {};
+            for (let i = 0; i < rows.length; i++) {
+                for (const colName of Object.keys(rows[i])) {
+                    const lockLevel = lockedColumns[colName];
+                    if (lockLevel === 'immutable') {
+                        delete rows[i][colName]; // Strip — DB DEFAULT or trigger will handle it
+                    }
+                    // service_role_only: block non-service_role users
+                    if (lockLevel === 'service_role_only' && req.userRole !== 'service_role') {
+                        return res.status(403).json({
+                            error: `Security Lock Violation: Column "${colName}" is restricted to SERVICE ROLE ONLY.`
+                        });
+                    }
+                }
+            }
+            // --- END UNIVERSAL PADLOCK ---
+
             const allKeys = new Set<string>();
             rows.forEach(row => Object.keys(row).forEach(k => allKeys.add(k)));
 
@@ -281,6 +301,29 @@ export class DataController {
                 }
             }
             // --- END FORMAT VALIDATION ---
+
+            // --- UNIVERSAL PADLOCK ENFORCEMENT (UPDATE) ---
+            // Lock levels are absolute — they override everything, including RLS.
+            const lockedColumns: Record<string, string> = req.project.metadata?.locked_columns || {};
+            for (const colName of Object.keys(data)) {
+                const lockLevel = lockedColumns[colName];
+                if (lockLevel === 'immutable') {
+                    return res.status(403).json({
+                        error: `Security Lock Violation: Column "${colName}" is IMMUTABLE — cannot be modified via INSERT or UPDATE.`
+                    });
+                }
+                if (lockLevel === 'insert_only') {
+                    return res.status(403).json({
+                        error: `Security Lock Violation: Column "${colName}" is INSERT ONLY — cannot be updated after creation.`
+                    });
+                }
+                if (lockLevel === 'service_role_only' && req.userRole !== 'service_role') {
+                    return res.status(403).json({
+                        error: `Security Lock Violation: Column "${colName}" is restricted to SERVICE ROLE ONLY.`
+                    });
+                }
+            }
+            // --- END UNIVERSAL PADLOCK ---
 
             const updates = Object.keys(data).map((k, i) => `${quoteId(k)} = $${i + 1}`).join(', ');
             const values = Object.values(data);
