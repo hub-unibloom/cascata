@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Terminal, Play, Loader2, Sparkles, History, X, CheckCircle2 } from 'lucide-react';
+import { Terminal, Play, Loader2, Sparkles, History, X, CheckCircle2, Save } from 'lucide-react';
 
 interface SqlConsoleProps {
     onExecute: (sql: string) => Promise<any>;
@@ -205,6 +205,7 @@ const SqlConsole: React.FC<SqlConsoleProps> = ({ onExecute, onFix, onInterceptCr
     const [error, setError] = useState<string | null>(null);
     const [isFixing, setIsFixing] = useState(false);
     const [showHistory, setShowHistory] = useState(true);
+    const [saveFlash, setSaveFlash] = useState(false);
 
     // Ref to track projectId for history persistence
     const projectIdRef = useRef(projectId);
@@ -266,6 +267,15 @@ const SqlConsole: React.FC<SqlConsoleProps> = ({ onExecute, onFix, onInterceptCr
             e.preventDefault();
             handleRun();
         }
+        // Ctrl+S → save to history without executing
+        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+            e.preventDefault();
+            if (query.trim()) {
+                addToHistory(query);
+                setSaveFlash(true);
+                setTimeout(() => setSaveFlash(false), 1200);
+            }
+        }
     };
 
     const handleFix = async () => {
@@ -313,15 +323,20 @@ const SqlConsole: React.FC<SqlConsoleProps> = ({ onExecute, onFix, onInterceptCr
 
             {/* Main Area */}
             <div className="flex-1 flex overflow-hidden">
-                <div className="flex-1 flex flex-col min-w-0">
+                <div className="flex-1 flex flex-col min-w-0 relative">
                     <textarea
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
                         onKeyDown={handleKeyDown}
                         className="flex-1 bg-[#0B0F19] text-emerald-400 font-mono text-sm p-6 outline-none resize-none leading-relaxed"
-                        placeholder="SELECT * FROM users...  (Ctrl+Enter to run)"
+                        placeholder="SELECT * FROM users...  (Ctrl+Enter to run · Ctrl+S to save)"
                         spellCheck="false"
                     />
+                    {saveFlash && (
+                        <div className="absolute top-3 right-3 flex items-center gap-2 px-3 py-1.5 bg-emerald-500/20 text-emerald-400 rounded-lg text-xs font-bold animate-in fade-in zoom-in-95 duration-200">
+                            <Save size={12} /> Saved to history
+                        </div>
+                    )}
 
                     {/* Result Panel */}
                     {(result || error) && (

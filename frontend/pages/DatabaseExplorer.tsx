@@ -269,6 +269,27 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   // Refs for Sql Console State Lifting
   const [sqlInitial, setSqlInitial] = useState('');
 
+  // --- GLOBAL ESC HANDLER: CLOSE ANY OPEN MODAL/DRAWER/POPUP ---
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      // Priority order: innermost popups first, then modals, then drawers
+      if (recycleBinAction) { setRecycleBinAction(null); setRecycleBinPassword(''); setRecycleBinError(''); return; }
+      if (showRecycleBinModal) { setShowRecycleBinModal(false); return; }
+      if (editLock) { setEditLock(null); return; }
+      if (columnContextMenu) { setColumnContextMenu(null); return; }
+      if (impactScan) { setImpactScan(null); return; }
+      if (tableImpactScan) { setTableImpactScan(null); return; }
+      if (showAddColumn) { setShowAddColumn(false); return; }
+      if (showImportModal) { setShowImportModal(false); return; }
+      if (showExportMenu) { setShowExportMenu(false); return; }
+      if (showExtensions) { setShowExtensions(false); return; }
+      if (showCreateTable) { setShowCreateTable(false); setInitialColumns(undefined); return; }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [recycleBinAction, showRecycleBinModal, editLock, columnContextMenu, impactScan, tableImpactScan, showAddColumn, showImportModal, showExportMenu, showExtensions, showCreateTable]);
+
   // --- NOTIFICATION AUTO-DISMISS (3.8s with hover pause) ---
   const notifyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notifyStartRef = useRef<number>(0);
@@ -454,9 +475,12 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
 
   const verifyAdminPassword = async (password: string): Promise<boolean> => {
     try {
-      const res = await fetch('/api/control/auth/login', {
+      const res = await fetch('/api/control/auth/verify', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('cascata_token')}`
+        },
         body: JSON.stringify({ password })
       });
       return res.ok;
@@ -1505,7 +1529,19 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
         projectId={projectId}
         fetchWithAuth={fetchWithAuth}
         onSqlGenerated={handleSqlFromDrawer}
-        onSqlSaveToEditor={(sql: string) => { setSqlInitial(sql); setActiveTab('query'); }}
+        onSqlSaveToEditor={(sql: string) => {
+          setSqlInitial(sql);
+          setActiveTab('query');
+          // Also save to SQL history (localStorage) so it appears in the history sidebar
+          try {
+            const histKey = `cascata_sql_history_${projectId}`;
+            const raw = localStorage.getItem(histKey);
+            const hist: string[] = raw ? JSON.parse(raw) : [];
+            const filtered = hist.filter((h: string) => h !== sql);
+            const next = [sql, ...filtered].slice(0, 50);
+            localStorage.setItem(histKey, JSON.stringify(next));
+          } catch { /* non-fatal */ }
+        }}
         initialTableName={newTableName}
         initialColumns={initialColumns}
       />

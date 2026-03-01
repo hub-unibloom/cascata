@@ -58,22 +58,32 @@ const CellEditorPortal: React.FC<{
     const normalizedType = (colType || '').toLowerCase();
     const isBool = normalizedType.includes('bool');
     const isJson = normalizedType === 'json' || normalizedType === 'jsonb';
+    const isDate = normalizedType === 'date';
+    const isTimestamp = normalizedType.includes('timestamp');
+    const isTime = (normalizedType === 'time' || normalizedType.includes('time without') || normalizedType.includes('time with')) && !isTimestamp;
+    const isMoney = normalizedType === 'money';
+    const isNumeric = normalizedType.includes('int') || normalizedType.includes('numeric') || normalizedType.includes('decimal') || normalizedType.includes('float') || normalizedType.includes('double') || normalizedType === 'real' || normalizedType === 'smallserial' || normalizedType === 'serial' || normalizedType === 'bigserial';
+    const isSpecialInput = isDate || isTimestamp || isTime || isMoney || isNumeric;
 
     // For JSON/JSONB: if cell is empty/null, initialize with {}
     const initialValue = isJson && (!value || value === '' || value === 'null') ? '{}' : value;
 
     const [editVal, setEditVal] = useState(initialValue);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const isSaving = useRef(false);
 
     useEffect(() => {
         if (!isBool) {
-            textareaRef.current?.focus();
-            // Auto-select all text on open
-            textareaRef.current?.select();
+            if (isSpecialInput) {
+                inputRef.current?.focus();
+            } else {
+                textareaRef.current?.focus();
+                textareaRef.current?.select();
+            }
         }
-    }, [isBool]);
+    }, [isBool, isSpecialInput]);
 
     // Click outside to save
     useEffect(() => {
@@ -105,7 +115,7 @@ const CellEditorPortal: React.FC<{
         left: rect.left - 2,
         width: Math.max(rect.width + 4, 200),
         minHeight: rect.height + 4,
-        maxHeight: isBool ? 'none' : 200,
+        maxHeight: isBool || isSpecialInput ? 'none' : 200,
         zIndex: 9999,
     };
 
@@ -132,6 +142,121 @@ const CellEditorPortal: React.FC<{
                         </option>
                     ))}
                 </select>
+            </div>,
+            document.body
+        );
+    }
+
+    // --- Date Input ---
+    if (isDate) {
+        return createPortal(
+            <div ref={containerRef} style={style} className="animate-in fade-in zoom-in-95 duration-100">
+                <input
+                    ref={inputRef}
+                    type="date"
+                    value={editVal}
+                    onChange={e => setEditVal(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    className="w-full px-4 py-2 bg-white outline-none border-2 border-indigo-500 rounded-lg shadow-2xl text-xs font-medium text-slate-700"
+                    style={{ minHeight: rect.height + 4 }}
+                />
+                <div className="absolute -bottom-5 left-1 text-[9px] font-bold text-slate-400 bg-white/90 px-2 py-0.5 rounded shadow-sm">
+                    Enter save · Esc cancel
+                </div>
+            </div>,
+            document.body
+        );
+    }
+
+    // --- Timestamp / DateTime Input ---
+    if (isTimestamp) {
+        // Convert ISO format to datetime-local compatible format if needed
+        const dtValue = editVal ? editVal.substring(0, 19).replace('T', 'T') : '';
+        return createPortal(
+            <div ref={containerRef} style={style} className="animate-in fade-in zoom-in-95 duration-100">
+                <input
+                    ref={inputRef}
+                    type="datetime-local"
+                    step="1"
+                    value={dtValue}
+                    onChange={e => setEditVal(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    className="w-full px-4 py-2 bg-white outline-none border-2 border-indigo-500 rounded-lg shadow-2xl text-xs font-medium text-slate-700"
+                    style={{ minHeight: rect.height + 4 }}
+                />
+                <div className="absolute -bottom-5 left-1 text-[9px] font-bold text-slate-400 bg-white/90 px-2 py-0.5 rounded shadow-sm">
+                    Enter save · Esc cancel
+                </div>
+            </div>,
+            document.body
+        );
+    }
+
+    // --- Time Input ---
+    if (isTime) {
+        return createPortal(
+            <div ref={containerRef} style={style} className="animate-in fade-in zoom-in-95 duration-100">
+                <input
+                    ref={inputRef}
+                    type="time"
+                    step="1"
+                    value={editVal}
+                    onChange={e => setEditVal(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    className="w-full px-4 py-2 bg-white outline-none border-2 border-indigo-500 rounded-lg shadow-2xl text-xs font-medium text-slate-700"
+                    style={{ minHeight: rect.height + 4 }}
+                />
+                <div className="absolute -bottom-5 left-1 text-[9px] font-bold text-slate-400 bg-white/90 px-2 py-0.5 rounded shadow-sm">
+                    Enter save · Esc cancel
+                </div>
+            </div>,
+            document.body
+        );
+    }
+
+    // --- Money Input ---
+    if (isMoney) {
+        // Strip $ and commas from money format for editing
+        const cleanVal = editVal.replace(/[$,]/g, '').trim();
+        return createPortal(
+            <div ref={containerRef} style={style} className="animate-in fade-in zoom-in-95 duration-100">
+                <div className="flex items-center w-full px-4 py-2 bg-white border-2 border-indigo-500 rounded-lg shadow-2xl" style={{ minHeight: rect.height + 4 }}>
+                    <span className="text-xs font-bold text-slate-400 mr-1">$</span>
+                    <input
+                        ref={inputRef}
+                        type="number"
+                        step="0.01"
+                        value={cleanVal}
+                        onChange={e => setEditVal(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        className="w-full bg-transparent outline-none text-xs font-medium text-slate-700"
+                    />
+                </div>
+                <div className="absolute -bottom-5 left-1 text-[9px] font-bold text-slate-400 bg-white/90 px-2 py-0.5 rounded shadow-sm">
+                    Enter save · Esc cancel
+                </div>
+            </div>,
+            document.body
+        );
+    }
+
+    // --- Numeric Input ---
+    if (isNumeric) {
+        return createPortal(
+            <div ref={containerRef} style={style} className="animate-in fade-in zoom-in-95 duration-100">
+                <input
+                    ref={inputRef}
+                    type="number"
+                    step={normalizedType.includes('int') ? '1' : '0.01'}
+                    value={editVal}
+                    onChange={e => setEditVal(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    className="w-full px-4 py-2 bg-white outline-none border-2 border-indigo-500 rounded-lg shadow-2xl text-xs font-medium text-slate-700"
+                    style={{ minHeight: rect.height + 4 }}
+                />
+                <div className="absolute -bottom-5 left-1 text-[9px] font-bold text-slate-400 bg-white/90 px-2 py-0.5 rounded shadow-sm">
+                    Enter save · Esc cancel
+                </div>
             </div>,
             document.body
         );
@@ -602,20 +727,99 @@ const TablePanel = forwardRef<TablePanelHandle, TablePanelProps>(({
                         {/* INLINE ROW */}
                         <tr className="bg-indigo-50/30 border-b border-indigo-100 group">
                             <td className="p-0 text-center border-r border-slate-200 bg-indigo-50/50 sticky left-0 z-20"><Plus size={13} className="mx-auto text-indigo-400" /></td>
-                            {displayColumns.map((col: any, idx) => (
-                                <td key={col.name} className="p-0 border-r border-slate-200 relative">
-                                    <div className="h-9">
-                                        <input
-                                            ref={idx === 0 ? firstInputRef : undefined}
-                                            value={inlineNewRow[col.name] || ''}
-                                            onChange={(e: any) => setInlineNewRow({ ...inlineNewRow, [col.name]: e.target.value })}
-                                            className="w-full bg-transparent outline-none text-xs font-medium text-slate-700 h-full px-2 placeholder:text-slate-300"
-                                            placeholder={getSmartPlaceholder(col)}
-                                            onKeyDown={(e: any) => e.key === 'Enter' && handleInlineSave()}
-                                        />
-                                    </div>
-                                </td>
-                            ))}
+                            {displayColumns.map((col: any, idx) => {
+                                const colType = (col.type || '').toLowerCase();
+                                const isBool = colType.includes('bool');
+                                const isDate = colType === 'date';
+                                const isTimestamp = colType.includes('timestamp');
+                                const isTime = colType === 'time' || colType.includes('time without') || colType.includes('time with');
+                                const isMoney = colType === 'money';
+                                const isNumeric = colType.includes('int') || colType.includes('numeric') || colType.includes('decimal') || colType.includes('float') || colType.includes('double') || colType === 'real' || colType === 'smallserial' || colType === 'serial' || colType === 'bigserial';
+                                const isNullable = col.is_nullable === 'YES' || col.isNullable;
+
+                                return (
+                                    <td key={col.name} className="p-0 border-r border-slate-200 relative">
+                                        <div className="h-9 flex items-center">
+                                            {isBool ? (
+                                                <select
+                                                    ref={idx === 0 ? firstInputRef as any : undefined}
+                                                    value={inlineNewRow[col.name] || ''}
+                                                    onChange={(e: any) => setInlineNewRow({ ...inlineNewRow, [col.name]: e.target.value })}
+                                                    onKeyDown={(e: any) => e.key === 'Enter' && handleInlineSave()}
+                                                    className="w-full bg-transparent outline-none text-xs font-medium text-slate-700 h-full px-2 cursor-pointer"
+                                                >
+                                                    <option value="">{isNullable ? 'NULL' : '— select —'}</option>
+                                                    <option value="true">true</option>
+                                                    <option value="false">false</option>
+                                                </select>
+                                            ) : isDate ? (
+                                                <input
+                                                    ref={idx === 0 ? firstInputRef : undefined}
+                                                    type="date"
+                                                    value={inlineNewRow[col.name] || ''}
+                                                    onChange={(e: any) => setInlineNewRow({ ...inlineNewRow, [col.name]: e.target.value })}
+                                                    onKeyDown={(e: any) => e.key === 'Enter' && handleInlineSave()}
+                                                    className="w-full bg-transparent outline-none text-xs font-medium text-slate-700 h-full px-2"
+                                                />
+                                            ) : isTimestamp ? (
+                                                <input
+                                                    ref={idx === 0 ? firstInputRef : undefined}
+                                                    type="datetime-local"
+                                                    step="1"
+                                                    value={inlineNewRow[col.name] || ''}
+                                                    onChange={(e: any) => setInlineNewRow({ ...inlineNewRow, [col.name]: e.target.value })}
+                                                    onKeyDown={(e: any) => e.key === 'Enter' && handleInlineSave()}
+                                                    className="w-full bg-transparent outline-none text-xs font-medium text-slate-700 h-full px-2"
+                                                />
+                                            ) : isTime && !isTimestamp ? (
+                                                <input
+                                                    ref={idx === 0 ? firstInputRef : undefined}
+                                                    type="time"
+                                                    step="1"
+                                                    value={inlineNewRow[col.name] || ''}
+                                                    onChange={(e: any) => setInlineNewRow({ ...inlineNewRow, [col.name]: e.target.value })}
+                                                    onKeyDown={(e: any) => e.key === 'Enter' && handleInlineSave()}
+                                                    className="w-full bg-transparent outline-none text-xs font-medium text-slate-700 h-full px-2"
+                                                />
+                                            ) : isMoney ? (
+                                                <div className="flex items-center h-full w-full">
+                                                    <span className="text-[10px] font-bold text-slate-400 pl-2">$</span>
+                                                    <input
+                                                        ref={idx === 0 ? firstInputRef : undefined}
+                                                        type="number"
+                                                        step="0.01"
+                                                        value={inlineNewRow[col.name] || ''}
+                                                        onChange={(e: any) => setInlineNewRow({ ...inlineNewRow, [col.name]: e.target.value })}
+                                                        onKeyDown={(e: any) => e.key === 'Enter' && handleInlineSave()}
+                                                        className="w-full bg-transparent outline-none text-xs font-medium text-slate-700 h-full px-1"
+                                                        placeholder="0.00"
+                                                    />
+                                                </div>
+                                            ) : isNumeric ? (
+                                                <input
+                                                    ref={idx === 0 ? firstInputRef : undefined}
+                                                    type="number"
+                                                    step={colType.includes('int') ? '1' : '0.01'}
+                                                    value={inlineNewRow[col.name] || ''}
+                                                    onChange={(e: any) => setInlineNewRow({ ...inlineNewRow, [col.name]: e.target.value })}
+                                                    onKeyDown={(e: any) => e.key === 'Enter' && handleInlineSave()}
+                                                    className="w-full bg-transparent outline-none text-xs font-medium text-slate-700 h-full px-2"
+                                                    placeholder={getSmartPlaceholder(col)}
+                                                />
+                                            ) : (
+                                                <input
+                                                    ref={idx === 0 ? firstInputRef : undefined}
+                                                    value={inlineNewRow[col.name] || ''}
+                                                    onChange={(e: any) => setInlineNewRow({ ...inlineNewRow, [col.name]: e.target.value })}
+                                                    className="w-full bg-transparent outline-none text-xs font-medium text-slate-700 h-full px-2 placeholder:text-slate-300"
+                                                    placeholder={getSmartPlaceholder(col)}
+                                                    onKeyDown={(e: any) => e.key === 'Enter' && handleInlineSave()}
+                                                />
+                                            )}
+                                        </div>
+                                    </td>
+                                );
+                            })}
                             {onAddColumn && (
                                 <td className="p-0 text-center bg-indigo-50/50"><button onClick={handleInlineSave} disabled={executing} className="w-full h-full flex items-center justify-center text-indigo-600 hover:bg-indigo-100 transition-colors"><Save size={13} /></button></td>
                             )}

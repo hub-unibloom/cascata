@@ -1,34 +1,47 @@
-1º Ponto:
-Havíamos implementado um recurso que, ao criar uma tabela pelo SQL Editor, identificava o comando de criação de tabela e sugeria adicionar o “Universal Security Lock” nos campos. Mas, infelizmente, ele foi mal implementado. Além da solução ter ficado em um nível muito MVP, que não é coeso com a nossa arquitetura e com o nível de qualidade que exigimos (bank enterprise militar grade), ela foi imatura, mal feita e preguiçosa. Espero que você possa dar uma revisada nessa questão e, além de fazer uma checagem minuciosa para fazer corretamente, você também deve implementar agora com o nível de qualidade funcional requerido. Por favor, analise cuidadosamente e corrija essa falha vergonhosa, no momento ele nem funcioana ele da crash an tela.
+Aqui estão os itens a serem implementados, organizados claramente:
 
-2º Ponto:
-O nosso criador de tabelas no code, que é o modal/drawer, está com um pequeno defeito lógico que percebi: está dando para selecionar link com UUID ao mesmo tempo que seleciona array/list, o que tecnicamente não dá certo, pois UUIDs com REFERENCES não funcionam em PostgreSQL — foreign keys em arrays não são suportadas nativamente.
+---
 
-3º Ponto:
-Nosso pop-up “Add New Column” não está permitindo definir a coluna como array.
+**1. Autenticação — Senha incorreta ao deletar/restaurar**
+- Corrigir o endpoint/lógica que retorna `{"error":"Invalid credentials"}` ao tentar deletar ou restaurar, mesmo com senha correta
+- Usar o mesmo mecanismo de autenticação que já funciona nos demais pontos do sistema
 
-4º Ponto:
-Em referências/link, tanto no pop-up de adicionar coluna quanto no drawer/modal, não está sendo possível escolher outro schema na hora da linkagem. Logicamente, o primeiro dropdown dessa questão já deveria vir selecionado no schema public, mas deverá também listar os demais schemas. Quanto aos outros dois dropdowns existentes, devem continuar existindo: o de tabela e o de coluna.
+---
 
-5º Ponto:
-Exportar dados na tabela está funcionando de forma errada: ele está exportando tudo, mesmo eu tendo selecionado os que eu desejo. O certo deveria ser: “se selecionar nenhuma = aí exporta toda a tabela” no formato desejado; se selecionar uma ou mais, então exporta somente as rows selecionadas.
+**2. TableCreatorDrawer — Atalhos de teclado**
+- `Ctrl+Enter` → executar a query (mesmo comportamento do botão "Generate & Execute SQL")
+- `Ctrl+S` → salvar a query no histórico SQL **e** abrir no SQL Editor (mesmo sem ter executado)
 
-6º Ponto:
-Eu acho que o schema “extensions” deveria ser criado desde a subida; ou seja, deveria ter uma migrations SQL para ele.
+---
 
-7º Ponto:
-O histórico do SQL Editor não está funcionando.
+**3. SQL Editor — Ctrl+S no histórico**
+- `Ctrl+S` deve salvar o comando no histórico mesmo sem executar
+- Atualmente só salva ao executar — corrigir esse comportamento
 
-8º Ponto:
-Ao inserir uma nova coluna, a tabela não está atualizando.
+---
 
-9º Ponto:
-As notificações que aparecem na tela, seja de erro ou de sucesso, deveriam sumir automaticamente e não deveriam ter botão de fechar. Deveria ter o ícone de copiar e, se o mouse pairar sobre a notificação, ela deveria ficar em “pause” no tempo de sumir automaticamente. Tipo assim: o tempo é de 5 segundos; então, se a pessoa parou o mouse em cima, o tempo de contagem regressiva pausa; depois, quando a pessoa tirar o mouse de cima ou clicar em copiar, aí ela some.
+**4. TablePanel — Edição de célula**
+- Alterar atalhos do textarea: `Enter` = salvar · `Ctrl+Shift+Enter` = nova linha · `Esc` = cancelar
+- Atualizar o tooltip para: `"Ctrl+Shift new line · Enter save · Esc cancel"`
+- Campos booleanos (`true`/`false`) devem abrir **dropdown**, não textarea
+- Campos JSON/JSONB vazios devem iniciar com `{}` ao abrir edição
+- Aplicar diferenciação similar para outros tipos que não fazem sentido como textarea livre
+- Após editar ou excluir coluna, **atualizar a tabela automaticamente** (sem precisar recarregar manualmente)
 
-10º Ponto:
-O ícone de atualizar não está atualizando a lista de tabelas nem a tabela atual (estou falando do ícone que fica ao lado do ícone de abrir o drawer/modal e criar tabelas de maneira no code).
+---
 
-11º Ponto:
-Tem uma tag na tabela escrita “Live”, mas nem tem nada de live nela. Eu pensei no seguinte: ao clicar nela, ela fica verde e aí sim o live fica ligado. Mas, normalmente, ela fica desligada no design (do jeito que está, sem ser ao vivo). Se clicar nela, aí liga o modo ao vivo e dá para acompanhar, em tempo real, os dados da tabela.
+**5. Campos de inserção inteligente (nova linha)**
+- Campos de **data** devem abrir calendário/datepicker
+- Campos **money/numeric monetário** devem exibir símbolo automático
+- Todos os tipos especiais que já funcionam na edição devem funcionar também na **inserção de nova linha**
+- Exceção: JSON e JSONB só precisam do tratamento na edição
 
- 
+---
+
+**6. ESC para fechar popups e drawers**
+- Pressionar `Esc` deve fechar **qualquer** popup, modal ou drawer aberto
+- Atualmente nenhum fecha com Esc — corrigir globalmente
+
+---
+
+**Antes de implementar qualquer item:** analisar os arquivos relevantes para entender o que já está parcialmente feito e aprimorar cirurgicamente — sem remover nada do que funciona.
