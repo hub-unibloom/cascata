@@ -1,3 +1,34 @@
+1º Ponto:
+Havíamos implementado um recurso que, ao criar uma tabela pelo SQL Editor, identificava o comando de criação de tabela e sugeria adicionar o “Universal Security Lock” nos campos. Mas, infelizmente, ele foi mal implementado. Além da solução ter ficado em um nível muito MVP, que não é coeso com a nossa arquitetura e com o nível de qualidade que exigimos (bank enterprise militar grade), ela foi imatura, mal feita e preguiçosa. Espero que você possa dar uma revisada nessa questão e, além de fazer uma checagem minuciosa para fazer corretamente, você também deve implementar agora com o nível de qualidade funcional requerido. Por favor, analise cuidadosamente e corrija essa falha vergonhosa, no momento ele nem funcioana ele da crash an tela.
 
+2º Ponto:
+O nosso criador de tabelas no code, que é o modal/drawer, está com um pequeno defeito lógico que percebi: está dando para selecionar link com UUID ao mesmo tempo que seleciona array/list, o que tecnicamente não dá certo, pois UUIDs com REFERENCES não funcionam em PostgreSQL — foreign keys em arrays não são suportadas nativamente.
+
+3º Ponto:
+Nosso pop-up “Add New Column” não está permitindo definir a coluna como array.
+
+4º Ponto:
+Em referências/link, tanto no pop-up de adicionar coluna quanto no drawer/modal, não está sendo possível escolher outro schema na hora da linkagem. Logicamente, o primeiro dropdown dessa questão já deveria vir selecionado no schema public, mas deverá também listar os demais schemas. Quanto aos outros dois dropdowns existentes, devem continuar existindo: o de tabela e o de coluna.
+
+5º Ponto:
+Exportar dados na tabela está funcionando de forma errada: ele está exportando tudo, mesmo eu tendo selecionado os que eu desejo. O certo deveria ser: “se selecionar nenhuma = aí exporta toda a tabela” no formato desejado; se selecionar uma ou mais, então exporta somente as rows selecionadas.
+
+6º Ponto:
+Eu acho que o schema “extensions” deveria ser criado desde a subida; ou seja, deveria ter uma migrations SQL para ele.
+
+7º Ponto:
+O histórico do SQL Editor não está funcionando.
+
+8º Ponto:
+Ao inserir uma nova coluna, a tabela não está atualizando.
+
+9º Ponto:
+As notificações que aparecem na tela, seja de erro ou de sucesso, deveriam sumir automaticamente e não deveriam ter botão de fechar. Deveria ter o ícone de copiar e, se o mouse pairar sobre a notificação, ela deveria ficar em “pause” no tempo de sumir automaticamente. Tipo assim: o tempo é de 5 segundos; então, se a pessoa parou o mouse em cima, o tempo de contagem regressiva pausa; depois, quando a pessoa tirar o mouse de cima ou clicar em copiar, aí ela some.
+
+10º Ponto:
+O ícone de atualizar não está atualizando a lista de tabelas nem a tabela atual (estou falando do ícone que fica ao lado do ícone de abrir o drawer/modal e criar tabelas de maneira no code).
+
+11º Ponto:
+Tem uma tag na tabela escrita “Live”, mas nem tem nada de live nela. Eu pensei no seguinte: ao clicar nela, ela fica verde e aí sim o live fica ligado. Mas, normalmente, ela fica desligada no design (do jeito que está, sem ser ao vivo). Se clicar nela, aí liga o modo ao vivo e dá para acompanhar, em tempo real, os dados da tabela.
 
  

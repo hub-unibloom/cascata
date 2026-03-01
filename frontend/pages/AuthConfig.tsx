@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 
 const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
-    const [activeTab, setActiveTab] = useState<'directory' | 'configuration'>('directory');
+    const [activeSection, setActiveSection] = useState<'users' | 'strategies' | 'messaging' | 'security' | 'apps' | 'schema'>('users');
 
     // DIRECTORY STATE
     const [users, setUsers] = useState<any[]>([]);
@@ -755,7 +755,7 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
     };
 
     return (
-        <div className="flex h-full flex-col bg-[#F8FAFC]">
+        <div className="flex h-full bg-[#F8FAFC]">
             {(error || success) && (
                 <div className={`fixed top-8 left-1/2 -translate-x-1/2 z-[600] px-6 py-4 rounded-full shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-4 ${error ? 'bg-rose-600 text-white' : 'bg-emerald-600 text-white'}`}>
                     {error ? <AlertCircle size={18} /> : <CheckCircle2 size={18} />}
@@ -764,30 +764,66 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                 </div>
             )}
 
-            {/* HEADER SECTION */}
-            <header className="px-10 py-8 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
-                <div className="flex items-center gap-6">
-                    <div className="w-14 h-14 bg-slate-900 text-white rounded-[1.5rem] flex items-center justify-center shadow-xl">
-                        <Fingerprint size={28} />
-                    </div>
-                    <div>
-                        <h2 className="text-3xl font-black text-slate-900 tracking-tighter leading-none">Auth Services</h2>
-                        <p className="text-[10px] text-indigo-600 font-bold uppercase tracking-[0.2em] mt-1">Identity & Access Management</p>
-                    </div>
-                </div>
-
-                <div className="flex items-center gap-4">
-                    <div className="flex items-center bg-slate-100 p-1 rounded-xl mr-4">
-                        <button onClick={() => setActiveTab('directory')} className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${activeTab === 'directory' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>Directory</button>
-                        <button onClick={() => setActiveTab('configuration')} className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${activeTab === 'configuration' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>Configuration</button>
+            {/* SIDEBAR NAVIGATION */}
+            <nav className="w-[260px] bg-white border-r border-slate-200 shrink-0 flex flex-col">
+                <div className="p-6 border-b border-slate-100">
+                    <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 bg-slate-900 text-white rounded-2xl flex items-center justify-center shadow-lg">
+                            <Fingerprint size={22} />
+                        </div>
+                        <div>
+                            <h2 className="text-lg font-black text-slate-900 tracking-tight leading-none">Auth</h2>
+                            <p className="text-[9px] text-indigo-600 font-bold uppercase tracking-[0.15em] mt-0.5">Identity & Access</p>
+                        </div>
                     </div>
                 </div>
-            </header>
+                <div className="flex-1 p-3 space-y-1 overflow-y-auto">
+                    {[
+                        { id: 'users' as const, icon: Users, label: 'Users', desc: 'Directory & Sessions', count: users.length },
+                        { id: 'strategies' as const, icon: Key, label: 'Strategies', desc: 'Identity Providers', count: Object.keys(strategies).length },
+                        { id: 'messaging' as const, icon: Send, label: 'Messaging', desc: 'Templates & Gateway' },
+                        { id: 'security' as const, icon: ShieldAlert, label: 'Security', desc: 'Lockout & Policies' },
+                        { id: 'apps' as const, icon: Plug, label: 'App Clients', desc: 'Keys & Origins', count: appClients.length },
+                        { id: 'schema' as const, icon: Layers, label: 'Schema', desc: 'Table Linking' },
+                    ].map(item => (
+                        <button
+                            key={item.id}
+                            onClick={() => setActiveSection(item.id)}
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all text-left group ${activeSection === item.id
+                                ? 'bg-indigo-50 text-indigo-700'
+                                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+                                }`}
+                        >
+                            <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-colors ${activeSection === item.id ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-400 group-hover:bg-slate-200'
+                                }`}>
+                                <item.icon size={18} />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <div className="flex items-center justify-between">
+                                    <span className={`text-xs font-black uppercase tracking-widest ${activeSection === item.id ? 'text-indigo-700' : ''}`}>{item.label}</span>
+                                    {item.count !== undefined && item.count > 0 && (
+                                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md ${activeSection === item.id ? 'bg-indigo-200 text-indigo-700' : 'bg-slate-100 text-slate-400'}`}>{item.count}</span>
+                                    )}
+                                </div>
+                                <p className="text-[9px] font-medium text-slate-400 truncate mt-0.5">{item.desc}</p>
+                            </div>
+                        </button>
+                    ))}
+                </div>
+                <div className="p-4 border-t border-slate-100">
+                    <div className="text-[8px] font-bold text-slate-300 uppercase tracking-widest text-center">Cascata Auth Engine</div>
+                </div>
+            </nav>
 
-            <div className="flex-1 overflow-hidden p-10 overflow-y-auto">
-                {activeTab === 'directory' ? (
-                    // DIRECTORY VIEW
-                    <div className="space-y-6">
+            {/* MAIN CONTENT */}
+            <div className="flex-1 overflow-y-auto">
+                {/* USERS SECTION */}
+                {activeSection === 'users' && (
+                    <div className="p-10">
+                        <div className="mb-8">
+                            <h2 className="text-3xl font-black text-slate-900 tracking-tighter">User Directory</h2>
+                            <p className="text-xs text-slate-400 font-bold mt-1">Manage identities, sessions, and access across all strategies.</p>
+                        </div>
                         <div className="flex justify-between items-center bg-white p-4 rounded-[2rem] shadow-sm border border-slate-100">
                             <div className="flex items-center gap-4">
                                 <div className="relative group">
@@ -883,468 +919,497 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                             <button disabled={page === totalPages} onClick={() => setPage(p => p + 1)} className="p-3 rounded-xl bg-white border border-slate-200 disabled:opacity-50 hover:bg-slate-50"><ChevronRight size={16} /></button>
                         </div>
                     </div>
-                ) : (
-                    <div className="space-y-12 pb-20">
+                )}
 
-                        {/* IDENTITY-AWARE APP CLIENTS */}
-                        <div className="bg-white border border-slate-200 rounded-[3rem] p-12 shadow-sm">
-                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center"><Layers size={20} /></div>
-                                    <div>
-                                        <h3 className="text-2xl font-black text-slate-900 tracking-tight">App Clients</h3>
-                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Identity-Aware Keys & Origins</p>
-                                    </div>
-                                </div>
-                                <button onClick={() => setShowAppClientModal(true)} className="bg-slate-900 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-slate-800 transition-all shrink-0">
-                                    <Plus size={16} /> New App Client
-                                </button>
-                            </div>
-
-                            <div className="space-y-6">
-                                {/* BASE CLIENT */}
-                                <div className="p-6 rounded-[2rem] border border-slate-200 bg-slate-50 flex flex-col gap-4">
-                                    <div className="flex justify-between items-center">
-                                        <div>
-                                            <h4 className="font-bold text-indigo-900 flex items-center gap-2"><Lock size={14} /> Default Client (Base Key)</h4>
-                                            <p className="text-[10px] text-slate-500 mt-1">Primary fallback anon_key for older apps and API Docs.</p>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Global Site URL</label>
-                                        <div className="flex gap-2">
-                                            <input value={siteUrl} onChange={(e) => setSiteUrl(e.target.value)} placeholder="https://app.cascata.io" className="flex-1 bg-white border border-slate-200 rounded-xl py-2 px-4 text-xs font-bold font-mono outline-none" />
-                                            <button onClick={handleSaveSiteUrl} disabled={executing} className="bg-indigo-600 text-white px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-indigo-700 transition-all">Save</button>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* SPECIFIC CLIENTS */}
-                                {appClients.map(client => (
-                                    <div key={client.id} className="p-6 rounded-[2rem] border border-slate-200 bg-white shadow-sm flex flex-col gap-4 relative group">
-                                        <button onClick={() => handleDeleteAppClient(client.id)} className="absolute top-6 right-6 text-slate-300 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100 bg-white p-2 rounded-lg shadow-sm">
-                                            <Trash2 size={16} />
-                                        </button>
-                                        <div className="pr-10">
-                                            <h4 className="font-bold text-slate-900">{client.name}</h4>
-                                            <div className="flex items-center gap-2 mt-2">
-                                                <code className="text-[10px] bg-slate-100 text-slate-600 px-2 py-1 rounded truncate flex-1">{client.anon_key}</code>
-                                                <button onClick={() => safeCopy(client.anon_key)} className="text-slate-400 hover:text-indigo-600"><Copy size={14} /></button>
-                                            </div>
-                                        </div>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2 pt-4 border-t border-slate-100">
-                                            <div>
-                                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Site URL (Fallback)</label>
-                                                <p className="text-[11px] font-mono font-bold text-slate-700 mt-1 truncate w-full">{client.site_url}</p>
-                                            </div>
-                                            <div>
-                                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Allowed Origins (CORS)</label>
-                                                <p className="text-[10px] font-medium text-slate-500 mt-1">{client.allowed_origins?.join(', ') || 'Global Wide Open'}</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
+                {/* APP CLIENTS SECTION */}
+                {activeSection === 'apps' && (
+                    <div className="p-10">
+                        <div className="mb-8">
+                            <h2 className="text-3xl font-black text-slate-900 tracking-tighter">App Clients</h2>
+                            <p className="text-xs text-slate-400 font-bold mt-1">Identity-aware API keys and allowed origins per application.</p>
                         </div>
+                        <div className="space-y-8">
 
-                        {/* GLOBAL IDENTITY POLICIES (REDESIGNED) */}
-                        <div className="bg-white border border-slate-200 rounded-[3rem] p-12 shadow-sm">
-                            <div className="flex items-center justify-between mb-8">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center"><MessageSquare size={20} /></div>
-                                    <div>
-                                        <h3 className="text-2xl font-black text-slate-900 tracking-tight">Messaging & Policies</h3>
-                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Global Identity Flows & Templates</p>
+                            {/* IDENTITY-AWARE APP CLIENTS */}
+                            <div className="bg-white border border-slate-200 rounded-[3rem] p-12 shadow-sm">
+                                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center"><Layers size={20} /></div>
+                                        <div>
+                                            <h3 className="text-2xl font-black text-slate-900 tracking-tight">App Clients</h3>
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Identity-Aware Keys & Origins</p>
+                                        </div>
                                     </div>
+                                    <button onClick={() => setShowAppClientModal(true)} className="bg-slate-900 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-slate-800 transition-all shrink-0">
+                                        <Plus size={16} /> New App Client
+                                    </button>
+                                </div>
+
+                                <div className="space-y-6">
+                                    {/* BASE CLIENT */}
+                                    <div className="p-6 rounded-[2rem] border border-slate-200 bg-slate-50 flex flex-col gap-4">
+                                        <div className="flex justify-between items-center">
+                                            <div>
+                                                <h4 className="font-bold text-indigo-900 flex items-center gap-2"><Lock size={14} /> Default Client (Base Key)</h4>
+                                                <p className="text-[10px] text-slate-500 mt-1">Primary fallback anon_key for older apps and API Docs.</p>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Global Site URL</label>
+                                            <div className="flex gap-2">
+                                                <input value={siteUrl} onChange={(e) => setSiteUrl(e.target.value)} placeholder="https://app.cascata.io" className="flex-1 bg-white border border-slate-200 rounded-xl py-2 px-4 text-xs font-bold font-mono outline-none" />
+                                                <button onClick={handleSaveSiteUrl} disabled={executing} className="bg-indigo-600 text-white px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-indigo-700 transition-all">Save</button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* SPECIFIC CLIENTS */}
+                                    {appClients.map(client => (
+                                        <div key={client.id} className="p-6 rounded-[2rem] border border-slate-200 bg-white shadow-sm flex flex-col gap-4 relative group">
+                                            <button onClick={() => handleDeleteAppClient(client.id)} className="absolute top-6 right-6 text-slate-300 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100 bg-white p-2 rounded-lg shadow-sm">
+                                                <Trash2 size={16} />
+                                            </button>
+                                            <div className="pr-10">
+                                                <h4 className="font-bold text-slate-900">{client.name}</h4>
+                                                <div className="flex items-center gap-2 mt-2">
+                                                    <code className="text-[10px] bg-slate-100 text-slate-600 px-2 py-1 rounded truncate flex-1">{client.anon_key}</code>
+                                                    <button onClick={() => safeCopy(client.anon_key)} className="text-slate-400 hover:text-indigo-600"><Copy size={14} /></button>
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2 pt-4 border-t border-slate-100">
+                                                <div>
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Site URL (Fallback)</label>
+                                                    <p className="text-[11px] font-mono font-bold text-slate-700 mt-1 truncate w-full">{client.site_url}</p>
+                                                </div>
+                                                <div>
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Allowed Origins (CORS)</label>
+                                                    <p className="text-[10px] font-medium text-slate-500 mt-1">{client.allowed_origins?.join(', ') || 'Global Wide Open'}</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
 
-                            {/* TABS */}
-                            <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl mb-8 w-fit">
-                                {['gateway', 'templates', 'library', 'policies'].map((t) => (
-                                    <button
-                                        key={t}
-                                        onClick={() => setEmailTab(t as any)}
-                                        className={`px-6 py-2.5 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${emailTab === t ? 'bg-white shadow text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
-                                    >
-                                        {t}
-                                    </button>
-                                ))}
-                            </div>
+                            {/* GLOBAL IDENTITY POLICIES (REDESIGNED) */}
+                        </div>
+                    </div>
+                )}
 
-                            {/* TAB 1: GATEWAY (PROVIDER CONFIG) */}
-                            {emailTab === 'gateway' && (
-                                <div className="space-y-8 animate-in fade-in slide-in-from-right-2">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                        <div className="space-y-4">
-                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Delivery Channels (Multi-Select)</label>
-                                            <div className="grid grid-cols-3 gap-3">
-                                                <button
-                                                    onClick={() => setEmailGateway({
-                                                        ...emailGateway,
-                                                        delivery_methods: (emailGateway.delivery_methods || []).includes('smtp')
-                                                            ? (emailGateway.delivery_methods || []).filter((m: string) => m !== 'smtp')
-                                                            : [...(emailGateway.delivery_methods || []), 'smtp']
-                                                    })}
-                                                    className={`py-4 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center gap-2 ${(emailGateway.delivery_methods || []).includes('smtp') ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-inner' : 'border-slate-200 text-slate-400'}`}>
-                                                    <Server size={18} /> SMTP
-                                                </button>
-                                                <button
-                                                    onClick={() => setEmailGateway({
-                                                        ...emailGateway,
-                                                        delivery_methods: (emailGateway.delivery_methods || []).includes('resend')
-                                                            ? (emailGateway.delivery_methods || []).filter((m: string) => m !== 'resend')
-                                                            : [...(emailGateway.delivery_methods || []), 'resend']
-                                                    })}
-                                                    className={`py-4 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center gap-2 ${(emailGateway.delivery_methods || []).includes('resend') ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-inner' : 'border-slate-200 text-slate-400'}`}>
-                                                    <Send size={18} /> Resend
-                                                </button>
-                                                <button
-                                                    onClick={() => setEmailGateway({
-                                                        ...emailGateway,
-                                                        delivery_methods: (emailGateway.delivery_methods || []).includes('webhook')
-                                                            ? (emailGateway.delivery_methods || []).filter((m: string) => m !== 'webhook')
-                                                            : [...(emailGateway.delivery_methods || []), 'webhook']
-                                                    })}
-                                                    className={`py-4 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center gap-2 ${(emailGateway.delivery_methods || []).includes('webhook') ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-inner' : 'border-slate-200 text-slate-400'}`}>
-                                                    <Plug size={18} /> Webhook
-                                                </button>
+                {/* MESSAGING SECTION */}
+                {activeSection === 'messaging' && (
+                    <div className="p-10">
+                        <div className="mb-8">
+                            <h2 className="text-3xl font-black text-slate-900 tracking-tighter">Messaging & Templates</h2>
+                            <p className="text-xs text-slate-400 font-bold mt-1">Configure delivery gateway, email templates, i18n template library, and identity policies.</p>
+                        </div>
+                        <div className="space-y-8">
+                            <div className="bg-white border border-slate-200 rounded-[3rem] p-12 shadow-sm">
+                                <div className="flex items-center justify-between mb-8">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center"><MessageSquare size={20} /></div>
+                                        <div>
+                                            <h3 className="text-2xl font-black text-slate-900 tracking-tight">Messaging & Policies</h3>
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Global Identity Flows & Templates</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* TABS */}
+                                <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl mb-8 w-fit">
+                                    {['gateway', 'templates', 'library', 'policies'].map((t) => (
+                                        <button
+                                            key={t}
+                                            onClick={() => setEmailTab(t as any)}
+                                            className={`px-6 py-2.5 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${emailTab === t ? 'bg-white shadow text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+                                        >
+                                            {t}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {/* TAB 1: GATEWAY (PROVIDER CONFIG) */}
+                                {emailTab === 'gateway' && (
+                                    <div className="space-y-8 animate-in fade-in slide-in-from-right-2">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                            <div className="space-y-4">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Delivery Channels (Multi-Select)</label>
+                                                <div className="grid grid-cols-3 gap-3">
+                                                    <button
+                                                        onClick={() => setEmailGateway({
+                                                            ...emailGateway,
+                                                            delivery_methods: (emailGateway.delivery_methods || []).includes('smtp')
+                                                                ? (emailGateway.delivery_methods || []).filter((m: string) => m !== 'smtp')
+                                                                : [...(emailGateway.delivery_methods || []), 'smtp']
+                                                        })}
+                                                        className={`py-4 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center gap-2 ${(emailGateway.delivery_methods || []).includes('smtp') ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-inner' : 'border-slate-200 text-slate-400'}`}>
+                                                        <Server size={18} /> SMTP
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setEmailGateway({
+                                                            ...emailGateway,
+                                                            delivery_methods: (emailGateway.delivery_methods || []).includes('resend')
+                                                                ? (emailGateway.delivery_methods || []).filter((m: string) => m !== 'resend')
+                                                                : [...(emailGateway.delivery_methods || []), 'resend']
+                                                        })}
+                                                        className={`py-4 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center gap-2 ${(emailGateway.delivery_methods || []).includes('resend') ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-inner' : 'border-slate-200 text-slate-400'}`}>
+                                                        <Send size={18} /> Resend
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setEmailGateway({
+                                                            ...emailGateway,
+                                                            delivery_methods: (emailGateway.delivery_methods || []).includes('webhook')
+                                                                ? (emailGateway.delivery_methods || []).filter((m: string) => m !== 'webhook')
+                                                                : [...(emailGateway.delivery_methods || []), 'webhook']
+                                                        })}
+                                                        className={`py-4 rounded-2xl border text-xs font-bold transition-all flex flex-col items-center gap-2 ${(emailGateway.delivery_methods || []).includes('webhook') ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-inner' : 'border-slate-200 text-slate-400'}`}>
+                                                        <Plug size={18} /> Webhook
+                                                    </button>
+                                                </div>
                                             </div>
+
+                                            {(!(emailGateway.delivery_methods || []).includes('webhook') || (emailGateway.delivery_methods || []).length > 1) && (
+                                                <div className="space-y-2">
+                                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Sender Email (From)</label>
+                                                    <input
+                                                        value={emailGateway.from_email || ''}
+                                                        onChange={(e) => setEmailGateway({ ...emailGateway, from_email: e.target.value })}
+                                                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none"
+                                                        placeholder="noreply@myapp.com"
+                                                    />
+                                                </div>
+                                            )}
                                         </div>
 
-                                        {(!(emailGateway.delivery_methods || []).includes('webhook') || (emailGateway.delivery_methods || []).length > 1) && (
-                                            <div className="space-y-2">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Sender Email (From)</label>
+                                        {(emailGateway.delivery_methods || []).includes('resend') && (
+                                            <div className="space-y-2 animate-in fade-in slide-in-from-top-1">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Resend API Key</label>
                                                 <input
-                                                    value={emailGateway.from_email || ''}
-                                                    onChange={(e) => setEmailGateway({ ...emailGateway, from_email: e.target.value })}
-                                                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none"
-                                                    placeholder="noreply@myapp.com"
+                                                    type="password"
+                                                    value={emailGateway.resend_api_key || ''}
+                                                    onChange={(e) => setEmailGateway({ ...emailGateway, resend_api_key: e.target.value })}
+                                                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none font-mono"
+                                                    placeholder="re_123..."
                                                 />
                                             </div>
                                         )}
-                                    </div>
 
-                                    {(emailGateway.delivery_methods || []).includes('resend') && (
-                                        <div className="space-y-2 animate-in fade-in slide-in-from-top-1">
-                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Resend API Key</label>
-                                            <input
-                                                type="password"
-                                                value={emailGateway.resend_api_key || ''}
-                                                onChange={(e) => setEmailGateway({ ...emailGateway, resend_api_key: e.target.value })}
-                                                className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none font-mono"
-                                                placeholder="re_123..."
-                                            />
-                                        </div>
-                                    )}
+                                        {(emailGateway.delivery_methods || []).includes('smtp') && (
+                                            <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-1">
+                                                <div className="space-y-2">
+                                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">SMTP Host</label>
+                                                    <input
+                                                        value={emailGateway.smtp_host || ''}
+                                                        onChange={(e) => setEmailGateway({ ...emailGateway, smtp_host: e.target.value })}
+                                                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none"
+                                                        placeholder="smtp.gmail.com"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Port</label>
+                                                    <input
+                                                        value={emailGateway.smtp_port || 587}
+                                                        onChange={(e) => setEmailGateway({ ...emailGateway, smtp_port: parseInt(e.target.value) })}
+                                                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none"
+                                                        type="number"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">User</label>
+                                                    <input
+                                                        value={emailGateway.smtp_user || ''}
+                                                        onChange={(e) => setEmailGateway({ ...emailGateway, smtp_user: e.target.value })}
+                                                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Password</label>
+                                                    <input
+                                                        type="password"
+                                                        value={emailGateway.smtp_pass || ''}
+                                                        onChange={(e) => setEmailGateway({ ...emailGateway, smtp_pass: e.target.value })}
+                                                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none"
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
 
-                                    {(emailGateway.delivery_methods || []).includes('smtp') && (
-                                        <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-1">
-                                            <div className="space-y-2">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">SMTP Host</label>
+                                        {(emailGateway.delivery_methods || []).includes('webhook') && (
+                                            <div className="space-y-2 animate-in fade-in slide-in-from-top-1">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Webhook URL</label>
                                                 <input
-                                                    value={emailGateway.smtp_host || ''}
-                                                    onChange={(e) => setEmailGateway({ ...emailGateway, smtp_host: e.target.value })}
+                                                    value={emailGateway.webhook_url || ''}
+                                                    onChange={(e) => setEmailGateway({ ...emailGateway, webhook_url: e.target.value })}
                                                     className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none"
-                                                    placeholder="smtp.gmail.com"
+                                                    placeholder="https://n8n.webhook/..."
                                                 />
                                             </div>
-                                            <div className="space-y-2">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Port</label>
-                                                <input
-                                                    value={emailGateway.smtp_port || 587}
-                                                    onChange={(e) => setEmailGateway({ ...emailGateway, smtp_port: parseInt(e.target.value) })}
-                                                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none"
-                                                    type="number"
-                                                />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">User</label>
-                                                <input
-                                                    value={emailGateway.smtp_user || ''}
-                                                    onChange={(e) => setEmailGateway({ ...emailGateway, smtp_user: e.target.value })}
-                                                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none"
-                                                />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Password</label>
-                                                <input
-                                                    type="password"
-                                                    value={emailGateway.smtp_pass || ''}
-                                                    onChange={(e) => setEmailGateway({ ...emailGateway, smtp_pass: e.target.value })}
-                                                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none"
-                                                />
-                                            </div>
-                                        </div>
-                                    )}
+                                        )}
 
-                                    {(emailGateway.delivery_methods || []).includes('webhook') && (
-                                        <div className="space-y-2 animate-in fade-in slide-in-from-top-1">
-                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Webhook URL</label>
-                                            <input
-                                                value={emailGateway.webhook_url || ''}
-                                                onChange={(e) => setEmailGateway({ ...emailGateway, webhook_url: e.target.value })}
-                                                className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none"
-                                                placeholder="https://n8n.webhook/..."
-                                            />
-                                        </div>
-                                    )}
-
-                                    <div className="pt-4 border-t border-slate-100">
-                                        <button onClick={handleSaveEmailCenter} disabled={executing} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-600 transition-all flex items-center justify-center gap-2">
-                                            {executing ? <Loader2 className="animate-spin" size={14} /> : 'Save Connection Settings'}
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* TAB 2: TEMPLATES */}
-                            {emailTab === 'templates' && (
-                                <div className="space-y-6 animate-in fade-in slide-in-from-right-2">
-                                    <div className="flex gap-2 p-1 bg-slate-50 rounded-xl border border-slate-100 overflow-x-auto">
-                                        {['confirmation', 'recovery', 'magic_link', 'login_alert', 'welcome_email'].map((t) => (
-                                            <button
-                                                key={t}
-                                                onClick={() => setActiveTemplateTab(t as any)}
-                                                className={`flex-1 py-2 px-4 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${activeTemplateTab === t ? 'bg-white shadow text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
-                                            >
-                                                {t.replace('_', ' ')}
+                                        <div className="pt-4 border-t border-slate-100">
+                                            <button onClick={handleSaveEmailCenter} disabled={executing} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-600 transition-all flex items-center justify-center gap-2">
+                                                {executing ? <Loader2 className="animate-spin" size={14} /> : 'Save Connection Settings'}
                                             </button>
-                                        ))}
-                                    </div>
-
-                                    <div className="space-y-4">
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Subject</label>
-                                            <input
-                                                value={emailTemplates[activeTemplateTab]?.subject || ''}
-                                                onChange={(e) => setEmailTemplates({ ...emailTemplates, [activeTemplateTab]: { ...emailTemplates[activeTemplateTab], subject: e.target.value } })}
-                                                className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-6 text-sm font-bold text-slate-900 outline-none"
-                                            />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">HTML Body</label>
-                                            <textarea
-                                                value={emailTemplates[activeTemplateTab]?.body || ''}
-                                                onChange={(e) => setEmailTemplates({ ...emailTemplates, [activeTemplateTab]: { ...emailTemplates[activeTemplateTab], body: e.target.value } })}
-                                                className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-6 text-sm font-medium text-slate-900 outline-none min-h-[250px] font-mono"
-                                            />
-                                            <p className="text-[10px] text-slate-400 px-2">Variables: <code>{"{{ .ConfirmationURL }}"}</code>, <code>{"{{ .Token }}"}</code>, <code>{"{{ .Email }}"}</code>, <code>{"{{ .Date }}"}</code></p>
                                         </div>
                                     </div>
+                                )}
 
-                                    <button onClick={handleSaveEmailCenter} disabled={executing} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-600 transition-all flex items-center justify-center gap-2">
-                                        {executing ? <Loader2 className="animate-spin" size={14} /> : 'Save Templates'}
-                                    </button>
-                                </div>
-                            )}
-
-                            {/* TAB: TEMPLATE LIBRARY (i18n) */}
-                            {emailTab === 'library' && (
-                                <div className="space-y-6 animate-in fade-in slide-in-from-right-2">
-                                    <div className="flex justify-between items-center">
-                                        <div>
-                                            <h4 className="text-sm font-black text-slate-900">Message Template Library</h4>
-                                            <p className="text-[10px] text-slate-400 font-bold mt-1">Reusable i18n templates for OTPs, Confirmations, Alerts, and more — across all strategies.</p>
+                                {/* TAB 2: TEMPLATES */}
+                                {emailTab === 'templates' && (
+                                    <div className="space-y-6 animate-in fade-in slide-in-from-right-2">
+                                        <div className="flex gap-2 p-1 bg-slate-50 rounded-xl border border-slate-100 overflow-x-auto">
+                                            {['confirmation', 'recovery', 'magic_link', 'login_alert', 'welcome_email'].map((t) => (
+                                                <button
+                                                    key={t}
+                                                    onClick={() => setActiveTemplateTab(t as any)}
+                                                    className={`flex-1 py-2 px-4 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap ${activeTemplateTab === t ? 'bg-white shadow text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+                                                >
+                                                    {t.replace('_', ' ')}
+                                                </button>
+                                            ))}
                                         </div>
-                                        <button onClick={() => setShowCreateTemplateModal(true)} className="bg-indigo-600 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg">
-                                            <Plus size={14} /> New Template
+
+                                        <div className="space-y-4">
+                                            <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Subject</label>
+                                                <input
+                                                    value={emailTemplates[activeTemplateTab]?.subject || ''}
+                                                    onChange={(e) => setEmailTemplates({ ...emailTemplates, [activeTemplateTab]: { ...emailTemplates[activeTemplateTab], subject: e.target.value } })}
+                                                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-6 text-sm font-bold text-slate-900 outline-none"
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">HTML Body</label>
+                                                <textarea
+                                                    value={emailTemplates[activeTemplateTab]?.body || ''}
+                                                    onChange={(e) => setEmailTemplates({ ...emailTemplates, [activeTemplateTab]: { ...emailTemplates[activeTemplateTab], body: e.target.value } })}
+                                                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-6 text-sm font-medium text-slate-900 outline-none min-h-[250px] font-mono"
+                                                />
+                                                <p className="text-[10px] text-slate-400 px-2">Variables: <code>{"{{ .ConfirmationURL }}"}</code>, <code>{"{{ .Token }}"}</code>, <code>{"{{ .Email }}"}</code>, <code>{"{{ .Date }}"}</code></p>
+                                            </div>
+                                        </div>
+
+                                        <button onClick={handleSaveEmailCenter} disabled={executing} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-600 transition-all flex items-center justify-center gap-2">
+                                            {executing ? <Loader2 className="animate-spin" size={14} /> : 'Save Templates'}
                                         </button>
                                     </div>
+                                )}
 
-                                    {Object.keys(messagingTemplates).length === 0 && (
-                                        <div className="py-16 text-center border-2 border-dashed border-slate-200 rounded-3xl">
-                                            <LayoutTemplate size={40} className="mx-auto text-slate-300 mb-4" />
-                                            <p className="text-sm font-bold text-slate-400">No templates yet</p>
-                                            <p className="text-[10px] text-slate-400 mt-1">Create your first messaging template to enable i18n across all strategies.</p>
-                                        </div>
-                                    )}
-
-                                    {/* Template Gallery Cards */}
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        {Object.values(messagingTemplates).map((tpl: any) => (
-                                            <div
-                                                key={tpl.id}
-                                                onClick={() => { setEditingTemplate(tpl.id); setEditingVariantLang(tpl.default_language); }}
-                                                className={`relative p-6 rounded-[2rem] border cursor-pointer transition-all group ${editingTemplate === tpl.id ? 'bg-indigo-50 border-indigo-300 shadow-lg' : 'bg-white border-slate-200 hover:shadow-md hover:border-slate-300'}`}
-                                            >
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(tpl.id); }}
-                                                    className="absolute top-4 right-4 p-1.5 text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"
-                                                ><Trash2 size={14} /></button>
-                                                <div className="flex items-start gap-3 mb-3">
-                                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${editingTemplate === tpl.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                                                        <LayoutTemplate size={18} />
-                                                    </div>
-                                                    <div className="min-w-0">
-                                                        <h5 className="font-bold text-slate-900 text-sm truncate">{tpl.name}</h5>
-                                                        <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest mt-0.5">{tpl.type.replace(/_/g, ' ')}</p>
-                                                    </div>
-                                                </div>
-                                                <div className="flex items-center gap-2 flex-wrap">
-                                                    <span className="text-[9px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-lg">Default: {tpl.default_language}</span>
-                                                    <span className="text-[9px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-lg">{Object.keys(tpl.variants || {}).length} variant{Object.keys(tpl.variants || {}).length !== 1 ? 's' : ''}</span>
-                                                </div>
+                                {/* TAB: TEMPLATE LIBRARY (i18n) */}
+                                {emailTab === 'library' && (
+                                    <div className="space-y-6 animate-in fade-in slide-in-from-right-2">
+                                        <div className="flex justify-between items-center">
+                                            <div>
+                                                <h4 className="text-sm font-black text-slate-900">Message Template Library</h4>
+                                                <p className="text-[10px] text-slate-400 font-bold mt-1">Reusable i18n templates for OTPs, Confirmations, Alerts, and more — across all strategies.</p>
                                             </div>
-                                        ))}
-                                    </div>
+                                            <button onClick={() => setShowCreateTemplateModal(true)} className="bg-indigo-600 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-lg">
+                                                <Plus size={14} /> New Template
+                                            </button>
+                                        </div>
 
-                                    {/* INLINE VARIANT EDITOR */}
-                                    {editingTemplate && messagingTemplates[editingTemplate] && (() => {
-                                        const tpl = messagingTemplates[editingTemplate];
-                                        const variantKeys = Object.keys(tpl.variants || {});
-                                        const currentVariant = tpl.variants?.[editingVariantLang] || { subject: '', body: '' };
+                                        {Object.keys(messagingTemplates).length === 0 && (
+                                            <div className="py-16 text-center border-2 border-dashed border-slate-200 rounded-3xl">
+                                                <LayoutTemplate size={40} className="mx-auto text-slate-300 mb-4" />
+                                                <p className="text-sm font-bold text-slate-400">No templates yet</p>
+                                                <p className="text-[10px] text-slate-400 mt-1">Create your first messaging template to enable i18n across all strategies.</p>
+                                            </div>
+                                        )}
 
-                                        return (
-                                            <div className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm space-y-6">
-                                                <div className="flex items-center justify-between">
-                                                    <div>
-                                                        <h4 className="text-lg font-black text-slate-900 flex items-center gap-2">
-                                                            <Edit2 size={16} className="text-indigo-600" /> {tpl.name}
-                                                        </h4>
-                                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">{tpl.type.replace(/_/g, ' ')} • Default: {tpl.default_language}</p>
-                                                    </div>
-                                                    <button onClick={() => setEditingTemplate(null)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl"><X size={18} /></button>
-                                                </div>
-
-                                                {/* Language Variant Tabs */}
-                                                <div className="flex items-center gap-2 flex-wrap">
-                                                    {variantKeys.map(lang => (
-                                                        <button
-                                                            key={lang}
-                                                            onClick={() => setEditingVariantLang(lang)}
-                                                            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${editingVariantLang === lang ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
-                                                        >
-                                                            <Globe size={12} /> {lang}
-                                                            {lang === tpl.default_language && <span className="text-[8px] opacity-70">(default)</span>}
-                                                        </button>
-                                                    ))}
-                                                    <div className="flex items-center gap-1 ml-2">
-                                                        <input
-                                                            placeholder="es-ES"
-                                                            className="w-20 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-[10px] font-bold outline-none"
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === 'Enter') {
-                                                                    handleAddVariant(editingTemplate!, (e.target as HTMLInputElement).value.trim());
-                                                                    (e.target as HTMLInputElement).value = '';
-                                                                }
-                                                            }}
-                                                        />
-                                                        <span className="text-[9px] text-slate-400 font-bold">Enter to add</span>
-                                                    </div>
-                                                </div>
-
-                                                {/* Subject + Body Editor */}
-                                                <div className="space-y-4">
-                                                    <div className="space-y-2">
-                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Subject ({editingVariantLang})</label>
-                                                        <input
-                                                            value={currentVariant.subject}
-                                                            onChange={(e) => handleUpdateVariant(editingTemplate!, editingVariantLang, 'subject', e.target.value)}
-                                                            className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-6 text-sm font-bold text-slate-900 outline-none"
-                                                            placeholder="e.g. Your Verification Code"
-                                                        />
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Body ({editingVariantLang})</label>
-                                                        <textarea
-                                                            value={currentVariant.body}
-                                                            onChange={(e) => handleUpdateVariant(editingTemplate!, editingVariantLang, 'body', e.target.value)}
-                                                            className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-6 text-sm font-medium text-slate-900 outline-none min-h-[180px] font-mono"
-                                                            placeholder="HTML or plain text body..."
-                                                        />
-                                                        <p className="text-[10px] text-slate-400 px-2">Variables: <code>{"{{ .Code }}"}</code>, <code>{"{{ .ConfirmationURL }}"}</code>, <code>{"{{ .Email }}"}</code>, <code>{"{{ .AppName }}"}</code>, <code>{"{{ .Expiration }}"}</code>, <code>{"{{ .Date }}"}</code>, <code>{"{{ .Identifier }}"}</code>, <code>{"{{ .Strategy }}"}</code></p>
-                                                    </div>
-                                                </div>
-
-                                                {/* Remove Variant */}
-                                                {variantKeys.length > 1 && editingVariantLang !== tpl.default_language && (
+                                        {/* Template Gallery Cards */}
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            {Object.values(messagingTemplates).map((tpl: any) => (
+                                                <div
+                                                    key={tpl.id}
+                                                    onClick={() => { setEditingTemplate(tpl.id); setEditingVariantLang(tpl.default_language); }}
+                                                    className={`relative p-6 rounded-[2rem] border cursor-pointer transition-all group ${editingTemplate === tpl.id ? 'bg-indigo-50 border-indigo-300 shadow-lg' : 'bg-white border-slate-200 hover:shadow-md hover:border-slate-300'}`}
+                                                >
                                                     <button
-                                                        onClick={() => handleRemoveVariant(editingTemplate!, editingVariantLang)}
-                                                        className="text-[10px] font-bold text-rose-500 hover:text-rose-700 flex items-center gap-1"
-                                                    >
-                                                        <Trash2 size={12} /> Remove &quot;{editingVariantLang}&quot; variant
-                                                    </button>
-                                                )}
-                                            </div>
-                                        );
-                                    })()}
-
-                                    <button onClick={handleSaveTemplateLibrary} disabled={executing} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-600 transition-all flex items-center justify-center gap-2">
-                                        {executing ? <Loader2 className="animate-spin" size={14} /> : 'Save Template Library'}
-                                    </button>
-                                </div>
-                            )}
-
-                            {/* TAB 3: POLICIES (FLOWS) */}
-                            {emailTab === 'policies' && (
-                                <div className="space-y-8 animate-in fade-in slide-in-from-right-2">
-                                    <div className="grid grid-cols-1 gap-4">
-                                        <div className={`p-6 rounded-[2rem] border transition-all cursor-pointer ${emailPolicies.email_confirmation ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50 border-slate-200'}`} onClick={() => setEmailPolicies(p => ({ ...p, email_confirmation: !p.email_confirmation }))}>
-                                            <div className="flex justify-between items-center">
-                                                <div>
-                                                    <h4 className={`font-bold text-sm ${emailPolicies.email_confirmation ? 'text-indigo-900' : 'text-slate-500'}`}>Require Identity Confirmation</h4>
-                                                    <p className="text-[10px] text-slate-400 mt-1">Users cannot login until they verify their primary identifier (Email, Phone, etc).</p>
+                                                        onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(tpl.id); }}
+                                                        className="absolute top-4 right-4 p-1.5 text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"
+                                                    ><Trash2 size={14} /></button>
+                                                    <div className="flex items-start gap-3 mb-3">
+                                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${editingTemplate === tpl.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                                                            <LayoutTemplate size={18} />
+                                                        </div>
+                                                        <div className="min-w-0">
+                                                            <h5 className="font-bold text-slate-900 text-sm truncate">{tpl.name}</h5>
+                                                            <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest mt-0.5">{tpl.type.replace(/_/g, ' ')}</p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <span className="text-[9px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-lg">Default: {tpl.default_language}</span>
+                                                        <span className="text-[9px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-lg">{Object.keys(tpl.variants || {}).length} variant{Object.keys(tpl.variants || {}).length !== 1 ? 's' : ''}</span>
+                                                    </div>
                                                 </div>
-                                                <div className={`w-12 h-7 rounded-full p-1 transition-colors ${emailPolicies.email_confirmation ? 'bg-indigo-600' : 'bg-slate-300'}`}>
-                                                    <div className={`w-5 h-5 bg-white rounded-full shadow-md transition-transform ${emailPolicies.email_confirmation ? 'translate-x-5' : ''}`}></div>
+                                            ))}
+                                        </div>
+
+                                        {/* INLINE VARIANT EDITOR */}
+                                        {editingTemplate && messagingTemplates[editingTemplate] && (() => {
+                                            const tpl = messagingTemplates[editingTemplate];
+                                            const variantKeys = Object.keys(tpl.variants || {});
+                                            const currentVariant = tpl.variants?.[editingVariantLang] || { subject: '', body: '' };
+
+                                            return (
+                                                <div className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm space-y-6">
+                                                    <div className="flex items-center justify-between">
+                                                        <div>
+                                                            <h4 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                                                                <Edit2 size={16} className="text-indigo-600" /> {tpl.name}
+                                                            </h4>
+                                                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">{tpl.type.replace(/_/g, ' ')} • Default: {tpl.default_language}</p>
+                                                        </div>
+                                                        <button onClick={() => setEditingTemplate(null)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl"><X size={18} /></button>
+                                                    </div>
+
+                                                    {/* Language Variant Tabs */}
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        {variantKeys.map(lang => (
+                                                            <button
+                                                                key={lang}
+                                                                onClick={() => setEditingVariantLang(lang)}
+                                                                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${editingVariantLang === lang ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                                                            >
+                                                                <Globe size={12} /> {lang}
+                                                                {lang === tpl.default_language && <span className="text-[8px] opacity-70">(default)</span>}
+                                                            </button>
+                                                        ))}
+                                                        <div className="flex items-center gap-1 ml-2">
+                                                            <input
+                                                                placeholder="es-ES"
+                                                                className="w-20 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-[10px] font-bold outline-none"
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === 'Enter') {
+                                                                        handleAddVariant(editingTemplate!, (e.target as HTMLInputElement).value.trim());
+                                                                        (e.target as HTMLInputElement).value = '';
+                                                                    }
+                                                                }}
+                                                            />
+                                                            <span className="text-[9px] text-slate-400 font-bold">Enter to add</span>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Subject + Body Editor */}
+                                                    <div className="space-y-4">
+                                                        <div className="space-y-2">
+                                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Subject ({editingVariantLang})</label>
+                                                            <input
+                                                                value={currentVariant.subject}
+                                                                onChange={(e) => handleUpdateVariant(editingTemplate!, editingVariantLang, 'subject', e.target.value)}
+                                                                className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-6 text-sm font-bold text-slate-900 outline-none"
+                                                                placeholder="e.g. Your Verification Code"
+                                                            />
+                                                        </div>
+                                                        <div className="space-y-2">
+                                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Body ({editingVariantLang})</label>
+                                                            <textarea
+                                                                value={currentVariant.body}
+                                                                onChange={(e) => handleUpdateVariant(editingTemplate!, editingVariantLang, 'body', e.target.value)}
+                                                                className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-6 text-sm font-medium text-slate-900 outline-none min-h-[180px] font-mono"
+                                                                placeholder="HTML or plain text body..."
+                                                            />
+                                                            <p className="text-[10px] text-slate-400 px-2">Variables: <code>{"{{ .Code }}"}</code>, <code>{"{{ .ConfirmationURL }}"}</code>, <code>{"{{ .Email }}"}</code>, <code>{"{{ .AppName }}"}</code>, <code>{"{{ .Expiration }}"}</code>, <code>{"{{ .Date }}"}</code>, <code>{"{{ .Identifier }}"}</code>, <code>{"{{ .Strategy }}"}</code></p>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Remove Variant */}
+                                                    {variantKeys.length > 1 && editingVariantLang !== tpl.default_language && (
+                                                        <button
+                                                            onClick={() => handleRemoveVariant(editingTemplate!, editingVariantLang)}
+                                                            className="text-[10px] font-bold text-rose-500 hover:text-rose-700 flex items-center gap-1"
+                                                        >
+                                                            <Trash2 size={12} /> Remove &quot;{editingVariantLang}&quot; variant
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            );
+                                        })()}
+
+                                        <button onClick={handleSaveTemplateLibrary} disabled={executing} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-600 transition-all flex items-center justify-center gap-2">
+                                            {executing ? <Loader2 className="animate-spin" size={14} /> : 'Save Template Library'}
+                                        </button>
+                                    </div>
+                                )}
+
+                                {/* TAB 3: POLICIES (FLOWS) */}
+                                {emailTab === 'policies' && (
+                                    <div className="space-y-8 animate-in fade-in slide-in-from-right-2">
+                                        <div className="grid grid-cols-1 gap-4">
+                                            <div className={`p-6 rounded-[2rem] border transition-all cursor-pointer ${emailPolicies.email_confirmation ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50 border-slate-200'}`} onClick={() => setEmailPolicies(p => ({ ...p, email_confirmation: !p.email_confirmation }))}>
+                                                <div className="flex justify-between items-center">
+                                                    <div>
+                                                        <h4 className={`font-bold text-sm ${emailPolicies.email_confirmation ? 'text-indigo-900' : 'text-slate-500'}`}>Require Identity Confirmation</h4>
+                                                        <p className="text-[10px] text-slate-400 mt-1">Users cannot login until they verify their primary identifier (Email, Phone, etc).</p>
+                                                    </div>
+                                                    <div className={`w-12 h-7 rounded-full p-1 transition-colors ${emailPolicies.email_confirmation ? 'bg-indigo-600' : 'bg-slate-300'}`}>
+                                                        <div className={`w-5 h-5 bg-white rounded-full shadow-md transition-transform ${emailPolicies.email_confirmation ? 'translate-x-5' : ''}`}></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className={`p-6 rounded-[2rem] border transition-all cursor-pointer ${emailPolicies.disable_magic_link ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-200'}`} onClick={() => setEmailPolicies(p => ({ ...p, disable_magic_link: !p.disable_magic_link }))}>
+                                                <div className="flex justify-between items-center">
+                                                    <div>
+                                                        <h4 className={`font-bold text-sm ${emailPolicies.disable_magic_link ? 'text-rose-900' : 'text-slate-500'}`}>Disable Magic Links / Passwordless</h4>
+                                                        <p className="text-[10px] text-slate-400 mt-1">Prevent users from logging in via OTP or link without a password.</p>
+                                                    </div>
+                                                    <div className={`w-12 h-7 rounded-full p-1 transition-colors ${emailPolicies.disable_magic_link ? 'bg-rose-600' : 'bg-slate-300'}`}>
+                                                        <div className={`w-5 h-5 bg-white rounded-full shadow-md transition-transform ${emailPolicies.disable_magic_link ? 'translate-x-5' : ''}`}></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className={`p-6 rounded-[2rem] border transition-all cursor-pointer ${emailPolicies.send_welcome_email ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`} onClick={() => setEmailPolicies(p => ({ ...p, send_welcome_email: !p.send_welcome_email }))}>
+                                                <div className="flex justify-between items-center">
+                                                    <div>
+                                                        <h4 className={`font-bold text-sm ${emailPolicies.send_welcome_email ? 'text-emerald-900' : 'text-slate-500'}`}><PartyPopper className="inline mr-2" size={14} /> Send Welcome Message</h4>
+                                                        <p className="text-[10px] text-slate-400 mt-1">Automatically trigger a welcome notification upon signup (or verification).</p>
+                                                    </div>
+                                                    <div className={`w-12 h-7 rounded-full p-1 transition-colors ${emailPolicies.send_welcome_email ? 'bg-emerald-500' : 'bg-slate-300'}`}>
+                                                        <div className={`w-5 h-5 bg-white rounded-full shadow-md transition-transform ${emailPolicies.send_welcome_email ? 'translate-x-5' : ''}`}></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className={`p-6 rounded-[2rem] border transition-all cursor-pointer ${emailPolicies.send_login_alert ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`} onClick={() => setEmailPolicies(p => ({ ...p, send_login_alert: !p.send_login_alert }))}>
+                                                <div className="flex justify-between items-center">
+                                                    <div>
+                                                        <h4 className={`font-bold text-sm ${emailPolicies.send_login_alert ? 'text-amber-900' : 'text-slate-500'}`}><BellRing className="inline mr-2" size={14} /> Login Notification Alert</h4>
+                                                        <p className="text-[10px] text-slate-400 mt-1">Notify user every time a successful login occurs across all providers.</p>
+                                                    </div>
+                                                    <div className={`w-12 h-7 rounded-full p-1 transition-colors ${emailPolicies.send_login_alert ? 'bg-amber-500' : 'bg-slate-300'}`}>
+                                                        <div className={`w-5 h-5 bg-white rounded-full shadow-md transition-transform ${emailPolicies.send_login_alert ? 'translate-x-5' : ''}`}></div>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
 
-                                        <div className={`p-6 rounded-[2rem] border transition-all cursor-pointer ${emailPolicies.disable_magic_link ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-200'}`} onClick={() => setEmailPolicies(p => ({ ...p, disable_magic_link: !p.disable_magic_link }))}>
-                                            <div className="flex justify-between items-center">
-                                                <div>
-                                                    <h4 className={`font-bold text-sm ${emailPolicies.disable_magic_link ? 'text-rose-900' : 'text-slate-500'}`}>Disable Magic Links / Passwordless</h4>
-                                                    <p className="text-[10px] text-slate-400 mt-1">Prevent users from logging in via OTP or link without a password.</p>
-                                                </div>
-                                                <div className={`w-12 h-7 rounded-full p-1 transition-colors ${emailPolicies.disable_magic_link ? 'bg-rose-600' : 'bg-slate-300'}`}>
-                                                    <div className={`w-5 h-5 bg-white rounded-full shadow-md transition-transform ${emailPolicies.disable_magic_link ? 'translate-x-5' : ''}`}></div>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className={`p-6 rounded-[2rem] border transition-all cursor-pointer ${emailPolicies.send_welcome_email ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`} onClick={() => setEmailPolicies(p => ({ ...p, send_welcome_email: !p.send_welcome_email }))}>
-                                            <div className="flex justify-between items-center">
-                                                <div>
-                                                    <h4 className={`font-bold text-sm ${emailPolicies.send_welcome_email ? 'text-emerald-900' : 'text-slate-500'}`}><PartyPopper className="inline mr-2" size={14} /> Send Welcome Message</h4>
-                                                    <p className="text-[10px] text-slate-400 mt-1">Automatically trigger a welcome notification upon signup (or verification).</p>
-                                                </div>
-                                                <div className={`w-12 h-7 rounded-full p-1 transition-colors ${emailPolicies.send_welcome_email ? 'bg-emerald-500' : 'bg-slate-300'}`}>
-                                                    <div className={`w-5 h-5 bg-white rounded-full shadow-md transition-transform ${emailPolicies.send_welcome_email ? 'translate-x-5' : ''}`}></div>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className={`p-6 rounded-[2rem] border transition-all cursor-pointer ${emailPolicies.send_login_alert ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`} onClick={() => setEmailPolicies(p => ({ ...p, send_login_alert: !p.send_login_alert }))}>
-                                            <div className="flex justify-between items-center">
-                                                <div>
-                                                    <h4 className={`font-bold text-sm ${emailPolicies.send_login_alert ? 'text-amber-900' : 'text-slate-500'}`}><BellRing className="inline mr-2" size={14} /> Login Notification Alert</h4>
-                                                    <p className="text-[10px] text-slate-400 mt-1">Notify user every time a successful login occurs across all providers.</p>
-                                                </div>
-                                                <div className={`w-12 h-7 rounded-full p-1 transition-colors ${emailPolicies.send_login_alert ? 'bg-amber-500' : 'bg-slate-300'}`}>
-                                                    <div className={`w-5 h-5 bg-white rounded-full shadow-md transition-transform ${emailPolicies.send_login_alert ? 'translate-x-5' : ''}`}></div>
-                                                </div>
-                                            </div>
+                                        <div className="pt-4 border-t border-slate-100">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Login Webhook URL (Optional)</label>
+                                            <input
+                                                value={emailPolicies.login_webhook_url || ''}
+                                                onChange={(e) => setEmailPolicies(p => ({ ...p, login_webhook_url: e.target.value }))}
+                                                className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none"
+                                                placeholder="https://api.myapp.com/webhooks/login"
+                                            />
+                                            <p className="text-[10px] text-slate-400 mt-2 px-1">If set, a POST request will be sent here every time a user successfully logs in.</p>
                                         </div>
                                     </div>
-
-                                    <div className="pt-4 border-t border-slate-100">
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Login Webhook URL (Optional)</label>
-                                        <input
-                                            value={emailPolicies.login_webhook_url || ''}
-                                            onChange={(e) => setEmailPolicies(p => ({ ...p, login_webhook_url: e.target.value }))}
-                                            className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none"
-                                            placeholder="https://api.myapp.com/webhooks/login"
-                                        />
-                                        <p className="text-[10px] text-slate-400 mt-2 px-1">If set, a POST request will be sent here every time a user successfully logs in.</p>
-                                    </div>
-                                </div>
-                            )}
+                                )}
+                            </div>
                         </div>
+                    </div>
+                )}
 
+                {/* SCHEMA SECTION */}
+                {activeSection === 'schema' && (
+                    <div className="p-10">
+                        <div className="mb-8">
+                            <h2 className="text-3xl font-black text-slate-900 tracking-tighter">Schema & Data Linking</h2>
+                            <p className="text-xs text-slate-400 font-bold mt-1">Link application tables with the auth users table for automatic foreign key relationships.</p>
+                        </div>
                         <div className="space-y-8">
-                            {/* SCHEMA CONCATENATION */}
                             <div className="bg-white border border-slate-200 rounded-[3rem] p-12 shadow-sm">
                                 <div className="flex items-center gap-4 mb-8">
                                     <div className="w-0 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center"><Layers size={20} /></div>
@@ -1373,6 +1438,18 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                                     {availableTables.length === 0 && <p className="col-span-full text-center text-slate-400 text-xs font-medium py-8">Nenhuma tabela pública disponível para vínculo.</p>}
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* STRATEGIES SECTION */}
+                {activeSection === 'strategies' && (
+                    <div className="p-10">
+                        <div className="mb-8">
+                            <h2 className="text-3xl font-black text-slate-900 tracking-tighter">Identity Strategies</h2>
+                            <p className="text-xs text-slate-400 font-bold mt-1">Configure authentication providers — from OAuth social login to custom identity strategies.</p>
+                        </div>
+                        <div className="space-y-8">
 
                             {/* Social Providers */}
                             <div className="bg-white border border-slate-200 rounded-[3rem] p-12 shadow-sm">
@@ -1457,8 +1534,20 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                                         })}
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                )}
 
-                            {/* SECURITY & PROTECTION (Edge Firewall) - Moved to bottom */}
+                {/* SECURITY SECTION */}
+                {activeSection === 'security' && (
+                    <div className="p-10">
+                        <div className="mb-8">
+                            <h2 className="text-3xl font-black text-slate-900 tracking-tighter">Security & Protection</h2>
+                            <p className="text-xs text-slate-400 font-bold mt-1">Brute force protection, identity confirmation policies, and session security.</p>
+                        </div>
+                        <div className="space-y-8">
+
+                            {/* SECURITY & PROTECTION (Edge Firewall) */}
                             <div className="bg-white border border-slate-200 rounded-[3rem] p-12 shadow-sm">
                                 <div className="flex items-center gap-4 mb-8">
                                     <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center"><ShieldAlert size={20} /></div>
@@ -1546,220 +1635,219 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
             </div>
 
             {/* STRATEGY CONFIG MODAL */}
-            {
-                showConfigModal && strategyConfig && (
-                    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
-                        <div className="bg-white rounded-[3.5rem] max-w-2xl w-full p-12 shadow-2xl flex flex-col max-h-[90vh]">
-                            <div className="flex justify-between items-center mb-8">
-                                <div>
-                                    <h3 className="text-3xl font-black text-slate-900 capitalize">{selectedStrategy} Settings</h3>
-                                    <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-1">Lifecycle & Security</p>
+            {showConfigModal && strategyConfig && (
+                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+                    <div className="bg-white rounded-[3.5rem] max-w-2xl w-full p-12 shadow-2xl flex flex-col max-h-[90vh]">
+                        <div className="flex justify-between items-center mb-8">
+                            <div>
+                                <h3 className="text-3xl font-black text-slate-900 capitalize">{selectedStrategy} Settings</h3>
+                                <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-1">Lifecycle & Security</p>
+                            </div>
+                            <button onClick={() => setShowConfigModal(false)} className="p-3 bg-slate-50 rounded-full hover:bg-slate-100"><X size={20} /></button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto space-y-8 pr-2">
+                            <div className="grid grid-cols-2 gap-6">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Status</label>
+                                    <button
+                                        onClick={() => setStrategyConfig({ ...strategyConfig, enabled: !strategyConfig.enabled })}
+                                        className={`w-full py-3 rounded-xl border flex items-center justify-center gap-2 transition-all ${strategyConfig.enabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
+                                    >
+                                        {strategyConfig.enabled ? <><CheckCircle2 size={16} /> Active Workflow</> : 'Inactive Workflow'}
+                                    </button>
                                 </div>
-                                <button onClick={() => setShowConfigModal(false)} className="p-3 bg-slate-50 rounded-full hover:bg-slate-100"><X size={20} /></button>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">JWT Expiration</label>
+                                    <input value={strategyConfig.jwt_expiration || '24h'} onChange={(e) => setStrategyConfig({ ...strategyConfig, jwt_expiration: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none" />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Refresh Validity (Days)</label>
+                                    <input type="number" value={strategyConfig.refresh_validity_days || 30} onChange={(e) => setStrategyConfig({ ...strategyConfig, refresh_validity_days: parseInt(e.target.value) })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none" />
+                                </div>
                             </div>
 
-                            <div className="flex-1 overflow-y-auto space-y-8 pr-2">
-                                <div className="grid grid-cols-2 gap-6">
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Status</label>
-                                        <button
-                                            onClick={() => setStrategyConfig({ ...strategyConfig, enabled: !strategyConfig.enabled })}
-                                            className={`w-full py-3 rounded-xl border flex items-center justify-center gap-2 transition-all ${strategyConfig.enabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
-                                        >
-                                            {strategyConfig.enabled ? <><CheckCircle2 size={16} /> Active Workflow</> : 'Inactive Workflow'}
-                                        </button>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">JWT Expiration</label>
-                                        <input value={strategyConfig.jwt_expiration || '24h'} onChange={(e) => setStrategyConfig({ ...strategyConfig, jwt_expiration: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none" />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Refresh Validity (Days)</label>
-                                        <input type="number" value={strategyConfig.refresh_validity_days || 30} onChange={(e) => setStrategyConfig({ ...strategyConfig, refresh_validity_days: parseInt(e.target.value) })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none" />
-                                    </div>
-                                </div>
-
-                                {/* EDUCATIONAL SNIPPET FOR CUSTOM STRATEGIES */}
-                                {!isOauth(selectedStrategy || '') && selectedStrategy !== 'email' && (
-                                    <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800 shadow-xl overflow-hidden relative group">
-                                        <div className="flex justify-between items-center mb-4">
-                                            <h4 className="text-emerald-400 font-black text-xs uppercase tracking-widest flex items-center gap-2"><Code size={14} /> Integration Snippet</h4>
-                                            <button onClick={() => safeCopy(`
+                            {/* EDUCATIONAL SNIPPET FOR CUSTOM STRATEGIES */}
+                            {!isOauth(selectedStrategy || '') && selectedStrategy !== 'email' && (
+                                <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800 shadow-xl overflow-hidden relative group">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h4 className="text-emerald-400 font-black text-xs uppercase tracking-widest flex items-center gap-2"><Code size={14} /> Integration Snippet</h4>
+                                        <button onClick={() => safeCopy(`
 // Universal Login (Any Provider)
 const { user, session } = await cascata.auth.signIn({
   provider: '${selectedStrategy}',
   identifier: 'unique_user_id',
   password: 'user_password'
 });`)} className="text-slate-500 hover:text-white transition-colors p-1"><Copy size={14} /></button>
-                                        </div>
-                                        <pre className="text-[10px] font-mono text-slate-300 whitespace-pre-wrap leading-relaxed">
-                                            {`// Universal Login (Any Provider)
+                                    </div>
+                                    <pre className="text-[10px] font-mono text-slate-300 whitespace-pre-wrap leading-relaxed">
+                                        {`// Universal Login (Any Provider)
 const { user, session } = await cascata.auth.signIn({
   provider: '${selectedStrategy}',
   identifier: 'unique_user_id',
   password: 'user_password'
 });`}
-                                        </pre>
-                                        <div className="mt-4 p-3 bg-white/5 rounded-xl border border-white/10 text-[10px] text-slate-400 leading-relaxed">
-                                            Use <strong>Universal Login</strong> to authenticate with this custom strategy.
-                                            Unlike standard email login, this endpoint accepts any provider identifier you define.
-                                        </div>
+                                    </pre>
+                                    <div className="mt-4 p-3 bg-white/5 rounded-xl border border-white/10 text-[10px] text-slate-400 leading-relaxed">
+                                        Use <strong>Universal Login</strong> to authenticate with this custom strategy.
+                                        Unlike standard email login, this endpoint accepts any provider identifier you define.
                                     </div>
-                                )}
+                                </div>
+                            )}
 
-                                {/* RESTORED OTP CONFIGURATION BLOCK (Only for non-OAuth strategies) */}
-                                {!isOauth(selectedStrategy || '') && selectedStrategy !== 'email' && (
-                                    <div className="col-span-2 bg-indigo-50 border border-indigo-100 p-6 rounded-3xl space-y-4">
-                                        <h5 className="font-bold text-indigo-900 text-sm flex items-center gap-2"><Hash size={14} /> Custom OTP Configuration</h5>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Code Length</label>
-                                                <input
-                                                    type="number"
-                                                    value={strategyConfig.otp_config?.length || 6}
-                                                    onChange={(e) => setStrategyConfig({ ...strategyConfig, otp_config: { ...strategyConfig.otp_config, length: parseInt(e.target.value) } })}
-                                                    className="w-full mt-1 bg-white border-none rounded-xl py-2 px-3 text-xs font-bold"
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Charset</label>
-                                                <select
-                                                    value={strategyConfig.otp_config?.charset || 'numeric'}
-                                                    onChange={(e) => setStrategyConfig({ ...strategyConfig, otp_config: { ...strategyConfig.otp_config, charset: e.target.value } })}
-                                                    className="w-full mt-1 bg-white border-none rounded-xl py-2 px-3 text-xs font-bold outline-none"
-                                                >
-                                                    <option value="numeric">Numeric (0-9)</option>
-                                                    <option value="alphanumeric">Alphanumeric (A-Z, 0-9)</option>
-                                                    <option value="alpha">Alpha (A-Z)</option>
-                                                    <option value="hex">Hex (0-9, A-F)</option>
-                                                </select>
-                                            </div>
-                                            <div className="col-span-2">
-                                                <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Identifier Regex (Backend Validation)</label>
-                                                <input
-                                                    value={strategyConfig.otp_config?.regex_validation || ''}
-                                                    onChange={(e) => setStrategyConfig({ ...strategyConfig, otp_config: { ...strategyConfig.otp_config, regex_validation: e.target.value } })}
-                                                    placeholder="e.g. ^\d{11}$ (CPF)"
-                                                    className="w-full mt-1 bg-white border-none rounded-xl py-2 px-3 text-xs font-mono font-bold"
-                                                />
-                                            </div>
-                                            <div className="col-span-2">
-                                                <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">OTP Webhook URL</label>
-                                                <input
-                                                    value={strategyConfig.webhook_url || ''}
-                                                    onChange={(e) => setStrategyConfig({ ...strategyConfig, webhook_url: e.target.value })}
-                                                    placeholder="https://n8n.webhook/send-otp"
-                                                    className="w-full mt-1 bg-white border-none rounded-xl py-2 px-3 text-xs font-bold"
-                                                />
-                                            </div>
-                                        </div>
-
-                                        {/* TEMPLATE BINDING (i18n) */}
-                                        {Object.keys(messagingTemplates).length > 0 && (
-                                            <div className="mt-2 pt-4 border-t border-indigo-200/50 space-y-3">
-                                                <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">OTP Message Template (i18n Library)</label>
-                                                <select
-                                                    value={strategyConfig.template_bindings?.otp_challenge || ''}
-                                                    onChange={(e) => setStrategyConfig({
-                                                        ...strategyConfig,
-                                                        template_bindings: { ...(strategyConfig.template_bindings || {}), otp_challenge: e.target.value || undefined }
-                                                    })}
-                                                    className="w-full bg-white border-none rounded-xl py-2.5 px-3 text-xs font-bold outline-none shadow-sm"
-                                                >
-                                                    <option value="">System Default (No i18n)</option>
-                                                    {Object.values(messagingTemplates)
-                                                        .filter((t: any) => t.type === 'otp_challenge')
-                                                        .map((t: any) => (
-                                                            <option key={t.id} value={t.id}>{t.name} ({Object.keys(t.variants).join(', ')})</option>
-                                                        ))
-                                                    }
-                                                </select>
-                                                {strategyConfig.template_bindings?.otp_challenge && messagingTemplates[strategyConfig.template_bindings.otp_challenge] && (
-                                                    <div className="bg-white/80 rounded-xl p-3 border border-indigo-100">
-                                                        <p className="text-[9px] font-black text-indigo-500 uppercase tracking-widest mb-1">
-                                                            Preview ({messagingTemplates[strategyConfig.template_bindings.otp_challenge].default_language})
-                                                        </p>
-                                                        <p className="text-[10px] text-slate-600 font-mono leading-relaxed whitespace-pre-wrap max-h-20 overflow-y-auto">
-                                                            {messagingTemplates[strategyConfig.template_bindings.otp_challenge].variants?.[messagingTemplates[strategyConfig.template_bindings.otp_challenge].default_language]?.body || '(empty body)'}
-                                                        </p>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-
-                                {/* BANK-GRADE SECURITY (OTP ENFORCEMENT) */}
-                                <div className="col-span-2 bg-rose-50 border border-rose-100 p-6 rounded-3xl space-y-4">
-                                    <div className="flex items-center justify-between">
+                            {/* RESTORED OTP CONFIGURATION BLOCK (Only for non-OAuth strategies) */}
+                            {!isOauth(selectedStrategy || '') && selectedStrategy !== 'email' && (
+                                <div className="col-span-2 bg-indigo-50 border border-indigo-100 p-6 rounded-3xl space-y-4">
+                                    <h5 className="font-bold text-indigo-900 text-sm flex items-center gap-2"><Hash size={14} /> Custom OTP Configuration</h5>
+                                    <div className="grid grid-cols-2 gap-4">
                                         <div>
-                                            <h5 className="font-bold text-rose-900 text-sm flex items-center gap-2">🔐 Bank-Grade Security Lock</h5>
-                                            <p className="text-[10px] text-rose-700 font-bold mt-1">Require OTP challenge for sensitive updates (e.g., password, new identity)</p>
+                                            <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Code Length</label>
+                                            <input
+                                                type="number"
+                                                value={strategyConfig.otp_config?.length || 6}
+                                                onChange={(e) => setStrategyConfig({ ...strategyConfig, otp_config: { ...strategyConfig.otp_config, length: parseInt(e.target.value) } })}
+                                                className="w-full mt-1 bg-white border-none rounded-xl py-2 px-3 text-xs font-bold"
+                                            />
                                         </div>
-                                        <label className="relative inline-flex items-center cursor-pointer">
-                                            <input type="checkbox" className="sr-only peer" checked={strategyConfig.require_otp_on_update || false} onChange={(e) => setStrategyConfig({ ...strategyConfig, require_otp_on_update: e.target.checked })} />
-                                            <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-rose-600"></div>
-                                        </label>
+                                        <div>
+                                            <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Charset</label>
+                                            <select
+                                                value={strategyConfig.otp_config?.charset || 'numeric'}
+                                                onChange={(e) => setStrategyConfig({ ...strategyConfig, otp_config: { ...strategyConfig.otp_config, charset: e.target.value } })}
+                                                className="w-full mt-1 bg-white border-none rounded-xl py-2 px-3 text-xs font-bold outline-none"
+                                            >
+                                                <option value="numeric">Numeric (0-9)</option>
+                                                <option value="alphanumeric">Alphanumeric (A-Z, 0-9)</option>
+                                                <option value="alpha">Alpha (A-Z)</option>
+                                                <option value="hex">Hex (0-9, A-F)</option>
+                                            </select>
+                                        </div>
+                                        <div className="col-span-2">
+                                            <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Identifier Regex (Backend Validation)</label>
+                                            <input
+                                                value={strategyConfig.otp_config?.regex_validation || ''}
+                                                onChange={(e) => setStrategyConfig({ ...strategyConfig, otp_config: { ...strategyConfig.otp_config, regex_validation: e.target.value } })}
+                                                placeholder="e.g. ^\d{11}$ (CPF)"
+                                                className="w-full mt-1 bg-white border-none rounded-xl py-2 px-3 text-xs font-mono font-bold"
+                                            />
+                                        </div>
+                                        <div className="col-span-2">
+                                            <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">OTP Webhook URL</label>
+                                            <input
+                                                value={strategyConfig.webhook_url || ''}
+                                                onChange={(e) => setStrategyConfig({ ...strategyConfig, webhook_url: e.target.value })}
+                                                placeholder="https://n8n.webhook/send-otp"
+                                                className="w-full mt-1 bg-white border-none rounded-xl py-2 px-3 text-xs font-bold"
+                                            />
+                                        </div>
                                     </div>
 
-                                    {strategyConfig.require_otp_on_update && (
-                                        <div className="pt-4 border-t border-rose-200/50">
-                                            <label className="text-[9px] font-black text-rose-800 uppercase tracking-widest">OTP Dispatch Mode</label>
+                                    {/* TEMPLATE BINDING (i18n) */}
+                                    {Object.keys(messagingTemplates).length > 0 && (
+                                        <div className="mt-2 pt-4 border-t border-indigo-200/50 space-y-3">
+                                            <label className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">OTP Message Template (i18n Library)</label>
                                             <select
-                                                value={strategyConfig.otp_dispatch_mode || 'delegated'}
-                                                onChange={(e) => setStrategyConfig({ ...strategyConfig, otp_dispatch_mode: e.target.value })}
-                                                className="w-full mt-2 bg-white border-none rounded-xl py-3 px-4 text-xs font-bold outline-none text-slate-700 shadow-sm"
+                                                value={strategyConfig.template_bindings?.otp_challenge || ''}
+                                                onChange={(e) => setStrategyConfig({
+                                                    ...strategyConfig,
+                                                    template_bindings: { ...(strategyConfig.template_bindings || {}), otp_challenge: e.target.value || undefined }
+                                                })}
+                                                className="w-full bg-white border-none rounded-xl py-2.5 px-3 text-xs font-bold outline-none shadow-sm"
                                             >
-                                                <option value="delegated">Delegated (Frontend prompts User to choose Channel)</option>
-                                                <option value="auto_current">Auto-Current (Send OTP to the Identity being updated)</option>
-                                                <option value="auto_primary">Auto-Primary (Send OTP to Account's root email)</option>
+                                                <option value="">System Default (No i18n)</option>
+                                                {Object.values(messagingTemplates)
+                                                    .filter((t: any) => t.type === 'otp_challenge')
+                                                    .map((t: any) => (
+                                                        <option key={t.id} value={t.id}>{t.name} ({Object.keys(t.variants).join(', ')})</option>
+                                                    ))
+                                                }
                                             </select>
-                                            <p className="text-[9px] text-rose-600/70 font-semibold mt-2">
-                                                Determines how the API routes the security code when an update is blocked.
-                                            </p>
+                                            {strategyConfig.template_bindings?.otp_challenge && messagingTemplates[strategyConfig.template_bindings.otp_challenge] && (
+                                                <div className="bg-white/80 rounded-xl p-3 border border-indigo-100">
+                                                    <p className="text-[9px] font-black text-indigo-500 uppercase tracking-widest mb-1">
+                                                        Preview ({messagingTemplates[strategyConfig.template_bindings.otp_challenge].default_language})
+                                                    </p>
+                                                    <p className="text-[10px] text-slate-600 font-mono leading-relaxed whitespace-pre-wrap max-h-20 overflow-y-auto">
+                                                        {messagingTemplates[strategyConfig.template_bindings.otp_challenge].variants?.[messagingTemplates[strategyConfig.template_bindings.otp_challenge].default_language]?.body || '(empty body)'}
+                                                    </p>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>
+                            )}
 
-                                <div className="space-y-3">
-                                    <div className="flex flex-col gap-2">
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Authorized Origins (CORS/Redirects)</label>
-                                        <div className="flex gap-2">
-                                            <input
-                                                value={strategyConfig.newRule || ''}
-                                                onChange={(e) => setStrategyConfig({ ...strategyConfig, newRule: e.target.value })}
-                                                placeholder="https://meu-app.com"
-                                                className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-indigo-500/20"
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter') {
-                                                        addRuleToStrategy(strategyConfig.newRule || '', false);
-                                                    }
-                                                }}
-                                            />
-                                            <button onClick={() => {
-                                                addRuleToStrategy(strategyConfig.newRule || '', false);
-                                            }} className="px-5 py-3 bg-indigo-50 text-indigo-600 font-bold text-[10px] uppercase rounded-xl hover:bg-indigo-100 transition-colors shrink-0">Add Origin</button>
-                                        </div>
+                            {/* BANK-GRADE SECURITY (OTP ENFORCEMENT) */}
+                            <div className="col-span-2 bg-rose-50 border border-rose-100 p-6 rounded-3xl space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <h5 className="font-bold text-rose-900 text-sm flex items-center gap-2">🔐 Bank-Grade Security Lock</h5>
+                                        <p className="text-[10px] text-rose-700 font-bold mt-1">Require OTP challenge for sensitive updates (e.g., password, new identity)</p>
                                     </div>
-                                    <div className="space-y-2">
-                                        {strategyConfig.rules?.map((rule: any, idx: number) => (
-                                            <div key={idx} className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                                <span className="text-xs font-mono font-bold text-slate-600">{rule.origin}</span>
-                                                <button onClick={() => removeRuleFromStrategy(rule.origin)} className="text-rose-400 hover:text-rose-600"><X size={14} /></button>
-                                            </div>
-                                        ))}
-                                        {(!strategyConfig.rules || strategyConfig.rules.length === 0) && <p className="text-xs text-slate-400 italic">No origin rules defined (Public).</p>}
+                                    <label className="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" className="sr-only peer" checked={strategyConfig.require_otp_on_update || false} onChange={(e) => setStrategyConfig({ ...strategyConfig, require_otp_on_update: e.target.checked })} />
+                                        <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-rose-600"></div>
+                                    </label>
+                                </div>
+
+                                {strategyConfig.require_otp_on_update && (
+                                    <div className="pt-4 border-t border-rose-200/50">
+                                        <label className="text-[9px] font-black text-rose-800 uppercase tracking-widest">OTP Dispatch Mode</label>
+                                        <select
+                                            value={strategyConfig.otp_dispatch_mode || 'delegated'}
+                                            onChange={(e) => setStrategyConfig({ ...strategyConfig, otp_dispatch_mode: e.target.value })}
+                                            className="w-full mt-2 bg-white border-none rounded-xl py-3 px-4 text-xs font-bold outline-none text-slate-700 shadow-sm"
+                                        >
+                                            <option value="delegated">Delegated (Frontend prompts User to choose Channel)</option>
+                                            <option value="auto_current">Auto-Current (Send OTP to the Identity being updated)</option>
+                                            <option value="auto_primary">Auto-Primary (Send OTP to Account's root email)</option>
+                                        </select>
+                                        <p className="text-[9px] text-rose-600/70 font-semibold mt-2">
+                                            Determines how the API routes the security code when an update is blocked.
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="space-y-3">
+                                <div className="flex flex-col gap-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Authorized Origins (CORS/Redirects)</label>
+                                    <div className="flex gap-2">
+                                        <input
+                                            value={strategyConfig.newRule || ''}
+                                            onChange={(e) => setStrategyConfig({ ...strategyConfig, newRule: e.target.value })}
+                                            placeholder="https://meu-app.com"
+                                            className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    addRuleToStrategy(strategyConfig.newRule || '', false);
+                                                }
+                                            }}
+                                        />
+                                        <button onClick={() => {
+                                            addRuleToStrategy(strategyConfig.newRule || '', false);
+                                        }} className="px-5 py-3 bg-indigo-50 text-indigo-600 font-bold text-[10px] uppercase rounded-xl hover:bg-indigo-100 transition-colors shrink-0">Add Origin</button>
                                     </div>
                                 </div>
-                            </div>
-
-                            <div className="pt-8 border-t border-slate-100 flex justify-end gap-4 mt-auto">
-                                <button onClick={() => setShowConfigModal(false)} className="px-6 py-4 rounded-2xl text-xs font-black text-slate-400 uppercase tracking-widest hover:bg-slate-50">Cancel</button>
-                                <button onClick={handleSaveStrategyConfig} className="px-8 py-4 bg-indigo-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl hover:bg-indigo-700">Save Changes</button>
+                                <div className="space-y-2">
+                                    {strategyConfig.rules?.map((rule: any, idx: number) => (
+                                        <div key={idx} className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                            <span className="text-xs font-mono font-bold text-slate-600">{rule.origin}</span>
+                                            <button onClick={() => removeRuleFromStrategy(rule.origin)} className="text-rose-400 hover:text-rose-600"><X size={14} /></button>
+                                        </div>
+                                    ))}
+                                    {(!strategyConfig.rules || strategyConfig.rules.length === 0) && <p className="text-xs text-slate-400 italic">No origin rules defined (Public).</p>}
+                                </div>
                             </div>
                         </div>
+
+                        <div className="pt-8 border-t border-slate-100 flex justify-end gap-4 mt-auto">
+                            <button onClick={() => setShowConfigModal(false)} className="px-6 py-4 rounded-2xl text-xs font-black text-slate-400 uppercase tracking-widest hover:bg-slate-50">Cancel</button>
+                            <button onClick={handleSaveStrategyConfig} className="px-8 py-4 bg-indigo-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl hover:bg-indigo-700">Save Changes</button>
+                        </div>
                     </div>
-                )
+                </div>
+            )
             }
 
             {/* CREATE USER MODAL */}
@@ -2019,136 +2107,141 @@ const { user, session } = await cascata.auth.signIn({
             }
 
             {/* Verify Password Modal (For Revealing Sensitive Data) */}
-            {showVerifyModal && (
-                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[800] flex items-center justify-center p-8 animate-in zoom-in-95">
-                    <div className="bg-white rounded-[3rem] p-10 max-w-sm w-full shadow-2xl text-center border border-slate-200">
-                        <Lock size={40} className="mx-auto text-slate-900 mb-6" />
-                        <h3 className="text-xl font-black text-slate-900 mb-2">Confirmação de Segurança</h3>
-                        <p className="text-xs text-slate-500 font-bold mb-8">Digite sua senha administrativa para revelar os dados sensíveis dos usuários.</p>
-                        <form onSubmit={(e) => { e.preventDefault(); handleVerifyPassword(); }}>
-                            <input
-                                type="password"
-                                autoFocus
-                                value={verifyPassword}
-                                onChange={e => setVerifyPassword(e.target.value)}
-                                className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 text-center font-bold text-slate-900 outline-none mb-6 focus:ring-4 focus:ring-indigo-500/10"
-                                placeholder="••••••••"
-                            />
-                            <button type="submit" disabled={executing} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-600 transition-all flex items-center justify-center gap-2">
-                                {executing ? <Loader2 className="animate-spin" size={16} /> : 'Confirmar Acesso'}
-                            </button>
-                        </form>
-                        <button onClick={() => { setShowVerifyModal(false); setVerifyPassword(''); }} className="mt-4 text-xs font-bold text-slate-400 hover:text-slate-600">Cancelar</button>
+            {
+                showVerifyModal && (
+                    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[800] flex items-center justify-center p-8 animate-in zoom-in-95">
+                        <div className="bg-white rounded-[3rem] p-10 max-w-sm w-full shadow-2xl text-center border border-slate-200">
+                            <Lock size={40} className="mx-auto text-slate-900 mb-6" />
+                            <h3 className="text-xl font-black text-slate-900 mb-2">Confirmação de Segurança</h3>
+                            <p className="text-xs text-slate-500 font-bold mb-8">Digite sua senha administrativa para revelar os dados sensíveis dos usuários.</p>
+                            <form onSubmit={(e) => { e.preventDefault(); handleVerifyPassword(); }}>
+                                <input
+                                    type="password"
+                                    autoFocus
+                                    value={verifyPassword}
+                                    onChange={e => setVerifyPassword(e.target.value)}
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 text-center font-bold text-slate-900 outline-none mb-6 focus:ring-4 focus:ring-indigo-500/10"
+                                    placeholder="••••••••"
+                                />
+                                <button type="submit" disabled={executing} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-600 transition-all flex items-center justify-center gap-2">
+                                    {executing ? <Loader2 className="animate-spin" size={16} /> : 'Confirmar Acesso'}
+                                </button>
+                            </form>
+                            <button onClick={() => { setShowVerifyModal(false); setVerifyPassword(''); }} className="mt-4 text-xs font-bold text-slate-400 hover:text-slate-600">Cancelar</button>
+                        </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* APP CLIENT CREATION MODAL */}
-            {showAppClientModal && (
-                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[1000] flex justify-center items-center p-4">
-                    <div className="bg-white max-w-lg w-full rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-                        <div className="p-10 border-b border-slate-100">
-                            <h2 className="text-2xl font-black text-slate-900">Create App Client</h2>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Generate a scoped Identity-Aware Key</p>
-                        </div>
-                        <div className="p-10 space-y-6 bg-slate-50/50">
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Client Name</label>
-                                <input
-                                    autoFocus
-                                    value={newAppClientConfig.name}
-                                    onChange={e => setNewAppClientConfig({ ...newAppClientConfig, name: e.target.value })}
-                                    placeholder="e.g. Driver Mobile App"
-                                    className="w-full bg-white border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none font-mono"
-                                />
+            {
+                showAppClientModal && (
+                    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[1000] flex justify-center items-center p-4">
+                        <div className="bg-white max-w-lg w-full rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                            <div className="p-10 border-b border-slate-100">
+                                <h2 className="text-2xl font-black text-slate-900">Create App Client</h2>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Generate a scoped Identity-Aware Key</p>
                             </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Specific Site URL (Redirect)</label>
-                                <input
-                                    value={newAppClientConfig.site_url}
-                                    onChange={e => setNewAppClientConfig({ ...newAppClientConfig, site_url: e.target.value })}
-                                    placeholder="exp://driver.app"
-                                    className="w-full bg-white border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none font-mono"
-                                />
+                            <div className="p-10 space-y-6 bg-slate-50/50">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Client Name</label>
+                                    <input
+                                        autoFocus
+                                        value={newAppClientConfig.name}
+                                        onChange={e => setNewAppClientConfig({ ...newAppClientConfig, name: e.target.value })}
+                                        placeholder="e.g. Driver Mobile App"
+                                        className="w-full bg-white border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none font-mono"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Specific Site URL (Redirect)</label>
+                                    <input
+                                        value={newAppClientConfig.site_url}
+                                        onChange={e => setNewAppClientConfig({ ...newAppClientConfig, site_url: e.target.value })}
+                                        placeholder="exp://driver.app"
+                                        className="w-full bg-white border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none font-mono"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Allowed Origins (CORS)</label>
+                                    <input
+                                        value={newAppClientConfig.allowed_origins}
+                                        onChange={e => setNewAppClientConfig({ ...newAppClientConfig, allowed_origins: e.target.value })}
+                                        placeholder="https://driver.com, exp://driver.app"
+                                        className="w-full bg-white border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none font-mono"
+                                    />
+                                </div>
                             </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Allowed Origins (CORS)</label>
-                                <input
-                                    value={newAppClientConfig.allowed_origins}
-                                    onChange={e => setNewAppClientConfig({ ...newAppClientConfig, allowed_origins: e.target.value })}
-                                    placeholder="https://driver.com, exp://driver.app"
-                                    className="w-full bg-white border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none font-mono"
-                                />
+                            <div className="p-6 border-t border-slate-100 flex justify-end gap-3 bg-white">
+                                <button onClick={() => setShowAppClientModal(false)} className="px-6 py-3 rounded-2xl text-xs font-black text-slate-500 uppercase tracking-widest hover:bg-slate-50 transition-all">Cancel</button>
+                                <button onClick={handleSaveAppClient} disabled={executing || !newAppClientConfig.name} className="bg-indigo-600 text-white px-8 py-3 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-200 disabled:opacity-50">Create Key</button>
                             </div>
-                        </div>
-                        <div className="p-6 border-t border-slate-100 flex justify-end gap-3 bg-white">
-                            <button onClick={() => setShowAppClientModal(false)} className="px-6 py-3 rounded-2xl text-xs font-black text-slate-500 uppercase tracking-widest hover:bg-slate-50 transition-all">Cancel</button>
-                            <button onClick={handleSaveAppClient} disabled={executing || !newAppClientConfig.name} className="bg-indigo-600 text-white px-8 py-3 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-200 disabled:opacity-50">Create Key</button>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* CREATE TEMPLATE MODAL */}
-            {showCreateTemplateModal && (
-                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
-                    <div className="bg-white rounded-[3rem] w-full max-w-md p-10 shadow-2xl relative">
-                        <button onClick={() => setShowCreateTemplateModal(false)} className="absolute top-8 right-8 text-slate-300 hover:text-slate-900"><X size={24} /></button>
-                        <div className="flex items-center gap-3 mb-6">
-                            <div className="w-12 h-12 bg-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-lg"><LayoutTemplate size={24} /></div>
-                            <div>
-                                <h3 className="text-xl font-black text-slate-900">New Message Template</h3>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">i18n Reusable Template</p>
+            {
+                showCreateTemplateModal && (
+                    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
+                        <div className="bg-white rounded-[3rem] w-full max-w-md p-10 shadow-2xl relative">
+                            <button onClick={() => setShowCreateTemplateModal(false)} className="absolute top-8 right-8 text-slate-300 hover:text-slate-900"><X size={24} /></button>
+                            <div className="flex items-center gap-3 mb-6">
+                                <div className="w-12 h-12 bg-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-lg"><LayoutTemplate size={24} /></div>
+                                <div>
+                                    <h3 className="text-xl font-black text-slate-900">New Message Template</h3>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">i18n Reusable Template</p>
+                                </div>
                             </div>
-                        </div>
-                        <div className="space-y-4">
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Template Name</label>
-                                <input
-                                    autoFocus
-                                    value={newTemplateForm.name}
-                                    onChange={(e) => setNewTemplateForm({ ...newTemplateForm, name: e.target.value })}
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none"
-                                    placeholder="e.g. OTP SMS Code"
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Message Type</label>
-                                <select
-                                    value={newTemplateForm.type}
-                                    onChange={(e) => setNewTemplateForm({ ...newTemplateForm, type: e.target.value })}
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none"
+                            <div className="space-y-4">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Template Name</label>
+                                    <input
+                                        autoFocus
+                                        value={newTemplateForm.name}
+                                        onChange={(e) => setNewTemplateForm({ ...newTemplateForm, name: e.target.value })}
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none"
+                                        placeholder="e.g. OTP SMS Code"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Message Type</label>
+                                    <select
+                                        value={newTemplateForm.type}
+                                        onChange={(e) => setNewTemplateForm({ ...newTemplateForm, type: e.target.value })}
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none"
+                                    >
+                                        <option value="otp_challenge">OTP Challenge</option>
+                                        <option value="confirmation">Confirmation</option>
+                                        <option value="recovery">Recovery</option>
+                                        <option value="magic_link">Magic Link</option>
+                                        <option value="login_alert">Login Alert</option>
+                                        <option value="welcome">Welcome</option>
+                                    </select>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Default Language (ISO Code)</label>
+                                    <input
+                                        value={newTemplateForm.default_language}
+                                        onChange={(e) => setNewTemplateForm({ ...newTemplateForm, default_language: e.target.value })}
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none font-mono"
+                                        placeholder="en-US"
+                                    />
+                                    <p className="text-[9px] text-slate-400 px-1">ISO 639 code. Examples: en-US, pt-BR, es-ES, fr-FR, de-DE, ja-JP</p>
+                                </div>
+                                <button
+                                    onClick={handleCreateTemplate}
+                                    disabled={!newTemplateForm.name}
+                                    className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl mt-2 hover:bg-indigo-700 transition-all disabled:opacity-50"
                                 >
-                                    <option value="otp_challenge">OTP Challenge</option>
-                                    <option value="confirmation">Confirmation</option>
-                                    <option value="recovery">Recovery</option>
-                                    <option value="magic_link">Magic Link</option>
-                                    <option value="login_alert">Login Alert</option>
-                                    <option value="welcome">Welcome</option>
-                                </select>
+                                    Create Template
+                                </button>
                             </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Default Language (ISO Code)</label>
-                                <input
-                                    value={newTemplateForm.default_language}
-                                    onChange={(e) => setNewTemplateForm({ ...newTemplateForm, default_language: e.target.value })}
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-sm font-bold outline-none font-mono"
-                                    placeholder="en-US"
-                                />
-                                <p className="text-[9px] text-slate-400 px-1">ISO 639 code. Examples: en-US, pt-BR, es-ES, fr-FR, de-DE, ja-JP</p>
-                            </div>
-                            <button
-                                onClick={handleCreateTemplate}
-                                disabled={!newTemplateForm.name}
-                                className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl mt-2 hover:bg-indigo-700 transition-all disabled:opacity-50"
-                            >
-                                Create Template
-                            </button>
                         </div>
                     </div>
-                </div>
-            )}
-
+                )
+            }
         </div >
     );
 };

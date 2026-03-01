@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import type { TablePanelHandle } from '../components/database/TablePanel';
 import {
   Database, Search, Table as TableIcon, Loader2, AlertCircle, Plus, X,
   Terminal, Trash2, Download, Upload, Copy, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
@@ -90,7 +91,7 @@ interface ColumnDef {
   isNullable: boolean;
   isUnique: boolean;
   isArray: boolean;
-  foreignKey?: { table: string; column: string };
+  foreignKey?: { schema: string; table: string; column: string };
   sourceHeader?: string;
   description?: string;
   formatPreset?: string;
@@ -182,17 +183,23 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
     name: string;
     type: string;
     isNullable: boolean;
+    isArray: boolean;
     defaultValue: string;
     isUnique: boolean;
     description: string;
-    foreignKey?: { table: string, column: string };
+    foreignKey?: { schema: string, table: string, column: string };
+    fkSchema: string;
     formatPreset: string;
     formatPattern: string;
   }>({
-    name: '', type: 'text', isNullable: true, defaultValue: '', isUnique: false, description: '', formatPreset: '', formatPattern: ''
+    name: '', type: 'text', isNullable: true, isArray: false, defaultValue: '', isUnique: false, description: '', fkSchema: 'public', formatPreset: '', formatPattern: ''
   });
   const [fkTargetColumns, setFkTargetColumns] = useState<string[]>([]);
+  const [fkTargetTables, setFkTargetTables] = useState<any[]>([]);
   const [fkLoading, setFkLoading] = useState(false);
+
+  // --- TablePanel Refs (for imperative refresh) ---
+  const tablePanelRefs = useRef<Map<string, TablePanelHandle>>(new Map());
 
   // UI State
   const [sidebarWidth, setSidebarWidth] = useState(280);
@@ -245,6 +252,46 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
 
   // Refs for Sql Console State Lifting
   const [sqlInitial, setSqlInitial] = useState('');
+
+  // --- NOTIFICATION AUTO-DISMISS (3.8s with hover pause) ---
+  const notifyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const notifyStartRef = useRef<number>(0);
+  const notifyRemainingRef = useRef<number>(3800);
+
+  const clearNotifyTimer = useCallback(() => {
+    if (notifyTimerRef.current) { clearTimeout(notifyTimerRef.current); notifyTimerRef.current = null; }
+  }, []);
+
+  const startNotifyTimer = useCallback((ms: number) => {
+    clearNotifyTimer();
+    notifyStartRef.current = Date.now();
+    notifyRemainingRef.current = ms;
+    notifyTimerRef.current = setTimeout(() => {
+      setError(null);
+      setSuccessMsg(null);
+    }, ms);
+  }, [clearNotifyTimer]);
+
+  const handleNotifyPause = useCallback(() => {
+    clearNotifyTimer();
+    const elapsed = Date.now() - notifyStartRef.current;
+    notifyRemainingRef.current = Math.max(0, notifyRemainingRef.current - elapsed);
+  }, [clearNotifyTimer]);
+
+  const handleNotifyResume = useCallback(() => {
+    if (notifyRemainingRef.current > 0) startNotifyTimer(notifyRemainingRef.current);
+  }, [startNotifyTimer]);
+
+  // Triggers auto-dismiss whenever error/successMsg changes
+  useEffect(() => {
+    if (error || successMsg) {
+      notifyRemainingRef.current = 3800;
+      startNotifyTimer(3800);
+    } else {
+      clearNotifyTimer();
+    }
+    return clearNotifyTimer;
+  }, [error, successMsg, startNotifyTimer, clearNotifyTimer]);
 
   const pkCol = columns.find(c => c.isPrimaryKey)?.name || columns[0]?.name;
   const displayColumns = columnOrder.length > 0 ? columnOrder.map(name => columns.find(c => c.name === name)).filter(Boolean) : columns;
@@ -635,15 +682,17 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
     if (!newColumn.name || !selectedTable) return;
     setExecuting(true);
     try {
-      // GENERATE SQL FOR ALTER TABLE
-      let sql = `ALTER TABLE ${activeSchema}."${selectedTable}" ADD COLUMN "${sanitizeColName(newColumn.name)}" ${newColumn.type}`;
+      // GENERATE SQL FOR ALTER TABLE — with array support
+      const colType = newColumn.isArray ? `${newColumn.type}[]` : newColumn.type;
+      let sql = `ALTER TABLE ${activeSchema}."${selectedTable}" ADD COLUMN "${sanitizeColName(newColumn.name)}" ${colType}`;
 
       if (!newColumn.isNullable) sql += ' NOT NULL';
       if (newColumn.defaultValue) sql += ` DEFAULT ${newColumn.defaultValue}`;
       if (newColumn.isUnique) sql += ' UNIQUE';
 
-      if (newColumn.foreignKey) {
-        sql += ` REFERENCES ${activeSchema}."${newColumn.foreignKey.table}"("${newColumn.foreignKey.column}")`;
+      if (newColumn.foreignKey && newColumn.foreignKey.table && newColumn.foreignKey.column) {
+        const fkSchema = newColumn.foreignKey.schema || activeSchema;
+        sql += ` REFERENCES ${fkSchema}."${newColumn.foreignKey.table}"("${newColumn.foreignKey.column}")`;
       }
 
       // Execute via Query Endpoint
@@ -670,8 +719,9 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
 
       setSuccessMsg("Column added.");
       setShowAddColumn(false);
-      setNewColumn({ name: '', type: 'text', isNullable: true, defaultValue: '', isUnique: false, description: '', formatPreset: '', formatPattern: '' });
-      fetchTableData(selectedTable);
+      setNewColumn({ name: '', type: 'text', isNullable: true, isArray: false, defaultValue: '', isUnique: false, description: '', fkSchema: activeSchema, formatPreset: '', formatPattern: '' });
+      // Refresh the active TablePanel (Point 8)
+      tablePanelRefs.current.get(selectedTable)?.refresh();
     } catch (e: any) { setError(translateError(e)); }
     finally { setExecuting(false); }
   };
@@ -1169,7 +1219,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
         <div className="flex items-center justify-between mb-4 px-2">
           <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">{activeSchema} Tables</h2>
           <div className="flex gap-1">
-            <button onClick={fetchTables} className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-indigo-600"><RefreshCw size={14} /></button>
+            <button onClick={() => { fetchTables(); tablePanelRefs.current.forEach(panel => panel?.refresh()); }} className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-indigo-600"><RefreshCw size={14} /></button>
             <button onClick={() => setShowCreateTable(true)} className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-indigo-600"><Plus size={14} /></button>
           </div>
         </div>
@@ -1259,12 +1309,27 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
         </div>
       )}
 
-      {/* Notifications */}
+      {/* Notifications — Auto-dismiss 3.8s, pause on hover, copy icon */}
       {(successMsg || error) && (
-        <div className={`fixed top-8 left-1/2 -translate-x-1/2 z-[100] px-6 py-4 rounded-full shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-4 ${error ? 'bg-rose-600 text-white' : 'bg-emerald-600 text-white'}`}>
+        <div
+          onMouseEnter={handleNotifyPause}
+          onMouseLeave={handleNotifyResume}
+          className={`fixed top-8 left-1/2 -translate-x-1/2 z-[100] px-6 py-4 rounded-full shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-4 cursor-default select-none ${error ? 'bg-rose-600 text-white' : 'bg-emerald-600 text-white'}`}
+        >
           {error ? <AlertCircle size={18} /> : <CheckCircle2 size={18} />}
           <span className="text-xs font-bold">{error || successMsg}</span>
-          <button onClick={() => { setError(null); setSuccessMsg(null); }} className="ml-2 opacity-60 hover:opacity-100"><X size={14} /></button>
+          <button
+            onClick={async () => {
+              const msg = error || successMsg || '';
+              await copyToClipboard(msg);
+              setError(null);
+              setSuccessMsg(null);
+            }}
+            title="Copy message"
+            className="ml-2 opacity-60 hover:opacity-100 transition-opacity"
+          >
+            <Copy size={14} />
+          </button>
         </div>
       )}
 
@@ -1317,6 +1382,10 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
               {pinnedTables.map(tName => (
                 <TablePanel
                   key={`${activeSchema}-${tName}`}
+                  ref={(el: TablePanelHandle | null) => {
+                    if (el) tablePanelRefs.current.set(tName, el);
+                    else tablePanelRefs.current.delete(tName);
+                  }}
                   projectId={projectId}
                   tableName={tName}
                   schema={activeSchema}
@@ -1334,14 +1403,14 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                   onAddColumn={() => setShowAddColumn(true)}
                   onError={setError}
                   onSuccess={setSuccessMsg}
-                  onExport={(name, data, fmt) => handleExport(fmt as any, data)}
+                  onExport={(name, data, fmt) => handleExport(fmt as any, data?.length ? data : undefined)}
                   onImport={() => setShowImportModal(true)}
                   isRealtimeActive={isRealtimeActive}
                 />
               ))}
             </div>
           ) : activeTab === 'query' ? (
-            <SqlConsole onExecute={handleExecuteSql} onFix={handleFixSql} onInterceptCreateTable={handleInterceptCreateTable} initialQuery={sqlInitial} />
+            <SqlConsole onExecute={handleExecuteSql} onFix={handleFixSql} onInterceptCreateTable={handleInterceptCreateTable} initialQuery={sqlInitial} projectId={projectId} />
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-slate-300">
               <Database size={64} className="mb-4 opacity-20" />
@@ -1356,6 +1425,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
         isOpen={showCreateTable}
         onClose={() => { setShowCreateTable(false); setInitialColumns(undefined); }}
         tables={tables}
+        schemas={schemas}
         activeSchema={activeSchema}
         projectId={projectId}
         fetchWithAuth={fetchWithAuth}
@@ -1575,18 +1645,36 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                   <div className="flex items-center gap-2">
                     <div title="Nullable" onClick={() => setNewColumn({ ...newColumn, isNullable: !newColumn.isNullable })} className={`px-2 py-1.5 rounded-xl text-[10px] font-black cursor-pointer select-none transition-all ${newColumn.isNullable ? 'bg-emerald-100 text-emerald-700' : 'text-slate-400 hover:bg-slate-200'}`}>NULL</div>
                     <div title="Unique" onClick={() => setNewColumn({ ...newColumn, isUnique: !newColumn.isUnique })} className={`px-2 py-1.5 rounded-xl text-[10px] font-black cursor-pointer select-none transition-all ${newColumn.isUnique ? 'bg-purple-100 text-purple-700' : 'text-slate-400 hover:bg-slate-200'}`}>UNIQ</div>
+                    {/* Array Toggle — mutually exclusive with FK */}
+                    <div
+                      title={newColumn.foreignKey ? 'Array (disabled — columns with REFERENCES cannot be arrays)' : 'Array'}
+                      onClick={() => {
+                        if (newColumn.foreignKey) return;
+                        setNewColumn({ ...newColumn, isArray: !newColumn.isArray });
+                      }}
+                      className={`px-2 py-1.5 rounded-xl text-[10px] font-black cursor-pointer select-none transition-all ${newColumn.foreignKey ? 'text-slate-200 cursor-not-allowed' : newColumn.isArray ? 'bg-indigo-100 text-indigo-700' : 'text-slate-400 hover:bg-slate-200'}`}
+                    >LIST</div>
                   </div>
 
-                  {/* Foreign Key Toggle */}
+                  {/* Foreign Key Toggle — mutually exclusive with Array */}
                   <div
                     onClick={async () => {
+                      if (newColumn.isArray) return; // Blocked: Array columns can't have FK
                       if (!newColumn.foreignKey) {
-                        setNewColumn({ ...newColumn, foreignKey: { table: '', column: '' } });
+                        const fkSch = newColumn.fkSchema || activeSchema;
+                        setNewColumn({ ...newColumn, foreignKey: { schema: fkSch, table: '', column: '' } });
+                        // Pre-load tables for the FK schema
+                        setFkLoading(true);
+                        try {
+                          const res = await fetchWithAuth(`/api/data/${projectId}/tables?schema=${fkSch}`);
+                          setFkTargetTables(res || []);
+                        } catch { setFkTargetTables(tables); }
+                        finally { setFkLoading(false); }
                       } else {
                         setNewColumn({ ...newColumn, foreignKey: undefined });
                       }
                     }}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-[10px] font-black cursor-pointer select-none transition-all ${newColumn.foreignKey ? 'bg-blue-100 text-blue-700 shadow-sm' : 'text-slate-400 hover:bg-slate-200'}`}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-[10px] font-black cursor-pointer select-none transition-all ${newColumn.isArray ? 'text-slate-200 cursor-not-allowed' : newColumn.foreignKey ? 'bg-blue-100 text-blue-700 shadow-sm' : 'text-slate-400 hover:bg-slate-200'}`}
                   >
                     <LinkIcon size={12} strokeWidth={3} /> {newColumn.foreignKey ? 'LINKED' : 'LINK'}
                   </div>
@@ -1595,21 +1683,44 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                 {/* Foreign Key Configuration (Conditional) */}
                 {newColumn.foreignKey && (
                   <div className="space-y-3 bg-blue-50/50 p-3 rounded-2xl border border-blue-100 animate-in slide-in-from-top-2">
+                    {/* FK Schema Selector */}
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-black text-blue-400 uppercase tracking-widest ml-1">Schema</label>
+                      <select
+                        value={newColumn.foreignKey.schema || activeSchema}
+                        onChange={async (e: any) => {
+                          const newFkSchema = e.target.value;
+                          setNewColumn(prev => ({ ...prev, fkSchema: newFkSchema, foreignKey: { schema: newFkSchema, table: '', column: '' } }));
+                          setFkTargetColumns([]);
+                          setFkLoading(true);
+                          try {
+                            const res = await fetchWithAuth(`/api/data/${projectId}/tables?schema=${newFkSchema}`);
+                            setFkTargetTables(res || []);
+                          } catch { setFkTargetTables([]); }
+                          finally { setFkLoading(false); }
+                        }}
+                        className="w-full bg-white border border-blue-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-700 outline-none"
+                      >
+                        {schemas.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </div>
+                    {/* FK Target Table */}
                     <div className="space-y-1">
                       <label className="text-[9px] font-black text-blue-400 uppercase tracking-widest ml-1">Target Table</label>
                       <select
                         value={newColumn.foreignKey.table}
                         onChange={async (e: any) => {
                           const tbl = e.target.value;
-                          setNewColumn(prev => ({ ...prev, foreignKey: { table: tbl, column: '' } }));
+                          const fkSch = newColumn.foreignKey?.schema || activeSchema;
+                          setNewColumn(prev => ({ ...prev, foreignKey: { schema: fkSch, table: tbl, column: '' } }));
                           if (tbl) {
                             setFkLoading(true);
                             try {
-                              const res = await fetchWithAuth(`/api/data/${projectId}/tables/${tbl}/columns?schema=${activeSchema}`);
+                              const res = await fetchWithAuth(`/api/data/${projectId}/tables/${tbl}/columns?schema=${fkSch}`);
                               setFkTargetColumns(res.map((c: any) => c.name));
                               if (res.length > 0) {
                                 const defaultCol = res.find((c: any) => c.name === 'id') ? 'id' : res[0].name;
-                                setNewColumn(prev => ({ ...prev, foreignKey: { ...prev.foreignKey!, table: tbl, column: defaultCol } }));
+                                setNewColumn(prev => ({ ...prev, foreignKey: { schema: fkSch, table: tbl, column: defaultCol } }));
                               }
                             } catch (err) { } finally { setFkLoading(false); }
                           }
@@ -1617,9 +1728,10 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                         className="w-full bg-white border border-blue-200 rounded-xl py-2 px-3 text-xs font-bold text-slate-700 outline-none"
                       >
                         <option value="">Select Table...</option>
-                        {tables.filter(t => t.name !== selectedTable).map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
+                        {(fkTargetTables.length > 0 ? fkTargetTables : tables).filter(t => t.name !== selectedTable).map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
                       </select>
                     </div>
+                    {/* FK Target Column */}
                     {newColumn.foreignKey.table && (
                       <div className="space-y-1">
                         <label className="text-[9px] font-black text-blue-400 uppercase tracking-widest ml-1">Target Column</label>

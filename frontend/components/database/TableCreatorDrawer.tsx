@@ -18,7 +18,7 @@ interface ColumnDef {
     isNullable: boolean;
     isUnique: boolean;
     isArray: boolean;
-    foreignKey?: { table: string; column: string };
+    foreignKey?: { schema: string; table: string; column: string };
     sourceHeader?: string;
     description?: string;
     formatPreset?: string;
@@ -27,8 +27,6 @@ interface ColumnDef {
 }
 
 // Format presets for column validation (mirrored from backend)
-// NOTE: This map is also used by the "Add Column" modal in DatabaseExplorer.tsx
-// and enforced server-side in DataController.ts insertRows/updateRows.
 const FORMAT_PRESETS: Record<string, { label: string; regex: string; example: string }> = {
     email: { label: 'Email', regex: '^[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}$', example: 'user@example.com' },
     cpf: { label: 'CPF', regex: '^\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2}$', example: '123.456.789-00' },
@@ -44,6 +42,7 @@ interface TableCreatorDrawerProps {
     isOpen: boolean;
     onClose: () => void;
     tables: { name: string }[];
+    schemas: string[];
     activeSchema: string;
     projectId: string;
     fetchWithAuth: (url: string, options?: any) => Promise<any>;
@@ -81,8 +80,7 @@ const getDefaultSuggestions = (type: string): string[] => {
     return [];
 };
 
-// Smart quoting: wraps raw text defaults in single quotes,
-// leaves functions, numbers, booleans, casts, and already-quoted values bare.
+// Smart quoting
 const BARE_PATTERNS = [
     /^gen_random_uuid\(\)$/i,
     /^now\(\)$/i,
@@ -98,20 +96,13 @@ const BARE_PATTERNS = [
 const formatDefaultValue = (type: string, raw: string): string => {
     const v = raw.trim();
     if (!v) return '';
-    // Already single-quoted → pass through
     if (v.startsWith("'") && v.endsWith("'")) return v;
-    // Type casts (e.g. '{}'::jsonb) → pass through
     if (v.includes('::')) return v;
-    // Known SQL functions/keywords → bare
     if (BARE_PATTERNS.some(p => p.test(v))) return v;
-    // Contains parens (function call) → bare
     if (v.includes('(') && v.includes(')')) return v;
-    // Numeric types + valid number → bare
     const tn = type.toLowerCase();
     if (/^(int|float|numeric|real|double|serial|bigserial)/.test(tn) && !isNaN(Number(v))) return v;
-    // Boolean types + bool value → bare
     if (/bool/.test(tn) && ['true', 'false'].includes(v.toLowerCase())) return v;
-    // Everything else = string literal → wrap in single quotes
     return `'${v.replace(/'/g, "''")}'`;
 };
 
@@ -124,6 +115,7 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
     isOpen,
     onClose,
     tables,
+    schemas,
     activeSchema,
     projectId,
     fetchWithAuth,
@@ -137,17 +129,17 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
     const [enableRLS, setEnableRLS] = useState(true);
     const [activeFkEditor, setActiveFkEditor] = useState<string | null>(null);
     const [fkTargetColumns, setFkTargetColumns] = useState<string[]>([]);
+    const [fkTargetTables, setFkTargetTables] = useState<{ name: string }[]>([]);
     const [fkLoading, setFkLoading] = useState(false);
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const lastAddedIdRef = useRef<string | null>(null);
     const columnInputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
 
-    // Validation: all columns must have names
+    // Validation
     const hasEmptyColumn = columns.some(c => !c.name.trim());
     const canGenerate = !!tableName && !hasEmptyColumn;
 
-    // Sync initial values when props change
     useEffect(() => {
         if (initialTableName) setTableName(initialTableName);
     }, [initialTableName]);
@@ -163,10 +155,9 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
             const saved = localStorage.getItem(`cascata_mcp_defaults_${projectId}`);
             if (saved) return JSON.parse(saved);
         } catch { /* ignore */ }
-        return { r: true, c: true, u: true, d: false }; // DELETE off by default
+        return { r: true, c: true, u: true, d: false };
     });
 
-    // Check if MCP is enabled for this project
     useEffect(() => {
         if (!isOpen) return;
         (async () => {
@@ -178,7 +169,6 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
         })();
     }, [isOpen, projectId]);
 
-    // Persist MCP defaults whenever they change
     useEffect(() => {
         localStorage.setItem(`cascata_mcp_defaults_${projectId}`, JSON.stringify(mcpPerms));
     }, [mcpPerms, projectId]);
@@ -191,7 +181,6 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
             setColumns([...DEFAULT_COLUMNS]);
             setEnableRLS(true);
             setActiveFkEditor(null);
-            // Restore last MCP prefs from localStorage (already done via useState initializer)
         }
     }, [isOpen]);
 
@@ -226,26 +215,72 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
     };
 
     const handleColumnChange = (id: string, field: string, value: any) => {
-        setColumns(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c));
+        setColumns(prev => prev.map(c => {
+            if (c.id !== id) return c;
+
+            const updated = { ...c, [field]: value };
+
+            // ── MUTUAL EXCLUSION: Array ↔ Foreign Key ──
+            // PostgreSQL does not support REFERENCES on array columns.
+            // When one is activated, the other is deactivated.
+            if (field === 'isArray' && value === true) {
+                // Activating Array → remove FK
+                updated.foreignKey = undefined;
+                if (activeFkEditor === id) setActiveFkEditor(null);
+            }
+
+            return updated;
+        }));
     };
 
-    const handleSetForeignKey = async (id: string, table: string, column: string) => {
-        setColumns(prev => prev.map(c =>
-            c.id === id ? { ...c, foreignKey: table ? { table, column: column || '' } : undefined } : c
-        ));
+    const handleSetForeignKey = async (id: string, fkSchema: string, table: string, column: string) => {
+        setColumns(prev => prev.map(c => {
+            if (c.id !== id) return c;
+            const updated = {
+                ...c,
+                foreignKey: table ? { schema: fkSchema || activeSchema, table, column: column || '' } : undefined,
+                // ── MUTUAL EXCLUSION: FK activated → deactivate Array ──
+                isArray: table ? false : c.isArray
+            };
+            return updated;
+        }));
+
         if (table) {
             setFkLoading(true);
             try {
-                const res = await fetchWithAuth(`/api/data/${projectId}/tables/${table}/columns?schema=${activeSchema}`);
+                const res = await fetchWithAuth(`/api/data/${projectId}/tables/${table}/columns?schema=${fkSchema || activeSchema}`);
                 const cols = res.map((c: any) => c.name);
                 setFkTargetColumns(cols);
                 const defaultCol = cols.includes('id') ? 'id' : cols[0] || '';
                 setColumns(prev => prev.map(c =>
-                    c.id === id ? { ...c, foreignKey: { table, column: defaultCol } } : c
+                    c.id === id ? { ...c, foreignKey: { schema: fkSchema || activeSchema, table, column: defaultCol } } : c
                 ));
             } catch (e) { /* ignore */ }
             finally { setFkLoading(false); }
         }
+    };
+
+    // Load tables for a specific FK schema
+    const loadFkTablesForSchema = async (fkSchema: string) => {
+        setFkLoading(true);
+        try {
+            const res = await fetchWithAuth(`/api/data/${projectId}/tables?schema=${fkSchema}`);
+            setFkTargetTables(res || []);
+        } catch { setFkTargetTables([]); }
+        finally { setFkLoading(false); }
+    };
+
+    // Load tables for the current schema on FK editor open
+    const handleOpenFkEditor = async (colId: string) => {
+        if (activeFkEditor === colId) {
+            setActiveFkEditor(null);
+            return;
+        }
+        setActiveFkEditor(colId);
+        // Default to current schema's tables
+        const col = columns.find(c => c.id === colId);
+        const fkSchema = col?.foreignKey?.schema || activeSchema;
+        await loadFkTablesForSchema(fkSchema);
     };
 
     // --- Enterprise SQL Generator ---
@@ -254,11 +289,9 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
         const safeName = sanitizeName(tableName);
         const schema = activeSchema || 'public';
 
-        // Determine max column name length for alignment
         const colNames = columns.map(c => sanitizeName(c.name || 'unnamed'));
         const maxNameLen = Math.max(...colNames.map(n => n.length), 10);
 
-        // Build column definitions
         const colDefs = columns.map((c) => {
             const name = sanitizeName(c.name || 'unnamed');
             const paddedName = name.padEnd(maxNameLen);
@@ -270,40 +303,36 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
             if (!c.isNullable && !c.isPrimaryKey) constraints.push('NOT NULL');
             if (c.isUnique && !c.isPrimaryKey) constraints.push('UNIQUE');
 
-            // Smart quoting for DEFAULT values
             if (c.defaultValue && c.defaultValue.trim()) {
                 const formatted = formatDefaultValue(c.type, c.defaultValue);
                 constraints.push(`DEFAULT ${formatted}`);
             }
 
-            // Foreign key constraint
+            // Foreign key constraint — includes schema for cross-schema references
             if (c.foreignKey && c.foreignKey.table && c.foreignKey.column) {
+                const fkSchema = c.foreignKey.schema || schema;
                 const fkTable = sanitizeName(c.foreignKey.table);
                 const fkCol = sanitizeName(c.foreignKey.column);
-                constraints.push(`REFERENCES ${schema}.${fkTable}(${fkCol})`);
+                constraints.push(`REFERENCES ${fkSchema}.${fkTable}(${fkCol})`);
             }
 
             const constraintStr = constraints.length > 0 ? ' ' + constraints.join(' ') : '';
             return `    ${paddedName} ${type}${constraintStr}`;
         });
 
-        // Build complete SQL
         const lines: string[] = [];
         lines.push(`-- Create table: ${safeName}`);
         lines.push(`CREATE TABLE IF NOT EXISTS ${schema}.${safeName} (`);
         lines.push(colDefs.join(',\n'));
         lines.push(`);`);
 
-        // (Table comment logic moved to the end, combined with MCP Governance)
-
-        // RLS (optional)
         if (enableRLS) {
             lines.push('');
             lines.push(`-- Enable Row Level Security`);
             lines.push(`ALTER TABLE ${schema}.${safeName} ENABLE ROW LEVEL SECURITY;`);
         }
 
-        // Column comments (descriptions + format patterns)
+        // Column comments
         const commentLines: string[] = [];
         columns.forEach((c) => {
             const name = sanitizeName(c.name || 'unnamed');
@@ -320,14 +349,11 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
             commentLines.forEach(l => lines.push(l));
         }
 
-        // Table description & MCP Governance metadata
         const hasDesc = tableDesc.trim().length > 0;
-
         if (hasDesc || mcpEnabled) {
             lines.push('');
             lines.push('-- Table Comment & Governance');
             const cleanDesc = hasDesc ? tableDesc.replace(/'/g, "''").trim() : '';
-
             if (mcpEnabled) {
                 const mcpFlag = `MCP:${mcpPerms.r ? 'R' : ''}${mcpPerms.c ? 'C' : ''}${mcpPerms.u ? 'U' : ''}${mcpPerms.d ? 'D' : ''}`;
                 lines.push(`COMMENT ON TABLE ${schema}.${safeName} IS '${cleanDesc}||${mcpFlag}';`);
@@ -336,7 +362,7 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
             }
         }
 
-        // TIER-3 PADLOCK: Collect locked columns
+        // TIER-3 PADLOCK
         const lockedColumns: Record<string, string> = {};
         columns.forEach(c => {
             if (c.lockLevel && c.lockLevel !== 'unlocked') {
@@ -449,8 +475,27 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
                                     <div className="h-4 w-[1px] bg-slate-200"></div>
                                     <div className="flex items-center gap-2">
                                         <div title="Primary Key" onClick={() => handleColumnChange(col.id, 'isPrimaryKey', !col.isPrimaryKey)} className={`px-1.5 py-1 rounded text-[9px] font-black cursor-pointer select-none transition-colors ${col.isPrimaryKey ? 'bg-amber-100 text-amber-700' : 'text-slate-300 hover:bg-slate-200'}`}>PK</div>
-                                        <div title="Foreign Key" onClick={(e: any) => { e.stopPropagation(); setActiveFkEditor(activeFkEditor === col.id ? null : col.id); }} className={`px-1.5 py-1 rounded cursor-pointer select-none transition-colors flex items-center ${col.foreignKey ? 'bg-blue-100 text-blue-700' : 'text-slate-300 hover:bg-slate-200'}`}><LinkIcon size={12} strokeWidth={4} /></div>
-                                        <div title="Array" onClick={() => handleColumnChange(col.id, 'isArray', !col.isArray)} className={`px-1.5 py-1 rounded text-[9px] font-black cursor-pointer select-none transition-colors ${col.isArray ? 'bg-indigo-100 text-indigo-700' : 'text-slate-300 hover:bg-slate-200'}`}>LIST</div>
+                                        <div
+                                            title={col.isArray ? "Foreign Key (disabled — Array columns cannot have REFERENCES)" : "Foreign Key"}
+                                            onClick={(e: any) => {
+                                                e.stopPropagation();
+                                                if (col.isArray) return; // Blocked: Array columns can't have FK
+                                                handleOpenFkEditor(col.id);
+                                            }}
+                                            className={`px-1.5 py-1 rounded cursor-pointer select-none transition-colors flex items-center ${col.isArray ? 'text-slate-200 cursor-not-allowed' : col.foreignKey ? 'bg-blue-100 text-blue-700' : 'text-slate-300 hover:bg-slate-200'}`}
+                                        >
+                                            <LinkIcon size={12} strokeWidth={4} />
+                                        </div>
+                                        <div
+                                            title={col.foreignKey ? "Array (disabled — columns with REFERENCES cannot be arrays)" : "Array"}
+                                            onClick={() => {
+                                                if (col.foreignKey) return; // Blocked: FK columns can't be arrays
+                                                handleColumnChange(col.id, 'isArray', !col.isArray);
+                                            }}
+                                            className={`px-1.5 py-1 rounded text-[9px] font-black cursor-pointer select-none transition-colors ${col.foreignKey ? 'text-slate-200 cursor-not-allowed' : col.isArray ? 'bg-indigo-100 text-indigo-700' : 'text-slate-300 hover:bg-slate-200'}`}
+                                        >
+                                            LIST
+                                        </div>
                                         <div title="Nullable" onClick={() => handleColumnChange(col.id, 'isNullable', !col.isNullable)} className={`px-1.5 py-1 rounded text-[9px] font-black cursor-pointer select-none transition-colors ${col.isNullable ? 'bg-emerald-100 text-emerald-700' : 'text-slate-300 hover:bg-slate-200'}`}>NULL</div>
                                         <div title="Unique" onClick={() => handleColumnChange(col.id, 'isUnique', !col.isUnique)} className={`px-1.5 py-1 rounded text-[9px] font-black cursor-pointer select-none transition-colors ${col.isUnique ? 'bg-purple-100 text-purple-700' : 'text-slate-300 hover:bg-slate-200'}`}>UNIQ</div>
                                         {(col.type === 'text' || col.type === 'varchar') && (
@@ -517,31 +562,66 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
                                     </div>
                                 )}
 
-                                {/* FK Editor Popover */}
+                                {/* FK Editor Popover — with Schema Selector */}
                                 {activeFkEditor === col.id && (
-                                    <div data-fk-editor onClick={(e: any) => e.stopPropagation()} className="absolute z-50 top-full right-0 mt-2 w-64 bg-white border border-slate-200 shadow-xl rounded-xl p-4 animate-in fade-in zoom-in-95">
+                                    <div data-fk-editor onClick={(e: any) => e.stopPropagation()} className="absolute z-50 top-full right-0 mt-2 w-72 bg-white border border-slate-200 shadow-xl rounded-xl p-4 animate-in fade-in zoom-in-95">
                                         <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Link to Table</h4>
                                         <div className="space-y-3">
-                                            <select
-                                                value={col.foreignKey?.table || ''}
-                                                onChange={(e: any) => handleSetForeignKey(col.id, e.target.value, '')}
-                                                className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-xs font-bold text-slate-700 outline-none"
-                                            >
-                                                <option value="">Select Target Table...</option>
-                                                {tables.filter(t => t.name !== tableName).map(t => (
-                                                    <option key={t.name} value={t.name}>{t.name}</option>
-                                                ))}
-                                            </select>
+                                            {/* Schema Selector */}
+                                            <div className="space-y-1">
+                                                <label className="text-[9px] font-black text-blue-400 uppercase tracking-widest ml-0.5">Schema</label>
+                                                <select
+                                                    value={col.foreignKey?.schema || activeSchema}
+                                                    onChange={async (e: any) => {
+                                                        const newSchema = e.target.value;
+                                                        // Update FK schema and clear table/column
+                                                        setColumns(prev => prev.map(c =>
+                                                            c.id === col.id ? { ...c, foreignKey: { schema: newSchema, table: '', column: '' }, isArray: false } : c
+                                                        ));
+                                                        // Load tables for the selected schema
+                                                        await loadFkTablesForSchema(newSchema);
+                                                        setFkTargetColumns([]);
+                                                    }}
+                                                    className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-xs font-bold text-slate-700 outline-none"
+                                                >
+                                                    {schemas.map(s => (
+                                                        <option key={s} value={s}>{s}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+
+                                            {/* Table Selector */}
+                                            <div className="space-y-1">
+                                                <label className="text-[9px] font-black text-blue-400 uppercase tracking-widest ml-0.5">Table</label>
+                                                <select
+                                                    value={col.foreignKey?.table || ''}
+                                                    onChange={(e: any) => {
+                                                        const fkSchema = col.foreignKey?.schema || activeSchema;
+                                                        handleSetForeignKey(col.id, fkSchema, e.target.value, '');
+                                                    }}
+                                                    className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2 px-3 text-xs font-bold text-slate-700 outline-none"
+                                                >
+                                                    <option value="">Select Target Table...</option>
+                                                    {fkTargetTables.filter(t => t.name !== tableName).map(t => (
+                                                        <option key={t.name} value={t.name}>{t.name}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+
+                                            {/* Column Selector */}
                                             {col.foreignKey?.table && (
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-xs text-slate-400">Column:</span>
+                                                <div className="space-y-1">
+                                                    <label className="text-[9px] font-black text-blue-400 uppercase tracking-widest ml-0.5">Column</label>
                                                     {fkLoading
-                                                        ? <Loader2 size={12} className="animate-spin text-indigo-500" />
+                                                        ? <div className="py-2 flex justify-center"><Loader2 size={12} className="animate-spin text-indigo-500" /></div>
                                                         : (
                                                             <select
                                                                 value={col.foreignKey.column}
-                                                                onChange={(e: any) => handleSetForeignKey(col.id, col.foreignKey!.table, e.target.value)}
-                                                                className="flex-1 bg-slate-50 border-none rounded-lg py-1 px-2 text-xs font-mono font-bold outline-none"
+                                                                onChange={(e: any) => {
+                                                                    const fkSchema = col.foreignKey?.schema || activeSchema;
+                                                                    handleSetForeignKey(col.id, fkSchema, col.foreignKey!.table, e.target.value);
+                                                                }}
+                                                                className="w-full bg-slate-50 border-none rounded-lg py-2 px-3 text-xs font-mono font-bold outline-none"
                                                             >
                                                                 <option value="">Select Column...</option>
                                                                 {fkTargetColumns.map(c => <option key={c} value={c}>{c}</option>)}
@@ -550,8 +630,9 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
                                                     }
                                                 </div>
                                             )}
+
                                             <div className="flex justify-between items-center pt-2 border-t border-slate-100">
-                                                <button onClick={() => { handleSetForeignKey(col.id, '', ''); setActiveFkEditor(null); }} className="text-[10px] font-bold text-rose-500 hover:underline">Remove Link</button>
+                                                <button onClick={() => { handleSetForeignKey(col.id, '', '', ''); setActiveFkEditor(null); }} className="text-[10px] font-bold text-rose-500 hover:underline">Remove Link</button>
                                                 <button onClick={() => setActiveFkEditor(null)} className="px-3 py-1.5 bg-indigo-600 text-white text-[10px] font-black rounded-lg hover:bg-indigo-700 transition-colors">OK</button>
                                             </div>
                                         </div>
@@ -590,7 +671,7 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
                     </button>
                 </div>
 
-                {/* MCP Access Card — only shows if MCP is enabled for this project */}
+                {/* MCP Access Card */}
                 {mcpEnabled && (
                     <div className="bg-slate-900 p-4 rounded-xl border border-slate-700">
                         <div className="flex items-center gap-3 mb-3">
