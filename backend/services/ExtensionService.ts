@@ -294,6 +294,17 @@ export class ExtensionService {
                     await projectPool.query(`CREATE SCHEMA IF NOT EXISTS ${safeSchema};`);
                 }
 
+                // RACE CONDITION FIX: Set search_path at SESSION level before CREATE EXTENSION.
+                // ALTER DATABASE SET search_path only affects NEW connections.
+                // Pool connections keep the old search_path, so dependent extensions
+                // (e.g. postgis_tiger_geocoder needing PostGIS's "geometry" type)
+                // can't find types from the extensions schema without this.
+                if (targetSchema !== 'public') {
+                    await projectPool.query(
+                        `SET search_path TO "$user", public, ${safeSchema}`
+                    );
+                }
+
                 // Use safe quoting — extension names are validated above
                 await projectPool.query(
                     `CREATE EXTENSION IF NOT EXISTS "${extensionName}" SCHEMA ${safeSchema} CASCADE`

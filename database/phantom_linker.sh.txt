@@ -54,21 +54,11 @@ sync_extensions() {
         done
     fi
 
-    # Link .control files (metadados da extensão) e .sql files (DDL)
-    if [ -d "$EXT_SHARE" ]; then
-        for f in "$EXT_SHARE"/*; do
-            [ -f "$f" ] || continue
-            base=$(basename "$f")
-            target="$PG_SHARE/$base"
-            if [ ! -e "$target" ]; then
-                ln -sf "$f" "$target"
-                new_links=$((new_links + 1))
-            fi
-        done
-    fi
-
-    # Link dependências Nativas de OS (ex: libgeos_c.so.1, libpcre2-8.so)
-    # Apenas se a lib não existir nativamente no root OS /usr/lib do Alpine
+    # Link dependências Nativas de OS (ex: libgeos_c.so.1, libpcre2-8.so, libsqlite3.so.0)
+    # MUST run BEFORE share linking — once .control files are linked,
+    # pg_available_extensions reports the extension as available, and
+    # ExtensionService may immediately fire CREATE EXTENSION.
+    # If OS deps aren't in place yet, it fails with "No such file or directory".
     if [ -d "$EXT_OS_LIB" ]; then
         for f in "$EXT_OS_LIB"/*.so "$EXT_OS_LIB"/*.so.*; do
             [ -f "$f" ] || continue
@@ -78,6 +68,21 @@ sync_extensions() {
                 ln -sf "$f" "$target"
                 new_links=$((new_links + 1))
                 echo "[PhantomLinker] Linked OS Dependency: $base"
+            fi
+        done
+    fi
+
+    # Link .control files (metadados da extensão) e .sql files (DDL)
+    # This MUST be LAST — once .control is symlinked, PostgreSQL sees the extension
+    # in pg_available_extensions and the backend may immediately try CREATE EXTENSION.
+    if [ -d "$EXT_SHARE" ]; then
+        for f in "$EXT_SHARE"/*; do
+            [ -f "$f" ] || continue
+            base=$(basename "$f")
+            target="$PG_SHARE/$base"
+            if [ ! -e "$target" ]; then
+                ln -sf "$f" "$target"
+                new_links=$((new_links + 1))
             fi
         done
     fi
