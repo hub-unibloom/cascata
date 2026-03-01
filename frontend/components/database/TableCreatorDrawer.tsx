@@ -18,6 +18,7 @@ interface ColumnDef {
     isNullable: boolean;
     isUnique: boolean;
     isArray: boolean;
+    identityGeneration?: 'always' | 'by_default'; // GENERATED {ALWAYS|BY DEFAULT} AS IDENTITY (PG10+)
     foreignKey?: { schema: string; table: string; column: string };
     sourceHeader?: string;
     description?: string;
@@ -25,6 +26,12 @@ interface ColumnDef {
     formatPattern?: string;
     lockLevel?: 'unlocked' | 'immutable' | 'insert_only' | 'service_role_only' | 'otp_protected';
 }
+
+// Types that support GENERATED AS IDENTITY (only pure integer types — NOT serial/bigserial)
+const IDENTITY_COMPATIBLE_TYPES = new Set(['int2', 'int4', 'int8']);
+
+// Types that already have built-in auto-increment (legacy — identity not needed)
+const SERIAL_TYPES = new Set(['serial', 'bigserial', 'smallserial']);
 
 // Format presets for column validation (mirrored from backend)
 const FORMAT_PRESETS: Record<string, { label: string; regex: string; example: string }> = {
@@ -66,16 +73,22 @@ const getUUID = () => {
 const sanitizeName = (val: string) =>
     val.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9_]/g, "_").replace(/_+/g, "_").replace(/^[0-9]/, "_$&");
 
-// Expanded default suggestions per type
-const getDefaultSuggestions = (type: string): string[] => {
+// Expanded default suggestions per type — PostgreSQL 18 native capabilities
+const getDefaultSuggestions = (type: string, hasIdentity?: boolean): string[] => {
+    // If identity is active, no default needed (they're mutually exclusive in PG)
+    if (hasIdentity) return [];
     const t = type.toLowerCase();
     if (t === 'uuid') return ['gen_random_uuid()'];
     if (t.includes('timestamp') || t === 'date') return ['now()', 'current_timestamp', 'current_date', "timezone('utc', now())"];
     if (t === 'time') return ['current_time', 'localtime'];
+    if (t === 'interval') return ["'1 hour'::interval", "'30 days'::interval", "'0'::interval"];
     if (t.includes('bool')) return ['true', 'false'];
-    if (t.includes('int') || t.includes('numeric') || t.includes('float')) return ['0', '1'];
+    if (IDENTITY_COMPATIBLE_TYPES.has(t)) return ['0', '1'];
+    if (t.includes('numeric') || t.includes('float') || t === 'float8' || t === 'money') return ['0', '1'];
     if (t.includes('json')) return ["'{}'::jsonb", "'[]'::jsonb", "'null'::jsonb"];
-    if (t === 'text' || t === 'varchar') return ["''"];
+    if (t === 'text' || t === 'varchar') return ["''", 'current_user', 'session_user'];
+    if (t === 'inet') return ["'0.0.0.0'::inet", 'inet_client_addr()'];
+    if (t === 'point') return ["'(0,0)'::point"];
     if (t === 'bytea') return ["'\\x'::bytea"];
     return [];
 };
@@ -91,6 +104,9 @@ const BARE_PATTERNS = [
     /^true$/i,
     /^false$/i,
     /^null$/i,
+    /^current_user$/i,
+    /^session_user$/i,
+    /^inet_client_addr\(\)$/i,
 ];
 
 const formatDefaultValue = (type: string, raw: string): string => {
@@ -220,13 +236,21 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
 
             const updated = { ...c, [field]: value };
 
-            // ── MUTUAL EXCLUSION: Array ↔ Foreign Key ──
-            // PostgreSQL does not support REFERENCES on array columns.
-            // When one is activated, the other is deactivated.
+            // ── MUTUAL EXCLUSION: Array ↔ Foreign Key ↔ Identity ──
+            // PostgreSQL constraints that are mutually exclusive:
+            // - REFERENCES cannot be on array columns
+            // - GENERATED AS IDENTITY cannot be on array columns
+            // - SERIAL types cannot be array columns
             if (field === 'isArray' && value === true) {
-                // Activating Array → remove FK
                 updated.foreignKey = undefined;
+                updated.identityGeneration = undefined;
                 if (activeFkEditor === id) setActiveFkEditor(null);
+            }
+
+            // Identity activated → clear default (mutually exclusive in PG)
+            if (field === 'identityGeneration' && value) {
+                updated.defaultValue = '';
+                updated.isArray = false;
             }
 
             return updated;
@@ -303,7 +327,12 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
             if (!c.isNullable && !c.isPrimaryKey) constraints.push('NOT NULL');
             if (c.isUnique && !c.isPrimaryKey) constraints.push('UNIQUE');
 
-            if (c.defaultValue && c.defaultValue.trim()) {
+            // GENERATED AS IDENTITY (modern auto-increment) — mutually exclusive with DEFAULT
+            if (c.identityGeneration && IDENTITY_COMPATIBLE_TYPES.has(c.type)) {
+                const gen = c.identityGeneration === 'always' ? 'ALWAYS' : 'BY DEFAULT';
+                constraints.push(`GENERATED ${gen} AS IDENTITY`);
+            } else if (c.defaultValue && c.defaultValue.trim() && !SERIAL_TYPES.has(c.type)) {
+                // Serial types auto-create sequences — no DEFAULT needed
                 const formatted = formatDefaultValue(c.type, c.defaultValue);
                 constraints.push(`DEFAULT ${formatted}`);
             }
@@ -448,38 +477,122 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
                                     />
                                     <select
                                         value={col.type}
-                                        onChange={(e: any) => handleColumnChange(col.id, 'type', e.target.value)}
+                                        onChange={(e: any) => {
+                                            const newType = e.target.value;
+                                            handleColumnChange(col.id, 'type', newType);
+                                            // AUTO-CLEAR identity if new type doesn't support it
+                                            if (!IDENTITY_COMPATIBLE_TYPES.has(newType) && col.identityGeneration) {
+                                                handleColumnChange(col.id, 'identityGeneration', undefined);
+                                            }
+                                            // AUTO-CLEAR identity if switching to serial (has built-in auto-inc)
+                                            if (SERIAL_TYPES.has(newType) && col.identityGeneration) {
+                                                handleColumnChange(col.id, 'identityGeneration', undefined);
+                                            }
+                                        }}
                                         className="flex-1 bg-slate-100 border-none rounded-lg px-2 py-2 text-[10px] font-black uppercase text-slate-600 outline-none cursor-pointer"
                                     >
-                                        <optgroup label="Numbers"><option value="int8">int8 (BigInt)</option><option value="int4">int4 (Integer)</option><option value="numeric">numeric</option><option value="float8">float8</option></optgroup>
-                                        <optgroup label="Text"><option value="text">text</option><option value="varchar">varchar</option><option value="uuid">uuid</option></optgroup>
-                                        <optgroup label="Date/Time"><option value="timestamptz">timestamptz</option><option value="date">date</option><option value="time">time</option></optgroup>
-                                        <optgroup label="JSON"><option value="jsonb">jsonb</option><option value="json">json</option></optgroup>
-                                        <optgroup label="Other"><option value="bool">boolean</option><option value="bytea">bytea</option><option value="vector">vector (Embedding)</option></optgroup>
+                                        <optgroup label="Numbers">
+                                            <option value="int8">int8 (BigInt)</option>
+                                            <option value="int4">int4 (Integer)</option>
+                                            <option value="int2">int2 (SmallInt)</option>
+                                            <option value="numeric">numeric</option>
+                                            <option value="float8">float8</option>
+                                            <option value="money">money</option>
+                                        </optgroup>
+                                        <optgroup label="Auto-Increment (Legacy)">
+                                            <option value="serial">serial (Auto Int4)</option>
+                                            <option value="bigserial">bigserial (Auto Int8)</option>
+                                        </optgroup>
+                                        <optgroup label="Text">
+                                            <option value="text">text</option>
+                                            <option value="varchar">varchar</option>
+                                            <option value="uuid">uuid</option>
+                                        </optgroup>
+                                        <optgroup label="Date/Time">
+                                            <option value="timestamptz">timestamptz</option>
+                                            <option value="date">date</option>
+                                            <option value="time">time</option>
+                                            <option value="interval">interval</option>
+                                        </optgroup>
+                                        <optgroup label="JSON">
+                                            <option value="jsonb">jsonb</option>
+                                            <option value="json">json</option>
+                                        </optgroup>
+                                        <optgroup label="Network & Geo">
+                                            <option value="inet">inet (IP Address)</option>
+                                            <option value="point">point (2D Coord)</option>
+                                        </optgroup>
+                                        <optgroup label="Other">
+                                            <option value="bool">boolean</option>
+                                            <option value="bytea">bytea</option>
+                                            <option value="vector">vector (Embedding)</option>
+                                        </optgroup>
                                     </select>
                                     <button onClick={() => handleRemoveColumn(col.id)} className="p-2 text-slate-300 hover:text-rose-500 transition-colors"><X size={14} /></button>
                                 </div>
 
                                 {/* Default Value + Constraint Toggles */}
                                 <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-lg relative">
-                                    <input
-                                        list={`defaults-${col.id}`}
-                                        value={col.defaultValue}
-                                        onChange={(e: any) => handleColumnChange(col.id, 'defaultValue', e.target.value)}
-                                        placeholder="Default Value (NULL)"
-                                        className="flex-1 bg-transparent border-none text-[10px] font-mono text-slate-600 outline-none placeholder:text-slate-300"
-                                    />
-                                    <datalist id={`defaults-${col.id}`}>
-                                        {getDefaultSuggestions(col.type).map(s => <option key={s} value={s} />)}
-                                    </datalist>
+                                    {col.identityGeneration ? (
+                                        <span className="flex-1 text-[10px] font-mono text-teal-600 font-bold select-none" title="Default value is disabled when Identity (auto-increment) is active">
+                                            ⚡ GENERATED {col.identityGeneration === 'always' ? 'ALWAYS' : 'BY DEFAULT'} AS IDENTITY
+                                        </span>
+                                    ) : SERIAL_TYPES.has(col.type) ? (
+                                        <span className="flex-1 text-[10px] font-mono text-amber-600 font-bold select-none" title="Serial types have built-in auto-increment sequence">
+                                            ⚡ AUTO-INCREMENT (sequence)
+                                        </span>
+                                    ) : (
+                                        <>
+                                            <input
+                                                list={`defaults-${col.id}`}
+                                                value={col.defaultValue}
+                                                onChange={(e: any) => handleColumnChange(col.id, 'defaultValue', e.target.value)}
+                                                placeholder="Default Value (NULL)"
+                                                className="flex-1 bg-transparent border-none text-[10px] font-mono text-slate-600 outline-none placeholder:text-slate-300"
+                                            />
+                                            <datalist id={`defaults-${col.id}`}>
+                                                {getDefaultSuggestions(col.type, !!col.identityGeneration).map(s => <option key={s} value={s} />)}
+                                            </datalist>
+                                        </>
+                                    )}
                                     <div className="h-4 w-[1px] bg-slate-200"></div>
                                     <div className="flex items-center gap-2">
                                         <div title="Primary Key" onClick={() => handleColumnChange(col.id, 'isPrimaryKey', !col.isPrimaryKey)} className={`px-1.5 py-1 rounded text-[9px] font-black cursor-pointer select-none transition-colors ${col.isPrimaryKey ? 'bg-amber-100 text-amber-700' : 'text-slate-300 hover:bg-slate-200'}`}>PK</div>
+                                        {/* AUTO — Identity (Auto-Increment) — only for int2/int4/int8, not serial/bigserial */}
+                                        {IDENTITY_COMPATIBLE_TYPES.has(col.type) && !SERIAL_TYPES.has(col.type) && (
+                                            <div
+                                                title={col.isArray
+                                                    ? "Auto-increment (disabled — Array columns cannot use IDENTITY)"
+                                                    : col.identityGeneration
+                                                        ? `Auto-increment: GENERATED ${col.identityGeneration === 'always' ? 'ALWAYS' : 'BY DEFAULT'} AS IDENTITY (click to cycle/disable)`
+                                                        : "Auto-increment (GENERATED AS IDENTITY)"
+                                                }
+                                                onClick={() => {
+                                                    if (col.isArray) return; // Identity incompatible with arrays
+                                                    // Cycle: off → always → by_default → off
+                                                    if (!col.identityGeneration) {
+                                                        handleColumnChange(col.id, 'identityGeneration', 'always');
+                                                        handleColumnChange(col.id, 'defaultValue', ''); // Clear default (mutually exclusive)
+                                                    } else if (col.identityGeneration === 'always') {
+                                                        handleColumnChange(col.id, 'identityGeneration', 'by_default');
+                                                    } else {
+                                                        handleColumnChange(col.id, 'identityGeneration', undefined);
+                                                    }
+                                                }}
+                                                className={`px-1.5 py-1 rounded text-[9px] font-black cursor-pointer select-none transition-colors ${col.isArray ? 'text-slate-200 cursor-not-allowed' :
+                                                    col.identityGeneration === 'always' ? 'bg-teal-100 text-teal-700 ring-1 ring-teal-300' :
+                                                        col.identityGeneration === 'by_default' ? 'bg-cyan-100 text-cyan-700 ring-1 ring-cyan-300' :
+                                                            'text-slate-300 hover:bg-slate-200'
+                                                    }`}
+                                            >
+                                                AUTO
+                                            </div>
+                                        )}
                                         <div
                                             title={col.isArray ? "Foreign Key (disabled — Array columns cannot have REFERENCES)" : "Foreign Key"}
                                             onClick={(e: any) => {
                                                 e.stopPropagation();
-                                                if (col.isArray) return; // Blocked: Array columns can't have FK
+                                                if (col.isArray) return;
                                                 handleOpenFkEditor(col.id);
                                             }}
                                             className={`px-1.5 py-1 rounded cursor-pointer select-none transition-colors flex items-center ${col.isArray ? 'text-slate-200 cursor-not-allowed' : col.foreignKey ? 'bg-blue-100 text-blue-700' : 'text-slate-300 hover:bg-slate-200'}`}
@@ -487,12 +600,20 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
                                             <LinkIcon size={12} strokeWidth={4} />
                                         </div>
                                         <div
-                                            title={col.foreignKey ? "Array (disabled — columns with REFERENCES cannot be arrays)" : "Array"}
+                                            title={
+                                                col.foreignKey ? "Array (disabled — FK columns cannot be arrays)" :
+                                                    col.identityGeneration ? "Array (disabled — Identity columns cannot be arrays)" :
+                                                        SERIAL_TYPES.has(col.type) ? "Array (disabled — Serial types cannot be arrays)" :
+                                                            "Array"
+                                            }
                                             onClick={() => {
-                                                if (col.foreignKey) return; // Blocked: FK columns can't be arrays
+                                                if (col.foreignKey || col.identityGeneration || SERIAL_TYPES.has(col.type)) return;
                                                 handleColumnChange(col.id, 'isArray', !col.isArray);
                                             }}
-                                            className={`px-1.5 py-1 rounded text-[9px] font-black cursor-pointer select-none transition-colors ${col.foreignKey ? 'text-slate-200 cursor-not-allowed' : col.isArray ? 'bg-indigo-100 text-indigo-700' : 'text-slate-300 hover:bg-slate-200'}`}
+                                            className={`px-1.5 py-1 rounded text-[9px] font-black cursor-pointer select-none transition-colors ${(col.foreignKey || col.identityGeneration || SERIAL_TYPES.has(col.type))
+                                                ? 'text-slate-200 cursor-not-allowed'
+                                                : col.isArray ? 'bg-indigo-100 text-indigo-700' : 'text-slate-300 hover:bg-slate-200'
+                                                }`}
                                         >
                                             LIST
                                         </div>
