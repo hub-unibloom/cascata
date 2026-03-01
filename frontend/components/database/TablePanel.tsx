@@ -250,6 +250,23 @@ const TablePanel = forwardRef<TablePanelHandle, TablePanelProps>(({
 
     useEffect(() => { fetchTableData(); }, [fetchTableData]);
 
+    // --- SILENT DATA LOADER (Live Polling — no loading spinner, diff-only) ---
+    const fetchTableDataSilent = useCallback(async () => {
+        try {
+            let url = `/api/data/${projectId}/tables/${tableName}/data?limit=${rowsPerPage}&offset=${pageStart}&schema=${schema}`;
+            if (sortConfig) url += `&sortColumn=${sortConfig.column}&sortDirection=${sortConfig.direction}`;
+            const rows = await fetchWithAuth(url);
+            // Only update if data actually changed — avoids unnecessary re-renders
+            setTableData((prev: any[]) => {
+                if (prev.length !== rows.length) return rows;
+                // Fast shallow compare via JSON (rows are small page-sized arrays)
+                const prevJson = JSON.stringify(prev);
+                const nextJson = JSON.stringify(rows);
+                return prevJson === nextJson ? prev : rows;
+            });
+        } catch { /* silent — polling errors are non-critical */ }
+    }, [projectId, tableName, schema, pageStart, rowsPerPage, sortConfig, fetchWithAuth]);
+
     // --- IMPERATIVE HANDLE ---
     useImperativeHandle(ref, () => ({
         refresh: () => { countFetchedRef.current = false; fetchTableData(); },
@@ -271,9 +288,9 @@ const TablePanel = forwardRef<TablePanelHandle, TablePanelProps>(({
     // --- LIVE POLLING (2s interval — Point 11) ---
     useEffect(() => {
         if (!livePolling) return;
-        const interval = setInterval(() => { fetchTableData(); }, 2000);
+        const interval = setInterval(() => { fetchTableDataSilent(); }, 2000);
         return () => clearInterval(interval);
-    }, [livePolling, fetchTableData]);
+    }, [livePolling, fetchTableDataSilent]);
 
     // Reset livePolling when realtime service goes down
     useEffect(() => {
@@ -349,14 +366,12 @@ const TablePanel = forwardRef<TablePanelHandle, TablePanelProps>(({
         setExecuting(true);
         try {
             const ids = Array.from(selectedRows);
-            for (const id of ids) {
-                await fetchWithAuth(`/api/data/${projectId}/tables/${tableName}/rows`, {
-                    method: 'DELETE',
-                    body: JSON.stringify({ pkColumn: pkCol, pkValue: id })
-                });
-            }
-            setTableData(prev => prev.filter(r => !selectedRows.has(r[pkCol])));
-            setTotalRows(prev => (prev ?? 0) - ids.length);
+            await fetchWithAuth(`/api/data/${projectId}/tables/${tableName}/rows?schema=${schema}`, {
+                method: 'DELETE',
+                body: JSON.stringify({ ids })
+            });
+            setTableData((prev: any[]) => prev.filter((r: any) => !selectedRows.has(r[pkCol])));
+            setTotalRows((prev: any) => (prev ?? 0) - ids.length);
             setSelectedRows(new Set());
             onSuccess(`${ids.length} row(s) deleted.`);
         } catch (e: any) { onError(translateError(e)); }
@@ -407,10 +422,10 @@ const TablePanel = forwardRef<TablePanelHandle, TablePanelProps>(({
                             disabled={!isRealtimeActive}
                             title={!isRealtimeActive ? 'Realtime service unavailable' : livePolling ? 'Click to stop live polling' : 'Click to start live polling (2s)'}
                             className={`flex items-center gap-1.5 px-2 py-1 rounded-full border transition-all cursor-pointer select-none ${livePolling
-                                    ? 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100'
-                                    : isRealtimeActive
-                                        ? 'bg-amber-50 border-amber-100 hover:bg-amber-100'
-                                        : 'bg-slate-50 border-slate-200 opacity-50 cursor-not-allowed'
+                                ? 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100'
+                                : isRealtimeActive
+                                    ? 'bg-amber-50 border-amber-100 hover:bg-amber-100'
+                                    : 'bg-slate-50 border-slate-200 opacity-50 cursor-not-allowed'
                                 }`}
                         >
                             <div className={`w-1.5 h-1.5 rounded-full ${livePolling ? 'bg-emerald-500 animate-pulse' : isRealtimeActive ? 'bg-amber-500' : 'bg-slate-400'}`}></div>

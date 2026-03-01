@@ -218,6 +218,25 @@ export class DatabaseService {
                 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO anon, authenticated;
                 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO anon, authenticated;
             END $$;
+
+            -- Extensions Schema (pre-created so ExtensionService.installExtension never hits "schema does not exist")
+            CREATE SCHEMA IF NOT EXISTS extensions;
+
+            DO $$
+            BEGIN
+                GRANT USAGE ON SCHEMA extensions TO anon, authenticated, service_role, cascata_api_role;
+                GRANT SELECT ON ALL TABLES IN SCHEMA extensions TO anon, authenticated, service_role, cascata_api_role;
+                GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA extensions TO anon, authenticated, service_role, cascata_api_role;
+                GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA extensions TO anon, authenticated, service_role, cascata_api_role;
+                ALTER DEFAULT PRIVILEGES IN SCHEMA extensions
+                    GRANT SELECT ON TABLES TO anon, authenticated, service_role, cascata_api_role;
+                ALTER DEFAULT PRIVILEGES IN SCHEMA extensions
+                    GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role, cascata_api_role;
+                ALTER DEFAULT PRIVILEGES IN SCHEMA extensions
+                    GRANT USAGE, SELECT ON SEQUENCES TO anon, authenticated, service_role, cascata_api_role;
+            EXCEPTION WHEN undefined_object THEN
+                NULL;
+            END $$;
         `);
 
         await client.query(`
