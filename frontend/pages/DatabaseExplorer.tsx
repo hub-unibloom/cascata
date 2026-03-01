@@ -165,6 +165,10 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
 
   // Additional Features State
   const [restoreTarget, setRestoreTarget] = useState<string | null>(null);
+  const [showRecycleBinModal, setShowRecycleBinModal] = useState(false);
+  const [recycleBinPassword, setRecycleBinPassword] = useState('');
+  const [recycleBinAction, setRecycleBinAction] = useState<{ type: 'restore' | 'purge'; table: string } | null>(null);
+  const [recycleBinError, setRecycleBinError] = useState('');
   const [searchFilter, setSearchFilter] = useState('');
   const [columnContextMenu, setColumnContextMenu] = useState<{ x: number; y: number; col: string; table: string; lockLevel: string } | null>(null);
   const [editLock, setEditLock] = useState<{ column: string; table: string; currentLevel: string } | null>(null);
@@ -448,16 +452,59 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
     finally { setExtensionLoadingName(null); }
   };
 
-  const handleRestoreTable = async () => {
-    if (!restoreTarget) return;
+  const verifyAdminPassword = async (password: string): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/control/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+      return res.ok;
+    } catch { return false; }
+  };
+
+  const handleRestoreTable = async (forceTableName?: string) => {
+    const target = forceTableName || restoreTarget;
+    if (!target) return;
     setExecuting(true);
     try {
-      await fetchWithAuth(`/api/data/${projectId}/recycle-bin/${restoreTarget}/restore?schema=${activeSchema}`, { method: 'POST' });
+      await fetchWithAuth(`/api/data/${projectId}/recycle-bin/${target}/restore?schema=${activeSchema}`, { method: 'POST' });
       setSuccessMsg(`Table restored.`);
       setRestoreTarget(null);
+      setRecycleBinAction(null);
+      setRecycleBinPassword('');
+      setRecycleBinError('');
       fetchTables();
     } catch (err: any) { setError(translateError(err)); }
     finally { setExecuting(false); }
+  };
+
+  const handlePurgeTable = async (tableName: string) => {
+    setExecuting(true);
+    try {
+      await fetchWithAuth(`/api/data/${projectId}/tables/${tableName}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ mode: 'CASCADE' })
+      });
+      setSuccessMsg(`Table permanently deleted.`);
+      setRecycleBinAction(null);
+      setRecycleBinPassword('');
+      setRecycleBinError('');
+      fetchTables();
+    } catch (err: any) { setError(translateError(err)); }
+    finally { setExecuting(false); }
+  };
+
+  const handleRecycleBinConfirm = async () => {
+    if (!recycleBinAction) return;
+    setRecycleBinError('');
+    const valid = await verifyAdminPassword(recycleBinPassword);
+    if (!valid) { setRecycleBinError('Invalid admin password.'); return; }
+    if (recycleBinAction.type === 'restore') {
+      await handleRestoreTable(recycleBinAction.table);
+    } else {
+      await handlePurgeTable(recycleBinAction.table);
+    }
   };
 
   const inferType = (values: any[]): string => {
@@ -1291,7 +1338,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
 
         {recycleBin.length > 0 && (
           <div className="mt-8 pt-4 border-t border-slate-100">
-            <button className="w-full flex items-center gap-3 px-3 py-2 text-xs font-bold text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all">
+            <button onClick={() => setShowRecycleBinModal(true)} className="w-full flex items-center gap-3 px-3 py-2 text-xs font-bold text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all">
               <Trash2 size={16} /> Recycle Bin ({recycleBin.length})
             </button>
           </div>
@@ -1458,6 +1505,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
         projectId={projectId}
         fetchWithAuth={fetchWithAuth}
         onSqlGenerated={handleSqlFromDrawer}
+        onSqlSaveToEditor={(sql: string) => { setSqlInitial(sql); setActiveTab('query'); }}
         initialTableName={newTableName}
         initialColumns={initialColumns}
       />
@@ -1733,9 +1781,9 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                           }
                         }}
                         className={`px-2 py-1.5 rounded-xl text-[10px] font-black cursor-pointer select-none transition-all ${newColumn.isArray ? 'text-slate-200 cursor-not-allowed' :
-                            newColumn.identityGeneration === 'always' ? 'bg-teal-100 text-teal-700 ring-1 ring-teal-300' :
-                              newColumn.identityGeneration === 'by_default' ? 'bg-cyan-100 text-cyan-700 ring-1 ring-cyan-300' :
-                                'text-slate-400 hover:bg-slate-200'
+                          newColumn.identityGeneration === 'always' ? 'bg-teal-100 text-teal-700 ring-1 ring-teal-300' :
+                            newColumn.identityGeneration === 'by_default' ? 'bg-cyan-100 text-cyan-700 ring-1 ring-cyan-300' :
+                              'text-slate-400 hover:bg-slate-200'
                           }`}
                       >AUTO</div>
                     )}
@@ -1752,8 +1800,8 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                         setNewColumn({ ...newColumn, isArray: !newColumn.isArray, identityGeneration: newColumn.isArray ? newColumn.identityGeneration : undefined });
                       }}
                       className={`px-2 py-1.5 rounded-xl text-[10px] font-black cursor-pointer select-none transition-all ${(newColumn.foreignKey || newColumn.identityGeneration || SERIAL_TYPES_SET.has(newColumn.type))
-                          ? 'text-slate-200 cursor-not-allowed'
-                          : newColumn.isArray ? 'bg-indigo-100 text-indigo-700' : 'text-slate-400 hover:bg-slate-200'
+                        ? 'text-slate-200 cursor-not-allowed'
+                        : newColumn.isArray ? 'bg-indigo-100 text-indigo-700' : 'text-slate-400 hover:bg-slate-200'
                         }`}
                     >LIST</div>
                   </div>
@@ -2013,17 +2061,104 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
         )
       }
 
-      {/* RESTORE MODAL */}
+      {/* RECYCLE BIN MODAL */}
       {
-        restoreTarget && (
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[200]">
-            <div className="bg-white p-6 rounded-2xl w-[400px] shadow-2xl border border-slate-200">
-              <h3 className="text-lg font-black mb-4">Restore Table</h3>
-              <p className="text-sm text-slate-500 mb-6 font-medium">Are you sure you want to restore <strong className="text-slate-900 px-1 py-0.5 bg-slate-100 rounded">"{restoreTarget}"</strong> back to public?</p>
-              <div className="flex gap-3">
-                <button disabled={executing} onClick={() => setRestoreTarget(null)} className="flex-1 px-4 py-2 font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all">Cancel</button>
-                <button disabled={executing} onClick={handleRestoreTable} className="flex-1 px-4 py-2 font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-md">{executing ? <Loader2 size={16} className="animate-spin mx-auto" /> : 'Restore'}</button>
+        showRecycleBinModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[250] flex items-center justify-center p-8 animate-in zoom-in-95">
+            <div className="bg-white rounded-[2.5rem] w-full max-w-xl shadow-2xl border border-slate-100 relative overflow-hidden">
+              {/* Header */}
+              <div className="p-8 pb-4 border-b border-slate-100">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-rose-100 flex items-center justify-center"><Trash2 size={20} className="text-rose-600" /></div>
+                    <div>
+                      <h3 className="text-xl font-black text-slate-900 tracking-tight">Recycle Bin</h3>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{recycleBin.length} table{recycleBin.length !== 1 ? 's' : ''} · {activeSchema}</p>
+                    </div>
+                  </div>
+                  <button onClick={() => { setShowRecycleBinModal(false); setRecycleBinAction(null); setRecycleBinPassword(''); setRecycleBinError(''); }} className="text-slate-300 hover:text-slate-900 transition-colors"><X size={24} /></button>
+                </div>
               </div>
+
+              {/* Content */}
+              <div className="p-6 max-h-[50vh] overflow-y-auto space-y-2">
+                {recycleBin.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Trash2 size={40} className="mx-auto text-slate-200 mb-4" />
+                    <p className="text-sm font-bold text-slate-400">Recycle bin is empty</p>
+                    <p className="text-[10px] text-slate-300 mt-1">Deleted tables will appear here</p>
+                  </div>
+                ) : recycleBin.map((item: any) => {
+                  const originalName = item.name.replace(/^_deleted_\d+_/, '');
+                  const deletedTs = item.name.match(/_deleted_(\d+)_/);
+                  const deletedDate = deletedTs ? new Date(parseInt(deletedTs[1])).toLocaleString() : 'Unknown';
+                  return (
+                    <div key={item.name} className="flex items-center justify-between bg-slate-50 hover:bg-slate-100 rounded-2xl px-5 py-4 transition-all group">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-black text-slate-700 truncate">{originalName}</p>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Deleted {deletedDate}</p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => { setRecycleBinAction({ type: 'restore', table: item.name }); setRecycleBinPassword(''); setRecycleBinError(''); }}
+                          className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 transition-all"
+                        >Restore</button>
+                        <button
+                          onClick={() => { setRecycleBinAction({ type: 'purge', table: item.name }); setRecycleBinPassword(''); setRecycleBinError(''); }}
+                          className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200 transition-all"
+                        >Purge</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Password Prompt (shows when action selected) */}
+              {recycleBinAction && (
+                <div className="p-6 pt-0 border-t border-slate-100 bg-slate-50/50">
+                  <div className="mt-4 p-4 rounded-2xl border border-slate-200 bg-white space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Shield size={14} className={recycleBinAction.type === 'purge' ? 'text-rose-500' : 'text-indigo-500'} />
+                      <p className="text-xs font-black text-slate-700">
+                        {recycleBinAction.type === 'purge' ? 'Permanently delete' : 'Restore'}{' '}
+                        <span className="text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded">
+                          {recycleBinAction.table.replace(/^_deleted_\d+_/, '')}
+                        </span>
+                        ?
+                      </p>
+                    </div>
+                    {recycleBinAction.type === 'purge' && (
+                      <p className="text-[10px] font-bold text-rose-500 bg-rose-50 px-3 py-2 rounded-lg">⚠ This action is IRREVERSIBLE. All data will be permanently lost.</p>
+                    )}
+                    <input
+                      type="password"
+                      placeholder="Admin password required"
+                      value={recycleBinPassword}
+                      onChange={(e: any) => setRecycleBinPassword(e.target.value)}
+                      onKeyDown={(e: any) => e.key === 'Enter' && handleRecycleBinConfirm()}
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all"
+                      autoFocus
+                    />
+                    {recycleBinError && <p className="text-[10px] font-bold text-rose-500">{recycleBinError}</p>}
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => { setRecycleBinAction(null); setRecycleBinPassword(''); setRecycleBinError(''); }}
+                        className="flex-1 py-2.5 text-xs font-black text-slate-400 uppercase tracking-widest hover:text-slate-600"
+                      >Cancel</button>
+                      <button
+                        onClick={handleRecycleBinConfirm}
+                        disabled={executing || !recycleBinPassword}
+                        className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed ${recycleBinAction.type === 'purge'
+                          ? 'bg-rose-600 text-white hover:bg-rose-700'
+                          : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                          }`}
+                      >
+                        {executing ? <Loader2 size={14} className="animate-spin mx-auto" /> : recycleBinAction.type === 'purge' ? 'Purge Forever' : 'Restore Table'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )

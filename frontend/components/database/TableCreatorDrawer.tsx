@@ -54,6 +54,7 @@ interface TableCreatorDrawerProps {
     projectId: string;
     fetchWithAuth: (url: string, options?: any) => Promise<any>;
     onSqlGenerated: (sql: string, metaConfig: { tableName: string, mcpEnabled: boolean, mcpPerms: { r: boolean, c: boolean, u: boolean, d: boolean }, lockedColumns?: Record<string, string> }) => void;
+    onSqlSaveToEditor?: (sql: string) => void;
     initialTableName?: string;
     initialColumns?: ColumnDef[];
 }
@@ -136,6 +137,7 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
     projectId,
     fetchWithAuth,
     onSqlGenerated,
+    onSqlSaveToEditor,
     initialTableName = '',
     initialColumns,
 }) => {
@@ -307,9 +309,9 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
         await loadFkTablesForSchema(fkSchema);
     };
 
-    // --- Enterprise SQL Generator ---
-    const generateSQL = useCallback(() => {
-        if (!canGenerate) return;
+    // --- Enterprise SQL Generator (pure text — no side effects) ---
+    const generateSQLText = useCallback((): { sql: string; safeName: string; lockedColumns: Record<string, string> } | null => {
+        if (!canGenerate) return null;
         const safeName = sanitizeName(tableName);
         const schema = activeSchema || 'public';
 
@@ -399,15 +401,50 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
             }
         });
 
-        const sql = lines.join('\n');
-        onSqlGenerated(sql, {
-            tableName: safeName,
+        return { sql: lines.join('\n'), safeName, lockedColumns };
+    }, [tableName, tableDesc, columns, enableRLS, activeSchema, mcpEnabled, mcpPerms, canGenerate]);
+
+    // --- Execute SQL (Generate + Fire callback + Close) ---
+    const generateSQL = useCallback(() => {
+        const result = generateSQLText();
+        if (!result) return;
+        onSqlGenerated(result.sql, {
+            tableName: result.safeName,
             mcpEnabled,
             mcpPerms,
-            lockedColumns
+            lockedColumns: result.lockedColumns
         });
         onClose();
-    }, [tableName, tableDesc, columns, enableRLS, activeSchema, mcpEnabled, mcpPerms, onSqlGenerated, onClose, canGenerate]);
+    }, [generateSQLText, mcpEnabled, mcpPerms, onSqlGenerated, onClose]);
+
+    // --- Save SQL to Editor (Generate + Send to console + Close) ---
+    const saveToEditor = useCallback(() => {
+        const result = generateSQLText();
+        if (!result) return;
+        if (onSqlSaveToEditor) onSqlSaveToEditor(result.sql);
+        onClose();
+    }, [generateSQLText, onSqlSaveToEditor, onClose]);
+
+    // --- Keyboard Shortcuts (Ctrl+Enter = Execute, Ctrl+S = Save to Editor) ---
+    useEffect(() => {
+        if (!isOpen) return;
+        const handler = (e: KeyboardEvent) => {
+            // Ctrl+S → Save SQL to editor without executing
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                saveToEditor();
+                return;
+            }
+            // Ctrl+Enter → Generate & Execute SQL
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                e.preventDefault();
+                generateSQL();
+                return;
+            }
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [isOpen, generateSQL, saveToEditor]);
 
     // Click outside handler for FK editor
     useEffect(() => {
@@ -834,15 +871,22 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
             </div>
 
             {/* Footer */}
-            <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex gap-4">
-                <button onClick={onClose} className="flex-1 py-3 text-xs font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">Cancel</button>
-                <button
-                    onClick={generateSQL}
-                    disabled={!canGenerate}
-                    className="flex-[2] bg-indigo-600 text-white py-3 rounded-xl text-xs font-black uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    Generate & Execute SQL
-                </button>
+            <div className="p-6 border-t border-slate-100 bg-slate-50/50 space-y-3">
+                <div className="flex gap-4">
+                    <button onClick={onClose} className="flex-1 py-3 text-xs font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">Cancel</button>
+                    <button
+                        onClick={generateSQL}
+                        disabled={!canGenerate}
+                        className="flex-[2] bg-indigo-600 text-white py-3 rounded-xl text-xs font-black uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        Generate & Execute SQL
+                    </button>
+                </div>
+                <div className="flex items-center justify-center gap-4 text-[9px] font-bold text-slate-400">
+                    <span className="flex items-center gap-1"><kbd className="px-1.5 py-0.5 bg-slate-200 rounded text-[8px] font-black text-slate-500">Ctrl+Enter</kbd> Execute</span>
+                    <span className="text-slate-200">·</span>
+                    <span className="flex items-center gap-1"><kbd className="px-1.5 py-0.5 bg-slate-200 rounded text-[8px] font-black text-slate-500">Ctrl+S</kbd> Save to Editor</span>
+                </div>
             </div>
 
             {/* Validation hint */}

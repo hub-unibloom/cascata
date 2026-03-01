@@ -46,23 +46,34 @@ export interface TablePanelProps {
     isRealtimeActive?: boolean;
 }
 
-// --- Cell Editor Portal ---
+// --- Cell Editor Portal (Type-Aware) ---
 const CellEditorPortal: React.FC<{
     value: string;
     rect: DOMRect;
+    colType?: string;
+    isNullable?: boolean;
     onSave: (val: string) => void;
     onCancel: () => void;
-}> = ({ value, rect, onSave, onCancel }) => {
-    const [editVal, setEditVal] = useState(value);
+}> = ({ value, rect, colType, isNullable, onSave, onCancel }) => {
+    const normalizedType = (colType || '').toLowerCase();
+    const isBool = normalizedType.includes('bool');
+    const isJson = normalizedType === 'json' || normalizedType === 'jsonb';
+
+    // For JSON/JSONB: if cell is empty/null, initialize with {}
+    const initialValue = isJson && (!value || value === '' || value === 'null') ? '{}' : value;
+
+    const [editVal, setEditVal] = useState(initialValue);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const isSaving = useRef(false);
 
     useEffect(() => {
-        textareaRef.current?.focus();
-        // Auto-select all text on open
-        textareaRef.current?.select();
-    }, []);
+        if (!isBool) {
+            textareaRef.current?.focus();
+            // Auto-select all text on open
+            textareaRef.current?.select();
+        }
+    }, [isBool]);
 
     // Click outside to save
     useEffect(() => {
@@ -77,8 +88,11 @@ const CellEditorPortal: React.FC<{
     }, [editVal, onSave]);
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
-        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        if (e.key === 'Escape') { e.preventDefault(); onCancel(); return; }
+        // Shift+Enter → insert newline (standard paragraph behavior)
+        if (e.key === 'Enter' && e.shiftKey) return; // Let browser handle newline
+        // Enter (alone) → save
+        if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             if (!isSaving.current) { isSaving.current = true; onSave(editVal); }
         }
@@ -91,10 +105,39 @@ const CellEditorPortal: React.FC<{
         left: rect.left - 2,
         width: Math.max(rect.width + 4, 200),
         minHeight: rect.height + 4,
-        maxHeight: 200,
+        maxHeight: isBool ? 'none' : 200,
         zIndex: 9999,
     };
 
+    // --- Boolean Dropdown ---
+    if (isBool) {
+        const boolOptions = isNullable ? ['true', 'false', ''] : ['true', 'false'];
+        return createPortal(
+            <div ref={containerRef} style={style} className="animate-in fade-in zoom-in-95 duration-100">
+                <select
+                    autoFocus
+                    value={editVal === 'null' || editVal === '' ? '' : editVal}
+                    onChange={e => {
+                        const val = e.target.value;
+                        setEditVal(val);
+                        if (!isSaving.current) { isSaving.current = true; onSave(val); }
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onCancel(); } }}
+                    className="w-full px-4 py-2 bg-white outline-none border-2 border-indigo-500 rounded-lg shadow-2xl text-xs font-bold text-slate-700 cursor-pointer"
+                    style={{ minHeight: rect.height + 4 }}
+                >
+                    {boolOptions.map(opt => (
+                        <option key={opt || '__null__'} value={opt}>
+                            {opt === '' ? 'NULL' : opt}
+                        </option>
+                    ))}
+                </select>
+            </div>,
+            document.body
+        );
+    }
+
+    // --- Standard Textarea Editor ---
     return createPortal(
         <div ref={containerRef} style={style} className="animate-in fade-in zoom-in-95 duration-100">
             <textarea
@@ -106,7 +149,7 @@ const CellEditorPortal: React.FC<{
                 style={{ minHeight: rect.height + 4, maxHeight: 200, overflowY: 'auto', resize: 'vertical' }}
             />
             <div className="absolute -bottom-5 left-1 text-[9px] font-bold text-slate-400 bg-white/90 px-2 py-0.5 rounded shadow-sm">
-                Ctrl+Enter save · Esc cancel
+                Enter save · Shift+Enter paragraph · Esc cancel
             </div>
         </div>,
         document.body
@@ -613,10 +656,13 @@ const TablePanel = forwardRef<TablePanelHandle, TablePanelProps>(({
                 if (!row) return null;
                 const cellVal = row[editingCell.col] ?? '';
                 const displayVal = typeof cellVal === 'object' ? JSON.stringify(cellVal) : String(cellVal);
+                const colMeta = columns.find((c: any) => c.name === editingCell.col);
                 return (
                     <CellEditorPortal
                         value={displayVal}
                         rect={editingCell.rect}
+                        colType={colMeta?.type}
+                        isNullable={colMeta?.isNullable}
                         onSave={(val) => { handleUpdateCell(row, editingCell.col, val); setEditingCell(null); }}
                         onCancel={() => setEditingCell(null)}
                     />
