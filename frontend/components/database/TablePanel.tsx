@@ -162,6 +162,9 @@ const TablePanel = forwardRef<TablePanelHandle, TablePanelProps>(({
     const [showExportMenu, setShowExportMenu] = useState(false);
     const exportMenuRef = useRef<HTMLDivElement>(null);
 
+    // Live polling toggle (Point 11)
+    const [livePolling, setLivePolling] = useState(false);
+
     // Derived
     const pkCol = columns.find(c => c.isPrimaryKey)?.name || columns[0]?.name;
     const displayColumns = columnOrder.length > 0
@@ -264,6 +267,18 @@ const TablePanel = forwardRef<TablePanelHandle, TablePanelProps>(({
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
     }, [showExportMenu]);
+
+    // --- LIVE POLLING (2s interval — Point 11) ---
+    useEffect(() => {
+        if (!livePolling) return;
+        const interval = setInterval(() => { fetchTableData(); }, 2000);
+        return () => clearInterval(interval);
+    }, [livePolling, fetchTableData]);
+
+    // Reset livePolling when realtime service goes down
+    useEffect(() => {
+        if (!isRealtimeActive) setLivePolling(false);
+    }, [isRealtimeActive]);
 
     // --- COLUMN REORDER ---
     const handleColumnDrop = (targetCol: string) => {
@@ -386,7 +401,22 @@ const TablePanel = forwardRef<TablePanelHandle, TablePanelProps>(({
                         ))}
                     </div>
 
-                    {isRealtimeActive && <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-50 rounded-full border border-amber-100"><div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></div><span className="text-[9px] font-black text-amber-600 uppercase">Live</span></div>}
+                    {isRealtimeActive != null && (
+                        <button
+                            onClick={() => { if (isRealtimeActive) setLivePolling(prev => !prev); }}
+                            disabled={!isRealtimeActive}
+                            title={!isRealtimeActive ? 'Realtime service unavailable' : livePolling ? 'Click to stop live polling' : 'Click to start live polling (2s)'}
+                            className={`flex items-center gap-1.5 px-2 py-1 rounded-full border transition-all cursor-pointer select-none ${livePolling
+                                    ? 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100'
+                                    : isRealtimeActive
+                                        ? 'bg-amber-50 border-amber-100 hover:bg-amber-100'
+                                        : 'bg-slate-50 border-slate-200 opacity-50 cursor-not-allowed'
+                                }`}
+                        >
+                            <div className={`w-1.5 h-1.5 rounded-full ${livePolling ? 'bg-emerald-500 animate-pulse' : isRealtimeActive ? 'bg-amber-500' : 'bg-slate-400'}`}></div>
+                            <span className={`text-[9px] font-black uppercase ${livePolling ? 'text-emerald-600' : isRealtimeActive ? 'text-amber-600' : 'text-slate-400'}`}>Live</span>
+                        </button>
+                    )}
                 </div>
                 <div className="flex items-center gap-2">
                     {/* DELETE SELECTED */}
@@ -401,18 +431,23 @@ const TablePanel = forwardRef<TablePanelHandle, TablePanelProps>(({
                             <button onClick={(e: any) => { e.stopPropagation(); setShowExportMenu(!showExportMenu); }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 text-slate-600 hover:bg-slate-100 text-[10px] font-black uppercase tracking-widest"><Download size={11} /> Export</button>
                             {showExportMenu && (
                                 <div className="absolute top-10 right-0 w-48 bg-white rounded-xl shadow-2xl border border-slate-200 z-50 p-1.5 animate-in fade-in zoom-in-95">
-                                    {['csv', 'xlsx', 'json', 'sql'].map(fmt => (
-                                        <button key={fmt} onClick={() => { onExport(tableName, tableData, fmt); setShowExportMenu(false); }} className="w-full text-left px-3 py-2 hover:bg-slate-50 text-xs font-bold uppercase text-slate-600 rounded-lg flex items-center gap-2">
-                                            {fmt === 'xlsx' ? <FileSpreadsheet size={12} /> : fmt === 'json' ? <FileJson size={12} /> : <Code size={12} />} {fmt.toUpperCase()}
-                                        </button>
-                                    ))}
+                                    {['csv', 'xlsx', 'json', 'sql'].map(fmt => {
+                                        const exportData = selectedRows.size > 0
+                                            ? tableData.filter(r => selectedRows.has(r[pkCol]))
+                                            : tableData;
+                                        return (
+                                            <button key={fmt} onClick={() => { onExport(tableName, exportData, fmt); setShowExportMenu(false); }} className="w-full text-left px-3 py-2 hover:bg-slate-50 text-xs font-bold uppercase text-slate-600 rounded-lg flex items-center gap-2">
+                                                {fmt === 'xlsx' ? <FileSpreadsheet size={12} /> : fmt === 'json' ? <FileJson size={12} /> : <Code size={12} />} {fmt.toUpperCase()}{selectedRows.size > 0 ? ` (${selectedRows.size})` : ''}
+                                            </button>
+                                        );
+                                    })}
                                     <div className="h-[1px] bg-slate-100 my-1"></div>
                                     <div className="px-3 py-1.5 text-[9px] font-black text-slate-400 uppercase tracking-widest">PDF Orientation</div>
-                                    <button onClick={() => { onExport(tableName, tableData, 'pdf-portrait'); setShowExportMenu(false); }} className="w-full text-left px-3 py-2 hover:bg-slate-50 text-xs font-bold text-slate-600 rounded-lg flex items-center gap-2">
-                                        <FileType size={12} /> PDF — Portrait
+                                    <button onClick={() => { const ed = selectedRows.size > 0 ? tableData.filter(r => selectedRows.has(r[pkCol])) : tableData; onExport(tableName, ed, 'pdf-portrait'); setShowExportMenu(false); }} className="w-full text-left px-3 py-2 hover:bg-slate-50 text-xs font-bold text-slate-600 rounded-lg flex items-center gap-2">
+                                        <FileType size={12} /> PDF — Portrait{selectedRows.size > 0 ? ` (${selectedRows.size})` : ''}
                                     </button>
-                                    <button onClick={() => { onExport(tableName, tableData, 'pdf-landscape'); setShowExportMenu(false); }} className="w-full text-left px-3 py-2 hover:bg-slate-50 text-xs font-bold text-slate-600 rounded-lg flex items-center gap-2">
-                                        <FileType size={12} /> PDF — Landscape
+                                    <button onClick={() => { const ed = selectedRows.size > 0 ? tableData.filter(r => selectedRows.has(r[pkCol])) : tableData; onExport(tableName, ed, 'pdf-landscape'); setShowExportMenu(false); }} className="w-full text-left px-3 py-2 hover:bg-slate-50 text-xs font-bold text-slate-600 rounded-lg flex items-center gap-2">
+                                        <FileType size={12} /> PDF — Landscape{selectedRows.size > 0 ? ` (${selectedRows.size})` : ''}
                                     </button>
                                 </div>
                             )}
