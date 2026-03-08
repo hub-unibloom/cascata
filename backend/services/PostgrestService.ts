@@ -156,33 +156,11 @@ export class PostgrestService {
             if (headers['prefer'] && headers['prefer'].includes('resolution=merge-duplicates')) {
                 const conflictTarget = onConflictParam ? `"${onConflictParam.replace(/[^a-zA-Z0-9_]/g, '')}"` : '"id"';
 
-                // TIER-3 PADLOCK: UPSERT Vulnerability Patch
-                // Prevent 'insert_only' columns from being modified during the UPDATE phase of an UPSERT
+                // TIER-3 PADLOCK MIGRATED TO POSTGRESQL (Security Lock v2)
+                // UPSERTS agora enviam o payload inteiro ("EXCLUDED"). Se uma coluna 'insert_only' for tocada no update,
+                // a Redoma de Gatilhos C/PLpgSQL `system.enforce_dynamic_locks` fará Rollback com exception PDC02 Instantaneamente,
+                // protegendo o banco sem depender do V8 iterar JSON.
                 let updateKeys = keys;
-                if (lockedColumnsStr) {
-                    try {
-                        const lockedColumns = JSON.parse(lockedColumnsStr);
-                        updateKeys = keys.filter(k => {
-                            const lockLevel = lockedColumns[k];
-                            // Default unlocked if undefined
-                            if (!lockLevel) return true;
-                            if (lockLevel === 'insert_only' || lockLevel === 'immutable') return false;
-                            if (lockLevel === 'service_role_only' && userRole !== 'service_role') return false;
-                            if (lockLevel === 'otp_protected') {
-                                const stepUpToken = headers['x-cascata-otp-token'];
-                                const jwtSecret = headers['x-cascata-jwt-secret'];
-                                if (!stepUpToken || !jwtSecret) return false;
-                                try {
-                                    const decoded = jwt.verify(stepUpToken as string, jwtSecret as string) as any;
-                                    if (!decoded || decoded.type !== 'otp_stepup') return false;
-                                } catch (e) {
-                                    return false;
-                                }
-                            }
-                            return true;
-                        });
-                    } catch (e) { /* silent fail */ }
-                }
 
                 if (updateKeys.length > 0) {
                     const updateSet = updateKeys.map(k => `"${k}" = EXCLUDED."${k}"`).join(', ');

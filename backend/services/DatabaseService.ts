@@ -279,7 +279,113 @@ export class DatabaseService {
 
                 RETURN NULL;
             END;
+    public static async initProjectDb(client: PoolClient | Client) {
+        ... (não edite esta linha fictícia, apenas para entendimento mental, substitua apenas as linhas contíguas)
+
             $$ LANGUAGE plpgsql;
+        `);
+
+        // Agora chamamos o injetor para a base recém criada
+        await DatabaseService.injectSecurityLockEngine(client);
+    }
+
+    public static async injectSecurityLockEngine(client: any) {
+        // TIER-3 PADLOCK: INJECTING NATIVE SECURITY LOCKS HYBRID ENGINE (Eixos A e B)
+        await client.query(`
+            CREATE SCHEMA IF NOT EXISTS system;
+
+            CREATE TABLE IF NOT EXISTS system.dynamic_security_locks (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                project_slug TEXT NOT NULL,
+                table_name TEXT NOT NULL,
+                column_name TEXT NOT NULL,
+                lock_type TEXT NOT NULL,
+                metadata JSONB DEFAULT '{}'::jsonb,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(project_slug, table_name, column_name)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_dynamic_locks_fast_lookup ON system.dynamic_security_locks (project_slug, table_name);
+
+            CREATE OR REPLACE FUNCTION system.enforce_dynamic_locks()
+            RETURNS TRIGGER AS $$
+            DECLARE
+                _project_slug TEXT;
+                _is_otp_verified TEXT;
+                _lock_record RECORD;
+                _old_value JSONB;
+                _new_value JSONB;
+            BEGIN
+                _project_slug := current_setting('request.jwt.claim.project_slug', true);
+                IF _project_slug IS NULL THEN
+                    _project_slug := current_setting('app.current_project_slug', true);
+                END IF;
+
+                IF _project_slug IS NOT NULL THEN
+                    _is_otp_verified := current_setting('request.jwt.claim.otp_verified', true);
+                    
+                    IF TG_OP = 'UPDATE' THEN
+                        _old_value := to_jsonb(OLD);
+                        _new_value := to_jsonb(NEW);
+                    ELSIF TG_OP = 'INSERT' THEN
+                        _new_value := to_jsonb(NEW);
+                        _old_value := '{}'::jsonb;
+                    END IF;
+
+                    FOR _lock_record IN 
+                        SELECT column_name, lock_type 
+                        FROM system.dynamic_security_locks 
+                        WHERE project_slug = _project_slug AND table_name = TG_TABLE_NAME
+                    LOOP
+                        IF _new_value ? _lock_record.column_name AND (_old_value ->> _lock_record.column_name IS DISTINCT FROM _new_value ->> _lock_record.column_name) THEN
+                            IF _lock_record.lock_type = 'insert_only' AND TG_OP = 'UPDATE' THEN
+                                RAISE EXCEPTION USING ERRCODE = 'PDC02', MESSAGE = 'Security Lock Violation: Column "' || _lock_record.column_name || '" is INSERT ONLY and cannot be updated.';
+                            END IF;
+                            IF _lock_record.lock_type = 'otp_protected' THEN
+                                IF coalesce(_is_otp_verified, 'false') != 'true' THEN
+                                    RAISE EXCEPTION USING ERRCODE = 'PDC01', MESSAGE = 'Security Lock Violation: Valid OTP / Step-Up Authorization Ring is required to mutate column "' || _lock_record.column_name || '".';
+                                END IF;
+                            END IF;
+                        END IF;
+                    END LOOP;
+                END IF;
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+            CREATE OR REPLACE FUNCTION system.apply_security_locks(_project_slug TEXT, _table_name TEXT, _locked_columns JSONB)
+            RETURNS VOID AS $$
+            DECLARE
+                _col_name TEXT;
+                _lock_type TEXT;
+                _has_dynamic BOOLEAN := FALSE;
+                _safe_table TEXT;
+            BEGIN
+                _safe_table := quote_ident(_table_name);
+                EXECUTE format('DROP TRIGGER IF EXISTS trg_dynamic_locks ON public.%I', _safe_table);
+                DELETE FROM system.dynamic_security_locks WHERE project_slug = _project_slug AND table_name = _table_name;
+                
+                FOR _col_name, _lock_type IN SELECT * FROM jsonb_each_text(_locked_columns)
+                LOOP
+                    _col_name := quote_ident(_col_name);
+                    IF _lock_type = 'immutable' THEN
+                         EXECUTE format('REVOKE UPDATE (%I) ON public.%I FROM anon, authenticated', _col_name, _safe_table);
+                    ELSIF _lock_type = 'service_role_only' THEN
+                         EXECUTE format('REVOKE SELECT, INSERT, UPDATE (%I) ON public.%I FROM anon, authenticated', _col_name, _safe_table);
+                    ELSIF _lock_type IN ('otp_protected', 'insert_only') THEN
+                         EXECUTE format('GRANT SELECT, INSERT, UPDATE (%I) ON public.%I TO anon, authenticated', _col_name, _safe_table);
+                         INSERT INTO system.dynamic_security_locks (project_slug, table_name, column_name, lock_type)
+                         VALUES (_project_slug, _table_name, _col_name, _lock_type);
+                         _has_dynamic := TRUE;
+                    END IF;
+                END LOOP;
+
+                IF _has_dynamic THEN
+                    EXECUTE format('CREATE TRIGGER trg_dynamic_locks BEFORE INSERT OR UPDATE ON public.%I FOR EACH ROW EXECUTE FUNCTION system.enforce_dynamic_locks()', _safe_table);
+                END IF;
+            END;
+            $$ LANGUAGE plpgsql SECURITY DEFINER;
         `);
     }
 

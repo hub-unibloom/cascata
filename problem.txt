@@ -1,0 +1,35 @@
+------
+ > [backend_data 7/7] RUN npm run build:
+0.739 
+0.739 > cascata-backend@1.1.0 build
+0.739 > tsc
+0.739 
+[+] up 38/44es/PostgrestService.ts(162,21): error TS2304: Cannot find name 'lockedColumnsStr'.
+ ✔ Image nginx:alpine                                Pulled                                                                                                                              4.5s
+ ✔ Image docker.dragonflydb.io/dragonflydb/dragonfly Pulled                                                                                                                              6.6s
+ ✔ Image qdrant/qdrant:latest                        Pulled                                                                                                                              7.1s
+ ✔ Image edoburu/pgbouncer:latest                    Pulled                                                                                                                              2.7s
+ ⠙ Image cascata-backend_control                     Building                                                                                                                            90.8s
+ ⠙ Image cascata-nginx_controller                    Building                                                                                                                            90.8s
+ ⠙ Image cascata-db                                  Building                                                                                                                            90.8s
+ ⠙ Image cascata-backend_engine                      Building                                                                                                                            90.8s
+ ⠙ Image cascata-frontend                            Building                                                                                                                            90.8s
+ ⠙ Image cascata-backend_data                        Building                                                                                                                            90.8s
+Dockerfile:19
+
+--------------------
+
+  17 |     COPY . .
+
+  18 |     
+
+  19 | >>> RUN npm run build
+
+  20 |     EXPOSE 3000
+
+  21 |     CMD ["node", "dist/server.js"]
+
+--------------------
+
+target backend_control: failed to solve: process "/bin/sh -c npm run build" did not complete successfully: exit code: 2
+

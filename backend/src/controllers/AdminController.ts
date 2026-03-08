@@ -220,19 +220,25 @@ export class AdminController {
                 if (metadata.locked_columns) {
                     const projectSlug = req.params.slug;
                     try {
-                        const projectPool = await PoolService.getPool(projectSlug);
-                        if (projectPool) {
-                            // locked_columns geralmente tem a estrutura: { "nome_tabela": { "coluna": "lock_type" } }
-                            // ou para MVP o frontend mandava flat { "coluna": "lock_type" } para tabela unica.
-                            // Para ser robusto, iteramos o objeto. Se o valor for objeto, é formato By Table. Se for string, é legado Flat (aplica a PUBLIC.users ? Não, flat era por request. Mas via config global, DEVE ser By Table).
-                            const columnsPayload = metadata.locked_columns;
-                            for (const [tableName, locksObj] of Object.entries(columnsPayload)) {
-                                if (typeof locksObj === 'object' && locksObj !== null) {
-                                    // Invoca a engine DDL Nativa. O Lock Manager do Node vira apenas um mensageiro.
-                                    await projectPool.query(
-                                        'SELECT system.apply_security_locks($1, $2, $3::jsonb)',
-                                        [projectSlug, tableName, JSON.stringify(locksObj)]
-                                    );
+                        // Garantir o Nome do Banco daquele projeto
+                        const dbInfo = await systemPool.query('SELECT db_name FROM system.projects WHERE slug = $1', [projectSlug]);
+                        if (dbInfo.rows.length > 0) {
+                            const dbName = dbInfo.rows[0].db_name;
+                            const projectPool = PoolService.get(dbName, { useDirect: true });
+                            if (projectPool) {
+                                // INJETOR ON-DEMAND: Se a base existir e nunca inicializou o motor The Foundry DDL
+                                // Ele rodará o provisionamento Native Locks no próprio banco do inquilino
+                                await DatabaseService.injectSecurityLockEngine(projectPool as any);
+
+                                const columnsPayload = metadata.locked_columns;
+                                for (const [tableName, locksObj] of Object.entries(columnsPayload)) {
+                                    if (typeof locksObj === 'object' && locksObj !== null) {
+                                        // Invoca a engine DDL Nativa. O Lock Manager do Node vira apenas um mensageiro.
+                                        await projectPool.query(
+                                            'SELECT system.apply_security_locks($1, $2, $3::jsonb)',
+                                            [projectSlug, tableName, JSON.stringify(locksObj)]
+                                        );
+                                    }
                                 }
                             }
                         }
