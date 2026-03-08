@@ -1,0 +1,47 @@
+Aqui estão os itens a serem implementados, organizados claramente:
+
+---
+
+**1. Autenticação — Senha incorreta ao deletar/restaurar**
+- Corrigir o endpoint/lógica que retorna `{"error":"Invalid credentials"}` ao tentar deletar ou restaurar, mesmo com senha correta
+- Usar o mesmo mecanismo de autenticação que já funciona nos demais pontos do sistema
+
+---
+
+**2. TableCreatorDrawer — Atalhos de teclado**
+- `Ctrl+Enter` → executar a query (mesmo comportamento do botão "Generate & Execute SQL")
+- `Ctrl+S` → salvar a query no histórico SQL **e** abrir no SQL Editor (mesmo sem ter executado)
+
+---
+
+**3. SQL Editor — Ctrl+S no histórico**
+- `Ctrl+S` deve salvar o comando no histórico mesmo sem executar
+- Atualmente só salva ao executar — corrigir esse comportamento
+
+---
+
+**4. TablePanel — Edição de célula**
+- Alterar atalhos do textarea: `Enter` = salvar · `Ctrl+Shift+Enter` = nova linha · `Esc` = cancelar
+- Atualizar o tooltip para: `"Ctrl+Shift new line · Enter save · Esc cancel"`
+- Campos booleanos (`true`/`false`) devem abrir **dropdown**, não textarea
+- Campos JSON/JSONB vazios devem iniciar com `{}` ao abrir edição
+- Aplicar diferenciação similar para outros tipos que não fazem sentido como textarea livre
+- Após editar ou excluir coluna, **atualizar a tabela automaticamente** (sem precisar recarregar manualmente)
+
+---
+
+**5. Campos de inserção inteligente (nova linha)**
+- Campos de **data** devem abrir calendário/datepicker
+- Campos **money/numeric monetário** devem exibir símbolo automático
+- Todos os tipos especiais que já funcionam na edição devem funcionar também na **inserção de nova linha**
+- Exceção: JSON e JSONB só precisam do tratamento na edição
+
+---
+
+**6. ESC para fechar popups e drawers**
+- Pressionar `Esc` deve fechar **qualquer** popup, modal ou drawer aberto
+- Atualmente nenhum fecha com Esc — corrigir globalmente
+
+---
+
+**Antes de implementar qualquer item:** analisar os arquivos relevantes para entender o que já está parcialmente feito e aprimorar cirurgicamente — sem remover nada do que funciona.

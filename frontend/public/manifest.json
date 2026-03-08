@@ -1,0 +1,21 @@
+{
+  "name": "Cascata Management Studio",
+  "short_name": "Cascata",
+  "description": "Enterprise BaaS Control Plane",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F8FAFC",
+  "theme_color": "#4F46E5",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/9073/9073032.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/9073/9073032.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

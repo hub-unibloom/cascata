@@ -1,0 +1,626 @@
+
+import { NextFunction } from 'express';
+import bcrypt from 'bcrypt';
+import { CascataRequest } from '../types.js';
+import { systemPool } from '../config/main.js';
+import { AuthService } from '../../services/AuthService.js';
+import { GoTrueService } from '../../services/GoTrueService.js';
+import { RateLimitService, AuthSecurityConfig } from '../../services/RateLimitService.js';
+import { WebhookService } from '../../services/WebhookService.js';
+import { quoteId } from '../utils/index.js';
+import { Buffer } from 'buffer';
+
+export class DataAuthController {
+
+    // --- HELPER: Cookie Setting ---
+    // Sets HttpOnly, Secure, SameSite cookies for Hybrid Auth
+    private static setAuthCookies(res: any, session: any) {
+        const isProd = process.env.NODE_ENV === 'production';
+        const cookieOptions = {
+            httpOnly: true,
+            secure: isProd,
+            sameSite: 'Lax', // Allows redirects from OAuth providers to work
+            path: '/'
+        };
+
+        // Access Token (Short lived)
+        res.cookie('cascata_access_token', session.access_token, {
+            ...cookieOptions,
+            maxAge: session.expires_in * 1000
+        });
+
+        // Refresh Token (Long lived)
+        // Note: Refresh token expiration is typically 30 days, we match it here.
+        res.cookie('cascata_refresh_token', session.refresh_token, {
+            ...cookieOptions,
+            maxAge: 30 * 24 * 60 * 60 * 1000
+        });
+    }
+
+    private static getDeviceInfo(req: any) {
+        const forwarded = req.headers['x-forwarded-for'];
+        const realIp = req.headers['x-real-ip'];
+        const socketIp = req.socket?.remoteAddress;
+        let ip = (realIp as string) || (forwarded ? (forwarded as string).split(',')[0].trim() : socketIp) || '';
+        ip = ip.replace('::ffff:', '');
+
+        const userAgent = req.headers['user-agent'] || 'unknown';
+        return { ip, userAgent };
+    }
+
+    private static getSecurityConfig(req: CascataRequest): AuthSecurityConfig {
+        const meta = req.project?.metadata?.auth_config?.security || {};
+        return {
+            max_attempts: meta.max_attempts || 5,
+            lockout_minutes: meta.lockout_minutes || 15,
+            strategy: meta.strategy || 'hybrid',
+            disabled: meta.disabled || false
+        };
+    }
+
+    static async listUsers(req: CascataRequest, res: any, next: any) {
+        if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
+        try {
+            const result = await req.projectPool!.query(`SELECT u.id, u.created_at, u.banned, u.last_sign_in_at, jsonb_agg(jsonb_build_object('id', i.id, 'provider', i.provider, 'identifier', i.identifier, 'verified_at', i.verified_at)) as identities FROM auth.users u LEFT JOIN auth.identities i ON u.id = i.user_id GROUP BY u.id ORDER BY u.created_at DESC`);
+            res.json(result.rows);
+        } catch (e: any) { next(e); }
+    }
+
+    static async createUser(req: CascataRequest, res: any, next: any) {
+        const { strategies, profileData } = req.body;
+        try {
+            const client = await req.projectPool!.connect();
+            try {
+                await client.query('BEGIN');
+                const userRes = await client.query('INSERT INTO auth.users (raw_user_meta_data) VALUES ($1) RETURNING id', [profileData || {}]);
+                const userId = userRes.rows[0].id;
+                if (strategies) {
+                    for (const s of strategies) {
+                        let passwordHash = s.password ? await bcrypt.hash(s.password, 10) : null;
+                        await client.query('INSERT INTO auth.identities (user_id, provider, identifier, password_hash) VALUES ($1, $2, $3, $4)', [userId, s.provider, s.identifier, passwordHash]);
+                    }
+                }
+                await client.query('COMMIT');
+                res.json({ success: true, id: userId });
+            } finally { client.release(); }
+        } catch (e: any) { next(e); }
+    }
+
+    /**
+     * UNIVERSAL LOGIN (formerly legacyToken)
+     * The agnostic entry point for ANY auth strategy (CPF, Email, Biometrics, etc).
+     */
+    static async legacyToken(req: CascataRequest, res: any, next: any) {
+        const { provider, identifier, password } = req.body;
+        const deviceInfo = DataAuthController.getDeviceInfo(req);
+
+        if (!provider || !identifier) {
+            return res.status(400).json({ error: 'Provider and identifier are required.' });
+        }
+
+        const secConfig = DataAuthController.getSecurityConfig(req);
+
+        try {
+            // FIREWALL: Check Redis BEFORE hitting PostgreSQL
+            const lockout = await RateLimitService.checkAuthLockout(req.project.slug, deviceInfo.ip!, identifier, secConfig);
+            if (lockout.locked) return res.status(429).json({ error: lockout.reason });
+
+            const idRes = await req.projectPool!.query('SELECT * FROM auth.identities WHERE provider = $1 AND identifier = $2', [provider, identifier]);
+
+            if (!idRes.rows[0]) {
+                await RateLimitService.registerAuthFailure(req.project.slug, deviceInfo.ip!, identifier, secConfig);
+                return res.status(401).json({ error: 'Invalid credentials' });
+            }
+
+            const identity = idRes.rows[0];
+            const storedHash = identity.password_hash;
+
+            if (!storedHash) {
+                return res.status(400).json({ error: 'This identity does not support password login.' });
+            }
+
+            // SECURITY: Only accept bcrypt hashes. Plain-text fallback removed — it is
+            // a critical security risk and incompatible with enterprise-grade auth.
+            if (!storedHash.startsWith('$2')) {
+                // Identity exists but password is not hashed — force credential reset
+                return res.status(401).json({ error: 'Invalid credentials' });
+            }
+
+            const isValid = await bcrypt.compare(password, storedHash);
+
+            if (!isValid) {
+                await RateLimitService.registerAuthFailure(req.project.slug, deviceInfo.ip!, identifier, secConfig);
+                return res.status(401).json({ error: 'Invalid credentials' });
+            }
+
+            // SUCCESS Phase
+            await RateLimitService.clearAuthFailure(req.project.slug, deviceInfo.ip!, identifier);
+
+            // Create session with the specific provider context AND Fingerprint
+            const session = await AuthService.createSession(
+                identity.user_id,
+                req.projectPool!,
+                req.project.jwt_secret,
+                '1h',
+                30,
+                provider,
+                deviceInfo
+            );
+
+            DataAuthController.setAuthCookies(res, session);
+            res.json(session);
+        } catch (e: any) { next(e); }
+    }
+
+    static async linkIdentity(req: CascataRequest, res: any, next: any) {
+        if (req.userRole !== 'service_role') {
+            return res.status(403).json({ error: 'Identity linking requires administrative privileges (Service Role).' });
+        }
+        const userId = req.params.id;
+        try {
+            const client = await req.projectPool!.connect();
+            try {
+                await client.query('BEGIN');
+                const passwordHash = req.body.password ? await bcrypt.hash(req.body.password, 10) : null;
+                await client.query('INSERT INTO auth.identities (user_id, provider, identifier, password_hash, created_at) VALUES ($1, $2, $3, $4, now())', [userId, req.body.provider, req.body.identifier, passwordHash]);
+                await client.query('COMMIT');
+                res.json({ success: true });
+            } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+        } catch (e: any) { next(e); }
+    }
+
+    static async unlinkIdentity(req: CascataRequest, res: any, next: any) {
+        if (req.userRole !== 'service_role') {
+            return res.status(403).json({ error: 'Unlinking identities requires administrative privileges (Service Role).' });
+        }
+        try {
+            const countRes = await req.projectPool!.query('SELECT count(*) FROM auth.identities WHERE user_id = $1', [req.params.id]);
+            if (parseInt(countRes.rows[0].count) <= 1) return res.status(400).json({ error: "Cannot remove the last identity." });
+            await req.projectPool!.query('DELETE FROM auth.identities WHERE id = $1 AND user_id = $2', [req.params.identityId, req.params.id]);
+            res.json({ success: true });
+        } catch (e: any) { next(e); }
+    }
+
+    static async updateUserStatus(req: CascataRequest, res: any, next: any) {
+        if (req.userRole !== 'service_role') {
+            return res.status(403).json({ error: 'Access Denied: Only Service Role can update user status.' });
+        }
+        try { await req.projectPool!.query('UPDATE auth.users SET banned = $1 WHERE id = $2', [req.body.banned, req.params.id]); res.json({ success: true }); } catch (e: any) { next(e); }
+    }
+
+    static async deleteUser(req: CascataRequest, res: any, next: any) {
+        if (req.userRole !== 'service_role') {
+            return res.status(403).json({ error: 'Access Denied: Only Service Role can delete users.' });
+        }
+        try { await req.projectPool!.query('DELETE FROM auth.users WHERE id = $1', [req.params.id]); res.json({ success: true }); } catch (e: any) { next(e); }
+    }
+
+    static async linkConfig(req: CascataRequest, res: any, next: any) {
+        if (req.userRole !== 'service_role') return res.status(403).json({ error: 'Unauthorized' });
+        try {
+            const metaUpdates: any = { auth_strategies: req.body.authStrategies, auth_config: req.body.authConfig, linked_tables: req.body.linked_tables };
+
+            // Auto-Sync Auth Strategy Origins to Global CORS Perimeter
+            if (req.body.authStrategies) {
+                let currentOrigins = [...(req.project.metadata?.allowed_origins || [])];
+                const originValues = currentOrigins.map((o: any) => typeof o === 'string' ? o : o.url);
+                let added = false;
+
+                Object.values(req.body.authStrategies).forEach((strategy: any) => {
+                    if (strategy.rules && Array.isArray(strategy.rules)) {
+                        strategy.rules.forEach((rule: any) => {
+                            if (rule.origin && !originValues.includes(rule.origin)) {
+                                currentOrigins.push(rule.origin);
+                                originValues.push(rule.origin);
+                                added = true;
+                            }
+                        });
+                    }
+                });
+
+                if (added) {
+                    metaUpdates.allowed_origins = currentOrigins;
+                }
+            }
+
+            await systemPool.query(`UPDATE system.projects SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb WHERE slug = $2`, [JSON.stringify(metaUpdates), req.project.slug]);
+            if (req.body.linked_tables?.length > 0) {
+                const client = await req.projectPool!.connect();
+                try {
+                    await client.query('BEGIN');
+                    for (const table of req.body.linked_tables) {
+                        await client.query(`ALTER TABLE public.${quoteId(table)} ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL`);
+                        await client.query(`CREATE INDEX IF NOT EXISTS ${quoteId('idx_' + table + '_user_id')} ON public.${quoteId(table)} (user_id)`);
+                    }
+                    await client.query('COMMIT');
+                } finally { client.release(); }
+            }
+            res.json({ success: true });
+        } catch (e: any) { next(e); }
+    }
+
+    static async challenge(req: CascataRequest, res: any, next: any) {
+        try {
+            const strategies = req.project.metadata?.auth_strategies || {};
+            const config = strategies[req.body.provider];
+            if (!config?.enabled || !config?.webhook_url) throw new Error("Strategy not configured.");
+
+            const language = req.body.language || 'en-US';
+            const messagingTemplates = req.project.metadata?.auth_config?.messaging_templates;
+            const templateBindings = config.template_bindings;
+
+            await AuthService.initiatePasswordless(
+                req.projectPool!,
+                req.body.provider,
+                req.body.identifier,
+                config.webhook_url,
+                req.project.jwt_secret,
+                config.otp_config || { length: 6, charset: 'numeric' },
+                language,
+                messagingTemplates,
+                templateBindings
+            );
+            res.json({ success: true, message: 'Challenge sent' });
+        } catch (e: any) { next(e); }
+    }
+
+    static async verifyChallenge(req: CascataRequest, res: any, next: any) {
+        const deviceInfo = DataAuthController.getDeviceInfo(req);
+        try {
+            const profile = await AuthService.verifyPasswordless(req.projectPool!, req.body.provider, req.body.identifier, req.body.code);
+            const userId = await AuthService.upsertUser(req.projectPool!, profile);
+
+            const session = await AuthService.createSession(
+                userId,
+                req.projectPool!,
+                req.project.jwt_secret,
+                '1h',
+                30,
+                req.body.provider,
+                deviceInfo
+            );
+
+            // TIER-3 PADLOCK: Issue a temporary Step-Up Token for sensitive queries
+            const jwt = require('jsonwebtoken');
+            const stepUpToken = jwt.sign(
+                { type: 'otp_stepup', sub: userId, aud: req.project.id },
+                req.project.jwt_secret,
+                { expiresIn: '15m' }
+            );
+
+            DataAuthController.setAuthCookies(res, session);
+            res.json({ ...session, otp_stepup_token: stepUpToken });
+        } catch (e: any) { next(e); }
+    }
+
+    static async getUserSessions(req: CascataRequest, res: any, next: any) {
+        if (req.userRole !== 'service_role') {
+            return res.status(403).json({ error: 'Access Denied: Only Service Role can query sessions directly.' });
+        }
+        try {
+            const query = `
+                SELECT id, user_agent, ip_address, created_at, expires_at 
+                FROM auth.refresh_tokens 
+                WHERE user_id = $1 AND revoked = false
+                ORDER BY created_at DESC
+            `;
+            const result = await req.projectPool!.query(query, [req.params.id]);
+            res.json(result.rows);
+        } catch (e: any) { next(e); }
+    }
+
+    static async revokeOtherSessions(req: CascataRequest, res: any, next: any) {
+        if (req.userRole !== 'service_role') {
+            return res.status(403).json({ error: 'Access Denied: Only Service Role can revoke sessions.' });
+        }
+        const { current_session_id } = req.body;
+        try {
+            const query = `
+                UPDATE auth.refresh_tokens 
+                SET revoked = true 
+                WHERE user_id = $1 AND id != $2 AND revoked = false
+            `;
+            await req.projectPool!.query(query, [req.params.id, current_session_id || '00000000-0000-0000-0000-000000000000']);
+            res.json({ success: true, message: 'Other sessions revoked successfully.' });
+        } catch (e: any) { next(e); }
+    }
+
+    static async revokeSession(req: CascataRequest, res: any, next: any) {
+        if (req.userRole !== 'service_role') {
+            return res.status(403).json({ error: 'Access Denied: Only Service Role can revoke sessions.' });
+        }
+        try {
+            await req.projectPool!.query(`UPDATE auth.refresh_tokens SET revoked = true WHERE id = $1 AND user_id = $2`, [req.params.sessionId, req.params.id]);
+            res.json({ success: true, message: 'Session revoked.' });
+        } catch (e: any) { next(e); }
+    }
+
+    static async goTrueSignup(req: CascataRequest, res: any, next: any) {
+        try {
+            const language = req.body.language || 'en-US';
+            res.json(await GoTrueService.handleSignup(req.projectPool!, { ...req.body, language }, req.project.jwt_secret, req.project.metadata || {}));
+        } catch (e: any) { next(e); }
+    }
+
+    static async goTrueToken(req: CascataRequest, res: any, next: any) {
+        const deviceInfo = DataAuthController.getDeviceInfo(req);
+
+        // Supabase-JS e Flutterflow enviam grant_type pelo Query String (URL) e não no corpo (Body JSON)
+        if (!req.body.grant_type && req.query.grant_type) {
+            req.body.grant_type = req.query.grant_type;
+        }
+
+        const email = req.body.email;
+        const secConfig = DataAuthController.getSecurityConfig(req);
+        try {
+            if (req.body.grant_type === 'password') {
+                const lockout = await RateLimitService.checkAuthLockout(req.project.slug, deviceInfo.ip!, email, secConfig);
+                if (lockout.locked) return res.status(429).json({ error: lockout.reason });
+            }
+
+            // GoTrueService doesn't accept deviceInfo yet for standard flow unless passed deep,
+            // but we can augment it later or update GoTrueService separately.
+            // For now, cookies are set here.
+
+            req.body.language = req.body.language || 'en-US';
+
+            const response = await GoTrueService.handleToken(req.projectPool!, req.body, req.project.jwt_secret, req.project.metadata || {});
+
+            if (req.body.grant_type === 'password') await RateLimitService.clearAuthFailure(req.project.slug, deviceInfo.ip!, email);
+
+            DataAuthController.setAuthCookies(res, response);
+            res.json(response);
+        } catch (e: any) {
+            if (req.body.grant_type === 'password') await RateLimitService.registerAuthFailure(req.project.slug, deviceInfo.ip!, email, secConfig);
+            next(e);
+        }
+    }
+
+    static async goTrueUser(req: CascataRequest, res: any, next: any) {
+        if (!req.user?.sub) return res.status(401).json({ error: "unauthorized" });
+        try { res.json(await GoTrueService.handleGetUser(req.projectPool!, req.user.sub)); } catch (e: any) { next(e); }
+    }
+
+    static async goTrueLogout(req: CascataRequest, res: any, next: any) {
+        try {
+            await GoTrueService.handleLogout(req.projectPool!, req.headers.authorization?.replace('Bearer ', '').trim() || '', req.project.jwt_secret);
+
+            // Clear Cookies
+            res.clearCookie('cascata_access_token', { path: '/' });
+            res.clearCookie('cascata_refresh_token', { path: '/' });
+
+            res.status(204).send();
+        } catch (e) { next(e); }
+    }
+
+    static async goTrueVerify(req: CascataRequest, res: any, next: any) {
+        try {
+            const session = await GoTrueService.handleVerify(req.projectPool!, req.query.token as string, req.query.type as string, req.project.jwt_secret, req.project.metadata);
+
+            DataAuthController.setAuthCookies(res, session);
+
+            const hash = `access_token=${session.access_token}&refresh_token=${session.refresh_token}&expires_in=${session.expires_in}&token_type=bearer&type=${req.query.type}`;
+            const target = (req.query.redirect_to as string) || req.project.metadata?.auth_config?.site_url;
+            if (target) res.redirect(`${target.endsWith('/') ? target.slice(0, -1) : target}#${hash}`);
+            else res.json(session);
+        } catch (e: any) { next(e); }
+    }
+
+    static async goTrueAuthorize(req: CascataRequest, res: any, next: any) {
+        try {
+            let providerName = req.query.provider as string;
+            const prov = req.project.metadata?.auth_config?.providers?.[providerName];
+
+            if (!prov?.client_id) throw new Error("Provider not configured.");
+
+            const host = req.headers.host;
+            const callbackUrl = req.project.custom_domain && host === req.project.custom_domain ? `https://${host}/auth/v1/callback` : `https://${host}/api/data/${req.project.slug}/auth/v1/callback`;
+
+            const language = req.query.language || 'en-US';
+
+            const state = Buffer.from(JSON.stringify({
+                redirectTo: req.query.redirect_to || '',
+                provider: providerName,
+                client_id: req.appClient?.id || null, // Identity-Aware Key Bridging
+                language: language
+            })).toString('base64');
+
+            res.redirect(AuthService.getAuthUrl(providerName, { clientId: prov.client_id, redirectUri: callbackUrl }, state));
+        } catch (e: any) { next(e); }
+    }
+
+    static async goTrueCallback(req: CascataRequest, res: any, next: any) {
+        const deviceInfo = DataAuthController.getDeviceInfo(req);
+        try {
+            let finalRedirect = '';
+            let providerName = 'google';
+            let requestClientId = null;
+
+            try {
+                const stateData = JSON.parse(Buffer.from(req.query.state as string, 'base64').toString('utf8'));
+                finalRedirect = stateData.redirectTo;
+                if (stateData.provider) providerName = stateData.provider;
+                if (stateData.client_id) requestClientId = stateData.client_id;
+            } catch (e) { }
+
+            const prov = req.project.metadata?.auth_config?.providers?.[providerName];
+            if (!prov) throw new Error(`Provider configuration for ${providerName} missing.`);
+
+            const host = req.headers.host;
+            const callbackUrl = req.project.custom_domain && host === req.project.custom_domain ? `https://${host}/auth/v1/callback` : `https://${host}/api/data/${req.project.slug}/auth/v1/callback`;
+
+            const profile = await AuthService.handleCallback(providerName, req.query.code as string, { clientId: prov.client_id, clientSecret: prov.client_secret, redirectUri: callbackUrl });
+            const userId = await AuthService.upsertUser(req.projectPool!, profile, req.project.metadata?.auth_config);
+
+            const session = await AuthService.createSession(
+                userId,
+                req.projectPool!,
+                req.project.jwt_secret,
+                '1h',
+                30,
+                providerName,
+                deviceInfo
+            );
+
+            DataAuthController.setAuthCookies(res, session);
+
+            const hash = `access_token=${session.access_token}&refresh_token=${session.refresh_token}&expires_in=${session.expires_in}&token_type=bearer&type=recovery`;
+
+            // --- IDENTITY-AWARE FALLBACK TARGET ---
+            let fallbackSiteUrl = req.project.metadata?.auth_config?.site_url;
+            if (requestClientId && req.project.metadata?.app_clients && Array.isArray(req.project.metadata.app_clients)) {
+                const matchedClient = req.project.metadata.app_clients.find((c: any) => c.id === requestClientId);
+                if (matchedClient && matchedClient.site_url) {
+                    fallbackSiteUrl = matchedClient.site_url;
+                }
+            }
+
+            if (finalRedirect || fallbackSiteUrl) {
+                const target = finalRedirect || fallbackSiteUrl;
+                res.redirect(`${target!.endsWith('/') ? target!.slice(0, -1) : target!}#${hash}`);
+            } else {
+                res.json(session);
+            }
+
+        } catch (e: any) { next(e); }
+    }
+
+    static async goTrueRecover(req: CascataRequest, res: any, next: any) {
+        try {
+            const identifier = req.body.identifier || req.body.email;
+            const provider = req.body.provider || 'email';
+
+            if (!identifier) return res.status(400).json({ error: "Identifier (or email) is required" });
+
+            const projectUrl = req.project.metadata?.auth_config?.site_url || `https://${req.headers.host}`;
+            const emailConfig = req.project.metadata?.auth_config?.auth_strategies?.email || { delivery_method: 'smtp' };
+            const language = req.body.language || 'en-US';
+
+            await GoTrueService.handleRecover(
+                req.projectPool!,
+                identifier,
+                provider,
+                projectUrl,
+                emailConfig,
+                req.project.jwt_secret,
+                req.project.metadata?.auth_config?.email_templates,
+                language,
+                req.project.metadata?.auth_config?.messaging_templates,
+                req.project.metadata?.auth_config?.auth_strategies?.email?.template_bindings
+            );
+
+            res.json({ success: true, message: "If an account exists, a recovery instruction was sent." });
+        } catch (e: any) { next(e); }
+    }
+
+    private static maskIdentifier(provider: string, id: string): string {
+        if (!id) return id;
+        if (provider === 'email') {
+            const parts = id.split('@');
+            if (parts.length !== 2) return id;
+            return parts[0].substring(0, 2) + '*'.repeat(Math.max(1, parts[0].length - 2)) + '@' + parts[1];
+        }
+        return '*'.repeat(Math.max(1, id.length - 3)) + id.substring(id.length - 3);
+    }
+
+    static async goTrueUpdateUser(req: CascataRequest, res: any, next: any) {
+        if (!req.user?.sub) return res.status(401).json({ error: "unauthorized" });
+        try {
+            const userId = req.user.sub;
+            const provider = req.body.provider || 'email';
+            const reqOtp = req.body.otp_code;
+            const language = req.body.language || 'en-US';
+            const messagingTemplates = req.project.metadata?.auth_config?.messaging_templates;
+
+            // Check Project's specific configuration for this provider
+            const strategies = req.project.metadata?.auth_strategies || {};
+            const providerConfig = strategies[provider] || {};
+            const dispatchMode = providerConfig.otp_dispatch_mode || 'delegated';
+
+            // Bank-Grade Security Lock (Zero Trust OTP Validation for Password/Identity Linking) 
+            if (providerConfig.require_otp_on_update === true) {
+                let targetIdentifier = req.body.identifier || req.body.email;
+
+                // If the user hasn't explicitly supplied an identifier to bind, we must query the DB 
+                // to find their existing identifier for this provider to match against the OTP challenge table.
+                if (!targetIdentifier) {
+                    const identityCheck = await req.projectPool!.query(
+                        `SELECT identifier FROM auth.identities WHERE user_id = $1 AND provider = $2`,
+                        [userId, provider]
+                    );
+
+                    if (identityCheck.rows.length > 0) {
+                        targetIdentifier = identityCheck.rows[0].identifier;
+                    } else if (provider === 'email') {
+                        // Fallback to internal user metadata email
+                        const userCheck = await req.projectPool!.query(
+                            `SELECT raw_user_meta_data->>'email' as email FROM auth.users WHERE id = $1`,
+                            [userId]
+                        );
+                        targetIdentifier = userCheck.rows[0]?.email;
+                    }
+                }
+
+                if (!reqOtp) {
+                    // OTP is strictly required, let's process the Dispatch Routing
+
+                    if (dispatchMode === 'delegated') {
+                        const channels: any[] = [];
+                        const idResult = await req.projectPool!.query(`SELECT provider, identifier FROM auth.identities WHERE user_id = $1`, [userId]);
+                        idResult.rows.forEach((r: any) => {
+                            channels.push({ provider: r.provider, identifier: DataAuthController.maskIdentifier(r.provider, r.identifier) });
+                        });
+
+                        if (!channels.find((c: any) => c.provider === 'email')) {
+                            const userCheck = await req.projectPool!.query(`SELECT raw_user_meta_data->>'email' as email FROM auth.users WHERE id = $1`, [userId]);
+                            if (userCheck.rows[0]?.email) {
+                                channels.push({ provider: 'email', identifier: DataAuthController.maskIdentifier('email', userCheck.rows[0].email) });
+                            }
+                        }
+                        return res.status(403).json({
+                            error: "otp_required",
+                            message: `Bank-Grade Lock activated. Please challenge an OTP code via /auth/challenge to one of your channels.`,
+                            available_channels: channels
+                        });
+                    }
+
+                    if (dispatchMode === 'auto_current') {
+                        if (!targetIdentifier) return res.status(400).json({ error: `Cannot trigger auto_current OTP format for ${provider}: no target identifier specified or found in DB.` });
+                        if (!providerConfig.webhook_url) return res.status(500).json({ error: `Missing webhook_url in '${provider}' config for auto_current dispatch.` });
+                        await AuthService.initiatePasswordless(req.projectPool!, provider, targetIdentifier, providerConfig.webhook_url, req.project.jwt_secret, providerConfig.otp_config || { length: 6, charset: 'numeric' }, language, messagingTemplates, providerConfig.template_bindings);
+                        return res.status(403).json({ error: "otp_dispatched", message: "OTP automatically dispatched to the current target.", channel: provider });
+                    }
+
+                    if (dispatchMode === 'auto_primary') {
+                        const userCheck = await req.projectPool!.query(`SELECT raw_user_meta_data->>'email' as email FROM auth.users WHERE id = $1`, [userId]);
+                        const primaryEmail = userCheck.rows[0]?.email;
+                        if (!primaryEmail) return res.status(500).json({ error: "Sys: Cannot find root email for auto_primary dispatch." });
+                        const emailCfg = strategies['email'] || {};
+                        if (!emailCfg.webhook_url) return res.status(500).json({ error: "Missing webhook_url in 'email' config for auto_primary dispatch." });
+                        await AuthService.initiatePasswordless(req.projectPool!, 'email', primaryEmail, emailCfg.webhook_url, req.project.jwt_secret, emailCfg.otp_config || { length: 6, charset: 'numeric' }, language, messagingTemplates, emailCfg.template_bindings);
+                        return res.status(403).json({ error: "otp_dispatched", message: "OTP automatically dispatched to the root email account.", channel: "email" });
+                    }
+                }
+
+                if (!targetIdentifier) {
+                    throw new Error(`Cannot verify OTP. No identifier passed in request nor found internally for provider '${provider}'.`);
+                }
+
+                // If verifying against auto_primary, the challenge code was routed to the raw email
+                let validationProvider = provider;
+                let validationIdentifier = targetIdentifier;
+                if (dispatchMode === 'auto_primary') {
+                    validationProvider = 'email';
+                    const userCheck = await req.projectPool!.query(`SELECT raw_user_meta_data->>'email' as email FROM auth.users WHERE id = $1`, [userId]);
+                    validationIdentifier = userCheck.rows[0]?.email;
+                }
+
+                // Extremely secure verification (With built-in Timing-Attack defense)
+                await AuthService.verifyPasswordless(req.projectPool!, validationProvider, validationIdentifier, reqOtp);
+            }
+
+            const updatedUser = await GoTrueService.handleUpdateUser(req.projectPool!, userId, req.body);
+            res.json(updatedUser);
+        } catch (e: any) { next(e); }
+    }
+}

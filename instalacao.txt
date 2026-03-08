@@ -1,0 +1,60 @@
+					git clone https://github.com/hub-unibloom/cascata.git
+					cd ~/cascata
+					mv .env.txt .env
+					mv .dockerignore.txt .dockerignore
+					mv nginx/nginx.conf.txt nginx/nginx.conf
+					mv backend/Dockerfile.txt backend/Dockerfile
+					mv database/init.sql.txt database/init.sql
+
+# Migrations
+for i in backend/migrations/*.txt; do mv "$i" "${i%.txt}"; done
+
+					mv database/Dockerfile.txt database/Dockerfile
+					mv database/phantom_linker.sh.txt database/phantom_linker.sh
+					mv database/docker-entrypoint-cascata.sh.txt database/docker-entrypoint-cascata.sh
+					mv frontend/Dockerfile.txt frontend/Dockerfile
+					mv frontend/nginx.conf.txt frontend/nginx.conf
+					mv nginx-controller/Dockerfile.txt nginx-controller/Dockerfile
+					mkdir -p /cascata-data/pg /cascata-data/qdrant /cascata-data/redis /cascata-data/storage /cascata-data/certs /cascata-data/acme_challenge /cascata-data/nginx_dynamic
+					docker compose up -d --build
+
+
+
+					em vsp nova:
+
+# Clonar repositório
+git clone https://github.com/hub-unibloom/cascata.git
+
+# Entrar na pasta
+cd ~/cascata
+
+# Ajustar arquivos .txt
+mv .env.txt .env
+mv .dockerignore.txt .dockerignore
+mv nginx/nginx.conf.txt nginx/nginx.conf
+mv backend/Dockerfile.txt backend/Dockerfile
+mv database/init.sql.txt database/init.sql
+
+# Migrations
+for i in backend/migrations/*.txt; do mv "$i" "${i%.txt}"; done
+
+# Outros Dockerfiles e configs
+mv database/Dockerfile.txt database/Dockerfile
+mv database/phantom_linker.sh.txt database/phantom_linker.sh
+mv database/docker-entrypoint-cascata.sh.txt database/docker-entrypoint-cascata.sh
+mv frontend/Dockerfile.txt frontend/Dockerfile
+mv frontend/nginx.conf.txt frontend/nginx.conf
+mv nginx-controller/Dockerfile.txt nginx-controller/Dockerfile
+
+# Editar variáveis de ambiente
+nano .env
+
+# Criar diretórios de dados (modo produção correto)
+sudo mkdir -p /cascata-data/{pg,qdrant,redis,storage,certs,acme_challenge,nginx_dynamic}
+
+# Dar permissão ao usuário atual
+sudo chown -R $USER:$USER /cascata-data
+sudo chmod -R 755 /cascata-data
+
+# Subir containers
+docker compose up -d --build

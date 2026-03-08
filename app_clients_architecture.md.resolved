@@ -1,0 +1,114 @@
+# Cascata Orchestrator - Identity-Aware Keys (App Clients)
+## Visão Arquitetural e Estratégia de Implementação (Enterprise IAM)
+
+### O Problema Atual (Monolito Front-End)
+Atualmente, o Cascata, semelhante ao Supabase, possui um modelo "1-para-1" entre o Projeto de Banco de Dados e a Identidade Externa.
+- Existe apenas **1 `anon_key`** por projeto.
+- Existe apenas **1 `site_url`** (Redirect Fallback) global.
+- Existe apenas **1 lista global de `allowed_origins`**.
+
+**Consequência:** Se o cliente possuir um ecossistema com 3 aplicativos (Ex: App Passageiro, App Motorista, Painel Administrativo) que consomem a mesma API Cascata:
+1. Todos os aplicativos compartilham a mesma `anon_key`.
+2. O OAuth (Google, Apple) não sabe para qual aplicativo devolver o usuário após o login, forçando o desenvolvedor a passar o parâmetro de volta via URL (vulnerabilidade de Open Redirect) ou depender de um redirecionamento global.
+3. Se a chave do App Passageiro vazar ou precisar ser revogada, você derruba a API de todos os outros apps instantaneamente.
+
+---
+
+### A Revolução: Identity-Aware Keys (App Clients)
+Ao introduzir múltiplas chaves ("App Clients"), o Cascata orquestra Múltiplas Identidades Consumidoras ao redor do mesmo núcleo de dados.
+
+#### 1. Nova Estrutura de Metadados (Banco de Dados / Admin Control)
+Em vez de `anon_key` ser uma string estática na tabela `system.projects`, ela passará a ser primária (Default Client), mas o sistema suportará um array interno no `metadata.app_clients`:
+
+```json
+{
+  "app_clients": [
+    {
+      "id": "client_abc123",
+      "name": "App Motorista (iOS/Android)",
+      "anon_key": "eyJhbG...",
+      "site_url": "exp://motorista.app",
+      "allowed_redirects": ["exp://motorista.app/*"],
+      "enforced_role": "driver_role", // (Opcional) Força a role JWT em vez de 'authenticated'
+      "rate_limit_multiplier": 1.5 // (Opcional) Maior tolerância para este app
+    },
+    {
+      "id": "client_xyz789",
+      "name": "Painel Franquearia (Web)",
+      "anon_key": "eyJhbG...",
+      "site_url": "https://franquia.empresa.com",
+      "allowed_redirects": ["https://franquia.empresa.com/*", "http://localhost:3000/*"]
+    }
+  ]
+}
+```
+
+#### 2. O Roteamento Inteligente (Core Middleware)
+No [src/middlewares/core.ts](file:///home/cocorico/projetossz/cascata/backend/src/middlewares/core.ts), onde verificamos `if (apiKey === r.project.anon_key)`, a lógica evoluiria para:
+```typescript
+// core.ts - Identificação de Identidade (App Client)
+let matchedClient = null;
+
+// 1. Verifica a chave legada (Global)
+if (apiKey === r.project.anon_key) {
+    matchedClient = { id: 'default', site_url: global_site_url };
+} else if (r.project.metadata?.app_clients) {
+    // 2. Procura nas chaves específicas de App
+    matchedClient = r.project.metadata.app_clients.find(c => c.anon_key === apiKey);
+}
+
+if (matchedClient) {
+    r.userRole = 'anon';
+    r.appClient = matchedClient; // Injeta o contexto do App na requisição
+    return next();
+}
+```
+
+#### 3. A Mágica do OAuth (State Param Bridging)
+Essa é a parte que resolve definitivamente o caos do redirecionamento social (O Drop e o Callback).
+
+**Fluxo /authorize:**
+Quando o App chama `GET /auth/v1/authorize?provider=google`, o [DataAuthController.ts](file:///home/cocorico/projetossz/cascata/backend/src/controllers/DataAuthController.ts):
+1. Lê o `req.appClient` instanciado pelo [core.ts](file:///home/cocorico/projetossz/cascata/backend/src/middlewares/core.ts) (baseado na anon_key do header).
+2. Pega o `site_url` **Específico deste App**.
+3. Gera um Hash JWT assinando esse Contexto e envia para o Google dentro da variável `state`.
+
+```typescript
+const statePayload = jwt.sign({ 
+    client_id: req.appClient.id, 
+    provider: 'google',
+    redirect_to: req.query.redirect_to // Se existir, valida se bate com allowed_redirects do client
+}, SYS_SECRET);
+
+const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=...&redirect_uri=...&state=${statePayload}`;
+```
+
+**Fluxo /callback:**
+Quando o Google devolve o usuário:
+1. O Cascata decodifica o `state`.
+2. Lê qual `client_id` iniciou a requisição.
+3. Busca o `site_url` correto daquele client no projeto.
+4. Faz o Redirect seguro devolvendo o Token: `motorista.app.com/#access_token=...`
+
+#### 4. A Interface Administrativa (O Dashboard)
+No [AuthConfig.tsx](file:///home/cocorico/projetossz/cascata/frontend/pages/AuthConfig.tsx), a seção "Site URL & Redirects" se torna o "App Clients Manager".
+- O usuário visualiza "Default API Client" (A chave atual, para não quebrar retrocompatibilidade).
+- Um botão "Create New App Client".
+- Um Modal onde ele insere: Nome do App, Default URL. O Cascata gera uma nova `anon_key` e fornece apenas para este modal (salvando no `metadata.app_clients`).
+- Botões de Kill Switch por Cliente (Revogar Chave).
+
+---
+
+### Vantagens Competitivas (O "Fosso" do Cascata)
+
+1. **Zero Open Redirect Risk:** A API nunca confiará num link cego passado por parâmetro `redirect_to` sem validar rigidamente contra as URLs permitidas apenas dquela `anon_key` que está pedindo (Silos de Segurança).
+2. **Analytics granular de Edge:** Saberemos se um botnet de Brute Force está focando a interface Web ou focando o App Mobile, pois o RateLimitService isolará o ataque por `anon_key` de entrada.
+3. **Role Binding Automático (Rolejacking DB):** O App do Professor só loga professores. Como? Você trava a `enforced_role = 'professor'` no App Client. Toda JWT gerada a partir de logins vindos dessa chave recebem `role: 'professor'`, ativando as regras restritas do RLS do Banco (O Frontend nunca pede permissão, a chave de entrada define o seu destino militar).
+4. **Agilidade de Build:** O código Front-End fica "Burro" em relação à segurança. Ele só joga o usuário pro Cascata, e o Cascata devolve o usuário mágicamente pro app certo através da leitura do JWT state.
+
+### Conclusão e Próximos Passos
+O terreno estrutural já suporta isso graças à decisão de injetar os tokens pelo [core.ts](file:///home/cocorico/projetossz/cascata/backend/src/middlewares/core.ts) e ao JSONB expansível em `system.projects`.
+Para não quebrar a Fortaleza, essa atualização requer 3 commits controlados:
+1. Update UI (Visualização e Geração de App Clients em Metadados).
+2. Update [core.ts](file:///home/cocorico/projetossz/cascata/backend/src/middlewares/core.ts) para assumir `req.appClient` se bater com o array no lugar do global `anon_key`.
+3. Update AuthController para honrar o `req.appClient.site_url` e repassar na mala diplomática do `state`.

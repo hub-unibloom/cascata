@@ -1,0 +1,68 @@
+================================================================================
+RELATÓRIO DE AUDITORIA PROFUNDA: COMPORTAMENTO TEMPORAL (TIMEZONE)
+================================================================================
+
+Senhor, realizei uma auditoria estrita em toda a camada de persistência e comunicação do projeto (Backend Node.js `pg`, PostgREST, `.env` e SQL Console). Não executei nenhum comando na máquina, analisando puramente as engrenagens de código.
+
+A conclusão é contra-intuitiva, mas matematicamente exata: **O relógio do seu servidor e o banco de dados NÃO estão errados. Eles estão 100% perfeitos.**
+
+O que está acontecendo é uma "ilusão de formatação" causada pela forma como a linguagem de programação (JavaScript/Node.js) e o padrão JSON tratam datas com fuso horário (timestamptz). Abaixo está a prova técnica.
+
+--------------------------------------------------------------------------------
+1. A PROVA MATEMÁTICA DO HORÁRIO
+--------------------------------------------------------------------------------
+Você enviou a requisição às 21:57 (Horário de Brasília, América/São_Paulo).
+A resposta foi:
+- current_setting: America/Sao_Paulo (O banco de dados tem certeza disso).
+- NOW(): 2026-02-27T00:57:32.624Z
+
+Repare na letra "Z" no final da data. Esse "Z" significa Zulu Time (UTC / GMT 0).
+Brasília é UTC-3. 
+Se em Brasília são 21:57, em Londres (UTC 0) já passou da meia-noite e são 00:57 do dia seguinte.
+Ou seja: **2026-02-26 21:57:32 (BRT) é EXATAMENTE o mesmo instante no tempo que 2026-02-27T00:57:32Z (UTC).**
+
+O Banco de Dados sabe a hora certa. Ele gravou o instante no tempo com precisão de milissegundos.
+
+--------------------------------------------------------------------------------
+2. QUEM ESTÁ ALTERANDO A MÁSCARA VISUAL? (A RAIZ DO "PROBLEMA")
+--------------------------------------------------------------------------------
+No PostgreSQL, o tipo de dado devolvido pela função `NOW()` se chama `timestamptz` (Timestamp with Time Zone).
+
+Quando a biblioteca cliente (o pacote `pg` do Node.js, usado no nosso `DataController.ts`) recebe um `timestamptz` do banco, ela obrigatoriamente converte essa variável para um Objeto Nativo do JavaScript (`new Date()`).
+Quando o servidor Cascata vai responder para o painel Front-End (no SQL Console), ele roda o comando `res.json()`.
+A especificação nativa e inquebrável da linguagem JavaScript diz: Sempre que um Objeto `Date` for transformado em `JSON`, ele será convertido usando o método `.toISOString()`.
+O método `.toISOString()` **SEMPRE MATA A MÁSCARA DO FUSO HORÁRIO LOCAL E CONVERTE PARA O EQUIVALENTE EM UTC (Z)**.
+
+Portanto, o PostgreSQL devolveu a string local correta para o Node.js (`2026-02-26 21:57:32.624-03`), mas o Node.js parseou isso como "Data Universal" e enviou para a sua tela visual formatado em `Z` (UTC).
+
+--------------------------------------------------------------------------------
+3. QUAL É A SOLUÇÃO RECOMENDADA?
+--------------------------------------------------------------------------------
+Não há bug no fuso horário do sistema. Esse já é o comportamento padrão e desejável em "Enterprise Grade Systems":
+1 - Salva-se TUDO no banco de forma global (UTC ou com offset).
+2 - Padrões de API trafegam o JSON sempre em ISO-8601 (UTC com 'Z').
+3 - A UI no navegador (Intl.DateTimeFormat no React) pega o 'Z' e pinta visualmente na cor da região atual do usuário lendo o relógio da máquina do usuário.
+
+Se você PRECISA que a string no SQL Console saia EXATAMENTE do jeito que o PostgreSQL "imaginou" com o -03 aparecendo sem ser engolido pela engine do Node.js, nós podemos aplicar um "Hack" Global no Driver.
+
+A solução técnica seria interceptar o Parser do OID (Object IDentifier) do `timestamptz` no pacote `pg` do Node.js, para que ele pare de tentar ser inteligente e devolva a linha de texto crua.
+
+Exemplo do que precisaríamos colocar no `index.ts` ou `DatabaseService.ts`:
+```typescript
+import { types } from 'pg';
+// OID 1184 é timestamptz
+types.setTypeParser(1184, (stringValue) => {
+    return stringValue; // Mantém a string crua vinda do PostgreSQL (ex: "2026-02-26 21:57:32.624-03")
+});
+```
+Se fizermos isso, o `.toISOString()` nunca será disparado e você verá `2026-02-26 21:57:32.624-03` no SQL Console, extirpando sua agonia visual.
+
+================================================================================
+CONCLUSÃO (Veredito do Auditor)
+================================================================================
+Seu `.env` (`GENERIC_TIMEZONE=America/Sao_Paulo`) está certo.
+Seu Container Docker está certo.
+O Banco de Dados sabe que a timezone é `America/Sao_Paulo`.
+As gravações de segurança (`created_at`) não estão falhas ou em momentos inconsistentes no tempo. Estão exatas. Apenas estão sendo renderizadas na tela usando Formato Zulu (Standard API Global).
+
+Gostaria de autorizar a injeção do Parser OID 1184 para que o Node pare de transmutar os timestamps para UTC na resposta do SQL Editor, ou podemos manter esse padrão global de Backend sem intervenções sabendo que a precisão temporal não foi comprometida? Tudo aqui está seguro. Aguardo suas ordens.

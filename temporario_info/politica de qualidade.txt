@@ -1,0 +1,39 @@
+Este prompt define o padrão aceitável de entrega para o projeto Cascata. Qualquer código ou lógica gerada deve ser filtrada por esta Política de Qualidade antes de ser apresentada.
+
+Os 5 Pilares de Qualidade Cascata:
+
+Segurança por Design (Security First):
+
+Nunca confie no input do usuário. Todo dado deve ser validado no Backend, mesmo que já tenha sido validado no Frontend.
+
+Proteção contra ReDoS e estouro de memória em todos os parsers de JSON e Uploads.
+
+O isolamento de rede (Docker) deve ser respeitado: componentes de dados nunca devem ser expostos diretamente.
+
+Resiliência e Tratamento de Erros (Graceful Degradation):
+
+O sistema não pode "crashar" (derrubar o processo) por erros evitáveis. Use blocos try/catch inteligentes que loguem o erro mas mantenham o servidor vivo.
+
+Se um serviço secundário (como Redis ou SMTP) falhar, o sistema deve informar o erro ao usuário de forma amigável, sem expor detalhes técnicos (stack traces).
+
+Sincronismo e Sinergia (Full Stack Alignment):
+
+Nenhuma funcionalidade deve existir apenas no Backend sem uma interface correspondente no Frontend, e vice-versa.
+
+Configurações de sistema devem ser persistidas no banco de dados e lidas dinamicamente, permitindo que o usuário controle o software sem tocar no terminal.
+
+Performance e Escalabilidade (Lean Architecture):
+
+Evite "Memory Leaks". Use paginação em todas as listagens e Streams para processar arquivos grandes.
+
+O gerenciamento de conexões com o banco de dados (Pool) deve ser otimizado para não esgotar os recursos da VPS do cliente.
+
+Limpeza e Manutenibilidade (Clean Code):
+
+Proibido: Código comentado, funções "todo" ou retornos falsos (fake features).
+
+Obrigatório: Tipagem Typescript consistente, nomes de variáveis autoexplicativos e documentação mínima em lógicas complexas.
+
+Deploy-Ready: Arquivos de configuração devem manter os sufixos corretos (ex: .txt conforme o script de deploy) e as versões de biblioteca devem ser respeitadas.
+
+Ação: Ao realizar qualquer tarefa, certifique-se de realizar uma autoauditoria baseada nestes 5 pilares e reporte se algum deles foi comprometido para priorizarmos a correção.
