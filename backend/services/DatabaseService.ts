@@ -587,7 +587,7 @@ export class DatabaseService {
             await client.query('CREATE EXTENSION IF NOT EXISTS dblink');
             
             const getTables = async (pool: Pool) => {
-                const res = await pool.query(\`SELECT relname as table_name FROM pg_stat_user_tables WHERE schemaname = 'public'\`);
+                const res = await pool.query(`SELECT relname as table_name FROM pg_stat_user_tables WHERE schemaname = 'public'`);
                 return res.rows.map(r => r.table_name);
             };
             
@@ -596,26 +596,26 @@ export class DatabaseService {
             
             // Construção da Connection String do target para uso interno no dblink
             // Ex: user=test password=secret dbname=db_clone_xxx host=localhost
-            const targetConnStr = \`dbname=\${targetDb} user=\${process.env.DB_USER} password=\${process.env.DB_PASSWORD} host=\${process.env.DB_HOST || 'localhost'}\`;
+            const targetConnStr = `dbname=${targetDb} user=${process.env.DB_USER} password=${process.env.DB_PASSWORD} host=${process.env.DB_HOST || 'localhost'}`;
 
             for (const table of sourceTables) {
                 try {
-                    const pkRes = await client.query(\`
+                    const pkRes = await client.query(`
                         SELECT a.attname FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-                        WHERE i.indrelid = 'public.\${quoteId(table)}'::regclass AND i.indisprimary;
-                    \`);
+                        WHERE i.indrelid = 'public.${quoteId(table)}'::regclass AND i.indisprimary;
+                    `);
                     const pkCol = pkRes.rows[0]?.attname || 'id';
 
                     // O SANTO GRAAL DOS DIFFS (OOM KILLED)
                     // Ao invez de trazer as 40 milhoes de linhas dos 2 DBs para a Heap do NodeJS (Matando o servidor),
                     // Invocamos C++ PostgreSQL Engine para cruzar 2 databases isolados em menos de 1 segundo
                     // usando CROSS-DATABASE CTE (dblink). Retornando ao Node.js exatos 3 integers = 12 Bytes.
-                    const diffQuery = \`
+                    const diffQuery = `
                         WITH src_count AS (
-                            SELECT count(*) as total FROM public.\${quoteId(table)}
+                            SELECT count(*) as total FROM public.${quoteId(table)}
                         ),
                         tgt_data AS (
-                            SELECT id FROM dblink('\${targetConnStr}', 'SELECT "\${pkCol}"::text as id FROM public.\${quoteId(table)}') AS t(id text)
+                            SELECT id FROM dblink('${targetConnStr}', 'SELECT "${pkCol}"::text as id FROM public.${quoteId(table)}') AS t(id text)
                         ),
                         tgt_count AS (
                             SELECT count(*) as total FROM tgt_data
@@ -624,8 +624,8 @@ export class DatabaseService {
                             SELECT 
                                 COUNT(*) FILTER (WHERE t.id IS NULL) AS new_rows,
                                 COUNT(*) FILTER (WHERE t.id IS NOT NULL) AS update_rows
-                            FROM public.\${quoteId(table)} s
-                            LEFT JOIN tgt_data t ON s."\${pkCol}"::text = t.id
+                            FROM public.${quoteId(table)} s
+                            LEFT JOIN tgt_data t ON s."${pkCol}"::text = t.id
                         )
                         SELECT 
                             (SELECT total FROM src_count) as total_source,
@@ -633,7 +633,7 @@ export class DatabaseService {
                             (SELECT new_rows FROM diff) as new_rows,
                             (SELECT update_rows FROM diff) as update_rows,
                             COALESCE((SELECT total FROM tgt_count), 0) - COALESCE((SELECT update_rows FROM diff),0) as missing_rows
-                    \`;
+                    `;
 
                     const res = await client.query(diffQuery);
                     const metrics = res.rows[0];
@@ -649,7 +649,7 @@ export class DatabaseService {
                     });
 
                 } catch (e: any) {
-                    console.warn(\`[DatabaseService] Diff Skip on \${table}: \${e.message}\`);
+                    console.warn(`[DatabaseService] Diff Skip on ${table}: ${e.message}`);
                     summary.push({ table, total_source: 0, total_target: 0, new_rows: 0, update_rows: 0, missing_rows: 0, conflicts: 0 });
                 }
             }
@@ -816,7 +816,7 @@ export class DatabaseService {
                     await clientTarget.query(`TRUNCATE TABLE public.${quoteId(table)} CASCADE`);
                 }
 
-                const cursor = clientSource.query(new Cursor(\`SELECT \${colsList} FROM public.\${quoteId(table)}\`));
+                const cursor = clientSource.query(new Cursor(`SELECT ${colsList} FROM public.${quoteId(table)}`));
                 let rowCount = 0;
 
                 const readNext = async () => new Promise<any[]>((resolve, reject) => {
@@ -830,20 +830,20 @@ export class DatabaseService {
                     // FASE 2: OTIMIZAÇÃO MAXIMA DE INSERÇÃO EM BATCH (FIM DO LIMITE DE 65K PARAMS E OOM)
                     // Ao invez de gerar (X) * (Y) parametros placeholders que ferram o node.js, enviamos como 1 unico Payload JSON array
                     // O Postgres usa json_populate_recordset para extrair internamente em nanosegundos.
-                    let insertSql = \`
-                        INSERT INTO public.\${quoteId(table)} (\${colsList})
-                        SELECT \${colsList} FROM json_populate_recordset(null::public.\${quoteId(table)}, $1::json)
-                    \`;
+                    let insertSql = `
+                        INSERT INTO public.${quoteId(table)} (${colsList})
+                        SELECT ${colsList} FROM json_populate_recordset(null::public.${quoteId(table)}, $1::json)
+                    `;
 
                     if (strategy === 'append' || strategy === 'missing_only') {
-                        insertSql += \` ON CONFLICT ("\${pkColumn}") DO NOTHING\`;
+                        insertSql += ` ON CONFLICT ("${pkColumn}") DO NOTHING`;
                     } else if (strategy === 'upsert' || strategy === 'smart_sync') {
                         const updateCols = commonCols.filter(c => c !== pkColumn);
                         if (updateCols.length > 0) {
-                            const updateSet = updateCols.map(c => \`"\${c}" = EXCLUDED."\${c}"\`).join(', ');
-                            insertSql += \` ON CONFLICT ("\${pkColumn}") DO UPDATE SET \${updateSet}\`;
+                            const updateSet = updateCols.map(c => `"${c}" = EXCLUDED."${c}"`).join(', ');
+                            insertSql += ` ON CONFLICT ("${pkColumn}") DO UPDATE SET ${updateSet}`;
                         } else {
-                            insertSql += \` ON CONFLICT ("\${pkColumn}") DO NOTHING\`;
+                            insertSql += ` ON CONFLICT ("${pkColumn}") DO NOTHING`;
                         }
                     }
 
@@ -854,7 +854,7 @@ export class DatabaseService {
                     rows = await readNext();
                 }
 
-                console.log(\`[SmartMerge] Processed \${rowCount} rows into \${table}\`);
+                console.log(`[SmartMerge] Processed ${rowCount} rows into ${table}`);
                 results.push({ table, rows: rowCount, strategy });
             }
 
