@@ -163,7 +163,7 @@ export class DataController {
             query += ` LIMIT $1 OFFSET $2`;
 
             const result = await queryWithRLS(req, async (client) => {
-                return await client.query(query, [limit, offset]);
+                return await client.query(query, [limit, offset], `qRows_${safeSchema}_${safeTable}_${sortColumn}_${sortDirection}_${limit}_${offset}`);
             });
             res.json(result.rows);
         } catch (e: any) { next(e); }
@@ -246,26 +246,24 @@ export class DataController {
 
             const columns = keysArray.map(quoteId).join(', ');
             const flatValues: any[] = [];
+            
+            // O SANTO GRAAL DOS BATCH INSERTS: Array Unnesting
+            // Ao invez de explodir o driver com 65,000 parametros numéricos individuais ($1, $2, ... $65k)
+            // Agrupamos os valores VERTICALMENTE. Teremos exatos "N" parametros, onde N = Numero de Colunas.
+            // O motor do PostgreSQL (Escrito em C) expande o array para linhas nativamente.
+            keysArray.forEach((key, colIndex) => {
+                const columnData = rows.map(row => row[key] === undefined ? null : row[key]);
+                flatValues.push(columnData); // Push the entire column as a single Array to node-pg
+            });
 
-            const valuesPlaceholder = rows.map((row) => {
-                const rowPlaceholders = keysArray.map((key) => {
-                    const val = row[key];
-                    if (val === undefined) {
-                        return 'DEFAULT';
-                    } else {
-                        flatValues.push(val);
-                        return `$${flatValues.length}`;
-                    }
-                });
-                return `(${rowPlaceholders.join(', ')})`;
-            }).join(', ');
-
-            if (flatValues.length > 65000) {
-                throw new Error("Batch too large. Reduce rows or columns.");
-            }
+            const unnestArgs = keysArray.map((_, i) => `$${i + 1}`).join(', ');
 
             const result = await queryWithRLS(req, async (client) => {
-                return await client.query(`INSERT INTO ${safeSchema}.${safeTable} (${columns}) VALUES ${valuesPlaceholder} RETURNING *`, flatValues);
+                return await client.query(`
+                    INSERT INTO ${safeSchema}.${safeTable} (${columns})
+                    SELECT * FROM UNNEST(${unnestArgs}) 
+                    RETURNING *
+                `, flatValues);
             });
             res.status(201).json(result.rows);
         } catch (e: any) { next(e); }
@@ -330,7 +328,7 @@ export class DataController {
             const values = Object.values(data);
             const pkValIndex = values.length + 1;
             const result = await queryWithRLS(req, async (client) => {
-                return await client.query(`UPDATE ${safeSchema}.${safeTable} SET ${updates} WHERE ${quoteId(pkColumn)} = $${pkValIndex} RETURNING *`, [...values, pkValue]);
+                return await client.query(`UPDATE ${safeSchema}.${safeTable} SET ${updates} WHERE ${quoteId(pkColumn)} = $${pkValIndex} RETURNING *`, [...values, pkValue], 'updRowsSingle');
             });
             res.json(result.rows);
         } catch (e: any) { next(e); }
@@ -372,7 +370,7 @@ export class DataController {
             const realPkColumn = pkRes.rows[0].column_name;
 
             const result = await queryWithRLS(req, async (client) => {
-                return await client.query(`DELETE FROM ${safeSchema}.${safeTable} WHERE ${quoteId(realPkColumn)} = ANY($1) RETURNING *`, [ids]);
+                return await client.query(`DELETE FROM ${safeSchema}.${safeTable} WHERE ${quoteId(realPkColumn)} = ANY($1) RETURNING *`, [ids], 'delRowsMulti');
             });
             res.json(result.rows);
         } catch (e: any) { next(e); }
@@ -389,7 +387,7 @@ export class DataController {
 
         try {
             const rows = await queryWithRLS(req, async (client) => {
-                const result = await client.query(`SELECT * FROM ${safeSchema}.${quoteId(req.params.name)}(${namedPlaceholders})`, values);
+                const result = await client.query(`SELECT * FROM ${safeSchema}.${quoteId(req.params.name)}(${namedPlaceholders})`, values, `rpc_${req.params.name}`);
                 return result.rows;
             });
             res.json(rows);
@@ -768,16 +766,16 @@ export class DataController {
             const result = await queryWithRLS(req, async (client) => {
                 if (buildResult.countQuery) {
                     await client.query("SET LOCAL statement_timeout = '5s'");
-                    const countRes = await client.query(buildResult.countQuery, buildResult.values);
+                    const countRes = await client.query(buildResult.countQuery, buildResult.values, buildResult.name ? buildResult.name + '_cnt' : undefined);
                     const total = parseInt((countRes.rows[0] as any)?.total || '0');
-                    const mainRes = await client.query(buildResult.text, buildResult.values);
+                    const mainRes = await client.query(buildResult.text, buildResult.values, buildResult.name);
                     const offset = parseInt(req.query.offset as string || '0');
                     const start = offset;
                     const end = Math.min(offset + mainRes.rows.length - 1, total - 1);
                     res.setHeader('Content-Range', mainRes.rows.length === 0 ? `*/${total}` : `${start}-${end}/${total}`);
                     return mainRes;
                 }
-                return await client.query(buildResult.text, buildResult.values);
+                return await client.query(buildResult.text, buildResult.values, buildResult.name);
             });
 
             const responseData = req.headers.accept === 'application/vnd.pgrst.object+json'

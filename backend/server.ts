@@ -164,7 +164,14 @@ else {
 
                 waitForDatabase(30, 2000).then(async (ready) => {
                     if (ready) {
+                        const { AuthService } = await import('./services/AuthService.js');
                         await MigrationService.run(systemPool, MIGRATIONS_ROOT);
+                        
+                        // SANTO GRAAL: PL/PGSQL Injection 
+                        // Injeta no DB Default as stored procedures super pesadas que removem Overhead Node
+                        try {
+                            await systemPool.query(AuthService.getInstallSql());
+                        } catch(sqlErr: any) { console.warn("[System:Primary] Failed to inject SQL Procedures:", sqlErr.message); }
 
                         try {
                             const dbRes = await systemPool.query("SELECT settings FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'system_config'");
@@ -210,7 +217,12 @@ else {
                     CertificateService.ensureSystemCert().catch(e => {});
                     waitForDatabase(30, 2000).then(async (ready) => {
                         if (ready) {
+                            const { AuthService } = await import('./services/AuthService.js');
                             await MigrationService.run(systemPool, MIGRATIONS_ROOT);
+                            try {
+                                await systemPool.query(AuthService.getInstallSql());
+                            } catch(sqlErr: any) { console.warn("[System] Failed to inject SQL Procedures:", sqlErr.message); }
+                            
                             try {
                                 const dbRes = await systemPool.query("SELECT settings FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'system_config'");
                                 if (dbRes.rows[0]?.settings) {

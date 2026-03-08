@@ -575,44 +575,16 @@ export class AuthService {
     }
 
     public static async upsertUser(projectPool: Pool, profile: UserProfile, authConfig?: any): Promise<string> {
-        const client = await projectPool.connect();
-
-        // Determine if this provider should auto-verify identities
+        // O SANTO GRAAL: 1-Roundtrip Authenticator
+        // Bypass complete da metralhadora N+1 (BEGIN, SELECT, SELECT, INSERT, UPDATE, COMMIT = 6 TCP Roundtrips)
+        // Substituido por uma funcao nativa PL/pgSQL encapsulada. 1 TCP Roundtrip.
         const providerAutoVerify = authConfig?.providers?.[profile.provider]?.auto_verify === true;
-
-        try {
-            await client.query('BEGIN');
-            const identityRes = await client.query(`SELECT user_id FROM auth.identities WHERE provider = $1 AND identifier = $2`, [profile.provider, profile.id]);
-            let userId: string | null = null;
-            if (identityRes.rows.length > 0) {
-                userId = identityRes.rows[0].user_id;
-                await client.query('UPDATE auth.users SET last_sign_in_at = now() WHERE id = $1', [userId]);
-                await client.query(`UPDATE auth.identities SET last_sign_in_at = now(), identity_data = $1::jsonb WHERE provider = $2 AND identifier = $3`, [JSON.stringify(profile), profile.provider, profile.id]);
-            } else {
-                if (profile.email) {
-                    const emailRes = await client.query(`SELECT id FROM auth.users WHERE raw_user_meta_data->>'email' = $1`, [profile.email]);
-                    if (emailRes.rows.length > 0) userId = emailRes.rows[0].id;
-                }
-                if (!userId) {
-                    const meta = { name: profile.name, avatar_url: profile.avatar_url, email: profile.email };
-                    const newUserRes = await client.query(`INSERT INTO auth.users (raw_user_meta_data, created_at, last_sign_in_at) VALUES ($1::jsonb, now(), now()) RETURNING id`, [JSON.stringify(meta)]);
-                    userId = newUserRes.rows[0].id;
-                }
-                // Insert identity with verified_at if auto_verify is enabled for this provider
-                await client.query(
-                    `INSERT INTO auth.identities (user_id, provider, identifier, identity_data, created_at, last_sign_in_at, verified_at) VALUES ($1, $2, $3, $4::jsonb, now(), now(), ${providerAutoVerify ? 'now()' : 'NULL'})`,
-                    [userId, profile.provider, profile.id, JSON.stringify(profile)]
-                );
-            }
-            if (userId) {
-                const currentMetaRes = await client.query(`SELECT raw_user_meta_data FROM auth.users WHERE id = $1`, [userId]);
-                const currentMeta = currentMetaRes.rows[0]?.raw_user_meta_data || {};
-                const newMeta = { ...currentMeta, name: profile.name || currentMeta.name, avatar_url: profile.avatar_url || currentMeta.avatar_url, email: profile.email || currentMeta.email };
-                await client.query(`UPDATE auth.users SET raw_user_meta_data = $1::jsonb WHERE id = $2`, [JSON.stringify(newMeta), userId]);
-            }
-            await client.query('COMMIT');
-            return userId as string;
-        } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+        
+        const res = await projectPool.query(
+            `SELECT auth.upsert_user_v2($1::jsonb, $2::boolean) as user_id`,
+            [JSON.stringify(profile), providerAutoVerify]
+        );
+        return res.rows[0].user_id as string;
     }
 
     public static async createSession(
@@ -683,40 +655,116 @@ export class AuthService {
 
     public static async refreshSession(rawRefreshToken: string, projectPool: Pool, jwtSecret: string, expiresIn: string = '1h', deviceInfo: { ip?: string, userAgent?: string } = {}): Promise<SessionTokens> {
         const tokenHash = crypto.createHash('sha256').update(rawRefreshToken).digest('hex');
-        const client = await projectPool.connect();
-        try {
-            await client.query('BEGIN');
-            const res = await client.query(`SELECT id, user_id, revoked, parent_token FROM auth.refresh_tokens WHERE token_hash = $1 AND expires_at > now()`, [tokenHash]);
-            if (res.rows.length === 0) throw new Error("Invalid or expired refresh token");
-            const oldToken = res.rows[0];
-            if (oldToken.revoked) throw new Error("Token has been revoked (Reuse detected)");
-            await client.query(`UPDATE auth.refresh_tokens SET revoked = true WHERE id = $1`, [oldToken.id]);
+        
+        const newRawRefreshToken = crypto.randomBytes(40).toString('hex');
+        const newTokenHash = crypto.createHash('sha256').update(newRawRefreshToken).digest('hex');
+        
+        // C-Level Database Macro Execution (1 RCP Roundtrip)
+        // Substituindo 7 queries manuais (BEGIN, SELECT, UPDATE, INSERT, SELECT, COMMIT) 
+        const res = await projectPool.query(
+            `SELECT * FROM auth.refresh_session_v2($1, $2, $3, $4)`,
+            [tokenHash, newTokenHash, deviceInfo.ip || null, deviceInfo.userAgent || null]
+        );
+        
+        const data = res.rows[0];
+        
+        if (data.status === 'invalid_token') throw new Error("Invalid or expired refresh token");
+        if (data.status === 'revoked_reuse_detected') throw new Error("Token has been revoked (Reuse detected)");
+        
+        const accessToken = jwt.sign({ sub: data.p_user_id, role: 'authenticated', aud: 'authenticated' }, jwtSecret, { expiresIn: expiresIn as any });
+        
+        return { 
+            access_token: accessToken, 
+            refresh_token: newRawRefreshToken, 
+            expires_in: this.parseSeconds(expiresIn), 
+            user: { 
+                id: data.p_user_id, 
+                email: data.p_user_meta?.email, 
+                user_metadata: data.p_user_meta, 
+                app_metadata: { provider: 'cascata', role: 'authenticated' } 
+            } 
+        };
+    }
 
-            const newRawRefreshToken = crypto.randomBytes(40).toString('hex');
-            const newTokenHash = crypto.createHash('sha256').update(newRawRefreshToken).digest('hex');
-            const newExpiresAt = new Date(); newExpiresAt.setDate(newExpiresAt.getDate() + 30);
+    public static getInstallSql(): string {
+        return `
+        CREATE OR REPLACE FUNCTION auth.upsert_user_v2(profile jsonb, auto_verify boolean)
+        RETURNS uuid AS $$
+        DECLARE
+            v_user_id uuid;
+            v_current_meta jsonb;
+        BEGIN
+            -- 1. Check Identity
+            SELECT u.id INTO v_user_id 
+            FROM auth.identities i
+            JOIN auth.users u ON i.user_id = u.id
+            WHERE i.provider = profile->>'provider' AND i.identifier = profile->>'id';
 
-            // Insert New Token with updated Fingerprint
-            try {
-                await client.query(
-                    `INSERT INTO auth.refresh_tokens (token_hash, user_id, expires_at, parent_token, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5, $6)`,
-                    [newTokenHash, oldToken.user_id, newExpiresAt, oldToken.id, deviceInfo.ip, deviceInfo.userAgent]
-                );
-            } catch (e: any) {
-                if (e.code === '42703') {
-                    await client.query(
-                        `INSERT INTO auth.refresh_tokens (token_hash, user_id, expires_at, parent_token) VALUES ($1, $2, $3, $4)`,
-                        [newTokenHash, oldToken.user_id, newExpiresAt, oldToken.id]
-                    );
-                } else throw e;
-            }
+            IF v_user_id IS NOT NULL THEN
+                UPDATE auth.users SET last_sign_in_at = now() WHERE id = v_user_id;
+                UPDATE auth.identities SET last_sign_in_at = now(), identity_data = profile WHERE provider = profile->>'provider' AND identifier = profile->>'id';
+            ELSE
+                -- 2. Fallback check by Email
+                IF profile->>'email' IS NOT NULL THEN
+                    SELECT id INTO v_user_id FROM auth.users WHERE raw_user_meta_data->>'email' = profile->>'email';
+                END IF;
 
-            const accessToken = jwt.sign({ sub: oldToken.user_id, role: 'authenticated', aud: 'authenticated' }, jwtSecret, { expiresIn: expiresIn as any });
-            const userRes = await client.query(`SELECT id, raw_user_meta_data FROM auth.users WHERE id = $1`, [oldToken.user_id]);
-            const user = userRes.rows[0];
-            await client.query('COMMIT');
-            return { access_token: accessToken, refresh_token: newRawRefreshToken, expires_in: this.parseSeconds(expiresIn), user: { id: user.id, email: user.raw_user_meta_data?.email, user_metadata: user.raw_user_meta_data, app_metadata: { provider: 'cascata', role: 'authenticated' } } };
-        } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+                IF v_user_id IS NULL THEN
+                    INSERT INTO auth.users (raw_user_meta_data, created_at, last_sign_in_at) 
+                    VALUES (jsonb_build_object('name', profile->>'name', 'avatar_url', profile->>'avatar_url', 'email', profile->>'email'), now(), now())
+                    RETURNING id INTO v_user_id;
+                END IF;
+
+                -- Insert new Identity
+                INSERT INTO auth.identities (user_id, provider, identifier, identity_data, created_at, last_sign_in_at, verified_at) 
+                VALUES (v_user_id, profile->>'provider', profile->>'id', profile, now(), now(), CASE WHEN auto_verify THEN now() ELSE NULL END);
+            END IF;
+
+            -- 3. Sync Metadata Safely (Coalesce to avoid null override)
+            SELECT raw_user_meta_data INTO v_current_meta FROM auth.users WHERE id = v_user_id;
+            
+            UPDATE auth.users SET raw_user_meta_data = v_current_meta || jsonb_build_object(
+                'name', COALESCE(profile->>'name', v_current_meta->>'name'),
+                'avatar_url', COALESCE(profile->>'avatar_url', v_current_meta->>'avatar_url'),
+                'email', COALESCE(profile->>'email', v_current_meta->>'email')
+            ) WHERE id = v_user_id;
+
+            RETURN v_user_id;
+        END;
+        $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+        CREATE OR REPLACE FUNCTION auth.refresh_session_v2(p_old_hash text, p_new_hash text, p_ip text, p_ua text)
+        RETURNS TABLE (status text, p_user_id uuid, p_user_meta jsonb) AS $$
+        DECLARE
+            v_token record;
+            v_user_meta jsonb;
+        BEGIN
+            -- 1. Find Token
+            SELECT id, user_id, revoked, parent_token INTO v_token 
+            FROM auth.refresh_tokens WHERE token_hash = p_old_hash AND expires_at > now();
+
+            IF NOT FOUND THEN RETURN QUERY SELECT 'invalid_token'::text, NULL::uuid, NULL::jsonb; RETURN; END IF;
+            IF v_token.revoked THEN RETURN QUERY SELECT 'revoked_reuse_detected'::text, NULL::uuid, NULL::jsonb; RETURN; END IF;
+
+            -- 2. Revoke Old
+            UPDATE auth.refresh_tokens SET revoked = true WHERE id = v_token.id;
+
+            -- 3. Insert New (Safe dynamic column check for migrations)
+            BEGIN
+                INSERT INTO auth.refresh_tokens (token_hash, user_id, expires_at, parent_token, ip_address, user_agent) 
+                VALUES (p_new_hash, v_token.user_id, now() + interval '30 days', v_token.id, p_ip, p_ua);
+            EXCEPTION WHEN undefined_column THEN
+                INSERT INTO auth.refresh_tokens (token_hash, user_id, expires_at, parent_token) 
+                VALUES (p_new_hash, v_token.user_id, now() + interval '30 days', v_token.id);
+            END;
+
+            -- 4. Get User Profile
+            SELECT raw_user_meta_data INTO v_user_meta FROM auth.users WHERE id = v_token.user_id;
+
+            RETURN QUERY SELECT 'success'::text, v_token.user_id, v_user_meta;
+        END;
+        $$ LANGUAGE plpgsql SECURITY DEFINER;
+        `;
     }
 
     private static parseSeconds(str: string): number {

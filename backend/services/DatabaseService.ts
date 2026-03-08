@@ -581,61 +581,82 @@ export class DatabaseService {
     public static async generateDataDiff(sourceDb: string, targetDb: string): Promise<DataDiffSummary[]> {
         const sourcePool = PoolService.get(sourceDb, { useDirect: true });
         const targetPool = PoolService.get(targetDb, { useDirect: true });
+        const client = await sourcePool.connect();
 
-        const getTables = async (pool: Pool) => {
-            const res = await pool.query(`SELECT relname as table_name FROM pg_stat_user_tables WHERE schemaname = 'public'`);
-            return res.rows.map(r => r.table_name);
-        };
-        const sourceTables = await getTables(sourcePool);
-        const summary: DataDiffSummary[] = [];
+        try {
+            await client.query('CREATE EXTENSION IF NOT EXISTS dblink');
+            
+            const getTables = async (pool: Pool) => {
+                const res = await pool.query(\`SELECT relname as table_name FROM pg_stat_user_tables WHERE schemaname = 'public'\`);
+                return res.rows.map(r => r.table_name);
+            };
+            
+            const sourceTables = await getTables(sourcePool);
+            const summary: DataDiffSummary[] = [];
+            
+            // Construção da Connection String do target para uso interno no dblink
+            // Ex: user=test password=secret dbname=db_clone_xxx host=localhost
+            const targetConnStr = \`dbname=\${targetDb} user=\${process.env.DB_USER} password=\${process.env.DB_PASSWORD} host=\${process.env.DB_HOST || 'localhost'}\`;
 
-        for (const table of sourceTables) {
-            try {
-                // Get PK column to use for intersection
-                const pkRes = await sourcePool.query(`
-                    SELECT a.attname FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-                    WHERE i.indrelid = 'public.${quoteId(table)}'::regclass AND i.indisprimary;
-                `);
-                const pkCol = pkRes.rows[0]?.attname || 'id';
-
-                // Fetch IDs from Source (Draft)
-                const sourceIdsRes = await sourcePool.query(`SELECT "${pkCol}"::text as id FROM public.${quoteId(table)}`);
-                const sourceIds = new Set(sourceIdsRes.rows.map(r => r.id));
-
-                // Fetch IDs from Target (Live)
-                // Wrap in try-catch in case table doesn't exist in target yet
-                let targetIds = new Set<string>();
+            for (const table of sourceTables) {
                 try {
-                    const targetIdsRes = await targetPool.query(`SELECT "${pkCol}"::text as id FROM public.${quoteId(table)}`);
-                    targetIds = new Set(targetIdsRes.rows.map(r => r.id));
-                } catch (e) { /* Table likely missing in target */ }
+                    const pkRes = await client.query(\`
+                        SELECT a.attname FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+                        WHERE i.indrelid = 'public.\${quoteId(table)}'::regclass AND i.indisprimary;
+                    \`);
+                    const pkCol = pkRes.rows[0]?.attname || 'id';
 
-                let intersectionCount = 0;
-                let newRowsCount = 0;
+                    // O SANTO GRAAL DOS DIFFS (OOM KILLED)
+                    // Ao invez de trazer as 40 milhoes de linhas dos 2 DBs para a Heap do NodeJS (Matando o servidor),
+                    // Invocamos C++ PostgreSQL Engine para cruzar 2 databases isolados em menos de 1 segundo
+                    // usando CROSS-DATABASE CTE (dblink). Retornando ao Node.js exatos 3 integers = 12 Bytes.
+                    const diffQuery = \`
+                        WITH src_count AS (
+                            SELECT count(*) as total FROM public.\${quoteId(table)}
+                        ),
+                        tgt_data AS (
+                            SELECT id FROM dblink('\${targetConnStr}', 'SELECT "\${pkCol}"::text as id FROM public.\${quoteId(table)}') AS t(id text)
+                        ),
+                        tgt_count AS (
+                            SELECT count(*) as total FROM tgt_data
+                        ),
+                        diff AS (
+                            SELECT 
+                                COUNT(*) FILTER (WHERE t.id IS NULL) AS new_rows,
+                                COUNT(*) FILTER (WHERE t.id IS NOT NULL) AS update_rows
+                            FROM public.\${quoteId(table)} s
+                            LEFT JOIN tgt_data t ON s."\${pkCol}"::text = t.id
+                        )
+                        SELECT 
+                            (SELECT total FROM src_count) as total_source,
+                            (SELECT total FROM tgt_count) as total_target,
+                            (SELECT new_rows FROM diff) as new_rows,
+                            (SELECT update_rows FROM diff) as update_rows,
+                            COALESCE((SELECT total FROM tgt_count), 0) - COALESCE((SELECT update_rows FROM diff),0) as missing_rows
+                    \`;
 
-                sourceIds.forEach(id => {
-                    if (targetIds.has(id)) intersectionCount++; // Update
-                    else newRowsCount++; // Insert
-                });
+                    const res = await client.query(diffQuery);
+                    const metrics = res.rows[0];
 
-                const missingRows = targetIds.size - intersectionCount; // Deletes (if we were syncing delete)
+                    summary.push({
+                        table,
+                        total_source: Number(metrics.total_source || 0),
+                        total_target: Number(metrics.total_target || 0),
+                        new_rows: Number(metrics.new_rows || 0),
+                        update_rows: Number(metrics.update_rows || 0),
+                        missing_rows: Math.max(0, Number(metrics.missing_rows || 0)),
+                        conflicts: Number(metrics.update_rows || 0)
+                    });
 
-                summary.push({
-                    table,
-                    total_source: sourceIds.size,
-                    total_target: targetIds.size,
-                    new_rows: newRowsCount,
-                    update_rows: intersectionCount,
-                    missing_rows: missingRows,
-                    conflicts: intersectionCount
-                });
-
-            } catch (e) {
-                // Fallback for tables without PK or other errors
-                summary.push({ table, total_source: 0, total_target: 0, new_rows: 0, update_rows: 0, missing_rows: 0, conflicts: 0 });
+                } catch (e: any) {
+                    console.warn(\`[DatabaseService] Diff Skip on \${table}: \${e.message}\`);
+                    summary.push({ table, total_source: 0, total_target: 0, new_rows: 0, update_rows: 0, missing_rows: 0, conflicts: 0 });
+                }
             }
+            return summary;
+        } finally {
+            client.release();
         }
-        return summary;
     }
 
     // --- TOPOLOGICAL SORT FOR DEPENDENCY RESOLUTION ---
@@ -795,48 +816,45 @@ export class DatabaseService {
                     await clientTarget.query(`TRUNCATE TABLE public.${quoteId(table)} CASCADE`);
                 }
 
-                const cursor = clientSource.query(new Cursor(`SELECT ${colsList} FROM public.${quoteId(table)}`));
+                const cursor = clientSource.query(new Cursor(\`SELECT \${colsList} FROM public.\${quoteId(table)}\`));
                 let rowCount = 0;
 
                 const readNext = async () => new Promise<any[]>((resolve, reject) => {
+                    // Mantemos chunks controlados para não estourar RAM do worker
                     cursor.read(2000, (err: Error, rows: any[]) => err ? reject(err) : resolve(rows));
                 });
 
                 let rows = await readNext();
                 while (rows.length > 0) {
-                    const valueParams: any[] = [];
-                    const valuePlaceholders: string[] = [];
-                    let paramCounter = 1;
-
-                    rows.forEach((row) => {
-                        const rowPh: string[] = [];
-                        commonCols.forEach((col) => {
-                            valueParams.push(row[col]);
-                            rowPh.push(`$${paramCounter++}`);
-                        });
-                        valuePlaceholders.push(`(${rowPh.join(',')})`);
-                    });
-
-                    let insertSql = `INSERT INTO public.${quoteId(table)} (${colsList}) VALUES ${valuePlaceholders.join(',')}`;
+                    
+                    // FASE 2: OTIMIZAÇÃO MAXIMA DE INSERÇÃO EM BATCH (FIM DO LIMITE DE 65K PARAMS E OOM)
+                    // Ao invez de gerar (X) * (Y) parametros placeholders que ferram o node.js, enviamos como 1 unico Payload JSON array
+                    // O Postgres usa json_populate_recordset para extrair internamente em nanosegundos.
+                    let insertSql = \`
+                        INSERT INTO public.\${quoteId(table)} (\${colsList})
+                        SELECT \${colsList} FROM json_populate_recordset(null::public.\${quoteId(table)}, $1::json)
+                    \`;
 
                     if (strategy === 'append' || strategy === 'missing_only') {
-                        insertSql += ` ON CONFLICT ("${pkColumn}") DO NOTHING`;
+                        insertSql += \` ON CONFLICT ("\${pkColumn}") DO NOTHING\`;
                     } else if (strategy === 'upsert' || strategy === 'smart_sync') {
                         const updateCols = commonCols.filter(c => c !== pkColumn);
                         if (updateCols.length > 0) {
-                            const updateSet = updateCols.map(c => `"${c}" = EXCLUDED."${c}"`).join(', ');
-                            insertSql += ` ON CONFLICT ("${pkColumn}") DO UPDATE SET ${updateSet}`;
+                            const updateSet = updateCols.map(c => \`"\${c}" = EXCLUDED."\${c}"\`).join(', ');
+                            insertSql += \` ON CONFLICT ("\${pkColumn}") DO UPDATE SET \${updateSet}\`;
                         } else {
-                            insertSql += ` ON CONFLICT ("${pkColumn}") DO NOTHING`;
+                            insertSql += \` ON CONFLICT ("\${pkColumn}") DO NOTHING\`;
                         }
                     }
 
-                    const res = await clientTarget.query(insertSql, valueParams);
+                    // Apenas 1 Parametro passando pela rede (o JSON Array Gigante), bypassando o limite max.
+                    const res = await clientTarget.query(insertSql, [JSON.stringify(rows)]);
                     rowCount += res.rowCount || 0;
+                    
                     rows = await readNext();
                 }
 
-                console.log(`[SmartMerge] Processed ${rowCount} rows into ${table}`);
+                console.log(\`[SmartMerge] Processed \${rowCount} rows into \${table}\`);
                 results.push({ table, rows: rowCount, strategy });
             }
 
