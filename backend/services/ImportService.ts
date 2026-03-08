@@ -454,6 +454,7 @@ export class ImportService {
                     const updateClause = updateCols ? `DO UPDATE SET ${updateCols}` : 'DO NOTHING';
                     await targetPool.query(`INSERT INTO "${table}" SELECT * FROM "${tempTable}" ON CONFLICT (${pkCols}) ${updateClause}`);
                 }
+            } // Fechamento real do: if (strategy !== 'overwrite' && tempTable)
             } finally {
                 // Pilar 2 (Isolamento Bancário): Lixeiro de Fantasmas
                 // O DROP antigo ficava perdido no meio do código. Se o STDIN/CSV estorasse memória, o node caía pro `finally` pai e a tabela Unlogged apodrecia para sempre na Prod.

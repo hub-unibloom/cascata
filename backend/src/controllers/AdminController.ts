@@ -92,7 +92,7 @@ export class AdminController {
         if (slug.length < 3 || slug.length > 50) {
             return res.status(400).json({ error: "Slug must be between 3 and 50 characters." });
         }
-        const { name, slug, timezone } = req.body;
+
         const safeSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '');
         const reserved = ['system', 'control', 'api', 'dashboard', 'assets', 'auth', 'health'];
         if (reserved.includes(safeSlug)) return res.status(400).json({ error: "Reserved project slug." });

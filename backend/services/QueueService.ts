@@ -165,6 +165,11 @@ export class QueueService {
         await this.restoreQueue.add('restore-project', data, { jobId: `restore-${data.slug}-${Date.now()}` });
     }
 
+    public static async addLogExportJob(data: any) {
+        if (!this.maintenanceQueue) this.init();
+        await this.maintenanceQueue.add('export-logs', data, { jobId: `export-${data.slug}-${Date.now()}` });
+    }
+
     public static async scheduleBackup(policyId: string, cron: string, timezone: string = 'UTC') {
         if (!this.backupQueue) this.init();
         const repeatableJobs = await this.backupQueue.getRepeatableJobs();
