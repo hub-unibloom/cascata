@@ -310,6 +310,7 @@ export class DatabaseService {
             DECLARE
                 _project_slug TEXT;
                 _is_otp_verified TEXT;
+                _request_role TEXT;
                 _lock_record RECORD;
                 _old_value JSONB;
                 _new_value JSONB;
@@ -321,6 +322,7 @@ export class DatabaseService {
 
                 IF _project_slug IS NOT NULL THEN
                     _is_otp_verified := current_setting('request.jwt.claim.otp_verified', true);
+                    _request_role := current_setting('request.jwt.claim.role', true);
                     
                     IF TG_OP = 'UPDATE' THEN
                         _old_value := to_jsonb(OLD);
@@ -335,10 +337,24 @@ export class DatabaseService {
                         FROM system.dynamic_security_locks 
                         WHERE project_slug = _project_slug AND table_name = TG_TABLE_NAME
                     LOOP
-                        IF _new_value ? _lock_record.column_name AND (_old_value ->> _lock_record.column_name IS DISTINCT FROM _new_value ->> _lock_record.column_name) THEN
-                            IF _lock_record.lock_type = 'insert_only' AND TG_OP = 'UPDATE' THEN
-                                RAISE EXCEPTION USING ERRCODE = 'PDC02', MESSAGE = 'Security Lock Violation: Column "' || _lock_record.column_name || '" is INSERT ONLY and cannot be updated.';
+                        -- Immutability on INSERT (No initial explicit inject by untrusted clients)
+                        IF TG_OP = 'INSERT' AND _new_value ? _lock_record.column_name THEN
+                            IF _lock_record.lock_type = 'immutable' AND coalesce(_request_role, 'service_role') IN ('anon', 'authenticated') THEN
+                                RAISE EXCEPTION USING ERRCODE = 'PDC03', MESSAGE = 'Security Lock Violation: Column "' || _lock_record.column_name || '" is IMMUTABLE and cannot be explicitly set by clients on row creation.';
                             END IF;
+                        END IF;
+
+                        -- Mutation Interception (Value effectively changed)
+                        IF _new_value ? _lock_record.column_name AND (_old_value ->> _lock_record.column_name IS DISTINCT FROM _new_value ->> _lock_record.column_name) THEN
+                            
+                            IF _lock_record.lock_type IN ('insert_only', 'immutable') AND TG_OP = 'UPDATE' THEN
+                                RAISE EXCEPTION USING ERRCODE = 'PDC02', MESSAGE = 'Security Lock Violation: Column "' || _lock_record.column_name || '" is locked (' || _lock_record.lock_type || ') and cannot be updated.';
+                            END IF;
+                            
+                            IF _lock_record.lock_type = 'service_role_only' AND coalesce(_request_role, 'service_role') IN ('anon', 'authenticated') THEN
+                                RAISE EXCEPTION USING ERRCODE = 'PDC04', MESSAGE = 'Security Lock Violation: Column "' || _lock_record.column_name || '" requires SERVICE_ROLE system privileges to mutate.';
+                            END IF;
+
                             IF _lock_record.lock_type = 'otp_protected' THEN
                                 IF coalesce(_is_otp_verified, 'false') != 'true' THEN
                                     RAISE EXCEPTION USING ERRCODE = 'PDC01', MESSAGE = 'Security Lock Violation: Valid OTP / Step-Up Authorization Ring is required to mutate column "' || _lock_record.column_name || '".';
@@ -366,16 +382,12 @@ export class DatabaseService {
                 FOR _col_name, _lock_type IN SELECT * FROM jsonb_each_text(_locked_columns)
                 LOOP
                     _col_name := quote_ident(_col_name);
-                    IF _lock_type = 'immutable' THEN
-                         EXECUTE format('REVOKE UPDATE (%I) ON public.%I FROM anon, authenticated', _col_name, _safe_table);
-                    ELSIF _lock_type = 'service_role_only' THEN
-                         EXECUTE format('REVOKE SELECT, INSERT, UPDATE (%I) ON public.%I FROM anon, authenticated', _col_name, _safe_table);
-                    ELSIF _lock_type IN ('otp_protected', 'insert_only') THEN
-                         EXECUTE format('GRANT SELECT, INSERT, UPDATE (%I) ON public.%I TO anon, authenticated', _col_name, _safe_table);
-                         INSERT INTO system.dynamic_security_locks (project_slug, table_name, column_name, lock_type)
-                         VALUES (_project_slug, _table_name, _col_name, _lock_type);
-                         _has_dynamic := TRUE;
-                    END IF;
+                    -- O Santo Graal: Zero conflitos com Table-Level GRANTs!
+                    -- Toda a autoridade foi transladada com precisão cirúrgica para o Motor de Triggers (system.enforce_dynamic_locks).
+                    -- Não há necessidade de gerenciar matrizes estáticas no sistema de permissões do PostgREST.
+                    INSERT INTO system.dynamic_security_locks (project_slug, table_name, column_name, lock_type)
+                    VALUES (_project_slug, _table_name, _col_name, _lock_type);
+                    _has_dynamic := TRUE;
                 END LOOP;
 
                 IF _has_dynamic THEN

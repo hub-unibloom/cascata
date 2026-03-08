@@ -253,7 +253,9 @@ export class DataController {
                 flatValues.push(columnData); // Push the entire column as a single Array to node-pg
             });
 
-            const unnestArgs = keysArray.map((_, i) => `$${i + 1}`).join(', ');
+            // O "::text[]" é o Santo Graal do Casting Dinâmico. Permite que o parser do C-Level
+            // PG inferencie os tipos finais na própria inserção em cascata (Implicit Cast).
+            const unnestArgs = keysArray.map((_, i) => `$${i + 1}::text[]`).join(', ');
 
             const result = await queryWithRLS(req, async (client) => {
                 return await client.query(`
@@ -447,7 +449,8 @@ export class DataController {
             );
 
             // TIER-3 UNIVERSAL PADLOCK (Frontend Propagation)
-            const lockedColumns = req.project.metadata?.locked_columns || {};
+            const globalLocks = req.project.metadata?.locked_columns || {};
+            const tableLocks = globalLocks[req.params.tableName] || {};
 
             // Parse format patterns from comments
             const enriched = result.rows.map((row: any) => {
@@ -456,7 +459,7 @@ export class DataController {
                     ...row,
                     description: parsed.description || '',
                     formatPattern: parsed.formatPattern || null,
-                    lockLevel: lockedColumns[row.name] || 'unlocked', // Expose the padlock tier statically
+                    lockLevel: tableLocks[row.name] || 'unlocked', // Expose the padlock tier statically
                     rawComment: undefined // Don't expose raw comment to client
                 };
             });
