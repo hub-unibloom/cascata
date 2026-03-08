@@ -325,7 +325,7 @@ export const quoteId = (identifier: string) => {
     return `"${identifier.replace(/"/g, '""')}"`;
 };
 
-// HARDENED RLS WRAPPER (THE HOLY GRAIL - 1-Roundtrip CTE Injector)
+// HARDENED RLS WRAPPER (THE HOLY GRAIL - 1-Roundtrip CTE Injector + Dragonfly Semaphore)
 export const queryWithRLS = async (req: CascataRequest, callback: (client: { query: (sql: string, params?: any[], name?: string) => Promise<any> }) => Promise<any>) => {
     if (!req.projectPool) {
         throw { status: 500, message: 'Project context missing or database pool not initialized.' };
@@ -339,162 +339,143 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
     const role = req.userRole || 'anon';
     const email = req.user?.email || '';
 
-    // Criamos um client "Proxy" que intercepta a query do controller e empacota ela com Segurança e CTE.
+    // Criamos um client "Proxy" que intercepta a query do controller e empacota ela com Segurança,
+    // CTE RLS, Semáforo Dragonfly e Roteamento Inteligente Master/Replica — tudo em uma UNICA camada.
     const proxyClient = {
         query: async (queryText: string, params: any[] = [], statementName?: string) => {
-            // A query interceptada precisa ser encapsulada se não for um comando compativel com CTE
-            // (ex: CREATE TABLE), mas como RLS é só plano de dados (DML), CTE serve 99% das vezes.
+
+            // ======================================================================
+            // CAMADA 1: DETECÇÃO DE TIPO (DML vs DDL) E SEMÁFORO READ-AFTER-WRITE
+            // ======================================================================
             const isDml = /^\s*(SELECT|INSERT|UPDATE|DELETE)\s/i.test(queryText);
-            
-            if (!isDml) {
-                 // Fallback para DDL em 1-Roundtrip estrito (Separado por ';')
-                 // Nao compativel com statement_name, porem DDL nao faz cache nativo
-                 const prepSql = `
-                     SET LOCAL statement_timeout = '30s';
-                     SET LOCAL ROLE cascata_api_role;
-                     SELECT set_config('request.jwt.claim.sub', $1, true),
-                            set_config('request.jwt.claim.role', $2, true),
-                            set_config('request.jwt.claim.email', $3, true);
-                     ${queryText}
-                 `;
-                 const allParams = [sub, role, email, ...params];
-                 // Renumber $X placeholders in the original query
-                 let renumberedSql = prepSql;
-                 for (let i = 0; i < params.length; i++) {
-                     const oldNum = i + 1;
-                     const newNum = oldNum + 3; // Shift by 3 because of [sub, role, email]
-                     renumberedSql = renumberedSql.replace(new RegExp(`\\$${oldNum}(?![0-9])`, 'g'), `$${newNum}`);
-                 }
-                 return await req.projectPool!.query(renumberedSql, allParams);
+            const isWriteDml = /^\s*(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s/i.test(queryText);
+            const isRead = /^\s*SELECT\s/i.test(queryText) && !isWriteDml;
+
+            // Extrai tabela afetada para o semáforo
+            let affectedTable = '';
+            if (isWriteDml) {
+                const match = queryText.match(/(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:[\w]+\.)?(\"?[a-zA-Z0-9_]+\"?)/i);
+                if (match && match[1]) {
+                    affectedTable = match[1].replace(/"/g, '');
+                }
             }
 
-            // O Santo Graal (1-Roundtrip DML via CTE with native Parameter handling)
-            // Deslocamos os parametros originais (+3 indices)
-            let shiftedQueryText = queryText;
-            for (let i = params.length; i >= 1; i--) {
-                shiftedQueryText = shiftedQueryText.replace(new RegExp(`\\$${i}(?![0-9])`, 'g'), `$${i + 3}`);
-            }
-
-            const injectSql = `
-                WITH _cascata_ctx AS (
-                    SELECT 
-                        set_config('statement_timeout', '30s', true),
-                        set_config('role', 'cascata_api_role', true),
-                        set_config('request.jwt.claim.sub', $1, true),
-                        set_config('request.jwt.claim.role', $2, true),
-                        set_config('request.jwt.claim.email', $3, true)
-                )
-                ${shiftedQueryText}
-            `;
-            
-            const finalParams = [sub, role, email, ...params];
-            
-            // Re-apply prepared statement name if possible (prefix with 'ctx_' to denote CTE wrapped version)
-            const queryConfig: any = {
-                text: injectSql,
-                values: finalParams
-            };
-
-            if (statementName) {
-                queryConfig.name = 'ctx_' + statementName;
-            }
-
+            // ======================================================================
+            // CAMADA 2: DRAGONFLY SEMÁFORO CHECK (Read-After-Write Consistency)
+            // Se for um SELECT de leitura, verificamos se a tabela foi escrita recentemente.
+            // Se sim, forçamos roteamento para o Primary DB (bypass da Replica).
+            // ======================================================================
+            let dfly: any = null;
             try {
-                return await req.projectPool!.query(queryConfig);
-            } catch (e: any) {
-                if (e.code === '3D000') throw { status: 404, message: 'Project database not found.' };
-                throw e; // Lança os erros de restrição de constraint ou RLS normalmente
+                const RLSvc = (await import('../../services/RateLimitService.js')).RateLimitService;
+                dfly = (RLSvc as any).dragonfly;
+            } catch (e) { /* Dragonfly pode não estar disponível no boot */ }
+
+            let forceMaster = false;
+            if (isRead && dfly) {
+                const fromMatch = queryText.match(/FROM\s+(?:[\w]+\.)?(\"?[a-zA-Z0-9_]+\"?)/i);
+                if (fromMatch && fromMatch[1]) {
+                    const readTable = fromMatch[1].replace(/"/g, '');
+                    if (readTable) {
+                        const semaforoKey = `cascata_rw_lock:${req.project?.slug || 'unknown'}:${readTable}`;
+                        try {
+                            const signal = await dfly.get(semaforoKey);
+                            if (signal === 'LOCKED') forceMaster = true;
+                        } catch (e) { /* Non-blocking: se Dragonfly falhar, usamos o pool padrão */ }
+                    }
+                }
             }
-        }
-    };
 
-    // Apenas passamos o Proxy pra Callback. Não precisamos mais adquirir PoolClient (release manual).
-    // O pool lida autonomamente com a conexão e a fecha/devolve no mesmo milissegundo.
+            // ======================================================================
+            // CAMADA 3: SELEÇÃO DO POOL ALVO (Master vs Replica)
+            // ======================================================================
+            let targetPool = req.projectPool!;
 
-    // FASE 2.5: O SEMÁFORO DFly (Replica Read-after-Write)
-    // Extrai o nome da tabela afetada se for DML (INSERT/UPDATE/DELETE) para acender o Semáforo.
-    let affectedTable = '';
-    
-    // Tentativa simples de RegEx para achar as tabelas de escrita da query (limitado mas perf)
-    const originalQueryProxyCallback = proxyClient.query;
-    
-    proxyClient.query = async (queryText: string, params: any[] = [], statementName?: string) => {
-        const isWriteDml = /^\s*(INSERT INTO|UPDATE|DELETE FROM)\s+(public\.)?("?[a-zA-Z0-9_]+"?)/i.test(queryText);
-        if (isWriteDml) {
-            const match = queryText.match(/(?:INSERT INTO|UPDATE|DELETE FROM)\s+(?:public\.)?("?[a-zA-Z0-9_]+"?) /i);
-            if (match && match[1]) {
-                affectedTable = match[1].replace(/"/g, ''); 
+            if (forceMaster && req.method === 'GET') {
+                try {
+                    const PoolSvc = (await import('../../services/PoolService.js')).PoolService;
+                    const externalUrl = req.project?.metadata?.external_db_url;
+                    if (externalUrl) {
+                        targetPool = PoolSvc.get(req.project!.db_name, { connectionString: externalUrl });
+                        console.log(`[SmartRouting] Semaphore HIT: Routed ${req.project?.slug} GET to Master.`);
+                    } else {
+                        targetPool = PoolSvc.get(req.project!.db_name, { max: 10 });
+                    }
+                } catch (e) { /* Fallback: fica no pool original */ }
             }
-        }
-        
-        const dfly = (await import('../../services/RateLimitService.js')).RateLimitService['dragonfly'];
-        
-        // --- DRAGONFLY SEMÁFORO CHECK (Antes da Query se for SELECT) ---
-        // Se a Query atual for SELECT, verifica se existe Semáforo Aceso para forçar Master
-        const isRead = /^\s*(SELECT(?:(?!\s+INTO).)*)$/i.test(queryText);
-        let forceMaster = false;
-        
-        if (isRead && dfly && affectedTable === '') {
-             // Opcional: extrair a tabela do SELECT para ver o semaforo
-             const fromMatch = queryText.match(/FROM\s+(?:public\.)?("?[a-zA-Z0-9_]+"?) /i);
-             if (fromMatch && fromMatch[1]) {
-                 const readTable = fromMatch[1].replace(/"/g, '');
-                 if (readTable) {
-                      const semaforoKey = `cascata_rw_lock:${req.project?.slug || 'unknown'}:${readTable}`;
-                      // Check rapido
-                      const signal = (await dfly.get(semaforoKey)) === 'LOCKED';
-                      if (signal) forceMaster = true; 
-                 }
-             }
-        }
 
-        let targetPool = req.projectPool!;
+            // ======================================================================
+            // CAMADA 4: EXECUÇÃO COM CTE RLS (O Santo Graal da Segurança + Performance)
+            // ======================================================================
+            let result;
 
-        // O Santo Graal do Roteamento
-        // Se a request chegou num Read-Replica mas o Semáforo disse "Hey, acabei de gravar nessa tabela",
-        // Puxamos uma conexão direta do PoolService mirando no DB_MASTER.
-        if (forceMaster && req.method === 'GET') {
-            const externalUrl = req.project?.metadata?.external_db_url;
-            // Se tem URL customizada principal, routeia de volta para ela.
-            // (Assumindo q req.projectPool estava na read_replica_url)
-            if (externalUrl) {
-                 const PoolSvc = (await import('../../services/PoolService.js')).PoolService;
-                 targetPool = PoolSvc.get(req.project!.db_name, {
-                     connectionString: externalUrl
-                 });
-                 console.log(`[SmartRouting] Read-After-Write Semaphore Hit: Routed ${req.project?.slug} GET to Master Node.`);
+            if (!isDml) {
+                // DDL: Fallback em 1-Roundtrip (Separado por ';')
+                const prepSql = `
+                    SET LOCAL statement_timeout = '30s';
+                    SET LOCAL ROLE cascata_api_role;
+                    SELECT set_config('request.jwt.claim.sub', $1, true),
+                           set_config('request.jwt.claim.role', $2, true),
+                           set_config('request.jwt.claim.email', $3, true);
+                    ${queryText}
+                `;
+                const allParams = [sub, role, email, ...params];
+                let renumberedSql = prepSql;
+                for (let i = params.length; i >= 1; i--) {
+                    renumberedSql = renumberedSql.replace(new RegExp(`\\$${i}(?![0-9])`, 'g'), `$${i + 3}`);
+                }
+                result = await targetPool.query(renumberedSql, allParams);
             } else {
-                 // Em self-host puro s/ replicas externas parametrizadas, o master é o padrao local.
-                 const PoolSvc = (await import('../../services/PoolService.js')).PoolService;
-                 targetPool = PoolSvc.get(req.project!.db_name, { max: 10 });
+                // DML: CTE Injection (1-Roundtrip com RLS contexts embutidos)
+                let shiftedQueryText = queryText;
+                for (let i = params.length; i >= 1; i--) {
+                    shiftedQueryText = shiftedQueryText.replace(new RegExp(`\\$${i}(?![0-9])`, 'g'), `$${i + 3}`);
+                }
+
+                const injectSql = `
+                    WITH _cascata_ctx AS (
+                        SELECT 
+                            set_config('statement_timeout', '30s', true),
+                            set_config('role', 'cascata_api_role', true),
+                            set_config('request.jwt.claim.sub', $1, true),
+                            set_config('request.jwt.claim.role', $2, true),
+                            set_config('request.jwt.claim.email', $3, true)
+                    )
+                    ${shiftedQueryText}
+                `;
+
+                const finalParams = [sub, role, email, ...params];
+
+                const queryConfig: any = {
+                    text: injectSql,
+                    values: finalParams
+                };
+
+                if (statementName) {
+                    queryConfig.name = 'ctx_' + statementName;
+                }
+
+                try {
+                    result = await targetPool.query(queryConfig);
+                } catch (e: any) {
+                    if (e.code === '3D000') throw { status: 404, message: 'Project database not found.' };
+                    throw e;
+                }
             }
-        }
 
-        // --- EXECUÇÃO EFETIVA ---
-        let res;
-        try {
-             // Redireciona para o Pool Correto (Master ou Replica)
-             res = await targetPool.query(queryText, params, statementName);
-        } catch(e: any) {
-             throw e; // Lança os erros de restrição de constraint ou RLS normalmente
-        }
+            // ======================================================================
+            // CAMADA 5: DRAGONFLY SEMÁFORO SET (Pós-Write, Acende a Luz Amarela)
+            // ======================================================================
+            if (isWriteDml && affectedTable && dfly) {
+                const semaforoKey = `cascata_rw_lock:${req.project?.slug || 'unknown'}:${affectedTable}`;
+                // Fire And Forget: Acende por 2.5s (> P99 Replication Lag)
+                try { dfly.set(semaforoKey, 'LOCKED', 'PX', 2500).catch(() => {}); } catch (e) {}
+            }
 
-        // --- DRAGONFLY SEMÁFORO SET (Após o DML Acabou e comitou no Master) ---
-        if (isWriteDml && affectedTable && dfly) {
-             const semaforoKey = `cascata_rw_lock:${req.project?.slug || 'unknown'}:${affectedTable}`;
-             
-             // The Holy Grail: "Read-After-Write Consistency em Bancos Distribuídos Async"
-             // Acendemos a Luz Amarela do Semáforo.
-             // Nas próximas leituras (Duração = 2000ms que é > P99 do Replication Lag do Master pra Réplica)
-             // Qualquer query que mirar na tabela e for um SELECT fará bypass da cache e do worker Secundário, indo direto no Master
-             try {
-                // Fire And Forget Async
-                dfly.set(semaforoKey, 'LOCKED', 'PX', 2500).catch(()=>{});
-             } catch (e) {}
+            return result;
         }
-        
-        return res;
     };
 
+    // Passamos o Proxy unificado pro Callback. Zero release manual necessário.
     return await callback(proxyClient);
 };
