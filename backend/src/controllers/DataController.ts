@@ -218,11 +218,25 @@ export class DataController {
             }
             // --- END FORMAT VALIDATION ---
 
-            // TIER-3 UNIVERSAL PADLOCK MIGRATED TO POSTGRESQL (Security Lock v2)
-            // O código de intercepação via V8 For-Loop foi retirado. Delegado pro DCL.
+            // --- SECURITY LOCK SANITIZER (SILENT STRIP) ---
+            // Reintroduzido: O motor DDL protege os dados no banco, mas limpar as chaves localmente previne que APIs
+            // que enviam dados "cegamente" quebrem. Na inserção, apenas removemos propriedades 'immutable'.
+            const locks = req.project?.metadata?.locked_columns?.[req.params.tableName] || {};
+            rows.forEach((row: any) => {
+                for (const col of Object.keys(row)) {
+                    // Impede a inserção de colunas estritamente imutáveis para usarem o DEFAULT do DB
+                    if (locks[col] === 'immutable') {
+                        delete row[col];
+                    }
+                }
+            });
+
+            // Se o payload ficar totalmente vazio, apenas retornamos sucesso vazio
+            const validRows = rows.filter((r: any) => Object.keys(r).length > 0);
+            if (validRows.length === 0) return res.status(201).json([]);
 
             const allKeys = new Set<string>();
-            rows.forEach(row => Object.keys(row).forEach(k => allKeys.add(k)));
+            validRows.forEach((row: any) => Object.keys(row).forEach(k => allKeys.add(k)));
 
             const keysArray = Array.from(allKeys);
             if (keysArray.length === 0) throw new Error("Cannot insert empty objects");
@@ -284,8 +298,21 @@ export class DataController {
             }
             // --- END FORMAT VALIDATION ---
 
-        // TIER-3 UNIVERSAL PADLOCK MIGRATED TO POSTGRESQL (Security Lock v2)
-        // O Custo de iterar milhares de JSONS na API acabou. O DCL + PL/pgSQL gerencialá blocos!
+            // --- SECURITY LOCK SANITIZER (SILENT STRIP) ---
+            // Reintroduzido: O motor DDL rejeita brutalmente (500) queries que tocam colunas insert_only/immutable.
+            // Para não quebrar o ecossistema (onde clientes muitas vezes enviam o payload inteiro via PUT/PATCH),
+            // limpamos silenciosamente as chaves protegidas caso o cliente as envie.
+            const locks = req.project?.metadata?.locked_columns?.[req.params.tableName] || {};
+            for (const col of Object.keys(data)) {
+                if (locks[col] === 'insert_only' || locks[col] === 'immutable') {
+                    delete data[col];
+                }
+            }
+
+            if (Object.keys(data).length === 0) {
+                // Return gracefully if payload becomes empty after stripping
+                return res.json([{}]);
+            }
 
             const updates = Object.keys(data).map((k, i) => `${quoteId(k)} = $${i + 1}`).join(', ');
             const values = Object.values(data);
@@ -588,12 +615,52 @@ export class DataController {
     }
 
     // --- SYSTEM ASSETS & SETTINGS (GLOBAL via systemPool) ---
-    // (Omitted methods remain unchanged for brevity, but are required in full implementation)
-    // ... getUiSettings, saveUiSettings, getAssets, upsertAsset, deleteAsset, getAssetHistory ...
 
-    static async getUiSettings(req: CascataRequest, res: any, next: any) { try { const result = await systemPool.query('SELECT settings FROM system.ui_settings WHERE project_slug = $1 AND table_name = $2', [req.params.slug, req.params.table]); res.json(result.rows[0]?.settings || {}); } catch (e: any) { next(e); } }
-    static async saveUiSettings(req: CascataRequest, res: any, next: any) { try { await systemPool.query("INSERT INTO system.ui_settings (project_slug, table_name, settings) VALUES ($1, $2, $3) ON CONFLICT (project_slug, table_name) DO UPDATE SET settings = $3", [req.params.slug, req.params.table, req.body.settings]); res.json({ success: true }); } catch (e: any) { next(e); } }
-    static async getAssets(req: CascataRequest, res: any, next: any) { try { const result = await systemPool.query('SELECT * FROM system.assets WHERE project_slug = $1', [req.project.slug]); res.json(result.rows); } catch (e: any) { next(e); } }
+    static async getUiSettings(req: CascataRequest, res: any, next: any) {
+        try {
+            const { slug, table } = req.params;
+            const result = await systemPool.query(
+                'SELECT settings FROM system.ui_settings WHERE project_slug = $1 AND table_name = $2',
+                [slug, table]
+            );
+            res.json(result.rows[0]?.settings || {});
+        } catch (e: any) {
+            next(e);
+        }
+    }
+
+    static async saveUiSettings(req: CascataRequest, res: any, next: any) {
+        try {
+            const { slug, table } = req.params;
+            const { settings } = req.body;
+            
+            await systemPool.query(
+                `INSERT INTO system.ui_settings (project_slug, table_name, settings) 
+                 VALUES ($1, $2, $3) 
+                 ON CONFLICT (project_slug, table_name) DO UPDATE SET settings = $3`,
+                [slug, table, JSON.stringify(settings || {})]
+            );
+            res.json({ success: true });
+        } catch (e: any) {
+            next(e);
+        }
+    }
+
+    static async getAssets(req: CascataRequest, res: any, next: any) {
+        try {
+            // Guarantee tenant isolation by accessing project.slug from verified JWT payload
+            const result = await systemPool.query(
+                `SELECT id, project_slug, name, type, parent_id, metadata, created_at, updated_at 
+                 FROM system.assets 
+                 WHERE project_slug = $1 
+                 ORDER BY created_at DESC`,
+                [req.project.slug]
+            );
+            res.json(result.rows);
+        } catch (e: any) {
+            next(e);
+        }
+    }
     static async upsertAsset(req: CascataRequest, res: any, next: any) {
         const { id, name, type, parent_id, metadata } = req.body;
         try {

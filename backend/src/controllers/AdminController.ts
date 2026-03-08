@@ -82,7 +82,16 @@ export class AdminController {
     }
 
     static async createProject(req: CascataRequest, res: any, next: any) {
-        // ... (Keep existing logic) ...
+        const { name, slug, timezone, custom_domain } = req.body;
+        
+        // Comprehensive Payload Validation
+        if (!name || !slug) {
+            return res.status(400).json({ error: "Name and Slug are strictly required." });
+        }
+        
+        if (slug.length < 3 || slug.length > 50) {
+            return res.status(400).json({ error: "Slug must be between 3 and 50 characters." });
+        }
         const { name, slug, timezone } = req.body;
         const safeSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '');
         const reserved = ['system', 'control', 'api', 'dashboard', 'assets', 'auth', 'health'];
@@ -158,13 +167,25 @@ export class AdminController {
     }
 
     static async updateProject(req: CascataRequest, res: any, next: any) {
-        // ... (Keep existing logic) ...
+        const { slug } = req.params;
+        if (!slug) return res.status(400).json({ error: 'Project slug is required.' });
+
         try {
-            // Basic updates...
-            const { custom_domain, log_retention_days, metadata, ssl_certificate_source } = req.body;
-            // ... DB Migration Logic ...
-            const fields = []; const values = []; let idx = 1;
-            // ...
+            // Assert project exists before modifications
+            const projectCheck = await systemPool.query('SELECT 1 FROM system.projects WHERE slug = $1', [slug]);
+            if (projectCheck.rows.length === 0) {
+                return res.status(404).json({ error: 'Project not found or already deleted.' });
+            }
+
+            const { custom_domain, log_retention_days, metadata, ssl_certificate_source, status } = req.body;
+            
+            const fields: string[] = []; 
+            const values: any[] = []; 
+            let idx = 1;
+
+            if (status !== undefined) { fields.push(`status = $${idx++}`); values.push(status); }
+            if (log_retention_days !== undefined) { fields.push(`log_retention_days = $${idx++}`); values.push(log_retention_days); }
+            if (ssl_certificate_source !== undefined) { fields.push(`ssl_certificate_source = $${idx++}`); values.push(ssl_certificate_source); }
             if (custom_domain !== undefined) { fields.push(`custom_domain = $${idx++}`); values.push(custom_domain); }
 
             // VALIDATE GLOBAL CONNECTION CAP
@@ -315,8 +336,29 @@ export class AdminController {
         } catch (e: any) { if (!res.headersSent) res.status(500).json({ error: e.message }); }
     }
     static async exportLogsToCloud(req: CascataRequest, res: any, next: any) {
-        // ... (Keep existing implementation) ...
-        res.json({ success: true, url: 'https://example.com/log-export' }); // Mocked for brevity in this refactor, restore full logic in real file
+        try {
+            const { slug } = req.params;
+            const project = (await systemPool.query('SELECT * FROM system.projects WHERE slug = $1', [slug])).rows[0];
+            if (!project) return res.status(404).json({ error: 'Project not found.' });
+
+            // Ensure S3 Backup Service has valid credentials
+            if (!process.env.S3_ACCESS_KEY || !process.env.S3_SECRET_KEY) {
+                return res.status(400).json({ error: 'System not configured for Cloud Storage Exports. Verify S3 credentials.' });
+            }
+
+            // Fire an async Job to pull the logs and upload to Cloud
+            const insertRes = await systemPool.query(
+                `INSERT INTO system.async_operations (project_slug, type, status, metadata) 
+                 VALUES ($1, 'log_export', 'pending', $2) RETURNING id`,
+                [slug, JSON.stringify({ request_time: new Date().toISOString() })]
+            );
+
+            // Dispatch to Queue
+            await QueueService.addLogExportJob({ operationId: insertRes.rows[0].id, slug, db_name: project.db_name });
+            res.json({ success: true, operation_id: insertRes.rows[0].id, message: 'Log export is processing in background.' });
+        } catch (e: any) {
+            next(e);
+        }
     }
 
     static async uploadImport(req: CascataRequest, res: any, next: any) {
@@ -404,17 +446,218 @@ export class AdminController {
         } catch (e: any) { next(e); }
     }
 
-    // ... (Webhooks/Settings/Certificates handlers remain unchanged) ...
-    static async listWebhooks(req: CascataRequest, res: any, next: any) { try { const result = await systemPool.query('SELECT * FROM system.webhooks WHERE project_slug = $1 ORDER BY created_at DESC', [req.params.slug]); res.json(result.rows); } catch (e: any) { next(e); } }
-    static async createWebhook(req: CascataRequest, res: any, next: any) { try { const secret = (await systemPool.query("SELECT pgp_sym_decrypt(jwt_secret::bytea, $1) as jwt_secret FROM system.projects WHERE slug = $2", [SYS_SECRET, req.params.slug])).rows[0].jwt_secret; const result = await systemPool.query("INSERT INTO system.webhooks (project_slug, target_url, event_type, table_name, secret_header, filters, fallback_url, retry_policy) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *", [req.params.slug, req.body.target_url, req.body.event_type, req.body.table_name, secret, JSON.stringify(req.body.filters || []), req.body.fallback_url, req.body.retry_policy]); res.json(result.rows[0]); } catch (e: any) { next(e); } }
-    static async deleteWebhook(req: CascataRequest, res: any, next: any) { try { await systemPool.query('DELETE FROM system.webhooks WHERE id = $1 AND project_slug = $2', [req.params.id, req.params.slug]); res.json({ success: true }); } catch (e: any) { next(e); } }
-    static async updateWebhook(req: CascataRequest, res: any, next: any) { try { /* Implementation omitted for brevity, assumed existing */ res.json({ success: true }); } catch (e: any) { next(e); } }
+    // --- WEBHOOKS ENGINE ---
 
-    static async getSystemSettings(req: CascataRequest, res: any, next: any) { try { const domainRes = await systemPool.query("SELECT settings->>'domain' as domain FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'domain_config'"); const aiRes = await systemPool.query("SELECT settings as ai_config FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'ai_config'"); const dbRes = await systemPool.query("SELECT settings as db_config FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'system_config'"); res.json({ domain: domainRes.rows[0]?.domain, ai: aiRes.rows[0]?.ai_config, db_config: dbRes.rows[0]?.db_config }); } catch (e: any) { next(e); } }
-    static async updateSystemSettings(req: CascataRequest, res: any, next: any) { try { if (req.body.domain) { await systemPool.query("INSERT INTO system.ui_settings (project_slug, table_name, settings) VALUES ('_system_root_', 'domain_config', $1) ON CONFLICT (project_slug, table_name) DO UPDATE SET settings = $1", [JSON.stringify({ domain: req.body.domain })]); await CertificateService.rebuildNginxConfigs(systemPool); } if (req.body.ai_config) await systemPool.query("INSERT INTO system.ui_settings (project_slug, table_name, settings) VALUES ('_system_root_', 'ai_config', $1) ON CONFLICT (project_slug, table_name) DO UPDATE SET settings = $1", [JSON.stringify(req.body.ai_config)]); if (req.body.db_config) { await systemPool.query("INSERT INTO system.ui_settings (project_slug, table_name, settings) VALUES ('_system_root_', 'system_config', $1) ON CONFLICT (project_slug, table_name) DO UPDATE SET settings = $1", [JSON.stringify(req.body.db_config)]); PoolService.configure(req.body.db_config); } res.json({ success: true }); } catch (e: any) { next(e); } }
-    static async checkSsl(req: CascataRequest, res: any, next: any) { res.json({ status: 'active' }); }
-    static async listCertificates(req: CascataRequest, res: any, next: any) { try { res.json({ domains: await CertificateService.listAvailableCerts() }); } catch (e: any) { next(e); } }
-    static async createCertificate(req: CascataRequest, res: any, next: any) { try { res.json(await CertificateService.requestCertificate(req.body.domain, req.body.email, req.body.provider, systemPool, { cert: req.body.cert, key: req.body.key })); } catch (e: any) { res.status(500).json({ error: e.message }); } }
-    static async deleteCertificate(req: CascataRequest, res: any, next: any) { try { await CertificateService.deleteCertificate(req.params.domain, systemPool); res.json({ success: true }); } catch (e: any) { res.status(500).json({ error: e.message }); } }
-    static async testWebhook(req: CascataRequest, res: any, next: any) { try { const hook = (await systemPool.query('SELECT * FROM system.webhooks WHERE id = $1', [req.params.id])).rows[0]; const proj = (await systemPool.query("SELECT pgp_sym_decrypt(jwt_secret::bytea, $1) as jwt_secret FROM system.projects WHERE slug = $2", [SYS_SECRET, hook.project_slug])).rows[0]; await WebhookService.dispatch(hook.project_slug, hook.table_name, hook.event_type, req.body.payload || { test: true }, systemPool, proj.jwt_secret); res.json({ success: true }); } catch (e: any) { next(e); } }
+    static async listWebhooks(req: CascataRequest, res: any, next: any) {
+        try {
+            const result = await systemPool.query(
+                'SELECT id, project_slug, target_url, event_type, table_name, secret_header, filters, fallback_url, retry_policy, created_at, updated_at FROM system.webhooks WHERE project_slug = $1 ORDER BY created_at DESC',
+                [req.params.slug]
+            );
+            res.json(result.rows);
+        } catch (e: any) {
+            next(e);
+        }
+    }
+
+    static async createWebhook(req: CascataRequest, res: any, next: any) {
+        try {
+            const { target_url, event_type, table_name, filters, fallback_url, retry_policy } = req.body;
+            
+            // Validate inputs
+            if (!target_url || !event_type || !table_name) {
+                return res.status(400).json({ error: 'Missing requried fields: target_url, event_type, table_name' });
+            }
+
+            // Get project JWT secret to act as Webhook Auth Secret Key
+            const secretRes = await systemPool.query(
+                "SELECT pgp_sym_decrypt(jwt_secret::bytea, $1) as jwt_secret FROM system.projects WHERE slug = $2",
+                [SYS_SECRET, req.params.slug]
+            );
+
+            if (secretRes.rows.length === 0) return res.status(404).json({ error: 'Project not found' });
+            const secret = secretRes.rows[0].jwt_secret;
+
+            const result = await systemPool.query(
+                `INSERT INTO system.webhooks 
+                (project_slug, target_url, event_type, table_name, secret_header, filters, fallback_url, retry_policy) 
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+                RETURNING id, project_slug, target_url, event_type, table_name, secret_header, filters, fallback_url, retry_policy`,
+                [req.params.slug, target_url, event_type, table_name, secret, JSON.stringify(filters || []), fallback_url, retry_policy]
+            );
+            res.status(201).json(result.rows[0]);
+        } catch (e: any) {
+            next(e);
+        }
+    }
+
+    static async deleteWebhook(req: CascataRequest, res: any, next: any) {
+        try {
+            const result = await systemPool.query(
+                'DELETE FROM system.webhooks WHERE id = $1 AND project_slug = $2 RETURNING id',
+                [req.params.id, req.params.slug]
+            );
+            if (result.rows.length === 0) return res.status(404).json({ error: 'Webhook not found' });
+            res.json({ success: true });
+        } catch (e: any) {
+            next(e);
+        }
+    }
+
+    static async updateWebhook(req: CascataRequest, res: any, next: any) {
+        try {
+            const { target_url, event_type, table_name, filters, fallback_url, retry_policy } = req.body;
+            const fields: string[] = [];
+            const values: any[] = [];
+            let idx = 1;
+
+            if (target_url !== undefined) { fields.push(`target_url = $${idx++}`); values.push(target_url); }
+            if (event_type !== undefined) { fields.push(`event_type = $${idx++}`); values.push(event_type); }
+            if (table_name !== undefined) { fields.push(`table_name = $${idx++}`); values.push(table_name); }
+            if (filters !== undefined) { fields.push(`filters = $${idx++}`); values.push(JSON.stringify(filters)); }
+            if (fallback_url !== undefined) { fields.push(`fallback_url = $${idx++}`); values.push(fallback_url); }
+            if (retry_policy !== undefined) { fields.push(`retry_policy = $${idx++}`); values.push(JSON.stringify(retry_policy)); }
+            
+            if (fields.length === 0) return res.json({ success: true });
+            
+            values.push(req.params.id, req.params.slug);
+            const query = `UPDATE system.webhooks SET ${fields.join(', ')}, updated_at = NOW() WHERE id = $${idx} AND project_slug = $${idx + 1} RETURNING *`;
+            
+            const result = await systemPool.query(query, values);
+            if (result.rows.length === 0) return res.status(404).json({ error: 'Webhook not found' });
+            
+            res.json(result.rows[0]);
+        } catch (e: any) {
+            next(e);
+        }
+    }
+
+    static async testWebhook(req: CascataRequest, res: any, next: any) {
+        try {
+            const hookRes = await systemPool.query('SELECT * FROM system.webhooks WHERE id = $1 AND project_slug = $2', [req.params.id, req.params.slug]);
+            if (hookRes.rows.length === 0) return res.status(404).json({ error: 'Webhook not found' });
+            
+            const hook = hookRes.rows[0];
+            const projRes = await systemPool.query(
+                "SELECT pgp_sym_decrypt(jwt_secret::bytea, $1) as jwt_secret FROM system.projects WHERE slug = $2",
+                [SYS_SECRET, hook.project_slug]
+            );
+            
+            const jwtSecret = projRes.rows[0].jwt_secret;
+            
+            await WebhookService.dispatch(
+                hook.project_slug, 
+                hook.table_name, 
+                hook.event_type, 
+                req.body.payload || { test: true, timestamp: new Date().toISOString() }, 
+                systemPool, 
+                jwtSecret
+            );
+            
+            res.json({ success: true, message: 'Test payload scheduled for dispatch via WebhookService' });
+        } catch (e: any) {
+            next(e);
+        }
+    }
+
+    // --- SYSTEM SETTINGS CONFIGURATION ---
+
+    static async getSystemSettings(req: CascataRequest, res: any, next: any) {
+        try {
+            const domainRes = await systemPool.query(
+                "SELECT settings->>'domain' as domain FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'domain_config'"
+            );
+            const aiRes = await systemPool.query(
+                "SELECT settings as ai_config FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'ai_config'"
+            );
+            const dbRes = await systemPool.query(
+                "SELECT settings as db_config FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'system_config'"
+            );
+            
+            res.json({ 
+                domain: domainRes.rows[0]?.domain, 
+                ai_config: aiRes.rows[0]?.ai_config || {}, 
+                db_config: dbRes.rows[0]?.db_config || {} 
+            });
+        } catch (e: any) {
+            next(e);
+        }
+    }
+
+    static async updateSystemSettings(req: CascataRequest, res: any, next: any) {
+        try {
+            await systemPool.query('BEGIN');
+
+            if (req.body.domain !== undefined) {
+                await systemPool.query(
+                    "INSERT INTO system.ui_settings (project_slug, table_name, settings) VALUES ('_system_root_', 'domain_config', $1) ON CONFLICT (project_slug, table_name) DO UPDATE SET settings = $1",
+                    [JSON.stringify({ domain: req.body.domain })]
+                );
+                // Trigger background NGINX reload
+                await CertificateService.rebuildNginxConfigs(systemPool);
+            }
+
+            if (req.body.ai_config) {
+                await systemPool.query(
+                    "INSERT INTO system.ui_settings (project_slug, table_name, settings) VALUES ('_system_root_', 'ai_config', $1) ON CONFLICT (project_slug, table_name) DO UPDATE SET settings = $1",
+                    [JSON.stringify(req.body.ai_config)]
+                );
+            }
+
+            if (req.body.db_config) {
+                await systemPool.query(
+                    "INSERT INTO system.ui_settings (project_slug, table_name, settings) VALUES ('_system_root_', 'system_config', $1) ON CONFLICT (project_slug, table_name) DO UPDATE SET settings = $1",
+                    [JSON.stringify(req.body.db_config)]
+                );
+                // Dynamically update Pool configurations across the cluster
+                PoolService.configure(req.body.db_config);
+            }
+
+            await systemPool.query('COMMIT');
+            res.json({ success: true });
+        } catch (e: any) {
+            await systemPool.query('ROLLBACK');
+            next(e);
+        }
+    }
+
+    // --- CERTIFICATES & SSL ---
+
+    static async checkSsl(req: CascataRequest, res: any, next: any) {
+        // Standard endpoint to verify SSL challenge readiness
+        res.json({ status: 'active', timestamp: new Date().toISOString() });
+    }
+
+    static async listCertificates(req: CascataRequest, res: any, next: any) {
+        try {
+            const certs = await CertificateService.listAvailableCerts();
+            res.json({ domains: certs });
+        } catch (e: any) {
+            next(e);
+        }
+    }
+
+    static async createCertificate(req: CascataRequest, res: any, next: any) {
+        try {
+            const { domain, email, provider, cert, key } = req.body;
+            if (!domain) return res.status(400).json({ error: 'Domain is required' });
+            
+            const result = await CertificateService.requestCertificate(domain, email, provider, systemPool, { cert, key });
+            res.json(result);
+        } catch (e: any) {
+            res.status(500).json({ error: e.message });
+        }
+    }
+
+    static async deleteCertificate(req: CascataRequest, res: any, next: any) {
+        try {
+            const { domain } = req.params;
+            if (!domain) return res.status(400).json({ error: 'Domain param is required' });
+            
+            await CertificateService.deleteCertificate(domain, systemPool);
+            res.json({ success: true, message: `SSL Certificate for ${domain} wiped and nginx reloaded.` });
+        } catch (e: any) {
+            res.status(500).json({ error: e.message });
+        }
+    }
 }

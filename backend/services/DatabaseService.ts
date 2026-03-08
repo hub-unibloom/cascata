@@ -279,9 +279,6 @@ export class DatabaseService {
 
                 RETURN NULL;
             END;
-    public static async initProjectDb(client: PoolClient | Client) {
-        ... (não edite esta linha fictícia, apenas para entendimento mental, substitua apenas as linhas contíguas)
-
             $$ LANGUAGE plpgsql;
         `);
 

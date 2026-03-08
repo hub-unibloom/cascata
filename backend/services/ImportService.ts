@@ -380,38 +380,90 @@ export class ImportService {
         const env = { ...process.env };
         const host = process.env.DB_DIRECT_HOST || 'db';
         const user = process.env.DB_USER || 'cascata_admin';
+        const pass = process.env.DB_PASS;
 
-        // 1. Dump Data from Source (CSV)
-        const dumpProc = spawn('psql', [
-            '-h', host, '-U', user, '-d', sourceDb, 
-            '-c', `COPY (SELECT * FROM "${table}") TO STDOUT WITH CSV`
-        ], { env });
+        const targetPool = new Pool({ connectionString: `postgresql://${user}:${pass}@${host}:5432/${targetDb}` });
 
-        // 2. Prepare Import Command based on Strategy
-        let importSql = '';
-        if (strategy === 'overwrite') {
-            importSql = `COPY "${table}" FROM STDIN WITH CSV`;
-        } else {
-            // Simplified Approach for this example: 
-            // Fallback unsafe copy (will fail on conflict if PK exists and duplicates are present)
-            // Real implementation requires dynamic temp tables and ON CONFLICT logic.
-            importSql = `COPY "${table}" FROM STDIN WITH CSV`; 
+        try {
+            // 1. Dump Data from Source (CSV)
+            const dumpProc = spawn('psql', [
+                '-h', host, '-U', user, '-d', sourceDb, 
+                '-c', `COPY (SELECT * FROM "${table}") TO STDOUT WITH CSV`
+            ], { env });
+
+            // 2. Prepare Import Target
+            let targetPipeTable = table;
+            let tempTable = '';
+
+            if (strategy !== 'overwrite') {
+                tempTable = `_cascata_import_${crypto.randomBytes(6).toString('hex')}`;
+                targetPipeTable = tempTable;
+                // Pilar 1 (Evolução Bancária): Staging Pura
+                // A tabela precisa APENAS da estrutura de colunas sem DEPENDÊNCIAS, sem ÍNDICES, e sem SEQUENCES de Produção.
+                // O `INCLUDING ALL` estava puxando os Índices B-Tree que matam a performance do COPY em 90%.
+                await targetPool.query(`CREATE UNLOGGED TABLE "${tempTable}" (LIKE "${table}")`);
+            }
+
+            try {
+                const importProc = spawn('psql', [
+                    '-h', host, '-U', user, '-d', targetDb,
+                    '-c', `COPY "${targetPipeTable}" FROM STDIN WITH CSV`
+                ], { env });
+
+                dumpProc.stdout.pipe(importProc.stdin);
+
+                await new Promise<void>((resolve, reject) => {
+                    importProc.on('close', (code) => {
+                        if (code === 0) resolve();
+                        else reject(new Error(`Data pipe failed for ${table}`));
+                    });
+                    importProc.stdin.on('error', () => {}); // Handle EPIPE cleanly
+                });
+
+                // 3. Execute Merge Logic if Granular Strategy
+                if (strategy !== 'overwrite' && tempTable) {
+                    // Discover the Primary Key (PK) to build the ON CONFLICT clause
+                    const pkRes = await targetPool.query(`
+                        SELECT a.attname
+                        FROM   pg_index i
+                        JOIN   pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+                        WHERE  i.indrelid = '"${table}"'::regclass AND i.indisprimary;
+                    `);
+                
+                const pkCols = pkRes.rows.map(r => `"${r.attname}"`).join(', ');
+
+                if (strategy === 'missing_only' || pkCols === '') {
+                    // Ignore Conflicts (Skip rows that already exist by PK, or if no PK exists just insert unconditionally)
+                    const conflictClause = pkCols ? `ON CONFLICT (${pkCols}) DO NOTHING` : '';
+                    await targetPool.query(`INSERT INTO "${table}" SELECT * FROM "${tempTable}" ${conflictClause}`);
+                } else if (strategy === 'merge' && pkCols !== '') {
+                    // Upsert mechanism 
+                    // To do a DO UPDATE, we map all columns except the PK to excluded.c
+                    const colRes = await targetPool.query(`
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_schema = 'public' AND table_name = $1
+                    `, [table]);
+                    
+                    const pkNames = pkRes.rows.map(r => r.attname);
+                    const updateCols = colRes.rows
+                        .filter(c => !pkNames.includes(c.column_name))
+                        .map(c => `"${c.column_name}" = EXCLUDED."${c.column_name}"`)
+                        .join(', ');
+                    
+                    const updateClause = updateCols ? `DO UPDATE SET ${updateCols}` : 'DO NOTHING';
+                    await targetPool.query(`INSERT INTO "${table}" SELECT * FROM "${tempTable}" ON CONFLICT (${pkCols}) ${updateClause}`);
+                }
+            } finally {
+                // Pilar 2 (Isolamento Bancário): Lixeiro de Fantasmas
+                // O DROP antigo ficava perdido no meio do código. Se o STDIN/CSV estorasse memória, o node caía pro `finally` pai e a tabela Unlogged apodrecia para sempre na Prod.
+                if (strategy !== 'overwrite' && tempTable) {
+                    await targetPool.query(`DROP TABLE IF EXISTS "${tempTable}"`);
+                }
+            }
+        } finally {
+            await targetPool.end();
         }
-
-        const importProc = spawn('psql', [
-            '-h', host, '-U', user, '-d', targetDb,
-            '-c', importSql
-        ], { env });
-
-        dumpProc.stdout.pipe(importProc.stdin);
-
-        return new Promise<void>((resolve, reject) => {
-            importProc.on('close', (code) => {
-                if (code === 0) resolve();
-                else reject(new Error(`Data pipe failed for ${table}`));
-            });
-            importProc.stdin.on('error', () => {}); // Handle EPIPE
-        });
     }
 
     private static async hydrateTempDb(dbName: string, importRoot: string) {

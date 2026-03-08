@@ -125,11 +125,21 @@ export class PostgrestService {
             const rows = Array.isArray(body) ? body : [body];
             if (rows.length === 0) throw new Error("No data to insert");
 
-            // TIER-3 PADLOCK SANITIZER MIGRATED TO POSTGRESQL
-            // As checagens de Security Lock foram delegadas à camada DCL (Natival).
-            // A camada PG emitirá erro estrutural em caso de tentativa de escrita não autorizada.
+            // --- SECURITY LOCK SANITIZER (SILENT STRIP) ---
+            // Reintroduzida a tolerância: Se a coluna for imutável, o DDL do postgresql irá rejeitar e gerar erro 500 no Node.
+            // Para proteger o ecossistema, retiramos silenciosamente as chaves protegidas caso enviadas.
+            const lockedColumnsStr = headers['x-cascata-locked-columns'];
+            const locks = lockedColumnsStr ? JSON.parse(lockedColumnsStr)[tableName] || {} : {};
+            rows.forEach((row: any) => {
+                for (const col of Object.keys(row)) {
+                    if (locks[col] === 'immutable') delete row[col];
+                }
+            });
 
-            const keys = Object.keys(rows[0]);
+            const validRows = rows.filter((r: any) => Object.keys(r).length > 0);
+            if (validRows.length === 0) throw new Error("No data to insert after lock filtering");
+
+            const keys = Object.keys(validRows[0]);
             if (keys.length === 0) throw new Error("No valid data to insert after sanitization");
 
             // SANITIZATION
@@ -181,8 +191,16 @@ export class PostgrestService {
             const keys = Object.keys(body);
             if (keys.length === 0) throw new Error("No data to update");
 
-            // TIER-3 PADLOCK SANITIZER MIGRATED TO POSTGRESQL
-            // Regras dinâmicas (OTP, Insert Only) validadas em C no gatilho system.enforce_dynamic_locks.
+            // --- SECURITY LOCK SANITIZER (SILENT STRIP) ---
+            // Assim como no DataController, o PostgREST remove as colunas insert_only ou immutable silenciosamente
+            // do PATCH, para que a request inteira enviada por um ORM não resulte num Erro 500 rejeitado pelo PG Trigger.
+            const lockedColumnsStr = headers['x-cascata-locked-columns'];
+            const locks = lockedColumnsStr ? JSON.parse(lockedColumnsStr)[tableName] || {} : {};
+            for (const col of Object.keys(body)) {
+                if (locks[col] === 'immutable' || locks[col] === 'insert_only') {
+                    delete body[col];
+                }
+            }
 
             const cleanKeys = Object.keys(body);
             if (cleanKeys.length === 0) throw new Error("No valid data to update after sanitization");
