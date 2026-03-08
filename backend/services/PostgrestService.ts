@@ -125,51 +125,9 @@ export class PostgrestService {
             const rows = Array.isArray(body) ? body : [body];
             if (rows.length === 0) throw new Error("No data to insert");
 
-            // TIER-3 PADLOCK SANITIZER (Payload Stripping & Logging)
-            const lockedColumnsStr = headers['x-cascata-locked-columns'];
-            const userRole = headers['x-cascata-role'] || 'anon';
-            const projectId = headers['x-cascata-project-id'];
-            const clientIp = headers['x-forwarded-for'] || headers['x-real-ip'] || '0.0.0.0';
-
-            if (lockedColumnsStr) {
-                try {
-                    const lockedColumns = JSON.parse(lockedColumnsStr);
-                    // Iterate and sanitize ALL objects in the BULK array
-                    for (const row of rows) {
-                        for (const [colName, lockLevel] of Object.entries(lockedColumns)) {
-                            // If the column exists in the payload, evaluate the lock
-                            if (row[colName] !== undefined) {
-                                let shouldStrip = false;
-
-                                if (lockLevel === 'immutable') {
-                                    shouldStrip = true; // Never allowed externally
-                                } else if (lockLevel === 'service_role_only' && userRole !== 'service_role') {
-                                    shouldStrip = true; // Blocked for anon/authenticated
-                                }
-                                // Note: 'insert_only' is allowed during POST/INSERT.
-
-                                if (shouldStrip) {
-                                    const spoofedValue = row[colName];
-                                    delete row[colName]; // Silently remove the threat
-
-                                    // Fire-and-Forget Radar Log
-                                    if (projectId) {
-                                        DatabaseService.logSecurityEvent({
-                                            projectId,
-                                            tableName,
-                                            columnName: colName,
-                                            attemptedValue: JSON.stringify(spoofedValue),
-                                            ip: clientIp
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } catch (e) {
-                    console.error('[PostgrestService] Failed to parse locked columns metadata', e);
-                }
-            }
+            // TIER-3 PADLOCK SANITIZER MIGRATED TO POSTGRESQL
+            // As checagens de Security Lock foram delegadas à camada DCL (Natival).
+            // A camada PG emitirá erro estrutural em caso de tentativa de escrita não autorizada.
 
             const keys = Object.keys(rows[0]);
             if (keys.length === 0) throw new Error("No valid data to insert after sanitization");
@@ -245,64 +203,8 @@ export class PostgrestService {
             const keys = Object.keys(body);
             if (keys.length === 0) throw new Error("No data to update");
 
-            // TIER-3 PADLOCK SANITIZER (Payload Stripping & Logging for UPDATE)
-            const lockedColumnsStr = headers['x-cascata-locked-columns'];
-            const userRole = headers['x-cascata-role'] || 'anon';
-            const projectId = headers['x-cascata-project-id'];
-            const clientIp = headers['x-forwarded-for'] || headers['x-real-ip'] || '0.0.0.0';
-
-            if (lockedColumnsStr) {
-                try {
-                    const lockedColumns = JSON.parse(lockedColumnsStr);
-                    // Single object iteration for PATCH
-                    for (const [colName, lockLevel] of Object.entries(lockedColumns)) {
-                        if (body[colName] !== undefined) {
-                            let shouldStrip = false;
-
-                            if (lockLevel === 'immutable') {
-                                shouldStrip = true; // Never allowed externally
-                            } else if (lockLevel === 'insert_only') {
-                                shouldStrip = true; // NEVER allowed on UPDATE
-                            } else if (lockLevel === 'service_role_only' && userRole !== 'service_role') {
-                                shouldStrip = true; // Blocked for anon/authenticated
-                            } else if (lockLevel === 'otp_protected') {
-                                const stepUpToken = headers['x-cascata-otp-token'];
-                                const jwtSecret = headers['x-cascata-jwt-secret'];
-                                if (!stepUpToken || !jwtSecret) {
-                                    shouldStrip = true; // Blocked without Step-Up Token
-                                } else {
-                                    try {
-                                        const decoded = jwt.verify(stepUpToken as string, jwtSecret as string) as any;
-                                        if (!decoded || decoded.type !== 'otp_stepup') {
-                                            shouldStrip = true;
-                                        }
-                                    } catch (e) {
-                                        shouldStrip = true; // Token invalid or expired
-                                    }
-                                }
-                            }
-
-                            if (shouldStrip) {
-                                const spoofedValue = body[colName];
-                                delete body[colName]; // Silently remove the threat
-
-                                // Fire-and-Forget Radar Log
-                                if (projectId) {
-                                    DatabaseService.logSecurityEvent({
-                                        projectId,
-                                        tableName,
-                                        columnName: colName,
-                                        attemptedValue: JSON.stringify(spoofedValue),
-                                        ip: clientIp
-                                    });
-                                }
-                            }
-                        }
-                    }
-                } catch (e) {
-                    console.error('[PostgrestService] Failed to parse locked columns metadata', e);
-                }
-            }
+            // TIER-3 PADLOCK SANITIZER MIGRATED TO POSTGRESQL
+            // Regras dinâmicas (OTP, Insert Only) validadas em C no gatilho system.enforce_dynamic_locks.
 
             const cleanKeys = Object.keys(body);
             if (cleanKeys.length === 0) throw new Error("No valid data to update after sanitization");

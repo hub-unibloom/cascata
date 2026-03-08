@@ -213,6 +213,33 @@ export class AdminController {
                         await PoolService.reload(dbNameRow.rows[0].db_name);
                     }
                 }
+
+                // TIER-3 PADLOCK HYBRID SYSTEM ENFORCEMENT
+                // Se o payload contiver 'locked_columns', nós chamaremos a stored procedure recém criada
+                // no banco de dados do Inquilino para aplicar as Permissões Nativas em Lote (O(1)).
+                if (metadata.locked_columns) {
+                    const projectSlug = req.params.slug;
+                    try {
+                        const projectPool = await PoolService.getPool(projectSlug);
+                        if (projectPool) {
+                            // locked_columns geralmente tem a estrutura: { "nome_tabela": { "coluna": "lock_type" } }
+                            // ou para MVP o frontend mandava flat { "coluna": "lock_type" } para tabela unica.
+                            // Para ser robusto, iteramos o objeto. Se o valor for objeto, é formato By Table. Se for string, é legado Flat (aplica a PUBLIC.users ? Não, flat era por request. Mas via config global, DEVE ser By Table).
+                            const columnsPayload = metadata.locked_columns;
+                            for (const [tableName, locksObj] of Object.entries(columnsPayload)) {
+                                if (typeof locksObj === 'object' && locksObj !== null) {
+                                    // Invoca a engine DDL Nativa. O Lock Manager do Node vira apenas um mensageiro.
+                                    await projectPool.query(
+                                        'SELECT system.apply_security_locks($1, $2, $3::jsonb)',
+                                        [projectSlug, tableName, JSON.stringify(locksObj)]
+                                    );
+                                }
+                            }
+                        }
+                    } catch (lockErr) {
+                         console.error(`[AdminController] Failed to compile Native DCL Security Locks for ${projectSlug}:`, lockErr);
+                    }
+                }
             }
             if (fields.length === 0) return res.json({});
             values.push(req.params.slug);

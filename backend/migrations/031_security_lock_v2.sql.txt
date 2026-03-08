@@ -1,0 +1,169 @@
+-- Migration: 031_security_lock_v2.sql
+-- Descrição: Implementação da The Dynamic Security Trigger e Infraestrutura do Security Lock v2 Híbrido.
+-- Substitui validações iterativas no Node.js por bloqueios de escopo intrínsecos no PostgreSQl (Santo Graal)
+
+BEGIN;
+
+-- 1) CRIAR A TABELA DE MAPEAMENTO DE TRANCAS DINÂMICAS:
+--    Esta tabela guardará (em cache nativo e acessível para o PlPgSQl) o estado atual das trancas dinâmicas.
+--    O Eixo A (DCL estático) usa GRANT/REVOKE, que já ficam guardados no catálogo principal do PG (`pg_class`).
+--    O Eixo B (Triggers Dinâmicos) precisa dessa tabela auxiliar incrivelmente leve.
+
+CREATE TABLE IF NOT EXISTS system.dynamic_security_locks (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    project_slug TEXT NOT NULL,          -- Pertence ao projeto
+    table_name TEXT NOT NULL,            -- Tabela Inquilina
+    column_name TEXT NOT NULL,           -- Coluna Protegida
+    lock_type TEXT NOT NULL,             -- Tipo do lock ('otp_protected', 'insert_only', etc.)
+    metadata JSONB DEFAULT '{}'::jsonb,  -- Dados acessórios para a tranca (Ex: escopo do OTP)
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(project_slug, table_name, column_name)
+);
+
+-- Indexação para varredura ultrarrápida do Trigger
+CREATE INDEX IF NOT EXISTS idx_dynamic_locks_fast_lookup 
+ON system.dynamic_security_locks (project_slug, table_name);
+
+-- 2) THE DYNAMIC SECURITY TRIGGER (O Núcleo PL/pgSQL)
+--    Ele será anexado a tabelas do inquilino que possuam *ao menos um* lock dinâmico.
+CREATE OR REPLACE FUNCTION system.enforce_dynamic_locks()
+RETURNS TRIGGER AS $$
+DECLARE
+    _project_slug TEXT;
+    _is_otp_verified TEXT;
+    _lock_record RECORD;
+    _old_value JSONB;
+    _new_value JSONB;
+BEGIN
+    -- O RLS Context da API sempre injeta o request.jwt.claim.project_slug caso seja rota autenticada.
+    -- Para requests internas, lemos da configuration local que a nossa API (utils/index.ts) irá popular.
+    _project_slug := current_setting('request.jwt.claim.project_slug', true);
+    IF _project_slug IS NULL THEN
+        -- Fallback seguro para chamadas internas do backend (service_role via API)
+        _project_slug := current_setting('app.current_project_slug', true);
+    END IF;
+
+    -- Se não acharmos project_slug (ex: Admin executando DML manual), o trigger deixa seguir, 
+    -- pois não temos escopo tenant. Porém é raro.
+    IF _project_slug IS NOT NULL THEN
+        
+        -- Carrega o contexto do MFA/OTP injetado pelo Header `x-cascata-otp-token`
+        _is_otp_verified := current_setting('request.jwt.claim.otp_verified', true);
+        
+        -- Transforma as Rows em JSON para compararmos colunas dinamicamente (Santo Graal da reflexão em C)
+        IF TG_OP = 'UPDATE' THEN
+            _old_value := to_jsonb(OLD);
+            _new_value := to_jsonb(NEW);
+        ELSIF TG_OP = 'INSERT' THEN
+            _new_value := to_jsonb(NEW);
+            _old_value := '{}'::jsonb;
+        END IF;
+
+        -- Busca apenas as colunas DESTA tabela que têm Lock Dinâmico ativo
+        FOR _lock_record IN 
+            SELECT column_name, lock_type 
+            FROM system.dynamic_security_locks 
+            WHERE project_slug = _project_slug AND table_name = TG_TABLE_NAME
+        LOOP
+            
+            -- Detecta mutação: A coluna foi alterada do estado anterior?
+            -- Para INSERTs (OLD é Vazio), isso também vale se a pessoa estiver mandando valor para 'insert_only'.
+            IF _new_value ? _lock_record.column_name AND (_old_value ->> _lock_record.column_name IS DISTINCT FROM _new_value ->> _lock_record.column_name) THEN
+                
+                -- REGRA: INSERT_ONLY (Permite na criação, aborta na modificação)
+                IF _lock_record.lock_type = 'insert_only' AND TG_OP = 'UPDATE' THEN
+                    RAISE EXCEPTION USING 
+                        ERRCODE = 'PDC02', 
+                        MESSAGE = 'Security Lock Violation: Column "' || _lock_record.column_name || '" is INSERT ONLY and cannot be updated.';
+                END IF;
+
+                -- REGRA: OTP_PROTECTED (Imutável *até* que o ticket verificado venha anexado)
+                IF _lock_record.lock_type = 'otp_protected' THEN
+                    IF coalesce(_is_otp_verified, 'false') != 'true' THEN
+                        -- Verifica se quem opera é a Service Role? A tranca dinâmica geralmente não amarra Service Role, a não ser que o usuário exija.
+                        -- Por padrão, o Node.js injeta claim role 'service_role'. OTP bloqueia o Service Role *também* se não vier do webhook oficial de verificação.
+                        RAISE EXCEPTION USING 
+                            ERRCODE = 'PDC01', 
+                            MESSAGE = 'Security Lock Violation: Valid OTP / Step-Up Authorization Ring is required to mutate column "' || _lock_record.column_name || '".';
+                    END IF;
+                END IF;
+
+            END IF;
+        END LOOP;
+        
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+-- 3) ORQUESTRAÇÃO DE TRANÇAS (Stored procedure chamada pelo "Lock Manager" da API Node.js/Admin)
+--    O Node.js chamará essa função passando a Tabela e seu JSON atualizado de locks, para não fazermos milhares de queries DDL no Controller Node.
+
+CREATE OR REPLACE FUNCTION system.apply_security_locks(_project_slug TEXT, _table_name TEXT, _locked_columns JSONB)
+RETURNS VOID AS $$
+DECLARE
+    _col_name TEXT;
+    _lock_type TEXT;
+    _has_dynamic BOOLEAN := FALSE;
+    _safe_table TEXT;
+BEGIN
+    -- Previne SQL Injection no nome da tabela (schema é sempre public no inquilino neste design)
+    _safe_table := quote_ident(_table_name);
+
+    -- 1. Reseta o Eixo A e B para a tabela atual. (Sanitização)
+    -- Removeremos a trigger (Eixo B) se ela existir
+    EXECUTE format('DROP TRIGGER IF EXISTS trg_dynamic_locks ON public.%I', _safe_table);
+    -- Deleta o mapa (Eixo B)
+    DELETE FROM system.dynamic_security_locks WHERE project_slug = _project_slug AND table_name = _table_name;
+    
+    -- Nota sobre o Eixo A: O ideal é que na recriação tivessemos salvo o estado anterior de permissões, 
+    -- mas no Padrão Cascata, a tabela Inquilina *sempre* tem UPDATE autorizado para anon/auth graças ao Postgrest e RLS, 
+    -- O RLS é quem limita "quais linhas". Então é seguro resetar dando GRANT UPDATE universal para colunas, 
+    -- E depois revogar apenas as trancadas a seguir.
+    
+    -- O Grant das colunas não-trancadas é garantido pelo GRANT base da Tabela.
+    -- Revokes prévios (Eixo A) serão sobrescritos pelas regras novas iteradas abaixo.
+
+    -- 2. Itera o novo estado desejado (vazio ou cheio)
+    FOR _col_name, _lock_type IN SELECT * FROM jsonb_each_text(_locked_columns)
+    LOOP
+        -- Sanitize Column
+        _col_name := quote_ident(_col_name);
+
+        -- EIXO A: Privilégios Nativos Rigorosos (Estáticos)
+        IF _lock_type = 'immutable' THEN
+             -- Completamente fechado para atualização externa por usuários (anon/auth) - Service Role e Triggers internas bypassam GRANTs se forem superusers, mas por default a postgrest role bloqueia.
+             EXECUTE format('REVOKE UPDATE (%I) ON public.%I FROM anon, authenticated', _col_name, _safe_table);
+        
+        ELSIF _lock_type = 'service_role_only' THEN
+             -- Nenhuma permissão de CRUD. Coluna vira "Fantasma" pro cliente.
+             EXECUTE format('REVOKE SELECT, INSERT, UPDATE (%I) ON public.%I FROM anon, authenticated', _col_name, _safe_table);
+
+        -- EIXO B: Tranches Dinâmicas, Flexíveis baseadas em Cláusulas de Negócio
+        ELSIF _lock_type IN ('otp_protected', 'insert_only') THEN
+             
+             -- O Eixo A deve estar "aberto" (GRANT UPDATE) para a tranca chegar ao Eixo B.
+             EXECUTE format('GRANT SELECT, INSERT, UPDATE (%I) ON public.%I TO anon, authenticated', _col_name, _safe_table);
+             
+             -- Insere o rastreador
+             INSERT INTO system.dynamic_security_locks (project_slug, table_name, column_name, lock_type)
+             VALUES (_project_slug, _table_name, _col_name, _lock_type);
+
+             _has_dynamic := TRUE;
+        END IF;
+
+    END LOOP;
+
+    -- 3. Se houver alguma tranca do Eixo B configurada, ativa a Redoma (Trigger) 
+    IF _has_dynamic THEN
+        EXECUTE format('CREATE TRIGGER trg_dynamic_locks BEFORE INSERT OR UPDATE ON public.%I FOR EACH ROW EXECUTE FUNCTION system.enforce_dynamic_locks()', _safe_table);
+    END IF;
+
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+COMMIT;
