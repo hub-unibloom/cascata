@@ -1,5 +1,5 @@
 
-import { Redis } from 'ioredis';
+import { Redis as DragonflyClient } from 'ioredis';
 import { Pool } from 'pg';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
@@ -85,8 +85,8 @@ export interface AuthSecurityConfig {
 }
 
 export class RateLimitService {
-    private static dragonfly: Redis | null = null;
-    private static dragonflySub: Redis | null = null; // Instância dedicada para PUB/SUB
+    private static dragonfly: DragonflyClient | null = null;
+    private static dragonflySub: DragonflyClient | null = null; // Instância dedicada para PUB/SUB
     private static rulesCache = new Map<string, RateLimitRule[]>();
 
     // L1 Cache (O "Segredo" do Zero-Network Hot-Path)
@@ -114,8 +114,8 @@ export class RateLimitService {
                 lazyConnect: true
             };
 
-            this.dragonfly = new Redis(dragonflyOpts);
-            this.dragonflySub = new Redis(dragonflyOpts);
+            this.dragonfly = new DragonflyClient(dragonflyOpts);
+            this.dragonflySub = new DragonflyClient(dragonflyOpts);
 
             // Dragonfly principal (Comandos)
             this.dragonfly.connect().catch((e: any) => console.warn("[RateLimit] Initial Dragonfly connect failed:", e.message));

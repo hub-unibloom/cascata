@@ -5,6 +5,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
 import process from 'process';
+import os from 'os';
+import cluster from 'cluster';
+import fs from 'fs';
 
 // --- CONFIG & UTILS ---
 import { systemPool } from './src/config/main.js';
@@ -114,13 +117,6 @@ else if (process.env.SERVICE_MODE === 'ENGINE') {
 // 3. API MODE (Master/Worker Cluster & Single Node Fallback)
 else {
     // =========================================================================
-    // THE ZERO-NETWORK HOT-PATH HYPER-CLUSTER (PHASE 1.1)
-    // Força o Event Loop e Threadpool a aproveitar o máximo do Linux IPC Socket
-    // =========================================================================
-    const os = await import('os');
-    const clusterModule = await import('cluster');
-    const fsModule = await import('fs');
-    const cluster = clusterModule.default;
     const numCPUs = Math.min(os.cpus().length, 4); // Max 4 workers for now to fit docker 
     
     // Configura a V8 Threadpool para bater de frente com a quantidade de núcleos físicos
@@ -134,8 +130,8 @@ else {
         console.log(`[Hyper-Cluster] Spawning ${numCPUs} Zero-Network Socket Workers...`);
 
         // Garante que o diretório de sockets existe (este volume DEVE ser compartilhado com NGINX)
-        if (!fsModule.existsSync(SOCKETS_DIR)) {
-            fsModule.mkdirSync(SOCKETS_DIR, { recursive: true, mode: 0o777 });
+        if (!fs.existsSync(SOCKETS_DIR)) {
+            fs.mkdirSync(SOCKETS_DIR, { recursive: true, mode: 0o777 });
         }
 
         for (let i = 0; i < numCPUs; i++) {
@@ -344,13 +340,13 @@ else {
             const socketPath = `${SOCKETS_DIR}/worker_${workerId}.sock`;
             
             // Clean up old socket if it exists
-            if (fsModule.existsSync(socketPath)) {
-                fsModule.unlinkSync(socketPath);
+            if (fs.existsSync(socketPath)) {
+                fs.unlinkSync(socketPath);
             }
             
             server = app.listen(socketPath, () => {
                 // Necessário 777 para o NGINX (que roda como nginx user) ler/escrever no socket criado pelo root/node
-                fsModule.chmodSync(socketPath, 0o777); 
+                fs.chmodSync(socketPath, 0o777); 
                 console.log(`[Hyper-Cluster Worker ${workerId}] Listening on IPC Unix Socket: ${socketPath}`);
             });
         } else {
@@ -417,4 +413,5 @@ else {
     process.on('SIGINT', () => gracefulShutdown('SIGINT'));
     process.on('unhandledRejection', (reason: any) => console.error('[System] Unhandled Rejection:', reason));
     process.on('uncaughtException', (error: any) => console.error('[System] Uncaught Exception:', error));
+    }
 }

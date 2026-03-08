@@ -1,0 +1,32 @@
+ > [backend_engine 7/7] RUN npm run build:
+0.529 
+[+] up 38/44ata-backend@1.1.0 build
+ ✔ Image qdrant/qdrant:latest                        Pulled                                                                                                                              7.9s
+ ✔ Image docker.dragonflydb.io/dragonflydb/dragonfly Pulled                                                                                                                              7.1s
+ ✔ Image edoburu/pgbouncer:latest                    Pulled                                                                                                                              2.8s
+ ✔ Image nginx:alpine                                Pulled                                                                                                                              4.3s
+ ⠙ Image cascata-frontend                            Building                                                                                                                            91.0s
+ ⠙ Image cascata-backend_control                     Building                                                                                                                            91.0s
+ ⠙ Image cascata-backend_data                        Building                                                                                                                            91.0s
+ ⠙ Image cascata-backend_engine                      Building                                                                                                                            91.0s
+ ⠙ Image cascata-db                                  Building                                                                                                                            91.0s
+ ⠙ Image cascata-nginx_controller                    Building                                                                                                                            91.0s
+Dockerfile:19
+
+--------------------
+
+  17 |     COPY . .
+
+  18 |     
+
+  19 | >>> RUN npm run build
+
+  20 |     EXPOSE 3000
+
+  21 |     CMD ["node", "dist/server.js"]
+
+--------------------
+
+target backend_control: failed to solve: process "/bin/sh -c npm run build" did not complete successfully: exit code: 2
+
+ubuntu@ip-172-26-11-172:~/cascata$ 

@@ -1,12 +1,12 @@
 
-import { Redis } from 'ioredis';
+import { Redis as DragonflyClient } from 'ioredis';
 import process from 'process';
 import { Buffer } from 'buffer';
 import { Pool } from 'pg';
 import { systemPool } from '../src/config/main.js';
 
 export class SystemLogService {
-    private static dragonfly: Redis | null = null;
+    private static dragonfly: DragonflyClient | null = null;
     private static LOG_KEY = 'sys:runtime_logs'; // Logs de console (stdout)
     private static AUDIT_KEY = 'sys:audit_buffer'; // Logs de auditoria (banco)
     private static MAX_RUNTIME_LOGS = 1000;
@@ -21,7 +21,7 @@ export class SystemLogService {
     public static init() {
         try {
             // Usa conexão lazy para não bloquear o boot se o Dragonfly demorar
-            this.dragonfly = new Redis({
+            this.dragonfly = new DragonflyClient({
                 host: process.env.DRAGONFLY_HOST || 'dragonfly',
                 port: parseInt(process.env.DRAGONFLY_PORT || '6379'),
                 lazyConnect: true,
