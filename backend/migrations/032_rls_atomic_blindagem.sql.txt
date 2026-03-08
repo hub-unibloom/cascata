@@ -1,0 +1,24 @@
+-- Row Level Security (RLS) Atomic Blindagem
+-- Forces RLS on all public tables to prevent owner bypass and ensures security audit.
+-- Part of "The Holy Grail" Architecture.
+
+DO $$
+DECLARE
+    row_record RECORD;
+BEGIN
+    -- For each user table in the public schema
+    FOR row_record IN 
+        SELECT tablename 
+        FROM pg_tables 
+        WHERE schemaname = 'public'
+    LOOP
+        -- 1. Enable RLS (if not already enabled)
+        EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', row_record.tablename);
+        
+        -- 2. FORCE RLS (Ensures owner is also checked)
+        -- Without this, the backend (as owner) bypasses all security policies.
+        EXECUTE format('ALTER TABLE public.%I FORCE ROW LEVEL SECURITY', row_record.tablename);
+        
+        RAISE NOTICE 'RLS Blindagem applied to table: %', row_record.tablename;
+    END LOOP;
+END $$;

@@ -1,8 +1,5 @@
--- ============================================================
--- Migration 031: Assets Schema Synchronization
--- ============================================================
--- Adds missing updated_at column and trigger for Logic Engine integrity.
--- = migration_id: 031 =
+-- Adds updated_at column and trigger for Logic Engine integrity.
+-- Phase: Infrastructure Sync
 
 -- 1. Add updated_at column to system.assets
 ALTER TABLE system.assets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
