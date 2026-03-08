@@ -3,12 +3,15 @@ import { PoolClient } from 'pg';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { DatabaseService } from './DatabaseService.js';
+import { RateLimitService } from './RateLimitService.js';
 
-interface PostgrestQuery {
+export interface PostgrestQuery {
     text: string;
     values: any[];
     name?: string; // Prepared Statement Name
     countQuery?: string; // Optional separate query for exact count
+    cacheKey?: string; // Semantic Cache ID
+    ttl?: number;      // TTL requested by client
 }
 
 export class PostgrestService {
@@ -97,9 +100,25 @@ export class PostgrestService {
 
             sql = `SELECT ${columns} FROM public.${safeTable} ${whereClause} ${orderBy} ${limitClause} ${offsetClause}`;
 
-            // DoS PROTECTION: Cap count query execution time
             if (headers['prefer'] && headers['prefer'].includes('count=exact')) {
                 countQuery = `SELECT COUNT(*) as total FROM public.${safeTable} ${whereClause}`;
+            }
+
+            // --- DRAGONFLY SEMANTIC QUERY CACHING ---
+            // Se o header instruir cache (ex: max-age=60), montamos a chave determinística da Query
+            if (headers['x-cascata-cache-control']) {
+                const cacheMatch = headers['x-cascata-cache-control'].match(/max-age=(\d+)/);
+                if (cacheMatch) {
+                    const ttl = parseInt(cacheMatch[1]);
+                    if (ttl > 0 && ttl <= 86400) { // Limitado a 24h
+                        // Chave de cache precisa do nome do tenant/projeto e tabela para isolamento,
+                        // alem do hash da query + parametros resolvidos (limitado aos GETs).
+                        // Vamos injetar a key completa dps na camada final, por hora só sinalizamos
+                        const queryHash = crypto.createHash('sha256').update(sql + JSON.stringify(params)).digest('hex');
+                        const semanticKey = `qcache:${tableName}:${queryHash}`;
+                        return { text: sql, values: params, name: this.generateStatementName(sql), countQuery, cacheKey: semanticKey, ttl };
+                    }
+                }
             }
 
         } else if (method === 'POST') {

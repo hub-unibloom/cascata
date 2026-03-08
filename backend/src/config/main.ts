@@ -38,11 +38,11 @@ if (!process.env.SYSTEM_DATABASE_URL) {
 
 export const systemPool = new Pool({ 
   connectionString: process.env.SYSTEM_DATABASE_URL,
-  max: 10,
+  max: 25,
   idleTimeoutMillis: 30000 
 });
 
-systemPool.on('error', (err) => {
+systemPool.on('error', (err: any) => {
     console.error('[SystemPool] Unexpected error on idle client', err);
 });
 

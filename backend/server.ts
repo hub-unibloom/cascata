@@ -28,8 +28,8 @@ import mainRouter from './src/routes/index.js';
 // When passed to `res.json()`, JS Dates lose their timezone offset and are forcibly cast to UTC (Z).
 // We intercept the driver here and tell it to return the RAW string, preserving the exact offset (-03, etc) sent by Postgres.
 import pg from 'pg';
-pg.types.setTypeParser(1184, (stringValue) => stringValue); // timestamptz
-pg.types.setTypeParser(1114, (stringValue) => stringValue); // timestamp
+pg.types.setTypeParser(1184, (stringValue: string) => stringValue); // timestamptz
+pg.types.setTypeParser(1114, (stringValue: string) => stringValue); // timestamp
 
 // --- MIDDLEWARES ---
 import { dynamicCors, hostGuard } from './src/middlewares/security.js';
@@ -78,7 +78,7 @@ else if (process.env.SERVICE_MODE === 'ENGINE') {
     app.use(express.json({ limit: '50mb' }) as any);
 
     // Rota Interna de Execução (Não exposta ao público)
-    app.post('/internal/run', async (req, res) => {
+    app.post('/internal/run', async (req: any, res: any) => {
         try {
             const { code, context, envVars, timeout, slug } = req.body;
 
@@ -102,7 +102,7 @@ else if (process.env.SERVICE_MODE === 'ENGINE') {
         }
     });
 
-    app.get('/health', (req, res) => res.json({ status: 'ok', role: 'engine' }));
+    app.get('/health', (req: any, res: any) => res.json({ status: 'ok', role: 'engine' }));
 
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, async () => {
@@ -111,129 +111,254 @@ else if (process.env.SERVICE_MODE === 'ENGINE') {
         console.log(`[CASCATA ENGINE] Isolation Chamber listening on ${PORT}`);
     });
 }
-// 3. API MODE (Default Monolith)
+// 3. API MODE (Master/Worker Cluster & Single Node Fallback)
 else {
-    const app = express();
-    const PORT = process.env.PORT || 3000;
+    // =========================================================================
+    // THE ZERO-NETWORK HOT-PATH HYPER-CLUSTER (PHASE 1.1)
+    // Força o Event Loop e Threadpool a aproveitar o máximo do Linux IPC Socket
+    // =========================================================================
+    const os = await import('os');
+    const clusterModule = await import('cluster');
+    const fsModule = await import('fs');
+    const cluster = clusterModule.default;
+    const numCPUs = Math.min(os.cpus().length, 4); // Max 4 workers for now to fit docker 
+    
+    // Configura a V8 Threadpool para bater de frente com a quantidade de núcleos físicos
+    process.env.UV_THREADPOOL_SIZE = Math.max(4, numCPUs).toString();
 
-    // --- INITIALIZATION ---
-    RealtimeService.init();
-    RateLimitService.init();
-    PoolService.initReaper();
+    const isDataPlane = process.env.SERVICE_MODE === 'DATA_PLANE';
+    const SOCKETS_DIR = '/tmp/cascata_sockets';
 
-    if (process.env.SERVICE_MODE === 'CONTROL_PLANE') {
-        console.log('[System] Control Plane: Initializing internal queues.');
-        QueueService.init();
-    }
+    if (isDataPlane && cluster.isPrimary) {
+        console.log(`[Hyper-Cluster] Primary Master PID: ${process.pid} is running.`);
+        console.log(`[Hyper-Cluster] Spawning ${numCPUs} Zero-Network Socket Workers...`);
 
-    // --- GARBAGE COLLECTION (TEMP FILES) ---
-    setInterval(() => {
-        console.log('[System] Running Temp File Garbage Collection...');
-        cleanTempUploads().catch(e => console.error('[GC] Failed:', e));
-    }, 60 * 60 * 1000);
+        // Garante que o diretório de sockets existe (este volume DEVE ser compartilhado com NGINX)
+        if (!fsModule.existsSync(SOCKETS_DIR)) {
+            fsModule.mkdirSync(SOCKETS_DIR, { recursive: true, mode: 0o777 });
+        }
 
-    // --- SECURITY HEADERS (Global Hardening) ---
-    app.use((req, res, next) => {
-        res.setHeader('X-Content-Type-Options', 'nosniff');
-        res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-        res.setHeader('X-XSS-Protection', '1; mode=block');
-        res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
-        res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-        res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
-        (res as any).removeHeader('X-Powered-By');
-        next();
-    });
+        for (let i = 0; i < numCPUs; i++) {
+            cluster.fork({ WORKER_ID: i + 1 });
+        }
 
-    // --- CORS & HOST GUARD ---
-    app.use(resolveProject as any);
-    app.use(dynamicCors as any);
-    app.use(hostGuard as any);
+        cluster.on('exit', (worker: any, code: any, signal: any) => {
+            console.error(`[Hyper-Cluster] Worker ${worker.process.pid} died (${signal || code}). Respawning instanly...`);
+            cluster.fork({ WORKER_ID: (worker as any).process.env.WORKER_ID || (Math.floor(Math.random() * 100)) });
+        });
+        
+        // Master process in cluster mode only manages workers, it does not run the HTTP Server.
+        // But we still need to initialize singleton services that manage background tasks 
+        // to prevent multiple workers from running the exact same cron jobs (e.g., GC).
+        RealtimeService.init(); // Realtime Master setup
+        RateLimitService.init();
+        PoolService.initReaper();
+        
+        setInterval(() => {
+            console.log('[System:Primary] Running Temp File Garbage Collection...');
+            cleanTempUploads().catch(e => console.error('[GC] Failed:', e));
+        }, 60 * 60 * 1000);
+        
+        // O Master segura a promessa de vida com o banco e roda as migrações uma única vez no boot
+        (async () => {
+            try {
+                console.log('[System:Primary] Booting up...');
+                cleanTempUploads();
+                CertificateService.ensureSystemCert().catch(e => console.error("Cert Init Error:", e));
 
-    // --- TENANT URL REWRITER ---
-    app.use((req, res, next) => {
-        const r = req as any;
-        if (r.project && r.project.custom_domain) {
-            const host = req.headers.host?.split(':')[0] || '';
-            if (host.toLowerCase() === r.project.custom_domain.toLowerCase()) {
-                if (!req.url.startsWith('/api/')) {
-                    if (req.url.match(/^\/(rest|rpc|auth|storage|realtime|graphql|vector|edge|tables|ui-settings|assets|stats|branch|mcp)/)) {
-                        req.url = `/api/data/${r.project.slug}${req.url}`;
+                waitForDatabase(30, 2000).then(async (ready) => {
+                    if (ready) {
+                        await MigrationService.run(systemPool, MIGRATIONS_ROOT);
+
+                        try {
+                            const dbRes = await systemPool.query("SELECT settings FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'system_config'");
+                            if (dbRes.rows[0]?.settings) {
+                                PoolService.configure(dbRes.rows[0].settings);
+                            }
+                        } catch (e) { console.warn("[System:Primary] Failed to load global config, using defaults."); }
+
+                        console.log('[System:Primary] Platform Ready & Healthy.');
+                    } else {
+                        console.error('[System:Primary] CRITICAL: Main Database Unreachable.');
+                    }
+                });
+            } catch (e) {
+                console.error('[System:Primary] FATAL BOOT ERROR:', e);
+                process.exit(1);
+            }
+        })();
+
+    } else {
+        // This execution branch is either a Worker in DATA_PLANE, or the monolith/CONTROL_PLANE
+        const app = express();
+        const PORT = process.env.PORT || 3000;
+        
+        // Trabalhadores não inicializam o Reaper (o Master faz), mas ambos precisam do Dragonfly.
+        if (!isDataPlane || cluster.isWorker) {
+            RateLimitService.init();
+        }
+
+        if (process.env.SERVICE_MODE === 'CONTROL_PLANE') {
+            console.log('[System] Control Plane: Initializing internal queues.');
+            QueueService.init();
+            PoolService.initReaper(); // Control plane solitário precisa do Reaper
+            RealtimeService.init();   // Control plane solitário
+            
+            setInterval(() => {
+                cleanTempUploads().catch(e => console.error('[GC] Failed:', e));
+            }, 60 * 60 * 1000);
+            
+            // System Boot para caso seja monolítico
+            (async () => {
+                try {
+                    CertificateService.ensureSystemCert().catch(e => {});
+                    waitForDatabase(30, 2000).then(async (ready) => {
+                        if (ready) {
+                            await MigrationService.run(systemPool, MIGRATIONS_ROOT);
+                            try {
+                                const dbRes = await systemPool.query("SELECT settings FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'system_config'");
+                                if (dbRes.rows[0]?.settings) {
+                                    PoolService.configure(dbRes.rows[0].settings);
+                                }
+                            } catch (e) {}
+                        }
+                    });
+                } catch (e) {}
+            })();
+        }
+
+        // --- SECURITY HEADERS (Global Hardening) ---
+        app.use((req: any, res: any, next: NextFunction) => {
+            res.setHeader('X-Content-Type-Options', 'nosniff');
+            res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+            res.setHeader('X-XSS-Protection', '1; mode=block');
+            res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+            res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+            res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+            (res as any).removeHeader('X-Powered-By');
+            next();
+        });
+
+        // --- L1/L2 CACHED PROJECT BOOTSTRAPPER ---
+        // Esse middleware é adicionado antes de tudo, chamando a nova maravilha
+        // RateLimitService.ensureProjectCache L1/L2 que criaremos em seguida.
+        app.use(async (req: any, res: any, next: NextFunction) => {
+            if (req.path === '/' || req.path === '/health') return next();
+            // Aquece o cache para uso imediato síncrono no `resolveProject` (Fase 1.2)
+            await RateLimitService.warmupProjectContext(req);
+            next();
+        });
+
+        // --- CORS & HOST GUARD ---
+        app.use(resolveProject as any);
+        app.use(dynamicCors as any);
+        app.use(hostGuard as any);
+
+        // --- TENANT URL REWRITER ---
+        app.use((req: any, res: any, next: NextFunction) => {
+            const r = req as any;
+            if (r.project && r.project.custom_domain) {
+                const host = req.headers.host?.split(':')[0] || '';
+                if (host.toLowerCase() === r.project.custom_domain.toLowerCase()) {
+                    if (!req.url.startsWith('/api/')) {
+                        if (req.url.match(/^\/(rest|rpc|auth|storage|realtime|graphql|vector|edge|tables|ui-settings|assets|stats|branch|mcp)/)) {
+                            req.url = `/api/data/${r.project.slug}${req.url}`;
+                        }
                     }
                 }
             }
-        }
-        next();
-    });
-
-    // --- HEALTH CHECK (Deep Check) ---
-    app.get('/', (req, res) => { res.send('Cascata Engine v9.9 (Enterprise Hardened) OK'); });
-    app.get('/health', async (req, res) => {
-        let dbStatus = 'unknown';
-        try {
-            await systemPool.query('SELECT 1');
-            dbStatus = 'connected';
-        } catch (e) { dbStatus = 'error'; }
-
-        res.json({
-            status: 'ok',
-            mode: process.env.SERVICE_MODE,
-            system_db: dbStatus,
-            pools: PoolService.getTotalActivePools(),
-            time: new Date()
+            next();
         });
-    });
 
-    // --- MOUNT ROUTES ---
-    app.use('/api', mainRouter);
+        // --- HEALTH CHECK (Deep Check) ---
+        app.get('/', (req: any, res: any) => { res.send('Cascata Engine v9.9 (Phase 1) OK'); });
+        app.get('/health', async (req: any, res: any) => {
+            let dbStatus = 'unknown';
+            try {
+                await systemPool.query('SELECT 1');
+                dbStatus = 'connected';
+            } catch (e) { dbStatus = 'error'; }
 
-    // --- GLOBAL ERROR HANDLER ---
-    app.use((err: any, req: any, res: any, next: NextFunction) => {
-        if (!err.code?.startsWith('2') && !err.code?.startsWith('4')) {
-            console.error(`[Global Error] ${req.method} ${req.path}:`, err);
-        }
+            res.json({
+                status: 'ok',
+                mode: process.env.SERVICE_MODE,
+                system_db: dbStatus,
+                pools: PoolService.getTotalActivePools(),
+                worker_id: process.env.WORKER_ID || 'single',
+                time: new Date()
+            });
+        });
 
-        if (err instanceof multer.MulterError) {
-            return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: err.message, code: err.code });
-        }
+        // --- MOUNT ROUTES ---
+        app.use('/api', mainRouter);
 
-        if (err.message === "User already registered" || err.code === 'user_already_exists') {
-            return res.status(422).json({ error: "user_already_exists", error_description: "User already registered" });
-        }
-        if (err.message === "Invalid login credentials") {
-            return res.status(400).json({ error: "invalid_grant", error_description: "Invalid login credentials" });
-        }
-        if (err.message === "Email not confirmed") {
-            return res.status(400).json({ error: "email_not_confirmed", error_description: "Email not confirmed" });
-        }
-
-        if (err.code) {
-            const pgMap: Record<string, { s: number, m: string }> = {
-                '23505': { s: 409, m: 'Conflict: Record exists.' },
-                '23503': { s: 400, m: 'Foreign Key Violation.' },
-                '42P01': { s: 404, m: 'Table Not Found.' },
-                '42703': { s: 400, m: 'Invalid Column.' },
-                '23502': { s: 400, m: 'Missing Required Field.' },
-                '22P02': { s: 400, m: 'Invalid Type.' },
-            };
-            if (pgMap[err.code]) {
-                return res.status(pgMap[err.code].s).json({ error: pgMap[err.code].m, code: err.code });
+        // --- GLOBAL ERROR HANDLER ---
+        app.use((err: any, req: any, res: any, next: NextFunction) => {
+            if (!err.code?.startsWith('2') && !err.code?.startsWith('4')) {
+                console.error(`[Global Error] ${req.method} ${req.path}:`, err);
             }
-        }
 
-        if (err instanceof SyntaxError && 'body' in err) {
-            return res.status(400).json({ error: 'Invalid JSON Payload' });
-        }
+            if (err instanceof multer.MulterError) {
+                return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: err.message, code: err.code });
+            }
 
-        res.status(err.status || 500).json({
-            error: err.message || 'Internal Server Error',
-            code: err.code || 'INTERNAL_ERROR'
+            if (err.message === "User already registered" || err.code === 'user_already_exists') {
+                return res.status(422).json({ error: "user_already_exists", error_description: "User already registered" });
+            }
+            if (err.message === "Invalid login credentials") {
+                return res.status(400).json({ error: "invalid_grant", error_description: "Invalid login credentials" });
+            }
+            if (err.message === "Email not confirmed") {
+                return res.status(400).json({ error: "email_not_confirmed", error_description: "Email not confirmed" });
+            }
+
+            if (err.code) {
+                const pgMap: Record<string, { s: number, m: string }> = {
+                    '23505': { s: 409, m: 'Conflict: Record exists.' },
+                    '23503': { s: 400, m: 'Foreign Key Violation.' },
+                    '42P01': { s: 404, m: 'Table Not Found.' },
+                    '42703': { s: 400, m: 'Invalid Column.' },
+                    '23502': { s: 400, m: 'Missing Required Field.' },
+                    '22P02': { s: 400, m: 'Invalid Type.' },
+                };
+                if (pgMap[err.code]) {
+                    return res.status(pgMap[err.code].s).json({ error: pgMap[err.code].m, code: err.code });
+                }
+            }
+
+            if (err instanceof SyntaxError && 'body' in err) {
+                return res.status(400).json({ error: 'Invalid JSON Payload' });
+            }
+
+            res.status(err.status || 500).json({
+                error: err.message || 'Internal Server Error',
+                code: err.code || 'INTERNAL_ERROR'
+            });
         });
-    });
 
-    // --- SERVER INSTANCE ---
-    const server = app.listen(PORT, () => {
-        console.log(`[CASCATA SECURE ENGINE] Listening on port ${PORT} [PID: ${process.pid}]`);
-    });
+        // --- SERVER INSTANCE (TCP OR IPC SOCKET) ---
+        let server: any;
+        if (isDataPlane && cluster.isWorker) {
+            // THE IPC SOCKET MAGIC
+            const workerId = process.env.WORKER_ID || 1;
+            const socketPath = `${SOCKETS_DIR}/worker_${workerId}.sock`;
+            
+            // Clean up old socket if it exists
+            if (fsModule.existsSync(socketPath)) {
+                fsModule.unlinkSync(socketPath);
+            }
+            
+            server = app.listen(socketPath, () => {
+                // Necessário 777 para o NGINX (que roda como nginx user) ler/escrever no socket criado pelo root/node
+                fsModule.chmodSync(socketPath, 0o777); 
+                console.log(`[Hyper-Cluster Worker ${workerId}] Listening on IPC Unix Socket: ${socketPath}`);
+            });
+        } else {
+            // Normal TCP Binding for Control Plane / Monolith
+            server = app.listen(PORT, () => {
+                console.log(`[CASCATA SECURE SERVER] Listening on port ${PORT} [PID: ${process.pid}]`);
+            });
+        }
 
     // --- BOOTSTRAP LOGIC ---
     (async () => {
@@ -290,6 +415,6 @@ else {
 
     process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
     process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-    process.on('unhandledRejection', (reason) => console.error('[System] Unhandled Rejection:', reason));
-    process.on('uncaughtException', (error) => console.error('[System] Uncaught Exception:', error));
+    process.on('unhandledRejection', (reason: any) => console.error('[System] Unhandled Rejection:', reason));
+    process.on('uncaughtException', (error: any) => console.error('[System] Uncaught Exception:', error));
 }

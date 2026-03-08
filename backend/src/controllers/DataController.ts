@@ -6,6 +6,7 @@ import { DatabaseService } from '../../services/DatabaseService.js';
 import { PostgrestService } from '../../services/PostgrestService.js';
 import { OpenApiService } from '../../services/OpenApiService.js';
 import { ExtensionService } from '../../services/ExtensionService.js';
+import { RateLimitService } from '../../services/RateLimitService.js';
 import { systemPool } from '../config/main.js';
 
 export class DataController {
@@ -710,7 +711,7 @@ export class DataController {
                     tables: parseInt(tables.rows[0].count),
                     users: parseInt(users.rows[0].count),
                     size: size.rows[0].pg_size_pretty,
-                    throughput: logsRes.rows.map(r => ({
+                    throughput: logsRes.rows.map((r: any) => ({
                         name: r.name,
                         requests: parseInt(r.requests),
                         success: parseInt(r.success),
@@ -738,7 +739,7 @@ export class DataController {
                 req.headers['x-cascata-jwt-secret'] = req.project.jwt_secret;
             }
 
-            const { text, values, countQuery } = PostgrestService.buildQuery(
+            const buildResult = PostgrestService.buildQuery(
                 req.params.tableName,
                 req.method,
                 req.query,
@@ -746,26 +747,55 @@ export class DataController {
                 req.headers
             );
 
+            // --- DRAGONFLY SEMANTIC CACHE INTERCEPTOR (Fase 1.3) ---
+            // Bypass completo de Banco de Dados se a Query já foi resolvida e está viva na RAM Multi-Thread.
+            const dfly = (RateLimitService as any).dragonfly;
+            let fromCache = false;
+
+            if (buildResult.cacheKey && req.method === 'GET' && dfly && (RateLimitService as any).isDragonflyHealthy) {
+                try {
+                    const cachedData = await dfly.get(buildResult.cacheKey);
+                    if (cachedData) {
+                        res.setHeader('X-Cascata-Cache', 'HIT');
+                        res.setHeader('Content-Type', 'application/json');
+                        return res.send(cachedData); // Retorna a string JSON crua do Dragonfly (Extrema Velocidade)
+                    }
+                } catch (ce) {
+                    console.warn('[Cache] Semantic Bypass falhou, caindo pro banco:', ce);
+                }
+            }
+
             const result = await queryWithRLS(req, async (client) => {
-                if (countQuery) {
+                if (buildResult.countQuery) {
                     await client.query("SET LOCAL statement_timeout = '5s'");
-                    const countRes = await client.query(countQuery, values);
+                    const countRes = await client.query(buildResult.countQuery, buildResult.values);
                     const total = parseInt((countRes.rows[0] as any)?.total || '0');
-                    const mainRes = await client.query(text, values);
+                    const mainRes = await client.query(buildResult.text, buildResult.values);
                     const offset = parseInt(req.query.offset as string || '0');
                     const start = offset;
                     const end = Math.min(offset + mainRes.rows.length - 1, total - 1);
                     res.setHeader('Content-Range', mainRes.rows.length === 0 ? `*/${total}` : `${start}-${end}/${total}`);
                     return mainRes;
                 }
-                return await client.query(text, values);
+                return await client.query(buildResult.text, buildResult.values);
             });
 
-            if (req.headers.accept === 'application/vnd.pgrst.object+json') {
-                res.json(result.rows[0] || null);
-            } else {
-                res.json(result.rows);
+            const responseData = req.headers.accept === 'application/vnd.pgrst.object+json'
+                ? (result.rows[0] || null)
+                : result.rows;
+
+            if (buildResult.cacheKey && !fromCache) {
+                res.setHeader('X-Cascata-Cache', 'MISS');
             }
+
+            res.json(responseData);
+
+            // Fire-And-Forget: Escreve no Dragonfly pós-resposta para não bloquear o Event Loop do client atual
+            if (buildResult.cacheKey && !fromCache && dfly && (RateLimitService as any).isDragonflyHealthy) {
+                // A key expira sozinha pelo TTL exigido
+                dfly.set(buildResult.cacheKey, JSON.stringify(responseData), 'EX', buildResult.ttl || 60).catch(() => {});
+            }
+
         } catch (e: any) { next(e); }
     }
 

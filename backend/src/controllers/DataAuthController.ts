@@ -101,7 +101,7 @@ export class DataAuthController {
         const secConfig = DataAuthController.getSecurityConfig(req);
 
         try {
-            // FIREWALL: Check Redis BEFORE hitting PostgreSQL
+            // FIREWALL: Check Dragonfly BEFORE hitting PostgreSQL
             const lockout = await RateLimitService.checkAuthLockout(req.project.slug, deviceInfo.ip!, identifier, secConfig);
             if (lockout.locked) return res.status(429).json({ error: lockout.reason });
 

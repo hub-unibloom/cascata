@@ -15,7 +15,7 @@ for i in backend/migrations/*.txt; do mv "$i" "${i%.txt}"; done
 					mv frontend/Dockerfile.txt frontend/Dockerfile
 					mv frontend/nginx.conf.txt frontend/nginx.conf
 					mv nginx-controller/Dockerfile.txt nginx-controller/Dockerfile
-					mkdir -p /cascata-data/pg /cascata-data/qdrant /cascata-data/redis /cascata-data/storage /cascata-data/certs /cascata-data/acme_challenge /cascata-data/nginx_dynamic
+					mkdir -p /cascata-data/pg /cascata-data/qdrant /cascata-data/dragonfly /cascata-data/storage /cascata-data/certs /cascata-data/acme_challenge /cascata-data/nginx_dynamic
 					docker compose up -d --build
 
 
@@ -50,7 +50,7 @@ mv nginx-controller/Dockerfile.txt nginx-controller/Dockerfile
 nano .env
 
 # Criar diretórios de dados (modo produção correto)
-sudo mkdir -p /cascata-data/{pg,qdrant,redis,storage,certs,acme_challenge,nginx_dynamic}
+sudo mkdir -p /cascata-data/{pg,qdrant,dragonfly,storage,certs,acme_challenge,nginx_dynamic}
 
 # Dar permissão ao usuário atual
 sudo chown -R $USER:$USER /cascata-data

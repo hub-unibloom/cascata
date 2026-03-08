@@ -627,7 +627,7 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
                         </div>
                         <h3 className="text-3xl font-black tracking-tight">{status.panic_mode ? 'PANIC ON' : 'SECURE'}</h3>
                         <p className="text-xs opacity-70 mt-2 font-medium">
-                            {status.panic_mode ? 'All external traffic blocked by Redis.' : `${limits.length} active traffic rules.`}
+                            {status.panic_mode ? 'All external traffic blocked by Dragonfly.' : `${limits.length} active traffic rules.`}
                         </p>
                     </div>
                 </div>

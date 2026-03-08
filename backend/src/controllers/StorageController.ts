@@ -42,7 +42,7 @@ export class StorageController {
             let currentUsage = 0;
             const limit = parseBytes(limitStr);
 
-            // 1. Check Redis Cache (Fastest)
+            // 1. Check Dragonfly Cache (Fastest)
             const cachedUsage = await RateLimitService.getProjectStorageUsage(projectSlug);
 
             if (cachedUsage !== null) {
@@ -77,7 +77,7 @@ export class StorageController {
                 await RateLimitService.setProjectStorageUsage(projectSlug, currentUsage);
             }
 
-            // 5. Add In-Flight Reservations (Redis)
+            // 5. Add In-Flight Reservations (Dragonfly)
             const reserved = await RateLimitService.getReservedStorage(projectSlug);
             const totalProjected = currentUsage + reserved + incomingSize;
 
@@ -91,7 +91,7 @@ export class StorageController {
 
         } catch (e) {
             console.error("Quota Check Failed:", e);
-            // FAIL OPEN (Safety Net) with small hard limit to prevent total outage on Redis/DB failure
+            // FAIL OPEN (Safety Net) with small hard limit to prevent total outage on Dragonfly/DB failure
             return { allowed: incomingSize < 50 * 1024 * 1024 };
         }
     }

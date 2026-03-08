@@ -14,7 +14,7 @@ Resiliência e Tratamento de Erros (Graceful Degradation):
 
 O sistema não pode "crashar" (derrubar o processo) por erros evitáveis. Use blocos try/catch inteligentes que loguem o erro mas mantenham o servidor vivo.
 
-Se um serviço secundário (como Redis ou SMTP) falhar, o sistema deve informar o erro ao usuário de forma amigável, sem expor detalhes técnicos (stack traces).
+Se um serviço secundário (como Dragonfly ou SMTP) falhar, o sistema deve informar o erro ao usuário de forma amigável, sem expor detalhes técnicos (stack traces).
 
 Sincronismo e Sinergia (Full Stack Alignment):
 

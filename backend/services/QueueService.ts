@@ -11,10 +11,10 @@ import { BackupService } from './BackupService.js';
 import { ImportService } from './ImportService.js'; 
 import process from 'process';
 
-const REDIS_CONFIG = {
+const DRAGONFLY_CONFIG = {
     connection: {
-        host: process.env.REDIS_HOST || 'redis',
-        port: parseInt(process.env.REDIS_PORT || '6379')
+        host: process.env.DRAGONFLY_HOST || 'dragonfly',
+        port: parseInt(process.env.DRAGONFLY_PORT || '6379')
     },
     prefix: '{cascata}bull' // DRAGONFLY FIX: Hash Tag for atomic scripts
 };
@@ -35,31 +35,31 @@ export class QueueService {
         try {
             const url = new URL(targetUrl);
             const hostname = url.hostname;
-            if (hostname === 'localhost' || hostname === 'db' || hostname === 'redis') {
+            if (hostname === 'localhost' || hostname === 'db' || hostname === 'dragonfly' || hostname === 'redis') {
                 throw new Error("Internal access blocked");
             }
         } catch (e: any) { throw new Error(`Security Violation: ${e.message}`); }
     }
 
     public static init() {
-        console.log('[QueueService] Initializing Queues with Redis (Dragonfly Mode)...');
+        console.log('[QueueService] Initializing Queues with Dragonfly...');
 
         // ALWAYS Initialize Producers (Queues) so API can dispatch events
         this.webhookQueue = new Queue('cascata-webhooks', {
-            ...REDIS_CONFIG,
+            ...DRAGONFLY_CONFIG,
             defaultJobOptions: { attempts: 5, backoff: { type: 'exponential', delay: 1000 } }
         });
 
         this.pushQueue = new Queue('cascata-push', {
-            ...REDIS_CONFIG,
+            ...DRAGONFLY_CONFIG,
             defaultJobOptions: { removeOnComplete: 100, removeOnFail: 500 }
         });
 
-        this.backupQueue = new Queue('cascata-backups', { ...REDIS_CONFIG });
+        this.backupQueue = new Queue('cascata-backups', { ...DRAGONFLY_CONFIG });
 
-        this.maintenanceQueue = new Queue('cascata-maintenance', { ...REDIS_CONFIG });
+        this.maintenanceQueue = new Queue('cascata-maintenance', { ...DRAGONFLY_CONFIG });
 
-        this.restoreQueue = new Queue('cascata-restore', { ...REDIS_CONFIG }); 
+        this.restoreQueue = new Queue('cascata-restore', { ...DRAGONFLY_CONFIG }); 
 
         // CRITICAL FIX: Enable Workers for CONTROL_PLANE to handle Imports/Backups
         const shouldRunWorkers = process.env.SERVICE_MODE === 'WORKER' || 
@@ -92,7 +92,7 @@ export class QueueService {
                 console.error(`[Queue:Push] Error:`, error.message);
                 throw error;
             }
-        }, { ...REDIS_CONFIG, concurrency: 50 });
+        }, { ...DRAGONFLY_CONFIG, concurrency: 50 });
 
         // Backup Worker
         this.backupWorker = new Worker('cascata-backups', async (job: Job) => {
@@ -103,7 +103,7 @@ export class QueueService {
                 console.error(`[Queue:Backup] Error processing policy ${policyId}:`, error.message);
                 throw error;
             }
-        }, { ...REDIS_CONFIG, concurrency: 2 });
+        }, { ...DRAGONFLY_CONFIG, concurrency: 2 });
 
         // Maintenance Worker (Log Purge)
         this.maintenanceWorker = new Worker('cascata-maintenance', async (job: Job) => {
@@ -122,7 +122,7 @@ export class QueueService {
                     console.error('[Queue:Maintenance] Log purge failed:', e.message);
                 }
             }
-        }, { ...REDIS_CONFIG });
+        }, { ...DRAGONFLY_CONFIG });
 
         // Restore/Import Worker (Heavy IO) - Single Concurrency for safety
         this.restoreWorker = new Worker('cascata-restore', async (job: Job) => {
@@ -141,13 +141,13 @@ export class QueueService {
                 await systemPool.query('UPDATE system.async_operations SET status = $1, result = $2, updated_at = NOW() WHERE id = $3', ['failed', JSON.stringify({ error: e.message }), operationId]);
                 throw e; 
             }
-        }, { ...REDIS_CONFIG, concurrency: 1 }); 
+        }, { ...DRAGONFLY_CONFIG, concurrency: 1 }); 
 
         // Schedule Maintenance Jobs
         this.maintenanceQueue.add('purge-logs', {}, {
             repeat: { pattern: '0 4 * * *' },
             jobId: 'system-log-purge'
-        }).catch(e => console.error("Failed to schedule log purge", e));
+        }).catch((e: any) => console.error("Failed to schedule log purge", e));
     }
 
     public static async addPushJob(data: any) {
@@ -168,7 +168,7 @@ export class QueueService {
     public static async scheduleBackup(policyId: string, cron: string, timezone: string = 'UTC') {
         if (!this.backupQueue) this.init();
         const repeatableJobs = await this.backupQueue.getRepeatableJobs();
-        const existing = repeatableJobs.find(j => j.id === `backup-${policyId}`);
+        const existing = repeatableJobs.find((j: any) => j.id === `backup-${policyId}`);
         if (existing) {
             await this.backupQueue.removeRepeatableByKey(existing.key);
         }
@@ -182,7 +182,7 @@ export class QueueService {
     public static async removeBackupSchedule(policyId: string) {
         if (!this.backupQueue) this.init();
         const repeatableJobs = await this.backupQueue.getRepeatableJobs();
-        const existing = repeatableJobs.find(j => j.id === `backup-${policyId}`);
+        const existing = repeatableJobs.find((j: any) => j.id === `backup-${policyId}`);
         if (existing) {
             await this.backupQueue.removeRepeatableByKey(existing.key);
             console.log(`[Queue] Removed schedule for ${policyId}`);

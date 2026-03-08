@@ -254,6 +254,8 @@ export class DatabaseService {
                 EXCEPTION WHEN OTHERS THEN
                     record_id := 'unknown';
                 END;
+                
+                -- Realtime Broadcast (Event Stream)
                 PERFORM pg_notify(
                     'cascata_events',
                     json_build_object(
@@ -264,6 +266,17 @@ export class DatabaseService {
                         'timestamp', now()
                     )::text
                 );
+
+                -- Fase 1.3: Dragonfly Semantic Cache Invalidation (Fire & Forget)
+                -- Avisa instantaneamente o Worker Node.js para deletar a familia 'qcache:tabela:*' do L2
+                PERFORM pg_notify(
+                    'cascata_cache_invalidate',
+                    json_build_object(
+                        'table', TG_TABLE_NAME,
+                        'schema', TG_TABLE_SCHEMA
+                    )::text
+                );
+
                 RETURN NULL;
             END;
             $$ LANGUAGE plpgsql;

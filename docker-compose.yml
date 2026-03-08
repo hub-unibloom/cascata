@@ -1,4 +1,3 @@
-services:
   nginx:
     image: nginx:alpine
     container_name: cascata-nginx
@@ -10,6 +9,7 @@ services:
       - ${CASCATA_DATA_DIR:-/cascata-data}/acme_challenge:/var/www/html
       - ${CASCATA_DATA_DIR:-/cascata-data}/certs:/etc/letsencrypt
       - ${CASCATA_DATA_DIR:-/cascata-data}/nginx_dynamic:/etc/nginx/conf.d/dynamic
+      - cascata_sockets:/tmp/cascata_sockets
     depends_on:
       - backend_control
       - backend_data
@@ -69,8 +69,8 @@ services:
       - SYSTEM_JWT_SECRET=${SYSTEM_JWT_SECRET}
       - INTERNAL_CTRL_SECRET=${INTERNAL_CTRL_SECRET}
       - PORT=3000
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - DRAGONFLY_HOST=dragonfly
+      - DRAGONFLY_PORT=6379
       - DB_DIRECT_HOST=db
       - DB_DIRECT_PORT=5432
       - DB_POOL_HOST=pgbouncer
@@ -94,7 +94,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      redis:
+      dragonfly:
         condition: service_healthy
       qdrant:
         condition: service_healthy
@@ -117,8 +117,8 @@ services:
       - SYSTEM_DATABASE_URL=postgresql://${DB_USER}:${DB_PASS}@db:5432/${DB_NAME}
       - SYSTEM_JWT_SECRET=${SYSTEM_JWT_SECRET}
       - PORT=3000
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - DRAGONFLY_HOST=dragonfly
+      - DRAGONFLY_PORT=6379
       - DB_DIRECT_HOST=db
       - DB_DIRECT_PORT=5432
       - DB_POOL_HOST=pgbouncer
@@ -135,11 +135,12 @@ services:
     volumes:
       - ${CASCATA_DATA_DIR:-/cascata-data}/storage:/cascata/storage
       - temp_data:/cascata/temp
+      - cascata_sockets:/tmp/cascata_sockets
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       db:
         condition: service_healthy
-      redis:
+      dragonfly:
         condition: service_healthy
       qdrant:
         condition: service_healthy
@@ -163,8 +164,8 @@ services:
       - SYSTEM_DATABASE_URL=postgresql://${DB_USER}:${DB_PASS}@db:5432/${DB_NAME}
       - SYSTEM_JWT_SECRET=${SYSTEM_JWT_SECRET}
       - PORT=3000
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - DRAGONFLY_HOST=dragonfly
+      - DRAGONFLY_PORT=6379
       - DB_DIRECT_HOST=db
       - DB_DIRECT_PORT=5432
       - DB_USER=${DB_USER}
@@ -178,7 +179,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      redis:
+      dragonfly:
         condition: service_healthy
     networks:
       - cascata_app # Precisa receber requisições do Data Plane
@@ -243,14 +244,14 @@ services:
     networks:
       - cascata_data
 
-  redis:
-    image: redis:alpine
-    container_name: cascata-redis
+  dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly
+    container_name: cascata-dragonfly
     restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
-      - ${CASCATA_DATA_DIR:-/cascata-data}/redis:/data
+      - ${CASCATA_DATA_DIR:-/cascata-data}/dragonfly:/data
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
@@ -270,5 +271,6 @@ networks:
 
 volumes:
   temp_data:
+  cascata_sockets:
   extension_payloads:
     name: cascata_extension_payloads

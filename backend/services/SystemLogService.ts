@@ -6,7 +6,7 @@ import { Pool } from 'pg';
 import { systemPool } from '../src/config/main.js';
 
 export class SystemLogService {
-    private static redis: Redis | null = null;
+    private static dragonfly: Redis | null = null;
     private static LOG_KEY = 'sys:runtime_logs'; // Logs de console (stdout)
     private static AUDIT_KEY = 'sys:audit_buffer'; // Logs de auditoria (banco)
     private static MAX_RUNTIME_LOGS = 1000;
@@ -14,28 +14,28 @@ export class SystemLogService {
     // Configurações do Batch Processor
     private static FLUSH_INTERVAL_MS = 2000; // 2 segundos
     private static BATCH_SIZE = 500; // Até 500 logs por insert
-    private static MAX_BUFFER_SIZE = 100000; // Proteção contra estouro de memória no Redis
+    private static MAX_BUFFER_SIZE = 100000; // Proteção contra estouro de memória no Dragonfly
     private static flushTimer: any = null;
     private static isFlushing = false;
 
     public static init() {
         try {
-            // Usa conexão lazy para não bloquear o boot se o Redis demorar
-            this.redis = new Redis({
-                host: process.env.REDIS_HOST || 'redis',
-                port: parseInt(process.env.REDIS_PORT || '6379'),
+            // Usa conexão lazy para não bloquear o boot se o Dragonfly demorar
+            this.dragonfly = new Redis({
+                host: process.env.DRAGONFLY_HOST || 'dragonfly',
+                port: parseInt(process.env.DRAGONFLY_PORT || '6379'),
                 lazyConnect: true,
                 maxRetriesPerRequest: 1, // Falha rápido para não segurar a API
-                retryStrategy: (times) => Math.min(times * 100, 2000)
+                retryStrategy: (times: number) => Math.min(times * 100, 2000)
             });
 
-            this.redis.connect().catch((e) => console.error('[SystemLog] Redis connection warning (Background):', e.message));
+            this.dragonfly.connect().catch((e: any) => console.error('[SystemLog] Dragonfly connection warning (Background):', e.message));
             
             // Inicia Hooks e Workers
             this.hookConsole();
             this.startAuditWorker();
             
-            console.log('[SystemLogService] Decoupled Logging Engine Initialized (Redis Buffer Mode).');
+            console.log('[SystemLogService] Decoupled Logging Engine Initialized (Dragonfly Buffer Mode).');
         } catch (e) { console.error("Failed to init SystemLogService", e); }
     }
 
@@ -59,9 +59,9 @@ export class SystemLogService {
     }
 
     private static pushRuntimeLog(level: 'INFO' | 'ERROR', message: string | Buffer, tag: string) {
-        if (!this.redis || this.redis.status !== 'ready') return;
+        if (!this.dragonfly || this.dragonfly.status !== 'ready') return;
         
-        // Fire-and-forget: Não espera resposta do Redis
+        // Fire-and-forget: Não espera resposta do Dragonfly
         const logEntry = JSON.stringify({
             ts: new Date().toISOString(),
             lvl: level,
@@ -69,18 +69,18 @@ export class SystemLogService {
             msg: message.toString().trim()
         });
 
-        this.redis.lpush(this.LOG_KEY, logEntry).catch(() => {});
-        // Mantém tamanho fixo para não estourar RAM do Redis
-        this.redis.ltrim(this.LOG_KEY, 0, this.MAX_RUNTIME_LOGS - 1).catch(() => {});
+        this.dragonfly.lpush(this.LOG_KEY, logEntry).catch(() => {});
+        // Mantém tamanho fixo para não estourar RAM do Dragonfly
+        this.dragonfly.ltrim(this.LOG_KEY, 0, this.MAX_RUNTIME_LOGS - 1).catch(() => {});
     }
 
     public static async getLogs(limit: number = 100): Promise<any[]> {
-        if (!this.redis) return [];
+        if (!this.dragonfly) return [];
         try {
-            const rawLogs = await this.redis.lrange(this.LOG_KEY, 0, limit - 1);
-            return rawLogs.map(l => JSON.parse(l));
-        } catch (e) {
-            return [{ ts: new Date().toISOString(), lvl: 'ERROR', msg: 'Logs indisponíveis (Redis offline).' }];
+            const rawLogs = await this.dragonfly.lrange(this.LOG_KEY, 0, limit - 1);
+            return rawLogs.map((l: string) => JSON.parse(l));
+        } catch (e: any) {
+            return [{ ts: new Date().toISOString(), lvl: 'ERROR', msg: 'Logs indisponíveis (Dragonfly offline).' }];
         }
     }
 
@@ -88,21 +88,21 @@ export class SystemLogService {
 
     /**
      * Entrada de Alta Performance.
-     * Apenas serializa e joga no Redis. Retorno imediato.
+     * Apenas serializa e joga no Dragonfly. Retorno imediato.
      */
     public static bufferAuditLog(entry: any) {
-        if (!this.redis || this.redis.status !== 'ready') {
-            // Fallback seguro: se Redis cair, loga no console para não perder, mas não trava API
-            console.warn('[Audit] Redis offline, log dropped to stdout:', JSON.stringify(entry));
+        if (!this.dragonfly || this.dragonfly.status !== 'ready') {
+            // Fallback seguro: se Dragonfly cair, loga no console para não perder, mas não trava API
+            console.warn('[Audit] Dragonfly offline, log dropped to stdout:', JSON.stringify(entry));
             return;
         }
 
         const serialized = JSON.stringify(entry);
         
         // Pipeline para atomicidade e performance
-        const pipeline = this.redis.pipeline();
+        const pipeline = this.dragonfly.pipeline();
         pipeline.lpush(this.AUDIT_KEY, serialized);
-        // Cap de segurança: se o worker morrer, não enchemos o Redis infinitamente
+        // Cap de segurança: se o worker morrer, não enchemos o Dragonfly infinitamente
         pipeline.ltrim(this.AUDIT_KEY, 0, this.MAX_BUFFER_SIZE - 1);
         pipeline.exec().catch(() => {});
     }
@@ -136,11 +136,11 @@ export class SystemLogService {
      * Roda fora do ciclo de request/response.
      */
     public static async flushAuditLogs() {
-        if (this.isFlushing || !this.redis || this.redis.status !== 'ready') return;
+        if (this.isFlushing || !this.dragonfly || this.dragonfly.status !== 'ready') return;
         this.isFlushing = true;
 
         try {
-            const len = await this.redis.llen(this.AUDIT_KEY);
+            const len = await this.dragonfly.llen(this.AUDIT_KEY);
             if (len === 0) {
                 this.isFlushing = false;
                 return;
@@ -150,7 +150,7 @@ export class SystemLogService {
             const batch: any[] = [];
             
             // Pipeline de leitura para performance (RPOP = FIFO)
-            const readPipe = this.redis.pipeline();
+            const readPipe = this.dragonfly.pipeline();
             for (let i = 0; i < batchSize; i++) readPipe.rpop(this.AUDIT_KEY);
             const results = await readPipe.exec();
 
@@ -159,7 +159,8 @@ export class SystemLogService {
                 return;
             }
 
-            results.forEach(([err, res]) => {
+            results.forEach((result: any) => {
+                const [err, res] = result;
                 if (!err && res) {
                     try { batch.push(JSON.parse(res as string)); } catch(e) {}
                 }
@@ -228,6 +229,6 @@ export class SystemLogService {
         // Tenta um último flush forçado
         await this.flushAuditLogs();
         
-        if (this.redis) this.redis.disconnect();
+        if (this.dragonfly) this.dragonfly.disconnect();
     }
 }

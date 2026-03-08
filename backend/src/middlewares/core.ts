@@ -110,40 +110,54 @@ export const resolveProject: RequestHandler = async (req: any, res: any, next: a
     }
 
     try {
-        let projectResult: pg.QueryResult | undefined;
         let resolutionMethod = 'unknown';
 
-        const projectQuery = `
-        SELECT 
-            id, name, slug, db_name, custom_domain, ssl_certificate_source, blocklist, metadata, status,
-            pgp_sym_decrypt(jwt_secret::bytea, $1::text) as jwt_secret,
-            pgp_sym_decrypt(anon_key::bytea, $1::text) as anon_key,
-            pgp_sym_decrypt(service_key::bytea, $1::text) as service_key
-        FROM system.projects 
-    `;
+        // ZERO-NETWORK HOT-PATH MAGIC (Fase 1.2):
+        // Verifica se o Middleware global de Warmup já populou o `req.project` síncronamente via V8 L1 Cache
+        if (!r.project) {
+            // FALLBACK: O L1 e L2 Cache falharam, então precisamos buscar do banco e cachear
+            let projectResult: pg.QueryResult | undefined;
+            const projectQuery = `
+            SELECT 
+                id, name, slug, db_name, custom_domain, ssl_certificate_source, blocklist, metadata, status,
+                pgp_sym_decrypt(jwt_secret::bytea, $1::text) as jwt_secret,
+                pgp_sym_decrypt(anon_key::bytea, $1::text) as anon_key,
+                pgp_sym_decrypt(service_key::bytea, $1::text) as service_key
+            FROM system.projects 
+        `;
 
-        // Strategy A: Domain Resolution (Custom Domains)
-        if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
-            projectResult = await systemPool.query(`${projectQuery} WHERE custom_domain = $2`, [SYS_SECRET, host]);
-            if ((projectResult.rowCount ?? 0) > 0) resolutionMethod = 'domain';
-        }
-
-        // Strategy B: Slug Resolution (Path based)
-        if ((!projectResult || (projectResult.rowCount ?? 0) === 0) && slugFromUrl) {
-            projectResult = await systemPool.query(`${projectQuery} WHERE slug = $2`, [SYS_SECRET, slugFromUrl]);
-            if ((projectResult.rowCount ?? 0) > 0) resolutionMethod = 'slug';
-        }
-
-        if (!projectResult || !projectResult.rows[0]) {
-            // If it looks like a data API call but no project found, 404 immediately to save resources
-            if (req.originalUrl.includes('/api/data/')) {
-                res.status(404).json({ error: 'Project Context Not Found (404)' });
-                return;
+            // Strategy A: Domain Resolution (Custom Domains)
+            if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
+                projectResult = await systemPool.query(`${projectQuery} WHERE custom_domain = $2`, [SYS_SECRET, host]);
+                if ((projectResult.rowCount ?? 0) > 0) resolutionMethod = 'domain';
             }
-            return next();
+
+            // Strategy B: Slug Resolution (Path based)
+            if ((!projectResult || (projectResult.rowCount ?? 0) === 0) && slugFromUrl) {
+                projectResult = await systemPool.query(`${projectQuery} WHERE slug = $2`, [SYS_SECRET, slugFromUrl]);
+                if ((projectResult.rowCount ?? 0) > 0) resolutionMethod = 'slug';
+            }
+
+            if (!projectResult || !projectResult.rows[0]) {
+                // If it looks like a data API call but no project found, 404 immediately to save resources
+                if (req.originalUrl.includes('/api/data/')) {
+                    res.status(404).json({ error: 'Project Context Not Found (404)' });
+                    return;
+                }
+                return next();
+            }
+
+            // Popula os configs secundários e o Cache L1/L2 para o próximo request
+            const confRes = await systemPool.query("SELECT * FROM system.project_configs WHERE project_id = $1", [projectResult.rows[0].id]);
+            r.project = { ...projectResult.rows[0], config: confRes.rows[0] || {} };
+            await RateLimitService.cacheProject(r.project);
+        } else {
+            // O Cache acertou! Descobrimos o tenant na RAM sem encostar no banco ou dragonfly.
+            if (slugFromUrl && r.project.slug === slugFromUrl) resolutionMethod = 'slug';
+            else resolutionMethod = 'domain';
         }
 
-        const project = projectResult.rows[0];
+        const project = r.project;
 
         // --- 5. SECURITY GATES ---
 

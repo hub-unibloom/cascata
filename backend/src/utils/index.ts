@@ -52,7 +52,7 @@ export const validateTargetUrl = async (targetUrl: string): Promise<string> => {
             throw new Error("Blocked: localhost access denied");
         }
 
-        const internalServices = ['redis', 'db', 'backend_control', 'backend_data', 'nginx', 'nginx_controller', 'backend_engine'];
+        const internalServices = ['dragonfly', 'db', 'backend_control', 'backend_data', 'nginx', 'nginx_controller', 'backend_engine'];
         if (internalServices.includes(hostname)) {
             throw new Error("Blocked: Internal service access denied");
         }

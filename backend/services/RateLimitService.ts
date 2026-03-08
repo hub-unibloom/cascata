@@ -4,6 +4,8 @@ import { Pool } from 'pg';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
+import { LRUCache } from 'lru-cache';
+import { systemPool } from '../src/config/main.js';
 
 // --- INTERFACES ---
 interface RateLimitRule {
@@ -83,33 +85,98 @@ export interface AuthSecurityConfig {
 }
 
 export class RateLimitService {
-    private static redis: Redis | null = null;
+    private static dragonfly: Redis | null = null;
+    private static dragonflySub: Redis | null = null; // Instância dedicada para PUB/SUB
     private static rulesCache = new Map<string, RateLimitRule[]>();
 
-    // L1 Cache
+    // L1 Cache (O "Segredo" do Zero-Network Hot-Path)
+    // Usamos um LRU na memória V8 sincronamente. Muito mais rápido que ir no Dragonfly.
+    private static l1ProjectCache = new LRUCache<string, any>({
+        max: 500, // Máximo de 500 Tenants mantidos ativamente em cache local
+        ttl: 1000 * 60 * 60 * 2, // Fica vivo por 2 horas, a menos que o Pub/Sub invalide
+        updateAgeOnGet: true
+    });
+
     private static keysCache = new Map<string, { data: ApiKeyData, cachedAt: number }>();
     private static groupsCache = new Map<string, { data: KeyGroupData, cachedAt: number }>();
     private static CACHE_TTL = 60 * 1000;
 
-    private static isRedisHealthy = false;
+    private static isDragonflyHealthy = false;
 
     public static init() {
         try {
-            this.redis = new Redis({
-                host: process.env.REDIS_HOST || 'redis',
-                port: parseInt(process.env.REDIS_PORT || '6379'),
+            const dragonflyOpts = {
+                host: process.env.DRAGONFLY_HOST || 'dragonfly',
+                port: parseInt(process.env.DRAGONFLY_PORT || '6379'),
                 maxRetriesPerRequest: 1,
-                retryStrategy: (times) => Math.min(times * 200, 5000),
+                retryStrategy: (times: number) => Math.min(times * 200, 5000),
                 enableOfflineQueue: false,
                 lazyConnect: true
+            };
+
+            this.dragonfly = new Redis(dragonflyOpts);
+            this.dragonflySub = new Redis(dragonflyOpts);
+
+            // Dragonfly principal (Comandos)
+            this.dragonfly.connect().catch((e: any) => console.warn("[RateLimit] Initial Dragonfly connect failed:", e.message));
+            this.dragonfly.on('error', (err: any) => { this.isDragonflyHealthy = false; });
+            this.dragonfly.on('connect', () => { 
+                console.log('[RateLimit] Dragonfly Connected & Healthy.'); 
+                this.isDragonflyHealthy = true; 
             });
 
-            this.redis.connect().catch((e: any) => console.warn("[RateLimit] Initial Redis connect failed:", e.message));
-            this.redis.on('error', (err) => { this.isRedisHealthy = false; });
-            this.redis.on('connect', () => { console.log('[RateLimit] Redis Connected & Healthy.'); this.isRedisHealthy = true; });
+            // Dragonfly Sub (Escutando Invalidações Globais)
+            this.dragonflySub.connect().then(() => {
+                this.dragonflySub?.subscribe('sys:cache:invalidate', (err: any, count: any) => {
+                    if (err) console.error("Failed to subscribe to invalidation channel", err);
+                });
+                
+                // DRAGONFLY SEMANTIC CACHE (Fase 1.3)
+                this.dragonflySub?.subscribe('cascata_cache_invalidate', (err: any, count: any) => {
+                    if (err) console.error("Failed to subscribe to semantic cache invalidation", err);
+                });
+            }).catch(() => {});
+
+            this.dragonflySub.on('message', async (channel: string, message: string) => {
+                if (channel === 'sys:cache:invalidate') {
+                    // A mensagem pode vir como slug ou custom_domain. Ex: "meu_app" ou "api.meuapp.com"
+                    // Por garantia, se for "slug:x", dropamos "slug:x". O LRU cuida do formato exato salvo.
+                    if (message.startsWith('slug:')) {
+                        this.l1ProjectCache.delete(message);
+                    } else if (message.startsWith('domain:')) {
+                        this.l1ProjectCache.delete(message);
+                    } else {
+                        // Se mandaram só o identificador brunto, varremos e removemos por segurança.
+                        this.l1ProjectCache.delete(`slug:${message}`);
+                        this.l1ProjectCache.delete(`domain:${message}`);
+                    }
+                    console.log(`[L1 Cache] Interceptor dropped project config for: ${message}`);
+                }
+                
+                // DRAGONFLY SEMANTIC CACHE (Fase 1.3)
+                // Se o DB nos avisa que uma tabela mudou, limpamos toda a query pool dela
+                if (channel === 'cascata_cache_invalidate') {
+                    try {
+                        const payload = JSON.parse(message);
+                        if (payload.table && this.dragonfly && this.isDragonflyHealthy) {
+                            // Deleta todas as keys qcache:Tabela:*
+                            // Num cenário extreme scale, usaríamos SCAN, mas p/ fase 1 KEYS com drop asincrono em NodeJS resolve.
+                            const keys = await this.dragonfly.keys(`qcache:${payload.table}:*`);
+                            if (keys.length > 0) {
+                                await this.dragonfly.del(...keys);
+                                console.log(`[Semantic Cache] Ejected ${keys.length} cached queries for table: ${payload.table}`);
+                            }
+                        }
+                    } catch (err) {
+                        console.error("[Semantic Cache] Invalidation Parsing Error", err);
+                    }
+                }
+            });
+
         } catch (e) {
-            console.error("[RateLimit] Fatal Redis Init Error:", e);
-            this.redis = null;
+            console.error("[RateLimit] Fatal Dragonfly Init Error:", e);
+            this.dragonfly = null;
+            this.dragonflySub = null;
         }
     }
 
@@ -120,13 +187,13 @@ export class RateLimitService {
     // --- STORAGE QUOTA CACHING & LOCKING ---
 
     public static async reserveStorage(projectSlug: string, bytes: number, ttlSeconds: number = 3600) {
-        if (!this.redis || !this.isRedisHealthy) return;
+        if (!this.dragonfly || !this.isDragonflyHealthy) return;
         try {
             const key = `storage:reserved:${projectSlug}`;
             const reservationId = crypto.randomUUID();
             const itemKey = `${key}:${reservationId}`;
 
-            const pipe = this.redis.multi();
+            const pipe = this.dragonfly.multi();
             pipe.set(itemKey, bytes, 'EX', ttlSeconds);
             await pipe.exec();
 
@@ -135,81 +202,157 @@ export class RateLimitService {
     }
 
     public static async releaseStorage(projectSlug: string, reservationId: string) {
-        if (!this.redis || !this.isRedisHealthy || !reservationId) return;
+        if (!this.dragonfly || !this.isDragonflyHealthy || !reservationId) return;
         try {
             const itemKey = `storage:reserved:${projectSlug}:${reservationId}`;
-            await this.redis.del(itemKey);
+            await this.dragonfly.del(itemKey);
         } catch (e) { console.error("[StorageLock] Release failed", e); }
     }
 
     public static async getReservedStorage(projectSlug: string): Promise<number> {
-        if (!this.redis || !this.isRedisHealthy) return 0;
+        if (!this.dragonfly || !this.isDragonflyHealthy) return 0;
         try {
-            const keys = await this.redis.keys(`storage:reserved:${projectSlug}:*`);
+            const keys = await this.dragonfly.keys(`storage:reserved:${projectSlug}:*`);
             if (keys.length === 0) return 0;
 
-            const values = await this.redis.mget(keys);
-            return values.reduce((acc, val) => acc + (parseInt(val || '0') || 0), 0);
+            const values = await this.dragonfly.mget(keys);
+            return values.reduce((acc: number, val: string | null) => acc + (parseInt(val || '0') || 0), 0);
         } catch (e) { return 0; }
     }
 
     // NEW: Caching methods for Storage Quota Optimization
     public static async getProjectStorageUsage(projectSlug: string): Promise<number | null> {
-        if (!this.redis || !this.isRedisHealthy) return null;
+        if (!this.dragonfly || !this.isDragonflyHealthy) return null;
         try {
-            const val = await this.redis.get(`storage:usage:${projectSlug}`);
+            const val = await this.dragonfly.get(`storage:usage:${projectSlug}`);
             return val ? parseInt(val) : null;
         } catch (e) { return null; }
     }
 
     public static async setProjectStorageUsage(projectSlug: string, bytes: number, ttlSeconds: number = 3600) {
-        if (!this.redis || !this.isRedisHealthy) return;
+        if (!this.dragonfly || !this.isDragonflyHealthy) return;
         try {
-            await this.redis.set(`storage:usage:${projectSlug}`, bytes, 'EX', ttlSeconds);
+            await this.dragonfly.set(`storage:usage:${projectSlug}`, bytes, 'EX', ttlSeconds);
         } catch (e) { }
     }
 
     public static async invalidateProjectStorageUsage(projectSlug: string) {
-        if (!this.redis || !this.isRedisHealthy) return;
+        if (!this.dragonfly || !this.isDragonflyHealthy) return;
         try {
-            await this.redis.del(`storage:usage:${projectSlug}`);
+            await this.dragonfly.del(`storage:usage:${projectSlug}`);
         } catch (e) { }
     }
 
-    // --- PROJECT CACHING (System Protection) ---
-    public static async getCachedProject(identifier: string, type: 'slug' | 'domain'): Promise<any | null> {
-        if (!this.redis || !this.isRedisHealthy) return null;
+    // --- PROJECT CACHING (System Protection & L1 Sync Acceleration) ---
+    public static getCachedProjectSync(identifier: string, type: 'slug' | 'domain'): any | null {
+        // Leitura SÍNCRONA, bloqueante de 0ms diretamente da RAM V8
+        const key = `${type}:${identifier}`;
+        return this.l1ProjectCache.get(key) || null;
+    }
+
+    public static async getCachedProjectL2(identifier: string, type: 'slug' | 'domain'): Promise<any | null> {
+        if (!this.dragonfly || !this.isDragonflyHealthy) return null;
         try {
-            const key = `sys:project:${type}:${identifier}`;
-            const data = await this.redis.get(key);
-            return data ? JSON.parse(data) : null;
+            const l2Key = `sys:project:${type}:${identifier}`;
+            const data = await this.dragonfly.get(l2Key);
+            if (data) {
+                const parsed = JSON.parse(data);
+                // Se achou no L2 (Dragonfly), retro-alimenta o L1 (V8 Heap)
+                this.l1ProjectCache.set(`${type}:${identifier}`, parsed);
+                return parsed;
+            }
+            return null;
         } catch (e) { return null; }
     }
 
     public static async cacheProject(project: any) {
-        if (!this.redis || !this.isRedisHealthy) return;
+        // Salva síncronamente no L1 local
+        this.l1ProjectCache.set(`slug:${project.slug}`, project);
+        if (project.custom_domain) {
+            this.l1ProjectCache.set(`domain:${project.custom_domain}`, project);
+        }
+
+        // Salva assíncronamente no L2 (Dragonfly) pra outros workers
+        if (!this.dragonfly || !this.isDragonflyHealthy) return;
         try {
-            await this.redis.set(`sys:project:slug:${project.slug}`, JSON.stringify(project), 'EX', 60);
+            await this.dragonfly.set(`sys:project:slug:${project.slug}`, JSON.stringify(project), 'EX', 60 * 60 * 24); // 24h L2 Cache TTL
             if (project.custom_domain) {
-                await this.redis.set(`sys:project:domain:${project.custom_domain}`, JSON.stringify(project), 'EX', 60);
+                await this.dragonfly.set(`sys:project:domain:${project.custom_domain}`, JSON.stringify(project), 'EX', 60 * 60 * 24);
             }
         } catch (e) { }
     }
 
+    public static async warmupProjectContext(req: any) {
+        // Tenta inferir de qual tenant é essa request
+        let slugResolver = null;
+        let domainResolver = null;
+
+        const host = req.headers.host?.split(':')[0] || '';
+        
+        if (req.url.startsWith('/api/data/')) {
+            const parts = req.url.split('/');
+            if (parts.length >= 4) slugResolver = parts[3];
+        } else if (host && host !== 'localhost' && host !== '127.0.0.1' && !host.includes('cascata-api')) {
+            domainResolver = host;
+        }
+
+        if (!slugResolver && !domainResolver) return;
+
+        // Fase 1: Zero-Network (Ram Síncrona, 0 microsegundos de atraso I/O)
+        const l1Hit = slugResolver 
+            ? this.getCachedProjectSync(slugResolver, 'slug')
+            : this.getCachedProjectSync(domainResolver!, 'domain');
+        
+        if (l1Hit) {
+            req.project = l1Hit;
+            return;
+        }
+
+        // Fase 2: Low-Network (Dragonfly, ~0.2ms de atraso I/O)
+        const l2Hit = slugResolver
+            ? await this.getCachedProjectL2(slugResolver, 'slug')
+            : await this.getCachedProjectL2(domainResolver!, 'domain');
+
+        if (l2Hit) {
+            req.project = l2Hit;
+            return;
+        }
+
+        // Fase 3: High-I/O Penalty (Fallback pro Banco de Dados, custa conexão e trava Node)
+        try {
+            const query = slugResolver 
+                ? "SELECT * FROM system.projects WHERE slug = $1"
+                : "SELECT * FROM system.projects WHERE custom_domain = $1";
+            const val = slugResolver ? slugResolver : domainResolver;
+            
+            const res = await systemPool.query(query, [val]);
+            if (res.rows.length > 0) {
+                const confRes = await systemPool.query("SELECT * FROM system.project_configs WHERE project_id = $1", [res.rows[0].id]);
+                const project = { ...res.rows[0], config: confRes.rows[0] || {} };
+                
+                // Popula o cache para NUNCA MAIS ter que esperar o Banco
+                await this.cacheProject(project); 
+                req.project = project;
+            }
+        } catch (e) {
+            console.error(`[Warmup] Falha grave ao resolver ${slugResolver || domainResolver}:`, e);
+        }
+    }
+
     public static async isTokenBlacklisted(token: string): Promise<boolean> {
-        if (!this.redis || !this.isRedisHealthy) return false;
+        if (!this.dragonfly || !this.isDragonflyHealthy) return false;
         try {
             const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-            return (await this.redis.exists(`blacklist:jwt:${tokenHash}`)) === 1;
+            return (await this.dragonfly.exists(`blacklist:jwt:${tokenHash}`)) === 1;
         } catch (e) { return false; }
     }
 
     public static async blacklistToken(token: string, ttlSeconds: number): Promise<void> {
-        if (!this.redis || !this.isRedisHealthy) return;
+        if (!this.dragonfly || !this.isDragonflyHealthy) return;
         try {
             const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
             const key = `blacklist:jwt:${tokenHash}`;
-            await this.redis.set(key, 'revoked', 'EX', ttlSeconds);
+            await this.dragonfly.set(key, 'revoked', 'EX', ttlSeconds);
         } catch (e) { console.error("[TokenSecurity] Failed to blacklist:", e); }
     }
 
@@ -218,10 +361,10 @@ export class RateLimitService {
     }
 
     public static async trackGlobalRPS(slug: string) {
-        if (!this.redis || !this.isRedisHealthy) return;
+        if (!this.dragonfly || !this.isDragonflyHealthy) return;
         try {
             const key = `rps:${slug}`;
-            const pipe = this.redis.multi();
+            const pipe = this.dragonfly.multi();
             pipe.incr(key);
             pipe.expire(key, 2);
             await pipe.exec();
@@ -229,23 +372,23 @@ export class RateLimitService {
     }
 
     public static async getCurrentRPS(slug: string): Promise<number> {
-        if (!this.redis || !this.isRedisHealthy) return 0;
+        if (!this.dragonfly || !this.isDragonflyHealthy) return 0;
         try {
-            const count = await this.redis.get(`rps:${slug}`);
+            const count = await this.dragonfly.get(`rps:${slug}`);
             return parseInt(count || '0');
         } catch (e) { return 0; }
     }
 
     public static async checkPanic(slug: string): Promise<boolean> {
-        if (!this.redis || !this.isRedisHealthy) return false;
-        try { return (await this.redis.get(`panic:${slug}`)) === 'true'; } catch (e) { return false; }
+        if (!this.dragonfly || !this.isDragonflyHealthy) return false;
+        try { return (await this.dragonfly.get(`panic:${slug}`)) === 'true'; } catch (e) { return false; }
     }
 
     public static async setPanic(slug: string, state: boolean): Promise<void> {
-        if (!this.redis || !this.isRedisHealthy) return;
+        if (!this.dragonfly || !this.isDragonflyHealthy) return;
         try {
-            if (state) await this.redis.set(`panic:${slug}`, 'true');
-            else await this.redis.del(`panic:${slug}`);
+            if (state) await this.dragonfly.set(`panic:${slug}`, 'true');
+            else await this.dragonfly.del(`panic:${slug}`);
         } catch (e) { }
     }
 
@@ -357,7 +500,7 @@ export class RateLimitService {
         systemPool: Pool,
         authToken?: string
     ): Promise<RateCheckResult> {
-        if (!this.redis || !this.isRedisHealthy) return { blocked: false };
+        if (!this.dragonfly || !this.isDragonflyHealthy) return { blocked: false };
 
         let subject = ip;
         let ruleId = 'default';
@@ -467,12 +610,12 @@ export class RateLimitService {
 
         const key = `rate:${projectSlug}:${tier}:${subject}:${ruleId}`;
         try {
-            const pipeline = this.redis.multi();
+            const pipeline = this.dragonfly.multi();
             pipeline.incr(key);
             pipeline.ttl(key);
             const results = await pipeline.exec();
 
-            if (!results) throw new Error("Redis failed");
+            if (!results) throw new Error("Dragonfly failed");
             const [incrErr, incrRes] = results[0];
             const [ttlErr, ttlRes] = results[1];
             if (incrErr) throw incrErr;
@@ -480,7 +623,7 @@ export class RateLimitService {
             const count = incrRes as number;
             const currentTtl = ttlRes as number;
 
-            if (currentTtl === -1) await this.redis.expire(key, windowSecs);
+            if (currentTtl === -1) await this.dragonfly.expire(key, windowSecs);
 
             const totalLimit = limit + burst;
             if (count > totalLimit) {
@@ -505,7 +648,7 @@ export class RateLimitService {
     }
 
     public static async checkAuthLockout(slug: string, ip: string, identifier?: string, config?: AuthSecurityConfig): Promise<{ locked: boolean, reason?: string }> {
-        if (!this.redis || !this.isRedisHealthy || !config || config.disabled) return { locked: false };
+        if (!this.dragonfly || !this.isDragonflyHealthy || !config || config.disabled) return { locked: false };
 
         const strategy = config.strategy || 'hybrid';
         const maxAttempts = config.max_attempts || 5;
@@ -514,7 +657,7 @@ export class RateLimitService {
             // 1. IP-Level Global Strike Check (Heuristic: 3x the max attempts means someone is spraying this IP)
             if (strategy === 'hybrid' || strategy === 'ip') {
                 const ipKey = `lockout:ip:${slug}:${ip}`;
-                const ipStrikes = parseInt(await this.redis.get(ipKey) || '0');
+                const ipStrikes = parseInt(await this.dragonfly.get(ipKey) || '0');
                 if (ipStrikes >= (maxAttempts * 3)) {
                     return { locked: true, reason: `Too many failed attempts from your network. Locked for ${config.lockout_minutes || 15} minutes.` };
                 }
@@ -523,7 +666,7 @@ export class RateLimitService {
             // 2. Identifier-Level Check (email, username, phone, etc)
             if (identifier && (strategy === 'hybrid' || strategy === 'identifier' || strategy === 'email')) {
                 const idKey = `lockout:id:${slug}:${identifier}`;
-                const idStrikes = parseInt(await this.redis.get(idKey) || '0');
+                const idStrikes = parseInt(await this.dragonfly.get(idKey) || '0');
                 if (idStrikes >= maxAttempts) {
                     return { locked: true, reason: `Too many failed attempts for this account. Locked for ${config.lockout_minutes || 15} minutes.` };
                 }
@@ -531,19 +674,19 @@ export class RateLimitService {
 
             return { locked: false };
         } catch (e) {
-            console.error("[EdgeFirewall] Redis Check Error:", e);
-            return { locked: false }; // Fail open if Redis drops
+            console.error("[EdgeFirewall] Dragonfly Check Error:", e);
+            return { locked: false }; // Fail open if Dragonfly drops
         }
     }
 
     public static async registerAuthFailure(slug: string, ip: string, identifier?: string, config?: AuthSecurityConfig) {
-        if (!this.redis || !this.isRedisHealthy || !config || config.disabled) return;
+        if (!this.dragonfly || !this.isDragonflyHealthy || !config || config.disabled) return;
 
         const strategy = config.strategy || 'hybrid';
         const lockoutSeconds = (config.lockout_minutes || 15) * 60;
 
         try {
-            const pipe = this.redis.multi();
+            const pipe = this.dragonfly.multi();
 
             // Record IP Strike
             if (strategy === 'hybrid' || strategy === 'ip') {
@@ -563,14 +706,14 @@ export class RateLimitService {
 
             await pipe.exec();
         } catch (e) {
-            console.error("[EdgeFirewall] Redis Register Failure Error:", e);
+            console.error("[EdgeFirewall] Dragonfly Register Failure Error:", e);
         }
     }
 
     public static async clearAuthFailure(slug: string, ip: string, identifier?: string) {
-        if (!this.redis || !this.isRedisHealthy) return;
+        if (!this.dragonfly || !this.isDragonflyHealthy) return;
         try {
-            const pipe = this.redis.multi();
+            const pipe = this.dragonfly.multi();
             pipe.del(`lockout:ip:${slug}:${ip}`);
             if (identifier) pipe.del(`lockout:id:${slug}:${identifier}`);
             await pipe.exec();
