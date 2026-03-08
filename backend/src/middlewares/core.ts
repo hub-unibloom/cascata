@@ -148,8 +148,15 @@ export const resolveProject: RequestHandler = async (req: any, res: any, next: a
             }
 
             // Popula os configs secundários e o Cache L1/L2 para o próximo request
-            const confRes = await systemPool.query("SELECT * FROM system.project_configs WHERE project_id = $1", [projectResult.rows[0].id]);
-            r.project = { ...projectResult.rows[0], config: confRes.rows[0] || {} };
+            let projectConfig = {};
+            try {
+                const confRes = await systemPool.query("SELECT * FROM system.project_configs WHERE project_id = $1", [projectResult.rows[0].id]);
+                projectConfig = confRes.rows[0] || {};
+            } catch (configErr) {
+                // system.project_configs pode não existir ainda — fallback seguro a {}
+                console.warn('[Resolution] project_configs query failed (table may not exist), using defaults.');
+            }
+            r.project = { ...projectResult.rows[0], config: projectConfig };
             await RateLimitService.cacheProject(r.project);
         } else {
             // O Cache acertou! Descobrimos o tenant na RAM sem encostar no banco ou dragonfly.

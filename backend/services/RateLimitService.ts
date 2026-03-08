@@ -320,15 +320,30 @@ export class RateLimitService {
 
         // Fase 3: High-I/O Penalty (Fallback pro Banco de Dados, custa conexão e trava Node)
         try {
+            const sysSecret = process.env.SYSTEM_JWT_SECRET || '';
             const query = slugResolver 
-                ? "SELECT * FROM system.projects WHERE slug = $1"
-                : "SELECT * FROM system.projects WHERE custom_domain = $1";
+                ? `SELECT id, name, slug, db_name, custom_domain, ssl_certificate_source, blocklist, metadata, status,
+                          pgp_sym_decrypt(jwt_secret::bytea, $1::text) as jwt_secret,
+                          pgp_sym_decrypt(anon_key::bytea, $1::text) as anon_key,
+                          pgp_sym_decrypt(service_key::bytea, $1::text) as service_key
+                   FROM system.projects WHERE slug = $2`
+                : `SELECT id, name, slug, db_name, custom_domain, ssl_certificate_source, blocklist, metadata, status,
+                          pgp_sym_decrypt(jwt_secret::bytea, $1::text) as jwt_secret,
+                          pgp_sym_decrypt(anon_key::bytea, $1::text) as anon_key,
+                          pgp_sym_decrypt(service_key::bytea, $1::text) as service_key
+                   FROM system.projects WHERE custom_domain = $2`;
             const val = slugResolver ? slugResolver : domainResolver;
             
-            const res = await systemPool.query(query, [val]);
+            const res = await systemPool.query(query, [sysSecret, val]);
             if (res.rows.length > 0) {
-                const confRes = await systemPool.query("SELECT * FROM system.project_configs WHERE project_id = $1", [res.rows[0].id]);
-                const project = { ...res.rows[0], config: confRes.rows[0] || {} };
+                let projectConfig = {};
+                try {
+                    const confRes = await systemPool.query("SELECT * FROM system.project_configs WHERE project_id = $1", [res.rows[0].id]);
+                    projectConfig = confRes.rows[0] || {};
+                } catch (configErr) {
+                    // system.project_configs pode não existir ainda — fallback seguro a {}
+                }
+                const project = { ...res.rows[0], config: projectConfig };
                 
                 // Popula o cache para NUNCA MAIS ter que esperar o Banco
                 await this.cacheProject(project); 
