@@ -58,3 +58,47 @@ sudo chmod -R 755 /cascata-data
 
 # Subir containers
 docker compose up -d --build
+
+
+
+----------
+#1-instalaro docker
+
+# 2. Atualizar o sistema
+sudo apt update
+sudo apt install -y ca-certificates curl gnupg lsb-release
+
+# 3. Criar diretório de chaves (padrão moderno)
+sudo install -m 0755 -d /etc/apt/keyrings
+
+# 4. Baixar e registrar a chave oficial do Docker
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+  | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+# 5. Adicionar o repositório oficial do Docker (Ubuntu 24.04 - noble)
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+  https://download.docker.com/linux/ubuntu \
+  $(lsb_release -cs) stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# 6. Atualizar novamente com o repositório novo
+sudo apt update
+
+# 7. Instalar Docker Engine + CLI + Containerd + Compose (plugin oficial)
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# 8. Habilitar Docker no boot e iniciar agora
+sudo systemctl enable docker
+sudo systemctl start docker
+
+# 9. Adicionar o usuário atual ao grupo docker
+sudo usermod -aG docker $USER
+
+sudo apt update
+sudo apt upgrade -y
+
+# 10. Aplicar o grupo imediatamente (sem reboot)
+newgrp docker

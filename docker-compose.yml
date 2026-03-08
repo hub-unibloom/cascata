@@ -1,3 +1,4 @@
+services: 
   nginx:
     image: nginx:alpine
     container_name: cascata-nginx
