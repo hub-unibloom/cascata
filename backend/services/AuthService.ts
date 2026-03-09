@@ -582,7 +582,7 @@ export class AuthService {
         const providerAutoVerify = authConfig?.providers?.[profile.provider]?.auto_verify === true;
         
         const res = await projectPool.query(
-            `SELECT auth.upsert_user($1::jsonb, $2::boolean) as user_id`,
+            `SELECT auth.upsert_user_v2($1::jsonb, $2::boolean) as user_id`,
             [JSON.stringify(profile), providerAutoVerify]
         );
         return res.rows[0].user_id as string;
@@ -663,7 +663,7 @@ export class AuthService {
         // C-Level Database Macro Execution (1 RCP Roundtrip)
         // Substituindo 7 queries manuais (BEGIN, SELECT, UPDATE, INSERT, SELECT, COMMIT) 
         const res = await projectPool.query(
-            `SELECT * FROM auth.refresh_session($1, $2, $3, $4)`,
+            `SELECT * FROM auth.refresh_session_v2($1, $2, $3, $4)`,
             [tokenHash, newTokenHash, deviceInfo.ip || null, deviceInfo.userAgent || null]
         );
         
@@ -690,7 +690,7 @@ export class AuthService {
     public static getInstallSql(): string {
         return `
         -- IDENTITY-FIRST AUTHENTICATOR (The Holy Grail)
-        CREATE OR REPLACE FUNCTION auth.upsert_user(profile jsonb, auto_verify boolean)
+        CREATE OR REPLACE FUNCTION auth.upsert_user_v2(profile jsonb, auto_verify boolean)
         RETURNS uuid AS $$
         DECLARE
             v_user_id uuid;
@@ -739,7 +739,7 @@ export class AuthService {
         END;
         $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-        CREATE OR REPLACE FUNCTION auth.refresh_session(p_old_hash text, p_new_hash text, p_ip text, p_ua text)
+        CREATE OR REPLACE FUNCTION auth.refresh_session_v2(p_old_hash text, p_new_hash text, p_ip text, p_ua text)
         RETURNS TABLE (status text, p_user_id uuid, p_user_meta jsonb) AS $$
         DECLARE
             v_token record;

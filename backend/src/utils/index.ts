@@ -424,7 +424,6 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
 
                 const transactionSql = `
                     SET LOCAL statement_timeout = '30s';
-                    SET LOCAL ROLE ${role === 'authenticated' ? 'authenticated' : 'anon'};
                     SELECT set_config('request.jwt.claim.sub', $1, true),
                            set_config('request.jwt.claim.role', $2, true),
                            set_config('request.jwt.claim.email', $3, true);

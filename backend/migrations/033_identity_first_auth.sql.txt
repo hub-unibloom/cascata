@@ -1,12 +1,11 @@
--- CASCATA ORCHESTRATOR - PRODUCTION-GRADE AUTHENTICATION & RLS BLINDAGEM
--- This migration implements "Identity-First" authentication and renames core functions to remove "v2" messiness.
--- Ensures that authentication is provider-agnostic and RLS is correctly enforced at the role level.
+-- CASCATA ORCHESTRATOR - IDENTITY-FIRST AUTH (The Holy Grail)
+-- This migration implements robust, provider-agnostic user identification.
+-- It prioritizes auth.identities (intitilites) and merges metadata safely.
 
 BEGIN;
 
--- 1. IDENTITY-FIRST AUTHENTICATOR
--- Prioritizes (provider, identifier) and performs safe metadata merging.
-CREATE OR REPLACE FUNCTION auth.upsert_user(profile jsonb, auto_verify boolean)
+-- 1. IDENTITY-FIRST UPSERT (The Holy Grail Authenticator)
+CREATE OR REPLACE FUNCTION auth.upsert_user_v2(profile jsonb, auto_verify boolean)
 RETURNS uuid AS $$
 DECLARE
     v_user_id uuid;
@@ -18,18 +17,19 @@ BEGIN
     v_identifier := profile->>'id';
 
     -- [A] Eixo Principal: Identidade (O vínculo imutável e soberano)
+    -- Verifica se já existe uma identidade (intitilites) para este par (provider, id)
     SELECT u.id INTO v_user_id 
     FROM auth.identities i
     JOIN auth.users u ON i.user_id = u.id
     WHERE i.provider = v_provider AND i.identifier = v_identifier;
 
     IF v_user_id IS NULL THEN
-        -- [B] Eixo Secundário: Cross-Link via Email (Confiável apenas como facilitador de migração)
+        -- [B] Eixo Secundário: Cross-Link via Email (Confiável apenas como facilitador)
         IF profile->>'email' IS NOT NULL THEN
             SELECT id INTO v_user_id FROM auth.users WHERE raw_user_meta_data->>'email' = profile->>'email' LIMIT 1;
         END IF;
 
-        -- [C] Criação de Usuário Neutro
+        -- [C] Criação de Usuário Neutro (Se não existir por identidade nem por email)
         IF v_user_id IS NULL THEN
             INSERT INTO auth.users (raw_user_meta_data, created_at, last_sign_in_at) 
             VALUES (profile, now(), now())
@@ -40,13 +40,14 @@ BEGIN
         INSERT INTO auth.identities (user_id, provider, identifier, identity_data, created_at, last_sign_in_at, verified_at) 
         VALUES (v_user_id, v_provider, v_identifier, profile, now(), now(), CASE WHEN auto_verify THEN now() ELSE NULL END);
     ELSE
-        -- [E] Rastro de Acesso
+        -- [E] Rastro de Acesso (Update em usuário existente)
         UPDATE auth.users SET last_sign_in_at = now() WHERE id = v_user_id;
         UPDATE auth.identities SET last_sign_in_at = now(), identity_data = profile 
         WHERE provider = v_provider AND identifier = v_identifier;
     END IF;
 
-    -- [F] Sincronização de Metadados (Holy Grail Merge)
+    -- [F] Sincronização de Metadados (Merge Seguro)
+    -- Preserva dados existentes e adiciona/sobrescreve com os novos do profile
     SELECT raw_user_meta_data INTO v_current_meta FROM auth.users WHERE id = v_user_id;
     UPDATE auth.users SET raw_user_meta_data = COALESCE(v_current_meta, '{}'::jsonb) || profile 
     WHERE id = v_user_id;
@@ -56,8 +57,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- 2. ATOMIC SESSION ROTATOR
--- Implements immutable chaining of refresh tokens (Perfect Forward Secrecy).
-CREATE OR REPLACE FUNCTION auth.refresh_session(p_old_hash text, p_new_hash text, p_ip text, p_ua text)
+CREATE OR REPLACE FUNCTION auth.refresh_session_v2(p_old_hash text, p_new_hash text, p_ip text, p_ua text)
 RETURNS TABLE (status text, p_user_id uuid, p_user_meta jsonb) AS $$
 DECLARE
     v_token record;
@@ -70,23 +70,18 @@ BEGIN
     IF NOT FOUND THEN RETURN QUERY SELECT 'invalid_token'::text, NULL::uuid, NULL::jsonb; RETURN; END IF;
     IF v_token.revoked THEN RETURN QUERY SELECT 'revoked_reuse_detected'::text, NULL::uuid, NULL::jsonb; RETURN; END IF;
 
-    -- [B] Invalidação do Antecessor
+    -- [B] Invalidação do Token Anterior
     UPDATE auth.refresh_tokens SET revoked = true WHERE id = v_token.id;
 
-    -- [C] Rotação e Vínculo Hereditário
+    -- [C] Rotação e Vínculo
     INSERT INTO auth.refresh_tokens (token_hash, user_id, expires_at, parent_token, ip_address, user_agent) 
     VALUES (p_new_hash, v_token.user_id, now() + interval '30 days', v_token.id, p_ip, p_ua);
 
-    -- [D] Perfil Enriquecido
+    -- [D] Recuperação de Perfil
     SELECT raw_user_meta_data INTO v_user_meta FROM auth.users WHERE id = v_token.user_id;
 
     RETURN QUERY SELECT 'success'::text, v_token.user_id, v_user_meta;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- 3. CLEANUP LEGACY
--- Deletes old versions to maintain "Masterpiece" standard.
-DROP FUNCTION IF EXISTS auth.upsert_user_v2(jsonb, boolean);
-DROP FUNCTION IF EXISTS auth.refresh_session_v2(text, text, text, text);
 
 COMMIT;
