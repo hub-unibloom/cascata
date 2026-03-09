@@ -423,19 +423,21 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
                 }
 
                 const transactionSql = `
-                    SET LOCAL statement_timeout = '30s';
-                    SELECT set_config('request.jwt.claim.sub', $1, true),
-                           set_config('request.jwt.claim.role', $2, true),
-                           set_config('request.jwt.claim.email', $3, true);
-                    ${renumberedQuery};
+                    WITH rls_setup AS (
+                        SELECT 
+                            set_config('request.jwt.claim.sub', $1, true) as sub,
+                            set_config('request.jwt.claim.role', $2, true) as role,
+                            set_config('request.jwt.claim.email', $3, true) as email,
+                            set_config('statement_timeout', '30000', true) as timeout
+                    )
+                    ${renumberedQuery.trim().replace(/;$/, '')}
                 `;
 
-                // Executamos no formato 'simple query' para permitir múltiplos statements num único roundtrip físico.
-                // nota: o driver pg retorna um array de resultados quando há múltiplos comandos.
                 const results = await client.query(transactionSql, allParams);
                 
-                // O resultado da query real é o último elemento do array (SET, SET, SELECT, [QUERY REAL])
-                const finalResult = Array.isArray(results) ? results[results.length - 1] : results;
+                // Em modo single statement com CTE, results nunca vira array a menos que usemos batching explicito.
+                // Mas mantemos a compatibilidade com o retorno esperado.
+                const finalResult = (Array.isArray(results) && results.length > 0) ? results[results.length - 1] : results;
                 
                 // ======================================================================
                 // CAMADA 5: DRAGONFLY SEMÁFORO SET (Pós-Write)
