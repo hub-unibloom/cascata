@@ -576,12 +576,13 @@ export class AuthService {
 
     public static async upsertUser(projectPool: Pool, profile: UserProfile, authConfig?: any): Promise<string> {
         // O SANTO GRAAL: 1-Roundtrip Authenticator
-        // Bypass complete da metralhadora N+1 (BEGIN, SELECT, SELECT, INSERT, UPDATE, COMMIT = 6 TCP Roundtrips)
-        // Substituido por uma funcao nativa PL/pgSQL encapsulada. 1 TCP Roundtrip.
+        // Bypass completo da metralhadora N+1 (BEGIN, SELECT, SELECT, INSERT, UPDATE, COMMIT = 6 TCP Roundtrips)
+        // Substituído por uma função nativa PL/pgSQL encapsulada. 1 TCP Roundtrip.
+        // Fiel ao modelo de Identidades (Identity-First): Prioriza o vínculo (provider, identifier).
         const providerAutoVerify = authConfig?.providers?.[profile.provider]?.auto_verify === true;
         
         const res = await projectPool.query(
-            `SELECT auth.upsert_user_v2($1::jsonb, $2::boolean) as user_id`,
+            `SELECT auth.upsert_user($1::jsonb, $2::boolean) as user_id`,
             [JSON.stringify(profile), providerAutoVerify]
         );
         return res.rows[0].user_id as string;
@@ -662,7 +663,7 @@ export class AuthService {
         // C-Level Database Macro Execution (1 RCP Roundtrip)
         // Substituindo 7 queries manuais (BEGIN, SELECT, UPDATE, INSERT, SELECT, COMMIT) 
         const res = await projectPool.query(
-            `SELECT * FROM auth.refresh_session_v2($1, $2, $3, $4)`,
+            `SELECT * FROM auth.refresh_session($1, $2, $3, $4)`,
             [tokenHash, newTokenHash, deviceInfo.ip || null, deviceInfo.userAgent || null]
         );
         
@@ -688,77 +689,77 @@ export class AuthService {
 
     public static getInstallSql(): string {
         return `
-        CREATE OR REPLACE FUNCTION auth.upsert_user_v2(profile jsonb, auto_verify boolean)
+        -- IDENTITY-FIRST AUTHENTICATOR (The Holy Grail)
+        CREATE OR REPLACE FUNCTION auth.upsert_user(profile jsonb, auto_verify boolean)
         RETURNS uuid AS $$
         DECLARE
             v_user_id uuid;
             v_current_meta jsonb;
+            v_provider text;
+            v_identifier text;
         BEGIN
-            -- 1. Check Identity
+            v_provider := profile->>'provider';
+            v_identifier := profile->>'id';
+
+            -- 1. Eixo Principal: Identidade (O vínculo imutável)
             SELECT u.id INTO v_user_id 
             FROM auth.identities i
             JOIN auth.users u ON i.user_id = u.id
-            WHERE i.provider = profile->>'provider' AND i.identifier = profile->>'id';
+            WHERE i.provider = v_provider AND i.identifier = v_identifier;
 
-            IF v_user_id IS NOT NULL THEN
-                UPDATE auth.users SET last_sign_in_at = now() WHERE id = v_user_id;
-                UPDATE auth.identities SET last_sign_in_at = now(), identity_data = profile WHERE provider = profile->>'provider' AND identifier = profile->>'id';
-            ELSE
-                -- 2. Fallback check by Email
+            IF v_user_id IS NULL THEN
+                -- 2. Eixo Secundário: Cross-Link via Email (Apenas se e-mail estiver presente e for confiável)
                 IF profile->>'email' IS NOT NULL THEN
-                    SELECT id INTO v_user_id FROM auth.users WHERE raw_user_meta_data->>'email' = profile->>'email';
+                    SELECT id INTO v_user_id FROM auth.users WHERE raw_user_meta_data->>'email' = profile->>'email' LIMIT 1;
                 END IF;
 
+                -- 3. Criação de Usuário Neutro (Sem dependência rígida de campos)
                 IF v_user_id IS NULL THEN
                     INSERT INTO auth.users (raw_user_meta_data, created_at, last_sign_in_at) 
-                    VALUES (jsonb_build_object('name', profile->>'name', 'avatar_url', profile->>'avatar_url', 'email', profile->>'email'), now(), now())
+                    VALUES (profile, now(), now())
                     RETURNING id INTO v_user_id;
                 END IF;
 
-                -- Insert new Identity
+                -- 4. Registro da Nova Identidade
                 INSERT INTO auth.identities (user_id, provider, identifier, identity_data, created_at, last_sign_in_at, verified_at) 
-                VALUES (v_user_id, profile->>'provider', profile->>'id', profile, now(), now(), CASE WHEN auto_verify THEN now() ELSE NULL END);
+                VALUES (v_user_id, v_provider, v_identifier, profile, now(), now(), CASE WHEN auto_verify THEN now() ELSE NULL END);
+            ELSE
+                -- 5. Atualização de Rastro
+                UPDATE auth.users SET last_sign_in_at = now() WHERE id = v_user_id;
+                UPDATE auth.identities SET last_sign_in_at = now(), identity_data = profile 
+                WHERE provider = v_provider AND identifier = v_identifier;
             END IF;
 
-            -- 3. Sync Metadata Safely (Coalesce to avoid null override)
+            -- 6. Sincronização de Metadados (Merge Seguro)
             SELECT raw_user_meta_data INTO v_current_meta FROM auth.users WHERE id = v_user_id;
-            
-            UPDATE auth.users SET raw_user_meta_data = v_current_meta || jsonb_build_object(
-                'name', COALESCE(profile->>'name', v_current_meta->>'name'),
-                'avatar_url', COALESCE(profile->>'avatar_url', v_current_meta->>'avatar_url'),
-                'email', COALESCE(profile->>'email', v_current_meta->>'email')
-            ) WHERE id = v_user_id;
+            UPDATE auth.users SET raw_user_meta_data = COALESCE(v_current_meta, '{}'::jsonb) || profile 
+            WHERE id = v_user_id;
 
             RETURN v_user_id;
         END;
         $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-        CREATE OR REPLACE FUNCTION auth.refresh_session_v2(p_old_hash text, p_new_hash text, p_ip text, p_ua text)
+        CREATE OR REPLACE FUNCTION auth.refresh_session(p_old_hash text, p_new_hash text, p_ip text, p_ua text)
         RETURNS TABLE (status text, p_user_id uuid, p_user_meta jsonb) AS $$
         DECLARE
             v_token record;
             v_user_meta jsonb;
         BEGIN
-            -- 1. Find Token
+            -- 1. Localização Atômica do Token
             SELECT id, user_id, revoked, parent_token INTO v_token 
             FROM auth.refresh_tokens WHERE token_hash = p_old_hash AND expires_at > now();
 
             IF NOT FOUND THEN RETURN QUERY SELECT 'invalid_token'::text, NULL::uuid, NULL::jsonb; RETURN; END IF;
             IF v_token.revoked THEN RETURN QUERY SELECT 'revoked_reuse_detected'::text, NULL::uuid, NULL::jsonb; RETURN; END IF;
 
-            -- 2. Revoke Old
+            -- 2. Invalidação (Revogação)
             UPDATE auth.refresh_tokens SET revoked = true WHERE id = v_token.id;
 
-            -- 3. Insert New (Safe dynamic column check for migrations)
-            BEGIN
-                INSERT INTO auth.refresh_tokens (token_hash, user_id, expires_at, parent_token, ip_address, user_agent) 
-                VALUES (p_new_hash, v_token.user_id, now() + interval '30 days', v_token.id, p_ip, p_ua);
-            EXCEPTION WHEN undefined_column THEN
-                INSERT INTO auth.refresh_tokens (token_hash, user_id, expires_at, parent_token) 
-                VALUES (p_new_hash, v_token.user_id, now() + interval '30 days', v_token.id);
-            END;
+            -- 3. Rotação de Token (Encadeamento Imutável)
+            INSERT INTO auth.refresh_tokens (token_hash, user_id, expires_at, parent_token, ip_address, user_agent) 
+            VALUES (p_new_hash, v_token.user_id, now() + interval '30 days', v_token.id, p_ip, p_ua);
 
-            -- 4. Get User Profile
+            -- 4. Recuperação do Perfil Enriquecido
             SELECT raw_user_meta_data INTO v_user_meta FROM auth.users WHERE id = v_token.user_id;
 
             RETURN QUERY SELECT 'success'::text, v_token.user_id, v_user_meta;

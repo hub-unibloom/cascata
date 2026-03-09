@@ -340,6 +340,7 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
     const email = req.user?.email || '';
 
     // Criamos um client "Proxy" que intercepta a query do controller e empacota ela com Segurança,
+    // CTE RLS, Semáforo Dragonfly e Roteamento Inteligente Master/Replica — tudo e    // Criamos um client "Proxy" que intercepta a query do controller e empacota ela com Segurança,
     // CTE RLS, Semáforo Dragonfly e Roteamento Inteligente Master/Replica — tudo em uma UNICA camada.
     const proxyClient = {
         query: async (queryText: string, params: any[] = [], statementName?: string) => {
@@ -362,8 +363,6 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
 
             // ======================================================================
             // CAMADA 2: DRAGONFLY SEMÁFORO CHECK (Read-After-Write Consistency)
-            // Se for um SELECT de leitura, verificamos se a tabela foi escrita recentemente.
-            // Se sim, forçamos roteamento para o Primary DB (bypass da Replica).
             // ======================================================================
             let dfly: any = null;
             try {
@@ -381,7 +380,7 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
                         try {
                             const signal = await dfly.get(semaforoKey);
                             if (signal === 'LOCKED') forceMaster = true;
-                        } catch (e) { /* Non-blocking: se Dragonfly falhar, usamos o pool padrão */ }
+                        } catch (e) { /* Non-blocking */ }
                     }
                 }
             }
@@ -401,81 +400,56 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
                     } else {
                         targetPool = PoolSvc.get(req.project!.db_name, { max: 10 });
                     }
-                } catch (e) { /* Fallback: fica no pool original */ }
+                } catch (e) { /* Fallback */ }
             }
 
             // ======================================================================
-            // CAMADA 4: EXECUÇÃO COM CTE RLS (O Santo Graal da Segurança + Performance)
+            // CAMADA 4: EXECUÇÃO COM SECURITY CONTEXT (RLS + PADLOCK)
             // ======================================================================
-            let result;
+            // O SANTO GRAAL: 1-Roundtrip Multi-Statement Execution.
+            // Sob 'FORCE RLS', o PostgreSQL exige que a 'ROLE' da sessão seja alterada 
+            // para que as políticas 'TO authenticated/anon' sejam aplicadas corretamente.
+            // As GUCs (request.jwt.claim.*) continuam sendo injetadas para o sistema de Padlock e Triggers.
+            
+            const client = await targetPool.connect();
+            try {
+                // Sincronização de parâmetros: sub, role, email + os parâmetros originais
+                const allParams = [sub, role, email, ...params];
+                let renumberedQuery = queryText;
+                
+                // Renumera $1, $2, $3... para $4, $5, $6...
+                for (let i = params.length; i >= 1; i--) {
+                    renumberedQuery = renumberedQuery.replace(new RegExp(`\\$${i}(?![0-9])`, 'g'), `$${i + 3}`);
+                }
 
-            if (!isDml) {
-                // DDL: Fallback em 1-Roundtrip (Separado por ';')
-                const prepSql = `
+                const transactionSql = `
                     SET LOCAL statement_timeout = '30s';
-                    SET LOCAL ROLE cascata_api_role;
+                    SET LOCAL ROLE ${role === 'authenticated' ? 'authenticated' : 'anon'};
                     SELECT set_config('request.jwt.claim.sub', $1, true),
                            set_config('request.jwt.claim.role', $2, true),
                            set_config('request.jwt.claim.email', $3, true);
-                    ${queryText}
-                `;
-                const allParams = [sub, role, email, ...params];
-                let renumberedSql = prepSql;
-                for (let i = params.length; i >= 1; i--) {
-                    renumberedSql = renumberedSql.replace(new RegExp(`\\$${i}(?![0-9])`, 'g'), `$${i + 3}`);
-                }
-                result = await targetPool.query(renumberedSql, allParams);
-            } else {
-                // DML: CTE Injection (1-Roundtrip com RLS contexts embutidos)
-                let shiftedQueryText = queryText;
-                for (let i = params.length; i >= 1; i--) {
-                    shiftedQueryText = shiftedQueryText.replace(new RegExp(`\\$${i}(?![0-9])`, 'g'), `$${i + 3}`);
-                }
-
-                const injectSql = `
-                    WITH _cascata_ctx AS (
-                        SELECT 
-                            set_config('statement_timeout', '30s', true),
-                            set_config('role', 'cascata_api_role', true),
-                            set_config('request.jwt.claim.sub', $1, true),
-                            set_config('request.jwt.claim.role', $2, true),
-                            set_config('request.jwt.claim.email', $3, true)
-                    )
-                    ${shiftedQueryText}
+                    ${renumberedQuery};
                 `;
 
-                const finalParams = [sub, role, email, ...params];
-
-                const queryConfig: any = {
-                    text: injectSql,
-                    values: finalParams
-                };
-
-                if (statementName) {
-                    queryConfig.name = 'ctx_' + statementName;
+                // Executamos no formato 'simple query' para permitir múltiplos statements num único roundtrip físico.
+                // nota: o driver pg retorna um array de resultados quando há múltiplos comandos.
+                const results = await client.query(transactionSql, allParams);
+                
+                // O resultado da query real é o último elemento do array (SET, SET, SELECT, [QUERY REAL])
+                const finalResult = Array.isArray(results) ? results[results.length - 1] : results;
+                
+                // ======================================================================
+                // CAMADA 5: DRAGONFLY SEMÁFORO SET (Pós-Write)
+                // ======================================================================
+                if (isWriteDml && affectedTable && dfly) {
+                    const semaforoKey = `cascata_rw_lock:${req.project?.slug || 'unknown'}:${affectedTable}`;
+                    try { dfly.set(semaforoKey, 'LOCKED', 'PX', 2500).catch(() => {}); } catch (e) {}
                 }
-
-                try {
-                    result = await targetPool.query(queryConfig);
-                } catch (e: any) {
-                    if (e.code === '3D000') throw { status: 404, message: 'Project database not found.' };
-                    throw e;
-                }
+                return finalResult;
+            } finally {
+                client.release();
             }
-
-            // ======================================================================
-            // CAMADA 5: DRAGONFLY SEMÁFORO SET (Pós-Write, Acende a Luz Amarela)
-            // ======================================================================
-            if (isWriteDml && affectedTable && dfly) {
-                const semaforoKey = `cascata_rw_lock:${req.project?.slug || 'unknown'}:${affectedTable}`;
-                // Fire And Forget: Acende por 2.5s (> P99 Replication Lag)
-                try { dfly.set(semaforoKey, 'LOCKED', 'PX', 2500).catch(() => {}); } catch (e) {}
-            }
-
-            return result;
         }
     };
-
-    // Passamos o Proxy unificado pro Callback. Zero release manual necessário.
     return await callback(proxyClient);
 };
