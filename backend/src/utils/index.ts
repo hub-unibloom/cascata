@@ -325,34 +325,37 @@ export const quoteId = (identifier: string) => {
     return `"${identifier.replace(/"/g, '""')}"`;
 };
 
-// HARDENED RLS WRAPPER (THE HOLY GRAIL - 1-Roundtrip CTE Injector + Dragonfly Semaphore)
+/**
+ * Safely escape strings for PostgreSQL inline execution to prevent SQL Injection
+ * in places where Parameterized Queries cannot be used (like SET LOCAL).
+ */
+export const quotePostgresLiteral = (str: string | undefined | null): string => {
+    if (str === undefined || str === null || str === '') return "''";
+    return `'${String(str).replace(/'/g, "''")}'`;
+};
+
+// HARDENED RLS WRAPPER (Fast Path + Optimized Transaction Pipeline)
 export const queryWithRLS = async (req: CascataRequest, callback: (client: { query: (sql: string, params?: any[], name?: string) => Promise<any> }) => Promise<any>) => {
     if (!req.projectPool) {
         throw { status: 500, message: 'Project context missing or database pool not initialized.' };
     }
 
-    // CTE RLS Context Builder
-    // Ao invez de BEGIN, SET LOCAL ROLE, SET CONFIG, QUERY, COMMIT (5 TCP roundtrips)
-    // Nos empacotamos o contexto na propria query do usuario usando uma CTE (1 TCP roundtrip).
-    // O pool executa as configs inline assegurando o escopo local de execução atomica.
     const sub = req.user?.sub || '';
     const role = req.userRole || 'anon';
     const email = req.user?.email || '';
 
-    // Criamos um client "Proxy" que intercepta a query do controller e empacota ela com Segurança,
-    // CTE RLS, Semáforo Dragonfly e Roteamento Inteligente Master/Replica — tudo e    // Criamos um client "Proxy" que intercepta a query do controller e empacota ela com Segurança,
-    // CTE RLS, Semáforo Dragonfly e Roteamento Inteligente Master/Replica — tudo em uma UNICA camada.
+    // Proxy intercepta e empacota a query garantindo Performance Fast-Path para Admins
+    // e Segurança Transacional para roles restritas (RLS Planner enforcement)
     const proxyClient = {
         query: async (queryText: string, params: any[] = [], statementName?: string) => {
 
             // ======================================================================
-            // CAMADA 1: DETECÇÃO DE TIPO (DML vs DDL) E SEMÁFORO READ-AFTER-WRITE
+            // CAMADA 1: DETECÇÃO DE TIPO E AFFECTED TABLE
             // ======================================================================
             const isDml = /^\s*(SELECT|INSERT|UPDATE|DELETE)\s/i.test(queryText);
             const isWriteDml = /^\s*(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s/i.test(queryText);
             const isRead = /^\s*SELECT\s/i.test(queryText) && !isWriteDml;
 
-            // Extrai tabela afetada para o semáforo
             let affectedTable = '';
             if (isWriteDml) {
                 const match = queryText.match(/(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:[\w]+\.)?(\"?[a-zA-Z0-9_]+\"?)/i);
@@ -368,7 +371,7 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
             try {
                 const RLSvc = (await import('../../services/RateLimitService.js')).RateLimitService;
                 dfly = (RLSvc as any).dragonfly;
-            } catch (e) { /* Dragonfly pode não estar disponível no boot */ }
+            } catch (e) { /* Ignite phase DB boot */ }
 
             let forceMaster = false;
             if (isRead && dfly) {
@@ -380,7 +383,7 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
                         try {
                             const signal = await dfly.get(semaforoKey);
                             if (signal === 'LOCKED') forceMaster = true;
-                        } catch (e) { /* Non-blocking */ }
+                        } catch (e) {}
                     }
                 }
             }
@@ -396,57 +399,74 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
                     const externalUrl = req.project?.metadata?.external_db_url;
                     if (externalUrl) {
                         targetPool = PoolSvc.get(req.project!.db_name, { connectionString: externalUrl });
-                        console.log(`[SmartRouting] Semaphore HIT: Routed ${req.project?.slug} GET to Master.`);
                     } else {
                         targetPool = PoolSvc.get(req.project!.db_name, { max: 10 });
                     }
-                } catch (e) { /* Fallback */ }
+                } catch (e) {}
             }
 
             // ======================================================================
-            // CAMADA 4: EXECUÇÃO COM SECURITY CONTEXT (RLS + PADLOCK)
+            // CAMADA 4: EXECUÇÃO COM SECURITY CONTEXT (1-RTT FAST-PATH OR RLS PIPELINE)
             // ======================================================================
-            // O SANTO GRAAL: 1-Roundtrip Multi-Statement Execution.
-            // Sob 'FORCE RLS', o PostgreSQL exige que a 'ROLE' da sessão seja alterada 
-            // para que as políticas 'TO authenticated/anon' sejam aplicadas corretamente.
-            // As GUCs (request.jwt.claim.*) continuam sendo injetadas para o sistema de Padlock e Triggers.
-            
             const client = await targetPool.connect();
             try {
-                // Sincronização de parâmetros: sub, role, email + os parâmetros originais
-                const allParams = [sub, role, email, ...params];
-                let renumberedQuery = queryText;
-                
-                // Renumera $1, $2, $3... para $4, $5, $6...
-                for (let i = params.length; i >= 1; i--) {
-                    renumberedQuery = renumberedQuery.replace(new RegExp(`\\$${i}(?![0-9])`, 'g'), `$${i + 3}`);
+
+                // 🚀 FAST-PATH (1-TCP RTT): Bypass the Transaction entirely for Admin Services
+                if (role === 'service_role') {
+                    const results = await client.query({
+                        text: queryText,
+                        values: params,
+                        name: statementName
+                    });
+
+                    // Set Semáforo Pós-Write
+                    if (isWriteDml && affectedTable && dfly) {
+                        const semaforoKey = `cascata_rw_lock:${req.project?.slug || 'unknown'}:${affectedTable}`;
+                        try { dfly.set(semaforoKey, 'LOCKED', 'PX', 2500).catch(() => {}); } catch (e) {}
+                    }
+                    
+                    return (Array.isArray(results) && results.length > 0) ? results[results.length - 1] : results;
                 }
 
-                const transactionSql = `
-                    WITH rls_setup AS (
-                        SELECT 
-                            set_config('request.jwt.claim.sub', $1, true) as sub,
-                            set_config('request.jwt.claim.role', $2, true) as role,
-                            set_config('request.jwt.claim.email', $3, true) as email,
-                            set_config('statement_timeout', '30000', true) as timeout
-                    )
-                    ${renumberedQuery.trim().replace(/;$/, '')}
-                `;
+                // 🛡️ SECURE PATH: RLS Evaluation forces PostgreSQL Query Planner
+                // to evaluate context BEFORE the query tree expands policy bounds
+                await client.query('BEGIN');
+                
+                const safeSub = quotePostgresLiteral(sub);
+                const safeRole = quotePostgresLiteral(role);
+                const safeEmail = quotePostgresLiteral(email);
 
-                const results = await client.query(transactionSql, allParams);
+                const setupSql = `
+                    SET LOCAL ROLE ${safeRole};
+                    SET LOCAL "request.jwt.claim.sub" = ${safeSub};
+                    SET LOCAL "request.jwt.claim.role" = ${safeRole};
+                    SET LOCAL "request.jwt.claim.email" = ${safeEmail};
+                    SET LOCAL statement_timeout = '30000';
+                `;
                 
-                // Em modo single statement com CTE, results nunca vira array a menos que usemos batching explicito.
-                // Mas mantemos a compatibilidade com o retorno esperado.
-                const finalResult = (Array.isArray(results) && results.length > 0) ? results[results.length - 1] : results;
-                
-                // ======================================================================
-                // CAMADA 5: DRAGONFLY SEMÁFORO SET (Pós-Write)
-                // ======================================================================
+                await client.query(setupSql);
+
+                const results = await client.query({
+                    text: queryText,
+                    values: params,
+                    name: statementName
+                });
+
+                await client.query('COMMIT');
+
+                // Set Semáforo Pós-Write
                 if (isWriteDml && affectedTable && dfly) {
                     const semaforoKey = `cascata_rw_lock:${req.project?.slug || 'unknown'}:${affectedTable}`;
                     try { dfly.set(semaforoKey, 'LOCKED', 'PX', 2500).catch(() => {}); } catch (e) {}
                 }
-                return finalResult;
+
+                return (Array.isArray(results) && results.length > 0) ? results[results.length - 1] : results;
+
+            } catch (error) {
+                if (role !== 'service_role') {
+                    await client.query('ROLLBACK').catch(() => {});
+                }
+                throw error;
             } finally {
                 client.release();
             }
