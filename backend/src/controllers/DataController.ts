@@ -1,7 +1,7 @@
 
 import { NextFunction } from 'express';
 import { CascataRequest } from '../types.js';
-import { queryWithRLS, quoteId, parseColumnFormat, validateFormatPattern } from '../utils/index.js';
+import { queryWithRLS, quoteId, parseColumnFormat, validateFormatPattern, quotePostgresLiteral } from '../utils/index.js';
 import { DatabaseService } from '../../services/DatabaseService.js';
 import { PostgrestService } from '../../services/PostgrestService.js';
 import { OpenApiService } from '../../services/OpenApiService.js';
@@ -486,19 +486,39 @@ export class DataController {
                 if (['CREATE', 'ALTER', 'DROP'].includes(cmd)) {
                     try {
                         await client.query(`
-                            DO $$ DECLARE s TEXT; BEGIN
+                            DO $$ 
+                            DECLARE s TEXT; t TEXT; 
+                            BEGIN
                                 FOR s IN SELECT schema_name FROM information_schema.schemata
                                     WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
                                     AND schema_name NOT LIKE 'pg_temp_%'
                                     AND schema_name NOT LIKE 'pg_toast_temp_%'
                                 LOOP
+                                    -- 1. Infrastructure Layer (Always Open to System/Service)
                                     EXECUTE format('GRANT USAGE ON SCHEMA %I TO anon, authenticated, service_role, cascata_api_role', s);
                                     EXECUTE format('GRANT ALL ON ALL TABLES IN SCHEMA %I TO service_role, cascata_api_role', s);
                                     EXECUTE format('GRANT ALL ON ALL SEQUENCES IN SCHEMA %I TO service_role, cascata_api_role', s);
+                                    
+                                    -- 2. Data Access Layer (Conditional/Managed)
+                                    -- We grant basic DML to public roles so RLS can then filter them.
+                                    -- Without these, RLS policies wouldn't even be evaluated.
                                     EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I TO anon, authenticated', s);
                                     EXECUTE format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA %I TO anon, authenticated', s);
-                                    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO anon, authenticated', s);
-                                    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT USAGE, SELECT ON SEQUENCES TO anon, authenticated', s);
+                                    
+                                    -- Hardening: Ensure No "Owner-Bypass" paths are left open for public roles
+                                    -- (Already handled by FORCE RLS below, but being explicit)
+                                    
+                                    -- 3. RLS Atomic Blindagem (Row Level Protection)
+                                    -- Applied to all interactive tables in the schema
+                                    FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = s LOOP
+                                        EXECUTE format('ALTER TABLE %I.%I ENABLE ROW LEVEL SECURITY', s, t);
+                                        EXECUTE format('ALTER TABLE %I.%I FORCE ROW LEVEL SECURITY', s, t);
+                                        
+                                        -- System Identity Bypass: Ensures Dashboard/Backend are never locked out
+                                        IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = s AND tablename = t AND policyname = 'master_system_policy') THEN
+                                            EXECUTE format('CREATE POLICY master_system_policy ON %I.%I FOR ALL TO service_role, %I USING (true) WITH CHECK (true)', s, t, current_user);
+                                        END IF;
+                                    END LOOP;
                                 END LOOP;
                             END $$;
                         `);
@@ -541,6 +561,18 @@ export class DataController {
             // Execute the schema creation
             await req.projectPool!.query(sql);
             await req.projectPool!.query(`ALTER TABLE ${safeSchema}.${safeName} ENABLE ROW LEVEL SECURITY`);
+            await req.projectPool!.query(`ALTER TABLE ${safeSchema}.${safeName} FORCE ROW LEVEL SECURITY`);
+
+            // Security Blindagem: Create Master Policy for Service Role and Owner (God Mode)
+            // This ensures System Dashboard and Backend always have access despite RLS.
+            // Using a DO block to safely handle 'IF NOT EXISTS' for policies.
+            await req.projectPool!.query(`
+                DO $$ BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = ${quotePostgresLiteral(schema as string)} AND tablename = ${quotePostgresLiteral(name)} AND policyname = 'master_system_policy') THEN
+                        EXECUTE format('CREATE POLICY master_system_policy ON %I.%I FOR ALL TO service_role, %I USING (true) WITH CHECK (true)', ${quotePostgresLiteral(schema as string)}, ${quotePostgresLiteral(name)}, current_user);
+                    END IF;
+                END $$;
+            `);
 
             // 1. Core Event Webhook Trigger
             await req.projectPool!.query(`CREATE TRIGGER ${name}_changes AFTER INSERT OR UPDATE OR DELETE ON ${safeSchema}.${safeName} FOR EACH ROW EXECUTE FUNCTION public.notify_changes();`);

@@ -90,6 +90,14 @@ export const resolveProject: RequestHandler = async (req: any, res: any, next: a
         } catch { }
     }
 
+    // --- 2.1 INTERNAL COMMUNICATION KEY (CERTIFICATE MODE) ---
+    // If the secret internal key is provided, we grant system status instantly.
+    // This is used for container-to-container or trusted dashboard proxying.
+    const internalSecret = req.headers['x-cascata-internal-key'];
+    if (internalSecret && process.env.INTERNAL_CTRL_SECRET && internalSecret === process.env.INTERNAL_CTRL_SECRET) {
+        r.isSystemRequest = true;
+    }
+
     // --- 3. PROPOSED CONTROL PLANE BYPASS REMOVED ---
     // Previously, we bypassed project resolution for /api/control/ routes here.
     // However, this caused hostGuard to aggressively 404 Custom Domains trying to hit 
@@ -368,4 +376,24 @@ export const cascataAuth: RequestHandler = async (req: any, res: any, next: any)
 
     // 4. DEFAULT DENY
     return res.status(401).json({ error: 'Unauthorized' });
+};
+
+/**
+ * MANAGEMENT GATE: Restricts access to sensitive metadata/infra routes.
+ * ONLY 'service_role' (via Service Key or System Request) is allowed.
+ * 'anon' and 'authenticated' roles are BLOCKED here to prevent bypass of RLS or Schema tampering.
+ */
+export const requireManagementRole: RequestHandler = (req: any, res: any, next: any) => {
+    const r = req as CascataRequest;
+    
+    // allow isSystemRequest (Secret Key or Admin Token)
+    // AND service_role (Project Service Key)
+    if (r.isSystemRequest || r.userRole === 'service_role') {
+        return next();
+    }
+
+    res.status(403).json({ 
+        error: 'Management Access Required', 
+        message: 'This operation requires a Service Key or Admin credentials. Anonymous or Authenticated user keys are not permitted.' 
+    });
 };

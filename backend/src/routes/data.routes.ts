@@ -10,7 +10,7 @@ import { VectorController } from '../controllers/VectorController.js';
 import { McpController } from '../controllers/McpController.js';
 import { BranchController } from '../controllers/BranchController.js';
 import { upload } from '../config/main.js';
-import { cascataAuth } from '../middlewares/core.js';
+import { cascataAuth, requireManagementRole } from '../middlewares/core.js';
 import { dynamicBodyParser, dynamicRateLimiter } from '../middlewares/security.js';
 import { auditLogger } from '../middlewares/logging.js';
 import { RealtimeService } from '../../services/RealtimeService.js';
@@ -47,19 +47,19 @@ router.all('/vector/*', VectorController.proxy as any);
 router.all('/vector', VectorController.proxy as any);
 
 // Schema & Tables CRUD
-router.get('/schemas', DataController.getSchemas as any);
-router.get('/tables', DataController.listTables as any);
-router.post('/tables', DataController.createTable as any);
+router.get('/schemas', requireManagementRole as any, DataController.getSchemas as any);
+router.get('/tables', requireManagementRole as any, DataController.listTables as any);
+router.post('/tables', requireManagementRole as any, DataController.createTable as any);
 router.get('/tables/:tableName/data', DataController.queryRows as any);
 router.post('/tables/:tableName/rows', DataController.insertRows as any);
 router.put('/tables/:tableName/rows', DataController.updateRows as any);
 router.delete('/tables/:tableName/rows', DataController.deleteRows as any);
-router.delete('/tables/:table', DataController.deleteTable as any);
+router.delete('/tables/:table', requireManagementRole as any, DataController.deleteTable as any);
 
 // Schema & Recycle Bin
 router.get('/tables/:tableName/columns', DataController.getColumns as any);
-router.get('/recycle-bin', DataController.listRecycleBin as any);
-router.post('/recycle-bin/:table/restore', DataController.restoreTable as any);
+router.get('/recycle-bin', requireManagementRole as any, DataController.listRecycleBin as any);
+router.post('/recycle-bin/:table/restore', requireManagementRole as any, DataController.restoreTable as any);
 
 // RPC & Triggers
 router.post('/rpc/:name', DataController.executeRpc as any);
@@ -68,13 +68,13 @@ router.get('/triggers', DataController.listTriggers as any);
 router.get('/rpc/:name/definition', DataController.getFunctionDefinition as any);
 
 // EXTENSIONS (Phantom Injection Architecture)
-router.get('/extensions', DataController.listExtensions as any);
-router.post('/extensions/install', DataController.installExtension as any);
-router.post('/extensions/uninstall', DataController.uninstallExtension as any);
-router.get('/extensions/status/:name', DataController.getExtensionInstallStatus as any);
+router.get('/extensions', requireManagementRole as any, DataController.listExtensions as any);
+router.post('/extensions/install', requireManagementRole as any, DataController.installExtension as any);
+router.post('/extensions/uninstall', requireManagementRole as any, DataController.uninstallExtension as any);
+router.get('/extensions/status/:name', requireManagementRole as any, DataController.getExtensionInstallStatus as any);
 
 // Raw Query (Service Role Only)
-router.post('/query', DataController.runRawQuery as any);
+router.post('/query', requireManagementRole as any, DataController.runRawQuery as any);
 
 // Storage
 router.get('/storage/buckets', StorageController.listBuckets as any);
@@ -114,15 +114,15 @@ router.get('/docs/openapi', AiController.getOpenApiSpec as any);
 router.post('/edge/:name', EdgeController.execute as any);
 
 // Security
-router.get('/security/status', SecurityController.getStatus as any);
-router.post('/security/panic', SecurityController.togglePanic as any);
-router.get('/rate-limits', SecurityController.listRateLimits as any);
-router.post('/rate-limits', SecurityController.createRateLimit as any);
-router.delete('/rate-limits/:id', SecurityController.deleteRateLimit as any);
-router.get('/policies', SecurityController.listPolicies as any);
-router.post('/policies', SecurityController.createPolicy as any);
-router.delete('/policies/:table/:name', SecurityController.deletePolicy as any);
-router.get('/logs', SecurityController.getLogs as any);
+router.get('/security/status', requireManagementRole as any, SecurityController.getStatus as any);
+router.post('/security/panic', requireManagementRole as any, SecurityController.togglePanic as any);
+router.get('/rate-limits', requireManagementRole as any, SecurityController.listRateLimits as any);
+router.post('/rate-limits', requireManagementRole as any, SecurityController.createRateLimit as any);
+router.delete('/rate-limits/:id', requireManagementRole as any, SecurityController.deleteRateLimit as any);
+router.get('/policies', requireManagementRole as any, SecurityController.listPolicies as any);
+router.post('/policies', requireManagementRole as any, SecurityController.createPolicy as any);
+router.delete('/policies/:table/:name', requireManagementRole as any, SecurityController.deletePolicy as any);
+router.get('/logs', requireManagementRole as any, SecurityController.getLogs as any);
 
 // Key Groups (New)
 router.get('/security/key-groups', SecurityController.listKeyGroups as any);

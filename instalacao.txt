@@ -61,7 +61,7 @@ docker compose up -d --build
 
 
 
-----------
+-	---------
 #1-instalaro docker
 
 # 2. Atualizar o sistema
