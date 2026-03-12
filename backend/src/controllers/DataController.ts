@@ -7,6 +7,7 @@ import { PostgrestService } from '../../services/PostgrestService.js';
 import { OpenApiService } from '../../services/OpenApiService.js';
 import { ExtensionService } from '../../services/ExtensionService.js';
 import { RateLimitService } from '../../services/RateLimitService.js';
+import { AutomationService } from '../../services/AutomationService.js';
 import { systemPool } from '../config/main.js';
 
 export class DataController {
@@ -746,6 +747,83 @@ export class DataController {
             res.json({ success: true });
         } catch (e: any) { next(e); }
     }
+
+    // --- CASCATA AUTOMATIONS (MANAGEMENT) ---
+
+    static async listAutomations(req: CascataRequest, res: any, next: any) {
+        if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
+        try {
+            const result = await systemPool.query(
+                `SELECT id, name, description, trigger_type, trigger_config, nodes, is_active, created_at, updated_at 
+                 FROM system.automations 
+                 WHERE project_slug = $1 
+                 ORDER BY created_at DESC`,
+                [req.project.slug]
+            );
+            res.json(result.rows);
+        } catch (e: any) { next(e); }
+    }
+
+    static async upsertAutomation(req: CascataRequest, res: any, next: any) {
+        if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
+        const { id, name, description, trigger_type, trigger_config, nodes, is_active } = req.body;
+        try {
+            if (id) {
+                // Update
+                const result = await systemPool.query(
+                    `UPDATE system.automations 
+                     SET name = $1, description = $2, trigger_type = $3, trigger_config = $4, nodes = $5, is_active = $6, updated_at = NOW()
+                     WHERE id = $7 AND project_slug = $8
+                     RETURNING *`,
+                    [name, description, trigger_type, trigger_config, nodes, is_active ?? true, id, req.project.slug]
+                );
+                if (result.rowCount === 0) return res.status(404).json({ error: 'Automation not found.' });
+                res.json(result.rows[0]);
+            } else {
+                // Insert
+                const result = await systemPool.query(
+                    `INSERT INTO system.automations (project_slug, name, description, trigger_type, trigger_config, nodes, is_active)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7)
+                     RETURNING *`,
+                    [req.project.slug, name, description, trigger_type, trigger_config, nodes, is_active ?? true]
+                );
+                res.json(result.rows[0]);
+            }
+        } catch (e: any) { next(e); }
+    }
+
+    static async deleteAutomation(req: CascataRequest, res: any, next: any) {
+        if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
+        try {
+            const result = await systemPool.query(
+                'DELETE FROM system.automations WHERE id = $1 AND project_slug = $2',
+                [req.params.id, req.project.slug]
+            );
+            res.json({ success: true });
+        } catch (e: any) { next(e); }
+    }
+
+    static async listAutomationRuns(req: CascataRequest, res: any, next: any) {
+        if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
+        const { automation_id } = req.query;
+        try {
+            let query = `SELECT id, automation_id, status, execution_time_ms, trigger_payload, final_output, error_message, created_at 
+                         FROM system.automation_runs 
+                         WHERE project_slug = $1`;
+            const params = [req.project.slug];
+
+            if (automation_id) {
+                query += ` AND automation_id = $2`;
+                params.push(automation_id as string);
+            }
+
+            query += ` ORDER BY created_at DESC LIMIT 100`;
+
+            const result = await systemPool.query(query, params);
+            res.json(result.rows);
+        } catch (e: any) { next(e); }
+    }
+
     static async getAssetHistory(req: CascataRequest, res: any, next: any) {
         try {
             // SECURITY FIX: Join to assets to enforce project_slug isolation (prevents IDOR)
@@ -858,9 +936,27 @@ export class DataController {
                 return await client.query(buildResult.text, buildResult.values, buildResult.name);
             });
 
-            const responseData = req.headers.accept === 'application/vnd.pgrst.object+json'
+            let responseData = req.headers.accept === 'application/vnd.pgrst.object+json'
                 ? (result.rows[0] || null)
                 : result.rows;
+
+            // --- CASCATA AUTOMATIONS: LOGIC INTERCEPTOR ---
+            // Allows the user to hijack and transform the API response via a No-Code workflow
+            if (responseData && !fromCache) {
+                responseData = await AutomationService.interceptResponse(
+                    req.project.slug,
+                    req.params.tableName,
+                    req.method as any,
+                    responseData,
+                    {
+                        vars: {}, 
+                        payload: responseData,
+                        projectSlug: req.project.slug,
+                        jwtSecret: req.project.jwt_secret,
+                        projectPool: req.projectPool!
+                    }
+                );
+            }
 
             if (buildResult.cacheKey && !fromCache) {
                 res.setHeader('X-Cascata-Cache', 'MISS');

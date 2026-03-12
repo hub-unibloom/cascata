@@ -4,8 +4,9 @@ import {
   Zap, Globe, Plus, Trash2, Send, Activity, 
   CheckCircle2, AlertCircle, Loader2, ShieldCheck, 
   Settings, ExternalLink, RefreshCcw, X, Eye, EyeOff, Copy, Play, Filter,
-  Siren, ShieldAlert, AlertTriangle
+  Siren, ShieldAlert, AlertTriangle, Workflow, Radio
 } from 'lucide-react';
+import AutomationManager from './AutomationManager';
 
 interface FilterRule {
     field: string;
@@ -19,6 +20,7 @@ const EventManager: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [tableColumns, setTableColumns] = useState<string[]>([]); // New for Filter UI
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
+  const [activeArea, setActiveArea] = useState<'external' | 'internal'>('external');
   
   // FORM STATE
   const [newHook, setNewHook] = useState({ 
@@ -189,18 +191,35 @@ const EventManager: React.FC<{ projectId: string }> = ({ projectId }) => {
 
       <header className="flex items-end justify-between gap-8">
         <div>
-          <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Event Pipeline</h2>
-          <p className="text-slate-500 mt-2 text-lg">Conecte o Cascata a serviços externos (n8n, Zapier) via Webhooks nativos.</p>
+          <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Webhooks & Automações</h2>
+          <div className="flex items-center gap-6 mt-4">
+            <button 
+              onClick={() => setActiveArea('external')}
+              className={`flex items-center gap-2 pb-2 transition-all border-b-2 ${activeArea === 'external' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+              <Globe size={16} />
+              <span className="text-[10px] font-black uppercase tracking-widest">Contatos Externos</span>
+            </button>
+            <button 
+              onClick={() => setActiveArea('internal')}
+              className={`flex items-center gap-2 pb-2 transition-all border-b-2 ${activeArea === 'internal' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+              <Radio size={16} />
+              <span className="text-[10px] font-black uppercase tracking-widest">Contatos Internos</span>
+            </button>
+          </div>
         </div>
-        <button 
-          onClick={() => setShowAdd(true)}
-          className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100"
-        >
-          <Plus size={20} /> Adicionar Webhook
-        </button>
+        {activeArea === 'external' && (
+          <button 
+            onClick={() => setShowAdd(true)}
+            className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100"
+          >
+            <Plus size={20} /> Adicionar Webhook
+          </button>
+        )}
       </header>
 
-      {loading ? (
+      {activeArea === 'internal' ? (
+        <AutomationManager projectId={projectId} />
+      ) : loading ? (
         <div className="py-40 flex flex-col items-center justify-center text-slate-300">
           <Loader2 size={60} className="animate-spin mb-6" />
           <p className="text-sm font-black uppercase tracking-widest">Sincronizando endpoints...</p>

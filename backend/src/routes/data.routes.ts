@@ -145,6 +145,12 @@ router.delete('/assets/:id', DataController.deleteAsset as any);
 router.get('/assets/:id/history', DataController.getAssetHistory as any);
 router.get('/stats', DataController.getStats as any);
 
+// CASCATA AUTOMATIONS (MANAGEMENT)
+router.get('/automations', requireManagementRole as any, DataController.listAutomations as any);
+router.post('/automations', requireManagementRole as any, DataController.upsertAutomation as any);
+router.delete('/automations/:id', requireManagementRole as any, DataController.deleteAutomation as any);
+router.get('/automations/runs', requireManagementRole as any, DataController.listAutomationRuns as any);
+
 // Auth (Data Plane)
 router.get('/auth/users', requireManagementRole as any, DataAuthController.listUsers as any);
 router.post('/auth/users', requireManagementRole as any, DataAuthController.createUser as any);
