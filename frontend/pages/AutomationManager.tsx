@@ -13,7 +13,7 @@ import {
 
 interface Node {
   id: string;
-  type: 'trigger' | 'query' | 'http' | 'logic' | 'response' | 'transform' | 'action';
+  type: 'trigger' | 'query' | 'http' | 'logic' | 'response' | 'transform' | 'data' | 'rpc';
   x: number;
   y: number;
   label: string;
@@ -60,6 +60,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
   const [runs, setRuns] = useState<ExecutionRun[]>([]);
   const [stats, setStats] = useState<Record<string, AutomationStats>>({});
   const [runsFilter, setRunsFilter] = useState<string | null>(null);
+  const [vaultSecrets, setVaultSecrets] = useState<any[]>([]);
   
   // COMPOSER STATE
   const [editingAutomation, setEditingAutomation] = useState<Partial<Automation> | null>(null);
@@ -107,6 +108,16 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
     } catch (e) { console.error("Stats fetch error"); }
   };
 
+  const fetchVault = async () => {
+    try {
+      const res = await fetch(`/api/control/projects/${projectId}/vault`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` }
+      });
+      const data = await res.json();
+      setVaultSecrets(Array.isArray(data) ? data.filter((s: any) => s.type !== 'folder') : []);
+    } catch (e) { console.error("Vault fetch error"); }
+  };
+
   const fetchTables = async () => {
     try {
       const res = await fetch(`/api/data/${projectId}/tables`, {
@@ -134,7 +145,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
   };
 
   useEffect(() => { 
-      Promise.all([fetchAutomations(), fetchRuns(), fetchStats(), fetchTables()]).then(() => setLoading(false)); 
+      Promise.all([fetchAutomations(), fetchRuns(), fetchStats(), fetchTables(), fetchVault()]).then(() => setLoading(false)); 
   }, [projectId]);
 
   // COMPOSER ACTIONS
@@ -194,12 +205,16 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
     const id = `node_${Date.now()}`;
     const newNode: Node = {
       id, type, x: 400, y: 300, label: type.toUpperCase(),
-      config: type === 'http' ? { url: '', method: 'POST', auth: 'none', retries: 0 } :
+      config: type === 'http' ? { url: '', method: 'POST', auth: 'none', retries: 0, headers: {}, body: {}, timeout: 15000 } :
               type === 'logic' ? { conditions: [{ left: '', op: 'eq', right: '' }], match: 'all' } :
-              type === 'transform' ? { mappings: [] } : {},
-      next: type === 'logic' ? { true: undefined, false: undefined } : []
+              type === 'query' ? { sql: '-- SELECT * FROM users WHERE id = $1', params: [], readonly: true } :
+              type === 'data' ? { operation: 'select', table: '', filters: [], body: {} } :
+              type === 'rpc' ? { function: '', args: [] } :
+              type === 'transform' ? { body: {} } : 
+              type === 'response' ? { status_code: 200, body: { success: true } } : {},
+      next: (type === 'logic') ? { true: undefined, false: undefined } : []
     };
-    setNodes([...nodes, newNode]);
+    setNodes([...nodes, newNode] as Node[]);
     setConfigNodeId(id);
   };
 
@@ -356,9 +371,17 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                         node.type === 'trigger' ? 'bg-indigo-600' : 
                         node.type === 'logic' ? 'bg-slate-900' : 
                         node.type === 'response' ? 'bg-emerald-600' : 
-                        node.type === 'http' ? 'bg-amber-500' : 'bg-indigo-500'
+                        node.type === 'http' ? 'bg-amber-500' : 
+                        node.type === 'query' ? 'bg-rose-600' :
+                        node.type === 'data' ? 'bg-cyan-600' :
+                        node.type === 'transform' ? 'bg-indigo-600' : 'bg-indigo-500'
                       }`}>
-                        {node.type === 'trigger' ? <Zap size={18}/> : node.type === 'logic' ? <GitBranch size={18}/> : node.type === 'response' ? <ArrowRight size={18}/> : <Database size={18}/>}
+                        {node.type === 'trigger' ? <Zap size={18}/> : 
+                         node.type === 'logic' ? <GitBranch size={18}/> : 
+                         node.type === 'response' ? <ArrowRight size={18}/> : 
+                         node.type === 'query' ? <Terminal size={18}/> :
+                         node.type === 'data' ? <Database size={18}/> :
+                         node.type === 'rpc' ? <Code size={18}/> : <Layers size={18}/>}
                       </div>
                       <div>
                         <span className="text-[7px] font-black uppercase tracking-widest text-slate-400 block mb-0.5">#{node.id.split('_').pop()}</span>
@@ -405,6 +428,8 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
           <div className="absolute bottom-10 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur-2xl border border-slate-200 rounded-[2.5rem] px-10 py-5 shadow-2xl flex items-center gap-8 z-40 transition-all hover:border-indigo-100">
              <ToolboxItem icon={<GitBranch size={20}/>} label="Logic" onClick={() => addNode('logic')} color="bg-slate-900" />
              <ToolboxItem icon={<Globe size={20}/>} label="HTTP" onClick={() => addNode('http')} color="bg-amber-500" />
+             <ToolboxItem icon={<Terminal size={20}/>} label="SQL" onClick={() => addNode('query')} color="bg-rose-600" />
+             <ToolboxItem icon={<Database size={20}/>} label="Data" onClick={() => addNode('data')} color="bg-cyan-600" />
              <ToolboxItem icon={<Layers size={20}/>} label="Transform" onClick={() => addNode('transform')} color="bg-indigo-600" />
              <div className="w-[1px] h-10 bg-slate-100 mx-1"></div>
              <ToolboxItem icon={<ArrowRight size={20}/>} label="Output" onClick={() => addNode('response')} color="bg-emerald-600" />
@@ -528,29 +553,198 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                          <div className="space-y-4">
                             <label className="text-xs font-black text-slate-900 uppercase tracking-widest">URL do Endpoint</label>
                             <div className="flex gap-2">
-                               <select className="w-32 bg-slate-900 text-white border-none rounded-2xl px-4 py-3 text-[10px] font-black uppercase tracking-widest" value={activeNode.config.method} onChange={(e) => setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, method: e.target.value}} : n))}>
+                               <select className="w-32 bg-slate-900 text-white border-none rounded-2xl px-4 py-3 text-[10px] font-black uppercase tracking-widest" value={activeNode.config.method} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, method: e.target.value}} : n))}>
                                   <option>GET</option>
                                   <option>POST</option>
                                   <option>PUT</option>
                                   <option>DELETE</option>
                                </select>
-                               <input className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold" placeholder="https://api.exemplo.com/v1" value={activeNode.config.url} onChange={(e) => setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, url: e.target.value}} : n))} />
+                               <input className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold" placeholder="https://api.exemplo.com/v1" value={activeNode.config.url} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, url: e.target.value}} : n))} />
                             </div>
                          </div>
                          <div className="grid grid-cols-2 gap-6">
                             <div className="space-y-4">
                                <label className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2"><Key size={12} className="text-amber-500"/> Autenticação</label>
-                               <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" value={activeNode.config.auth} onChange={(e) => setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, auth: e.target.value}} : n))}>
+                               <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" value={activeNode.config.auth} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, auth: e.target.value}} : n))}>
                                   <option value="none">Nenhuma</option>
                                   <option value="bearer">Bearer Token</option>
-                                  <option value="apikey">Basic Auth</option>
-                                  <option value="mtls">mTLS (Certificado)</option>
+                                  <option value="apikey">Basic Auth (User/Pass)</option>
                                </select>
                             </div>
                             <div className="space-y-4">
                                <label className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2"><RefreshCcw size={12} className="text-emerald-500"/> Retentativas</label>
-                               <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" value={activeNode.config.retries} onChange={(e) => setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, retries: parseInt(e.target.value)}} : n))} />
+                               <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" value={activeNode.config.retries} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, retries: parseInt(e.target.value)}} : n))} />
                             </div>
+                         </div>
+
+                         {activeNode.config.auth !== 'none' && (
+                            <div className="bg-slate-50 p-6 rounded-3xl space-y-4">
+                               {activeNode.config.auth === 'bearer' && (
+                                  <div className="space-y-2">
+                                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Bearer Token / Vault ID</label>
+                                     <div className="flex gap-2">
+                                        <input className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs" placeholder="Token ou vault://name" value={activeNode.config.auth_token || ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, auth_token: e.target.value}} : n))} />
+                                        <select className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold" onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, auth_token: `vault://${e.target.value}`}} : n))}>
+                                           <option value="">Vault Secrets</option>
+                                           {vaultSecrets.map((s: any) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                        </select>
+                                     </div>
+                                  </div>
+                               )}
+                               {activeNode.config.auth === 'apikey' && (
+                                  <div className="grid grid-cols-2 gap-4">
+                                     <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Username</label>
+                                        <input className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs" value={activeNode.config.auth_user || ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, auth_user: e.target.value}} : n))} />
+                                     </div>
+                                     <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Password / Secret</label>
+                                        <input className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs" type="password" value={activeNode.config.auth_pass || ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, auth_pass: e.target.value}} : n))} />
+                                     </div>
+                                  </div>
+                               )}
+                            </div>
+                         )}
+
+                         <div className="space-y-4">
+                            <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Headers Customizados (Opcional)</label>
+                            <textarea className="w-full h-24 bg-slate-900 text-amber-400 font-mono text-[10px] p-4 rounded-xl border border-slate-800 outline-none" placeholder='{"X-Custom-Header": "value"}' value={typeof activeNode.config.headers === 'string' ? activeNode.config.headers : JSON.stringify(activeNode.config.headers, null, 2)} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
+                               try { const p = JSON.parse(e.target.value); setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, headers: p}} : n)); }
+                               catch { setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, headers: e.target.value}} : n)); }
+                            }} />
+                         </div>
+
+                         <div className="space-y-4">
+                            <label className="text-xs font-black text-slate-900 uppercase tracking-widest">JSON Body</label>
+                            <textarea className="w-full h-40 bg-slate-900 text-emerald-400 font-mono text-xs p-6 rounded-2xl border border-slate-800 outline-none" placeholder='{"key": "value"}' value={typeof activeNode.config.body === 'string' ? activeNode.config.body : JSON.stringify(activeNode.config.body, null, 2)} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
+                               try { const p = JSON.parse(e.target.value); setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, body: p}} : n)); }
+                               catch { setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, body: e.target.value}} : n)); }
+                            }} />
+                         </div>
+                      </div>
+                   )}
+
+                   {activeNode.type === 'query' && (
+                      <div className="space-y-8">
+                         <div className="space-y-4">
+                            <label className="text-xs font-black text-slate-900 uppercase tracking-widest">SQL Statement (Restricted RLS)</label>
+                            <textarea className="w-full h-80 bg-slate-900 text-amber-400 font-mono text-xs p-8 rounded-[2.5rem] border border-slate-800 outline-none shadow-2xl" value={activeNode.config.sql} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, sql: e.target.value}} : n))} />
+                         </div>
+                         <div className="bg-amber-50 rounded-2xl p-6 border border-amber-100">
+                            <h4 className="flex items-center gap-2 text-amber-800 font-black text-[10px] uppercase tracking-widest mb-2"><Shield size={12}/> Security Note</h4>
+                            <p className="text-[9px] text-amber-700/70 font-bold uppercase leading-relaxed">Este nó executa com a ROLE do usuário que acionou o gatilho. Comandos COPY, DO $$, e acesso a arquivos são bloqueados pelo motor.</p>
+                         </div>
+                      </div>
+                   )}
+
+                   {activeNode.type === 'data' && (
+                      <div className="space-y-8">
+                         <div className="grid grid-cols-2 gap-6">
+                            <div className="space-y-4">
+                               <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Operação</label>
+                               <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" value={activeNode.config.operation} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, operation: e.target.value}} : n))}>
+                                  <option value="select">SELECT (Read)</option>
+                                  <option value="insert">INSERT (Create)</option>
+                                  <option value="update">UPDATE (Edit)</option>
+                                  <option value="delete">DELETE (Remove)</option>
+                               </select>
+                            </div>
+                            <div className="space-y-4">
+                               <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Tabela</label>
+                               <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" value={activeNode.config.table} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, table: e.target.value}} : n))}>
+                                  <option value="">Selecione...</option>
+                                  {tables.map((t: string | { name: string }) => <option key={typeof t === 'string' ? t : t.name} value={typeof t === 'string' ? t : t.name}>{typeof t === 'string' ? t : t.name}</option>)}
+                               </select>
+                            </div>
+                         </div>
+                         {(activeNode.config.operation !== 'insert') && (
+                            <div className="space-y-4">
+                               <div className="flex items-center justify-between">
+                                  <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Filtros (WHERE)</label>
+                                  <p className="text-[8px] text-slate-400 font-bold uppercase">Usa ROLE do trigger</p>
+                               </div>
+                               {activeNode.config.filters?.map((f: { column: string; op: string; value: string }, i: number) => (
+                                  <div key={i} className="flex gap-2 items-center bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                                     <select className="flex-1 bg-white border border-slate-200 rounded-xl px-2 py-2 text-[10px] font-bold" value={f.column} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
+                                        const nf = [...activeNode.config.filters]; nf[i].column = e.target.value;
+                                        setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, filters: nf}} : n));
+                                     }}>
+                                        <option value="">Coluna...</option>
+                                        {(activeNode.config.table && columns[activeNode.config.table] || []).map((col: string) => <option key={col} value={col}>{col}</option>)}
+                                     </select>
+                                     <select className="w-16 bg-white border border-slate-200 rounded-xl px-2 py-2 text-[10px] font-bold" value={f.op} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
+                                        const nf = [...activeNode.config.filters]; nf[i].op = e.target.value;
+                                        setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, filters: nf}} : n));
+                                     }}>
+                                        <option value="eq">=</option>
+                                        <option value="neq">!=</option>
+                                        <option value="gt">&gt;</option>
+                                        <option value="lt">&lt;</option>
+                                        <option value="like">LIKE</option>
+                                        <option value="ilike">ILIKE</option>
+                                     </select>
+                                     <input className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-medium" placeholder="Valor ou {{var}}" value={f.value} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                        const nf = [...activeNode.config.filters]; nf[i].value = e.target.value;
+                                        setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, filters: nf}} : n));
+                                     }} />
+                                     <button className="text-slate-300 hover:text-rose-500 transition-colors" onClick={() => {
+                                        const nf = activeNode.config.filters.filter((_: any, idx: number) => idx !== i);
+                                        setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, filters: nf}} : n));
+                                     }}><Trash2 size={14}/></button>
+                                  </div>
+                               ))}
+                               <button className="w-full py-3 border border-dashed border-slate-200 rounded-2xl text-[10px] font-black uppercase text-slate-400 hover:text-indigo-600 hover:border-indigo-200 transition-all bg-white" onClick={() => {
+                                  const nf = [...(activeNode.config.filters || []), { column: '', op: 'eq', value: '' }];
+                                  setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, filters: nf}} : n));
+                               }}>+ Adicionar Filtro</button>
+                            </div>
+                         )}
+
+                         {(activeNode.config.operation === 'insert' || activeNode.config.operation === 'update') && (
+                            <div className="space-y-4">
+                               <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Dados (Payload)</label>
+                               <textarea className="w-full h-40 bg-slate-900 text-cyan-400 font-mono text-xs p-6 rounded-2xl border border-slate-800 outline-none" placeholder='{"campo": "{{trigger.data.id}}"}' value={typeof activeNode.config.body === 'string' ? activeNode.config.body : JSON.stringify(activeNode.config.body, null, 2)} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
+                                  try { const p = JSON.parse(e.target.value); setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, body: p}} : n)); }
+                                  catch { setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, body: e.target.value}} : n)); }
+                               }} />
+                            </div>
+                         )}
+                      </div>
+                   )}
+
+                   {activeNode.type === 'transform' && (
+                      <div className="space-y-8">
+                         <div className="space-y-4">
+                            <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Mapeamento JSON</label>
+                            <textarea className="w-full h-80 bg-slate-900 text-indigo-400 font-mono text-xs p-8 rounded-[2.5rem] border border-slate-800 outline-none shadow-2xl" value={typeof activeNode.config.body === 'string' ? activeNode.config.body : JSON.stringify(activeNode.config.body, null, 2)} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
+                               try { const p = JSON.parse(e.target.value); setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, body: p}} : n)); }
+                               catch { setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, body: e.target.value}} : n)); }
+                            }} />
+                            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest leading-relaxed">Dica: Use {"{{node_id.data.campo}}"} para injetar dados de outros nós.</p>
+                         </div>
+                      </div>
+                   )}
+
+                   {activeNode.type === 'rpc' && (
+                      <div className="space-y-8">
+                         <div className="space-y-4">
+                            <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Database Function (RPC)</label>
+                            <input className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold" placeholder="api.minha_funcao" value={activeNode.config.function} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, function: e.target.value}} : n))} />
+                         </div>
+                         <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                               <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Argumentos (JSON Array)</label>
+                               <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Ex: {"[\"{{trigger.data.id}}\", 123]"}</p>
+                            </div>
+                            <textarea 
+                              className="w-full h-40 bg-slate-900 text-indigo-300 font-mono text-xs p-6 rounded-2xl border border-slate-800 outline-none" 
+                              placeholder='["arg1", "arg2"]' 
+                              value={typeof activeNode.config.args === 'string' ? activeNode.config.args : JSON.stringify(activeNode.config.args, null, 2)} 
+                              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
+                                 try { const p = JSON.parse(e.target.value); setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, args: p}} : n)); }
+                                 catch { setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, args: e.target.value}} : n)); }
+                              }} 
+                            />
                          </div>
                       </div>
                    )}
@@ -559,22 +753,29 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                       <div className="space-y-6">
                          <div className="space-y-4">
                             <label className="text-xs font-black text-slate-900 uppercase tracking-widest">HTTP Status Code</label>
-                            <input type="number" className="w-32 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold" value={200} />
+                            <input type="number" className="w-32 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold" value={activeNode.config.status_code || 200} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, status_code: parseInt(e.target.value) || 200}} : n))} />
                          </div>
                          <div className="space-y-4">
                             <div className="flex items-center justify-between">
                                <label className="text-xs font-black text-slate-900 uppercase tracking-widest">JSON Response Payload</label>
-                               <button className="text-[10px] font-black text-indigo-600 uppercase flex items-center gap-2 hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-all"><Terminal size={12}/> Injetar Variável</button>
+                               <div className="relative group/help">
+                                 <button className="text-[10px] font-black text-indigo-600 uppercase flex items-center gap-2 hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-all"><Terminal size={12}/> Injetar Variável</button>
+                                 <div className="absolute right-0 bottom-full mb-2 w-48 bg-slate-900 text-white p-4 rounded-2xl text-[10px] font-medium opacity-0 group-hover/help:opacity-100 transition-opacity z-50 pointer-events-none shadow-2xl border border-slate-700">
+                                    <span className="text-indigo-400 font-black block mb-2 uppercase">Variáveis:</span>
+                                    <code className="text-emerald-400 block mb-1">{"{{"}trigger.data.*{"}}"}</code>
+                                    <code className="text-emerald-400 block">{"{{"}node_id.data.*{"}}"}</code>
+                                 </div>
+                               </div>
                             </div>
                             <textarea 
                               className="w-full h-80 bg-slate-900 text-emerald-400 font-mono text-xs p-8 rounded-[2.5rem] border border-slate-800 outline-none shadow-2xl custom-scrollbar"
                               value={typeof activeNode.config.body === 'string' ? activeNode.config.body : JSON.stringify(activeNode.config.body, null, 2)}
-                              onChange={(e) => {
+                              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
                                  try {
                                     const parsed = JSON.parse(e.target.value);
-                                    setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, body: parsed}} : n));
+                                    setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, body: parsed}} : n));
                                  } catch {
-                                    setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, body: e.target.value}} : n));
+                                    setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, body: e.target.value}} : n));
                                  }
                               }}
                             />
@@ -634,7 +835,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
         </div>
       ) : activeTab === 'workflows' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {automations.map(auto => (
+          {automations.map((auto: Automation) => (
             <div key={auto.id} className="bg-white border border-slate-100 rounded-[3rem] p-10 shadow-sm hover:shadow-[0_20px_50px_-12px_rgba(0,0,0,0.05)] transition-all group relative overflow-hidden border-b-4 border-b-indigo-50">
                <div className="flex items-start justify-between mb-8">
                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg ${auto.is_active ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-300'}`}>
@@ -710,7 +911,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                </tr>
              </thead>
              <tbody className="divide-y divide-slate-50">
-               {runs.map(run => (
+               {runs.map((run: ExecutionRun) => (
                  <tr key={run.id} className="hover:bg-slate-50/30 transition-all font-medium">
                    <td className="px-10 py-8">
                      <div className="flex items-center gap-2">
@@ -725,10 +926,10 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                             <div className="h-full bg-indigo-500" style={{ width: `${Math.min(run.execution_time_ms / 10, 100)}%` }}></div>
                          </div>
                          <span className="font-mono text-[10px] text-slate-400">{run.execution_time_ms}ms</span>
-                      </div>
-                   </td>
-                   <td className="px-10 py-8 text-right"><button className="text-[9px] font-black text-indigo-600 hover:text-indigo-800 uppercase tracking-widest bg-indigo-50/50 px-4 py-2 rounded-lg transition-all">Ver Detalhes</button></td>
-                 </tr>
+                       </div>
+                    </td>
+                    <td className="px-10 py-8 text-right"><button className="text-[9px] font-black text-indigo-600 hover:text-indigo-800 uppercase tracking-widest bg-indigo-50/50 px-4 py-2 rounded-lg transition-all">Ver Detalhes</button></td>
+                  </tr>
                ))}
              </tbody>
            </table>

@@ -2,7 +2,7 @@
 import { Pool } from 'pg';
 import { QueueService } from './QueueService.js';
 import { RateLimitService } from './RateLimitService.js';
-import { systemPool } from '../src/config/main.js';
+import { systemPool, SYS_SECRET } from '../src/config/main.js';
 import { validateTargetUrl } from '../src/utils/index.js';
 
 
@@ -14,7 +14,7 @@ import { validateTargetUrl } from '../src/utils/index.js';
 
 export interface AutomationNode {
     id: string;
-    type: 'trigger' | 'action' | 'logic' | 'condition' | 'response' | 'query' | 'http' | 'transform';
+    type: 'trigger' | 'action' | 'logic' | 'condition' | 'response' | 'query' | 'http' | 'transform' | 'data' | 'rpc';
     config: any;
     next?: string[] | { true?: string, false?: string };
 }
@@ -246,22 +246,35 @@ export class AutomationService {
                 const targetUrl = this.resolveVariables(node.config.url || '', context.vars);
                 if (!targetUrl) throw new Error('[AutomationEngine] HTTP node requires a URL.');
 
-                // --- FIX 2: SSRF PROTECTION ---
-                // validateTargetUrl performs full DNS resolution and blocks any URL
-                // that resolves to a private/loopback/link-local IP or internal container hostname.
-                // This call throws if the URL is blocked — which halts the node safely.
                 await validateTargetUrl(targetUrl);
+                
+                const timeout = node.config.timeout || 15000;
+                const signal = (globalThis as any).AbortSignal?.timeout ? (globalThis as any).AbortSignal.timeout(timeout) : undefined;
 
-                // --- AUTH HEADER INJECTION ---
-                // Credentials are stored in node.config, never interpolated into the URL.
+                // --- AUTH HEADER INJECTION & VAULT RESOLUTION ---
+                // Credentials support direct values or 'vault://NAME_OR_ID' references.
                 const authHeaders: Record<string, string> = {};
                 const authMode = node.config.auth || 'none';
-                if (authMode === 'bearer' && node.config.auth_token) {
-                    authHeaders['Authorization'] = `Bearer ${this.resolveVariables(node.config.auth_token, context.vars)}`;
-                } else if (authMode === 'apikey' && node.config.auth_user && node.config.auth_pass) {
-                    const encoded = (globalThis as any).Buffer.from(
-                        `${this.resolveVariables(node.config.auth_user, context.vars)}:${this.resolveVariables(node.config.auth_pass, context.vars)}`
-                    ).toString('base64');
+                
+                if (authMode === 'bearer') {
+                    const rawToken = node.config.auth_token;
+                    const token = rawToken?.startsWith('vault://') 
+                        ? await this.resolveVaultSecret(context.projectSlug, rawToken.replace('vault://', ''))
+                        : this.resolveVariables(rawToken || '', context.vars);
+                    if (token) authHeaders['Authorization'] = `Bearer ${token}`;
+                } else if (authMode === 'apikey') {
+                    const rawUser = node.config.auth_user || '';
+                    const rawPass = node.config.auth_pass || '';
+                    
+                    const user = rawUser.startsWith('vault://')
+                        ? await this.resolveVaultSecret(context.projectSlug, rawUser.replace('vault://', ''))
+                        : this.resolveVariables(rawUser, context.vars);
+                        
+                    const pass = rawPass.startsWith('vault://')
+                        ? await this.resolveVaultSecret(context.projectSlug, rawPass.replace('vault://', ''))
+                        : this.resolveVariables(rawPass, context.vars);
+                        
+                    const encoded = (globalThis as any).Buffer.from(`${user}:${pass}`).toString('base64');
                     authHeaders['Authorization'] = `Basic ${encoded}`;
                 }
 
@@ -285,7 +298,8 @@ export class AutomationService {
                         const response = await (globalThis as any).fetch(targetUrl, {
                             method,
                             body: resolvedBody,
-                            headers: resolvedHeaders
+                            headers: resolvedHeaders,
+                            signal
                         });
                         if (!response.ok) {
                             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -323,6 +337,131 @@ export class AutomationService {
 
             case 'response':
                 return this.resolveObject(node.config.body, context.vars);
+
+            case 'data': {
+                const { operation, table, filters, body } = node.config;
+                if (!table || !operation) throw new Error('[AutomationEngine] Data node requires a table and operation.');
+
+                const client = await context.projectPool.connect();
+                try {
+                    // Security Setup (matching executeSecureSqlNode)
+                    const userRole = context.userRole || 'authenticated';
+                    const claims = context.jwtClaims || {};
+                    const quoteLocal = (s: string | undefined | null): string => {
+                        if (s === undefined || s === null || s === '') return "''";
+                        return `'${String(s).replace(/'/g, "''")}'`;
+                    };
+                    
+                    const setupSql = `
+                        SET LOCAL ROLE ${userRole};
+                        SET LOCAL "request.jwt.claim.sub" = ${quoteLocal(claims.sub)};
+                        SET LOCAL "request.jwt.claim.role" = ${quoteLocal(claims.role)};
+                        SET LOCAL "request.jwt.claim.email" = ${quoteLocal(claims.email)};
+                        SET LOCAL statement_timeout = '${AUTOMATION_SQL_TIMEOUT_MS}';
+                    `;
+                    
+                    await client.query('BEGIN');
+                    await client.query(setupSql);
+
+                    let result;
+                    if (operation === 'select') {
+                        const whereClauses: string[] = [];
+                        const params: any[] = [];
+                        if (filters && Array.isArray(filters)) {
+                            filters.forEach((f: any, i: number) => {
+                                whereClauses.push(`${f.column} ${f.op === 'eq' ? '=' : f.op} $${i + 1}`);
+                                params.push(this.getVarSync(f.value, context.vars));
+                            });
+                        }
+                        const whereStr = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+                        result = await client.query(`SELECT * FROM ${table} ${whereStr}`, params);
+                    } else if (operation === 'insert') {
+                        const resolvedBody = this.resolveObject(body, context.vars);
+                        const keys = Object.keys(resolvedBody);
+                        const values = Object.values(resolvedBody);
+                        const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
+                        result = await client.query(
+                            `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders}) RETURNING *`,
+                            values
+                        );
+                    } else if (operation === 'update') {
+                        const resolvedBody = this.resolveObject(body, context.vars);
+                        const keys = Object.keys(resolvedBody);
+                        const values = Object.values(resolvedBody);
+                        
+                        const setClauses = keys.map((k, i) => `${k} = $${i + 1}`);
+                        const whereClauses: string[] = [];
+                        if (filters && Array.isArray(filters)) {
+                            filters.forEach((f: any) => {
+                                const idx = values.length + 1;
+                                whereClauses.push(`${f.column} ${f.op === 'eq' ? '=' : f.op} $${idx}`);
+                                values.push(this.getVarSync(f.value, context.vars));
+                            });
+                        }
+                        const whereStr = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+                        result = await client.query(
+                            `UPDATE ${table} SET ${setClauses.join(', ')} ${whereStr} RETURNING *`,
+                            values
+                        );
+                    } else if (operation === 'delete') {
+                        const whereClauses: string[] = [];
+                        const params: any[] = [];
+                        if (filters && Array.isArray(filters)) {
+                            filters.forEach((f: any, i: number) => {
+                                whereClauses.push(`${f.column} ${f.op === 'eq' ? '=' : f.op} $${i + 1}`);
+                                params.push(this.getVarSync(f.value, context.vars));
+                            });
+                        }
+                        const whereStr = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+                        result = await client.query(`DELETE FROM ${table} ${whereStr} RETURNING *`, params);
+                    }
+
+                    await client.query('ROLLBACK');
+                    return result?.rows || null;
+                } catch (e) {
+                    await client.query('ROLLBACK').catch(() => {});
+                    throw e;
+                } finally {
+                    client.release();
+                }
+            }
+
+            case 'rpc': {
+                const { function: fnName, args } = node.config;
+                if (!fnName) throw new Error('[AutomationEngine] RPC node requires a function name.');
+
+                const client = await context.projectPool.connect();
+                try {
+                    const userRole = context.userRole || 'authenticated';
+                    const claims = context.jwtClaims || {};
+                    const quoteLocal = (s: string | undefined | null): string => {
+                        if (s === undefined || s === null || s === '') return "''";
+                        return `'${String(s).replace(/'/g, "''")}'`;
+                    };
+
+                    const setupSql = `
+                        SET LOCAL ROLE ${userRole};
+                        SET LOCAL "request.jwt.claim.sub" = ${quoteLocal(claims.sub)};
+                        SET LOCAL "request.jwt.claim.role" = ${quoteLocal(claims.role)};
+                        SET LOCAL "request.jwt.claim.email" = ${quoteLocal(claims.email)};
+                        SET LOCAL statement_timeout = '${AUTOMATION_SQL_TIMEOUT_MS}';
+                    `;
+                    await client.query('BEGIN');
+                    await client.query(setupSql);
+
+                    const resolvedArgs = Array.isArray(args) ? this.resolveObject(args, context.vars) : [];
+                    const placeholders = resolvedArgs.map((_: any, i: number) => `$${i + 1}`).join(', ');
+                    const result = await client.query(`SELECT * FROM ${fnName}(${placeholders})`, resolvedArgs);
+                    
+                    await client.query('ROLLBACK');
+                    return result.rows;
+                } catch (e) {
+                    await client.query('ROLLBACK').catch(() => {});
+                    throw e;
+                } finally {
+                    client.release();
+                }
+            }
 
             default:
                 return null;
@@ -505,5 +644,28 @@ export class AutomationService {
             current = current[part];
         }
         return current;
+    }
+
+    /**
+     * Resolves a secret from the project's Secure Vault.
+     */
+    private static async resolveVaultSecret(projectSlug: string, identifier: string): Promise<string | null> {
+        try {
+            // Support both UUID ID or Case-sensitive Name
+            const isId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
+            const where = isId ? 'id = $1' : 'name = $1';
+            
+            const res = await systemPool.query(
+                `SELECT pg_sym_decrypt(secret_value::bytea, $3) as decrypted_value
+                 FROM system.project_secrets
+                 WHERE project_slug = $2 AND ${where} AND type != 'folder'`,
+                [identifier, projectSlug, SYS_SECRET]
+            );
+
+            return res.rows[0]?.decrypted_value || null;
+        } catch (e) {
+            console.error(`[AutomationEngine:Vault] Failed to resolve secret ${identifier}:`, e);
+            return null;
+        }
     }
 }
