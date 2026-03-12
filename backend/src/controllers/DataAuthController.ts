@@ -338,7 +338,13 @@ export class DataAuthController {
     static async goTrueSignup(req: CascataRequest, res: any, next: any) {
         try {
             const language = req.body.language || 'en-US';
-            res.json(await GoTrueService.handleSignup(req.projectPool!, { ...req.body, language }, req.project.jwt_secret, req.project.metadata || {}));
+            const payload = { 
+                ...req.body, 
+                identifier: req.body.identifier || req.body.email,
+                provider: req.body.provider || 'email',
+                language 
+            };
+            res.json(await GoTrueService.handleSignup(req.projectPool!, payload, req.project.jwt_secret, req.project.metadata || {}));
         } catch (e: any) { next(e); }
     }
 
@@ -350,28 +356,27 @@ export class DataAuthController {
             req.body.grant_type = req.query.grant_type;
         }
 
-        const email = req.body.email;
+        const identifier = req.body.identifier || req.body.email;
+        const provider = req.body.provider || 'email';
         const secConfig = DataAuthController.getSecurityConfig(req);
         try {
             if (req.body.grant_type === 'password') {
-                const lockout = await RateLimitService.checkAuthLockout(req.project.slug, deviceInfo.ip!, email, secConfig);
+                const lockout = await RateLimitService.checkAuthLockout(req.project.slug, deviceInfo.ip!, identifier, secConfig);
                 if (lockout.locked) return res.status(429).json({ error: lockout.reason });
             }
 
-            // GoTrueService doesn't accept deviceInfo yet for standard flow unless passed deep,
-            // but we can augment it later or update GoTrueService separately.
-            // For now, cookies are set here.
-
             req.body.language = req.body.language || 'en-US';
+            req.body.identifier = identifier;
+            req.body.provider = provider;
 
             const response = await GoTrueService.handleToken(req.projectPool!, req.body, req.project.jwt_secret, req.project.metadata || {});
 
-            if (req.body.grant_type === 'password') await RateLimitService.clearAuthFailure(req.project.slug, deviceInfo.ip!, email);
+            if (req.body.grant_type === 'password') await RateLimitService.clearAuthFailure(req.project.slug, deviceInfo.ip!, identifier);
 
             DataAuthController.setAuthCookies(res, response);
             res.json(response);
         } catch (e: any) {
-            if (req.body.grant_type === 'password') await RateLimitService.registerAuthFailure(req.project.slug, deviceInfo.ip!, email, secConfig);
+            if (req.body.grant_type === 'password' && identifier) await RateLimitService.registerAuthFailure(req.project.slug, deviceInfo.ip!, identifier, secConfig);
             next(e);
         }
     }

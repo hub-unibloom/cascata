@@ -29,6 +29,8 @@ interface SessionTokens {
     user: {
         id: string;
         email?: string;
+        identifier?: string;
+        provider?: string;
         app_metadata?: any;
         user_metadata?: any;
     };
@@ -598,11 +600,21 @@ export class AuthService {
         deviceInfo: { ip?: string, userAgent?: string } = {}
     ): Promise<SessionTokens> {
 
+        // Locate the primary identifier for this session
+        const idRes = await projectPool.query(
+            `SELECT identifier FROM auth.identities WHERE user_id = $1 AND provider = $2 LIMIT 1`,
+            [userId, loginProvider]
+        );
+        const primaryIdentifier = idRes.rows[0]?.identifier;
+
         // 1. Create JWT Payload
         const payload = {
             sub: userId,
             role: 'authenticated',
             aud: 'authenticated',
+            email: loginProvider === 'email' ? primaryIdentifier : undefined, // Legacy compat
+            identifier: primaryIdentifier,
+            provider: loginProvider,
             app_metadata: {
                 provider: loginProvider,
                 role: 'authenticated'
@@ -648,6 +660,8 @@ export class AuthService {
             user: {
                 id: user.id,
                 email: user.raw_user_meta_data?.email,
+                identifier: (payload as any).identifier,
+                provider: loginProvider,
                 user_metadata: user.raw_user_meta_data,
                 app_metadata: payload.app_metadata
             }
@@ -672,7 +686,13 @@ export class AuthService {
         if (data.status === 'invalid_token') throw new Error("Invalid or expired refresh token");
         if (data.status === 'revoked_reuse_detected') throw new Error("Token has been revoked (Reuse detected)");
         
-        const accessToken = jwt.sign({ sub: data.p_user_id, role: 'authenticated', aud: 'authenticated' }, jwtSecret, { expiresIn: expiresIn as any });
+        const accessToken = jwt.sign({ 
+            sub: data.p_user_id, 
+            role: 'authenticated', 
+            aud: 'authenticated', 
+            identifier: data.p_user_meta?.identifier, // If stored in metadata
+            provider: 'cascata' 
+        }, jwtSecret, { expiresIn: expiresIn as any });
         
         return { 
             access_token: accessToken, 
@@ -681,6 +701,8 @@ export class AuthService {
             user: { 
                 id: data.p_user_id, 
                 email: data.p_user_meta?.email, 
+                identifier: data.p_user_meta?.identifier,
+                provider: 'cascata',
                 user_metadata: data.p_user_meta, 
                 app_metadata: { provider: 'cascata', role: 'authenticated' } 
             } 

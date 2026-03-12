@@ -343,6 +343,8 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
     const sub = req.user?.sub || '';
     const role = req.userRole || 'anon';
     const email = req.user?.email || '';
+    const identifier = (req.user as any)?.identifier || '';
+    const provider = (req.user as any)?.provider || '';
 
     // Proxy intercepta e empacota a query garantindo Performance Fast-Path para Admins
     // e Segurança Transacional para roles restritas (RLS Planner enforcement)
@@ -435,12 +437,16 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
                 const safeSub = quotePostgresLiteral(sub);
                 const safeRole = quotePostgresLiteral(role);
                 const safeEmail = quotePostgresLiteral(email);
+                const safeIdentifier = quotePostgresLiteral(identifier);
+                const safeProvider = quotePostgresLiteral(provider);
 
                 const setupSql = `
                     SET LOCAL ROLE ${safeRole};
                     SET LOCAL "request.jwt.claim.sub" = ${safeSub};
                     SET LOCAL "request.jwt.claim.role" = ${safeRole};
                     SET LOCAL "request.jwt.claim.email" = ${safeEmail};
+                    SET LOCAL "request.jwt.claim.identifier" = ${safeIdentifier};
+                    SET LOCAL "request.jwt.claim.provider" = ${safeProvider};
                     SET LOCAL statement_timeout = '30000';
                 `;
                 

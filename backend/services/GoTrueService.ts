@@ -8,13 +8,16 @@ import { RateLimitService } from './RateLimitService.js';
 import crypto from 'crypto';
 
 interface GoTrueSignupParams {
-    email: string;
-    password: string;
+    identifier: string;
+    provider?: string;
+    email?: string; // Legacy support
+    password?: string;
     data?: any; // User metadata
 }
 
 interface GoTrueTokenParams {
     email?: string;
+    identifier?: string;
     password?: string;
     refresh_token?: string;
     id_token?: string; // Google Token
@@ -32,33 +35,48 @@ export class GoTrueService {
         jwtSecret: string,
         projectConfig: any
     ) {
-        const { email, password, data } = params;
+        const provider = params.provider || 'email';
+        const identifier = params.identifier || params.email;
+        const password = params.password;
+        const data = params.data || {};
 
-        if (!email || !password) {
-            throw new Error("Email and password required");
+        if (!identifier) {
+            throw new Error("Identifier is required");
+        }
+
+        const authConfig = projectConfig?.auth_config || {};
+        const strategyConfig = authConfig.auth_strategies?.[provider] || {};
+        
+        // Strategy Decision: Is password mandatory for this signup?
+        if (strategyConfig.password_required !== false && !password) {
+             throw new Error("Password is required for this strategy.");
         }
 
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
 
+            // [A] Identity Check (Agnostic lookup)
             const check = await client.query(
-                `SELECT id FROM auth.users WHERE raw_user_meta_data->>'email' = $1`,
-                [email]
+                `SELECT u.id FROM auth.identities i JOIN auth.users u ON i.user_id = u.id WHERE i.provider = $1 AND i.identifier = $2`,
+                [provider, identifier]
             );
 
             if (check.rows.length > 0) {
-                const err: any = new Error("User already registered");
+                const err: any = new Error("Identity already registered");
                 err.code = "user_already_exists";
                 throw err;
             }
 
-            const meta = { email, ...(data || {}) };
-            const authConfig = projectConfig?.auth_config || {};
-            const requiresConfirmation = authConfig.email_confirmation === true;
+            // [B] Metadata Splicing
+            const meta = { ...data };
+            if (provider === 'email' || identifier.includes('@')) {
+                meta.email = identifier;
+            }
 
-            const confirmedAt = requiresConfirmation ? null : 'now()';
+            const requiresConfirmation = strategyConfig.confirmation === true;
 
+            // [C] User Creation
             const userRes = await client.query(
                 `INSERT INTO auth.users (raw_user_meta_data, created_at, last_sign_in_at, banned) 
                  VALUES ($1::jsonb, now(), now(), false) RETURNING *`,
@@ -66,17 +84,17 @@ export class GoTrueService {
             );
             const user = userRes.rows[0];
 
-            const passwordHash = await bcrypt.hash(password, 10);
+            // [D] Identity Bind
+            const passwordHash = password ? await bcrypt.hash(password, 10) : null;
 
             await client.query(
                 `INSERT INTO auth.identities (user_id, provider, identifier, password_hash, identity_data, created_at, last_sign_in_at, verified_at)
-                 VALUES ($1, 'email', $2, $3, $4::jsonb, now(), now(), ${requiresConfirmation ? 'NULL' : 'now()'})`,
-                [user.id, email, passwordHash, JSON.stringify({ sub: user.id, email })]
+                 VALUES ($1, $2, $3, $4, $5::jsonb, now(), now(), ${requiresConfirmation ? 'NULL' : 'now()'})`,
+                [user.id, provider, identifier, passwordHash, JSON.stringify({ sub: user.id, ...meta })]
             );
 
             await client.query('COMMIT');
 
-            const emailConfig = authConfig.auth_strategies?.email || { delivery_method: 'smtp' };
             const language = params.language || 'en-US';
 
             if (requiresConfirmation) {
@@ -95,27 +113,39 @@ export class GoTrueService {
                     projectUrl = authConfig.site_url.replace(/\/$/, '');
                 }
 
-                await AuthService.sendConfirmationEmail(
-                    email,
-                    token,
-                    projectUrl,
-                    emailConfig,
-                    authConfig.email_templates,
-                    jwtSecret,
-                    language,
-                    authConfig.messaging_templates,
-                    emailConfig.template_bindings
-                );
+                // If it's an email-based strategy, send confirmation email
+                if (provider === 'email' || identifier.includes('@')) {
+                    await AuthService.sendConfirmationEmail(
+                        identifier,
+                        token,
+                        projectUrl,
+                        strategyConfig || { delivery_method: 'smtp' },
+                        authConfig.email_templates,
+                        jwtSecret,
+                        language,
+                        authConfig.messaging_templates,
+                        strategyConfig.template_bindings
+                    );
+                } else if (strategyConfig.webhook_url) {
+                    // Agnostic Challenge: Dispatch Webhook for non-email identifiers
+                    await AuthService.dispatchWebhook(strategyConfig.webhook_url, {
+                        action: 'signup_confirmation',
+                        provider,
+                        identifier,
+                        token,
+                        projectUrl
+                    }, jwtSecret);
+                }
 
                 return this.formatUserObject(user, []);
             }
 
-            if (!requiresConfirmation && authConfig.send_welcome_email) {
-                AuthService.sendWelcomeEmail(email, emailConfig, authConfig.email_templates, jwtSecret, language, authConfig.messaging_templates, emailConfig.template_bindings).catch(e => console.error("Welcome Email Failed", e));
+            if (!requiresConfirmation && authConfig.send_welcome_email && (provider === 'email' || identifier.includes('@'))) {
+                AuthService.sendWelcomeEmail(identifier, strategyConfig || { delivery_method: 'smtp' }, authConfig.email_templates, jwtSecret, language, authConfig.messaging_templates, strategyConfig.template_bindings).catch(e => console.error("Welcome Email Failed", e));
             }
 
-            // Create session for 'email' provider
-            const session = await AuthService.createSession(user.id, pool, jwtSecret, '1h', 30, 'email');
+            // Create session using the specific provider context
+            const session = await AuthService.createSession(user.id, pool, jwtSecret, '1h', 30, provider);
             return this.formatSessionResponse(session);
 
         } catch (e) {
@@ -368,11 +398,14 @@ export class GoTrueService {
         const authConfig = projectConfig?.auth_config || {};
 
         if (params.grant_type === 'password') {
-            if (!params.email || !params.password) throw new Error("Email and password required");
+            const provider = params.provider || 'email';
+            const identifier = params.identifier || params.email;
+
+            if (!identifier || !params.password) throw new Error("Identifier and password required");
 
             const idRes = await pool.query(
-                `SELECT * FROM auth.identities WHERE provider = 'email' AND identifier = $1`,
-                [params.email]
+                `SELECT * FROM auth.identities WHERE provider = $1 AND identifier = $2`,
+                [provider, identifier]
             );
 
             if (idRes.rows.length === 0) throw new Error("Invalid login credentials");
@@ -383,7 +416,9 @@ export class GoTrueService {
 
             if (user?.banned) throw new Error("Invalid login credentials");
 
-            if (authConfig.email_confirmation && !identity.verified_at) {
+            const strategyConfig = authConfig.auth_strategies?.[provider] || {};
+
+            if ((strategyConfig.confirmation || authConfig.email_confirmation) && !identity.verified_at) {
                 throw new Error("Identity not confirmed");
             }
 
@@ -401,20 +436,20 @@ export class GoTrueService {
                     projectConfig.slug,
                     'auth.users',
                     'LOGIN',
-                    { user_id: identity.user_id, email: params.email, timestamp: new Date() },
+                    { user_id: identity.user_id, identifier, provider, timestamp: new Date() },
                     pool,
                     jwtSecret
                 ).catch(e => console.error("Login webhook failed", e));
             }
 
-            if (authConfig.send_login_alert && params.email) {
+            if (authConfig.send_login_alert && (provider === 'email' || identifier.includes('@'))) {
                 const emailConfig = authConfig.auth_strategies?.email || { delivery_method: 'smtp' };
                 const language = params.language || 'en-US';
-                AuthService.sendLoginAlert(params.email, emailConfig, authConfig.email_templates, jwtSecret, language, authConfig.messaging_templates, emailConfig.template_bindings).catch(() => { });
+                AuthService.sendLoginAlert(identifier, emailConfig, authConfig.email_templates, jwtSecret, language, authConfig.messaging_templates, emailConfig.template_bindings).catch(() => { });
             }
 
-            // Create session for 'email'
-            const session = await AuthService.createSession(identity.user_id, pool, jwtSecret, '1h', 30, 'email');
+            // Create session for the authenticated identity
+            const session = await AuthService.createSession(identity.user_id, pool, jwtSecret, '1h', 30, provider);
             return this.formatSessionResponse(session);
         }
 
@@ -515,8 +550,7 @@ export class GoTrueService {
                 id: session.user.id,
                 raw_user_meta_data: session.user.user_metadata,
                 created_at: new Date().toISOString(),
-                last_sign_in_at: new Date().toISOString(),
-                email: session.user.email
+                last_sign_in_at: new Date().toISOString()
             }, [])
         };
     }
@@ -537,7 +571,7 @@ export class GoTrueService {
             confirmed_at: confirmedAt,
             last_sign_in_at: user.last_sign_in_at,
             app_metadata: {
-                provider: "email",
+                provider: identities[0]?.provider || "cascata",
                 providers: identities.map(i => i.provider)
             },
             user_metadata: user.raw_user_meta_data || {},
