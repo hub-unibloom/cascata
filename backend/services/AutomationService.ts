@@ -12,9 +12,9 @@ import { systemPool } from '../src/config/main.js';
 
 export interface AutomationNode {
     id: string;
-    type: 'trigger' | 'action' | 'condition' | 'response' | 'query' | 'http' | 'transform';
+    type: 'trigger' | 'action' | 'logic' | 'condition' | 'response' | 'query' | 'http' | 'transform';
     config: any;
-    next?: string[];
+    next?: string[] | { true?: string, false?: string };
 }
 
 export interface AutomationContext {
@@ -80,30 +80,34 @@ export class AutomationService {
 
         let currentNode: AutomationNode | undefined = startNode;
         context.vars['$input'] = payload;
+        context.vars['trigger'] = { data: payload };
 
-        // Simple linear sequence for Phase 1. Branching/Parallelism to come in Phase 2.
-        while (currentNode) {
+        let steps = 0;
+        while (currentNode && steps < 100) {
+            steps++;
             try {
                 const result = await this.processNode(currentNode, context);
+                context.vars[currentNode.id] = { data: result };
                 
-                // If the node type is 'response', we return its content as the final interception result
                 if (currentNode.type === 'response') {
                     return result;
                 }
 
-                // If node is a condition, choose path based on result
                 let nextId: string | undefined;
-                if (currentNode.type === 'condition') {
-                    nextId = result ? currentNode.next?.[0] : currentNode.next?.[1];
+                if (currentNode.type === 'logic' || currentNode.type === 'condition') {
+                    const nextObj = currentNode.next as any;
+                    if (nextObj && typeof nextObj === 'object' && !Array.isArray(nextObj)) {
+                        nextId = result ? nextObj.true : nextObj.false;
+                    } else if (Array.isArray(currentNode.next)) {
+                        nextId = result ? currentNode.next[0] : currentNode.next[1];
+                    }
                 } else {
-                    nextId = currentNode.next?.[0];
+                    nextId = Array.isArray(currentNode.next) ? currentNode.next[0] : (currentNode.next as any)?.out;
                 }
 
                 currentNode = nextId ? nodeMap.get(nextId) : undefined;
             } catch (err) {
-                if (currentNode) {
-                    console.error(`[AutomationEngine] Node ${currentNode.id} (${currentNode.type}) failed:`, err);
-                }
+                console.error(`[AutomationEngine] Node ${currentNode.id} (${currentNode.type}) failed:`, err);
                 break;
             }
         }
@@ -117,48 +121,61 @@ export class AutomationService {
     private static async processNode(node: AutomationNode, context: AutomationContext): Promise<any> {
         switch (node.type) {
             case 'transform':
-                // Logic/Variable mapping node
-                // (No-code on front, but here we can evaluate templates or basic JS expressions)
-                const transformed = this.resolveVariables(node.config.template, context.vars);
-                context.vars[node.id] = transformed;
+                const transformed = this.resolveObject(node.config.body || node.config.template, context.vars);
                 context.vars['$output'] = transformed;
                 return transformed;
 
             case 'query':
-                // Internal DB Query node
                 const { sql, params } = node.config;
                 const resolvedParams = (params || []).map((p: string) => this.getVarSync(p, context.vars));
                 const res = await context.projectPool.query(sql, resolvedParams);
-                context.vars[node.id] = res.rows;
                 return res.rows;
 
             case 'http':
-                // External contact node (HTTP/PIX/etc)
-                // Use fetch for high-performance Node 18+ native requests
-                const response = await fetch(node.config.url, {
-                    method: node.config.method || 'POST',
-                    body: JSON.stringify(this.resolveObject(node.config.body, context.vars)),
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                const data = await response.json();
-                context.vars[node.id] = data;
-                return data;
+                const maxRetries = node.config.retries || 0;
+                let attempt = 0;
+                let lastErr;
 
-            case 'condition':
-                // logic node: check variable vs value
-                const left = this.getVarSync(node.config.left, context.vars);
-                const right = node.config.right;
-                switch (node.config.op) {
-                    case 'eq': return left == right;
-                    case 'neq': return left != right;
-                    case 'gt': return Number(left) > Number(right);
-                    case 'lt': return Number(left) < Number(right);
-                    case 'contains': return String(left).includes(String(right));
-                    default: return false;
+                while (attempt <= maxRetries) {
+                    try {
+                        const response = await fetch(node.config.url, {
+                            method: node.config.method || 'POST',
+                            body: node.config.method !== 'GET' ? JSON.stringify(this.resolveObject(node.config.body, context.vars)) : undefined,
+                            headers: { 
+                                'Content-Type': 'application/json',
+                                ...(node.config.headers ? this.resolveObject(node.config.headers, context.vars) : {})
+                            }
+                        });
+                        return await response.json();
+                    } catch (e) {
+                        lastErr = e;
+                        attempt++;
+                        if (attempt <= maxRetries) await new Promise(r => setTimeout(r, 1000 * attempt));
+                    }
                 }
+                throw lastErr;
+
+            case 'logic':
+            case 'condition':
+                const conditions = node.config.conditions || [node.config];
+                const matchType = node.config.match || 'all';
+                
+                const results = conditions.map((c: any) => {
+                    const leftValue = this.getVarSync(c.left, context.vars);
+                    const rightValue = c.right;
+                    switch (c.op) {
+                        case 'eq': return leftValue == rightValue;
+                        case 'neq': return leftValue != rightValue;
+                        case 'gt': return Number(leftValue) > Number(rightValue);
+                        case 'lt': return Number(leftValue) < Number(rightValue);
+                        case 'contains': return String(leftValue).includes(String(rightValue));
+                        default: return false;
+                    }
+                });
+
+                return matchType === 'all' ? results.every((r: any) => r) : results.some((r: any) => r);
 
             case 'response':
-                // The "Interceptor Exit" - Defines what return to the API client
                 return this.resolveObject(node.config.body, context.vars);
 
             default:

@@ -7,33 +7,53 @@ import {
   History, ToggleLeft as Toggle, Layout, Workflow,
   ChevronRight, Save, Database, Globe, MousePointer2,
   ArrowRight, Maximize2, Minimize2, Code, ChevronDown,
-  Link as LinkIcon, Unlink
+  Link as LinkIcon, Unlink, Key, Shield, RefreshCcw,
+  Layers, Copy, ArrowDownRight, Check
 } from 'lucide-react';
 
 interface Node {
   id: string;
-  type: 'trigger' | 'query' | 'http' | 'logic' | 'response';
+  type: 'trigger' | 'query' | 'http' | 'logic' | 'response' | 'transform' | 'action';
   x: number;
   y: number;
   label: string;
   config: any;
-  next?: string[];
+  next?: string[] | { true?: string, false?: string, out?: string };
+}
+
+interface Automation {
+  id: string;
+  name: string;
+  description: string;
+  is_active: boolean;
+  nodes: Node[];
+  trigger_type: string;
+  trigger_config: any;
+}
+
+interface ExecutionRun {
+  id: string;
+  status: 'success' | 'error';
+  execution_time_ms: number;
+  created_at: string;
 }
 
 const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }) => {
-  const [automations, setAutomations] = useState<any[]>([]);
-  const [tables, setTables] = useState<string[]>([]);
+  const [automations, setAutomations] = useState<Automation[]>([]);
+  const [tables, setTables] = useState<any[]>([]);
+  const [columns, setColumns] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'list' | 'composer'>('list');
   const [activeTab, setActiveTab] = useState<'workflows' | 'runs'>('workflows');
-  const [runs, setRuns] = useState<any[]>([]);
+  const [runs, setRuns] = useState<ExecutionRun[]>([]);
   
   // COMPOSER STATE
-  const [editingAutomation, setEditingAutomation] = useState<any>(null);
+  const [editingAutomation, setEditingAutomation] = useState<Partial<Automation> | null>(null);
   const [nodes, setNodes] = useState<Node[]>([]);
   const [draggedNode, setDraggedNode] = useState<string | null>(null);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
+  const [connectingFrom, setConnectingFrom] = useState<{ id: string, port: 'out' | 'true' | 'false' } | null>(null);
+  const [configNodeId, setConfigNodeId] = useState<string | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
 
   const [submitting, setSubmitting] = useState(false);
@@ -60,8 +80,6 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }) => {
     } catch (e) { console.error("Runs fetch error"); }
   };
 
-  const [columns, setColumns] = useState<Record<string, string[]>>({});
-
   const fetchTables = async () => {
     try {
       const res = await fetch(`/api/data/${projectId}/tables`, {
@@ -69,15 +87,10 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }) => {
       });
       const data = await res.json();
       setTables(Array.isArray(data) ? data : []);
-      
-      // Auto-fetch columns for the first table if none fetched
       if (Array.isArray(data) && data.length > 0) {
-        const firstTable = typeof data[0] === 'string' ? data[0] : data[0].name;
-        handleFetchColumns(firstTable);
+        handleFetchColumns(typeof data[0] === 'string' ? data[0] : data[0].name);
       }
-    } catch (e) {
-      console.error("Tables fetch error");
-    }
+    } catch (e) { console.error("Tables fetch error"); }
   };
 
   const handleFetchColumns = async (tableName: string) => {
@@ -88,7 +101,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }) => {
       });
       const data = await res.json();
       if (Array.isArray(data)) {
-        setColumns(prev => ({ ...prev, [tableName]: data.map((c: any) => c.name) }));
+        setColumns(prev => ({ ...prev, [tableName]: data.map((c: { name: string }) => c.name) }));
       }
     } catch (e) { console.error("Columns fetch error"); }
   };
@@ -97,94 +110,73 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }) => {
       Promise.all([fetchAutomations(), fetchRuns(), fetchTables()]).then(() => setLoading(false)); 
   }, [projectId]);
 
+  // COMPOSER ACTIONS
   const handleCreateNew = () => {
+    const triggerTable = (tables[0] && typeof tables[0] === 'object') ? (tables[0] as any).name : (tables[0] || '*');
     setEditingAutomation({
       name: 'Novo Fluxo ' + (automations.length + 1),
-      description: 'Orquestração de resposta personalizada.',
+      description: 'Orquestração Enterprise v2',
       trigger_type: 'API_INTERCEPT',
-      trigger_config: { 
-        table: (tables[0] && typeof tables[0] === 'object') ? (tables[0] as any).name : (tables[0] || '*'), 
-        event: '*' 
-      },
+      trigger_config: { table: triggerTable, event: '*' },
       is_active: true
     });
     setNodes([
-      { id: 'node_1', type: 'trigger', x: 80, y: 150, label: 'Trigger', config: {} },
-      { id: 'node_2', type: 'response', x: 600, y: 150, label: 'Resposta', config: { body: { success: true, data: "{{node_1.data}}" } }, next: [] }
+      { id: 'node_1', type: 'trigger', x: 100, y: 300, label: 'Trigger Event', config: {}, next: [] },
+      { id: 'node_2', type: 'response', x: 800, y: 300, label: 'Resposta Final', config: { body: { success: true } }, next: [] }
     ]);
-    // Link trigger to response initially
-    setNodes(prev => prev.map(n => n.id === 'node_1' ? { ...n, next: ['node_2'] } : n));
     setView('composer');
   };
 
-  const handleEdit = (auto: any) => {
-    setEditingAutomation(auto);
-    setNodes(auto.nodes || []);
-    setView('composer');
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Tem certeza que deseja excluir esta orquestração?')) return;
+    try {
+      await fetch(`/api/data/${projectId}/automations/${id}`, { method: 'DELETE' });
+      setAutomations(prev => prev.filter((a: Automation) => a.id !== id));
+    } catch (e) { console.error(e); }
+  };
+
+  const handleToggle = async (auto: Automation) => {
+    try {
+      const newStatus = !auto.is_active;
+      await fetch(`/api/data/${projectId}/automations/${auto.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ is_active: newStatus }),
+        headers: { 'Content-Type': 'application/json' }
+      });
+      setAutomations(prev => prev.map((a: Automation) => a.id === auto.id ? { ...a, is_active: newStatus } : a));
+    } catch (e) { console.error(e); }
   };
 
   const handleSave = async () => {
     if (!editingAutomation.name) { setError("Nome é obrigatório."); return; }
     setSubmitting(true);
     try {
-      const payload = { ...editingAutomation, nodes };
       await fetch(`/api/data/${projectId}/automations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ ...editingAutomation, nodes })
       });
       setView('list');
       fetchAutomations();
-      setSuccess("Orquestração salva com sucesso!");
-    } catch (e) { setError("Erro ao salvar fluxo."); }
+      setSuccess("Workflow salvo com sucesso.");
+    } catch (e: any) { setError("Erro ao salvar."); }
     finally { setSubmitting(false); setTimeout(() => setSuccess(null), 3000); }
   };
 
-  const handleDelete = async (id: string) => {
-      if(!confirm("Deseja deletar este fluxo?")) return;
-      try {
-          await fetch(`/api/data/${projectId}/automations/${id}`, {
-              method: 'DELETE',
-              headers: { 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` }
-          });
-          fetchAutomations();
-          setSuccess("Removido.");
-      } catch(e) { setError("Falha ao deletar."); }
-      setTimeout(() => setSuccess(null), 3000);
-  };
-
-  const handleToggle = async (auto: any) => {
-      try {
-          await fetch(`/api/data/${projectId}/automations`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` },
-              body: JSON.stringify({ ...auto, is_active: !auto.is_active })
-          });
-          fetchAutomations();
-      } catch(e) { setError("Erro ao mudar status."); }
-  };
-
-  // NODE MGMT
   const addNode = (type: Node['type']) => {
     const id = `node_${Date.now()}`;
     const newNode: Node = {
-      id, type, x: 300, y: 200, label: type.toUpperCase(),
-      config: type === 'query' ? { sql: 'SELECT * FROM users LIMIT 1', params: [] } :
-              type === 'http' ? { url: 'https://api.exemplo.com/web', method: 'POST', body: {} } :
-              type === 'logic' ? { left: 'node_1.data.status', op: 'eq', right: 'active' } :
-              type === 'response' ? { body: { ok: true } } : {},
-      next: []
+      id, type, x: 400, y: 300, label: type.toUpperCase(),
+      config: type === 'http' ? { url: '', method: 'POST', auth: 'none', retries: 0 } :
+              type === 'logic' ? { conditions: [{ left: '', op: 'eq', right: '' }], match: 'all' } :
+              type === 'transform' ? { mappings: [] } : {},
+      next: type === 'logic' ? { true: undefined, false: undefined } : []
     };
     setNodes([...nodes, newNode]);
+    setConfigNodeId(id);
   };
 
-  const removeNode = (id: string) => {
-    setNodes(nodes.filter(n => n.id !== id).map(n => ({
-      ...n, next: (n.next || []).filter(nid => nid !== id)
-    })));
-  };
-
-  // DRAG & CONNECT LOGIC
+  // DRAG & DROP
   const onMouseDown = (id: string, e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('.port')) return;
     setDraggedNode(id);
@@ -198,31 +190,53 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }) => {
     }
   };
 
-  const onMouseUp = () => {
-    setDraggedNode(null);
-    setConnectingFrom(null);
+  const handlePortClick = (nodeId: string, port: 'out' | 'true' | 'false') => {
+    if (connectingFrom) {
+       // Cannot connect to itself
+       if (connectingFrom.id === nodeId) { setConnectingFrom(null); return; }
+       
+       // Success connection
+       setNodes(nodes.map((n: Node) => {
+         if (n.id === connectingFrom.id) {
+            if (n.type === 'logic') {
+               const nextObj = { ...(n.next as any), [connectingFrom.port]: nodeId };
+               return { ...n, next: nextObj };
+            } else {
+               const nextArr = Array.isArray(n.next) ? [...n.next] : [];
+               if (!nextArr.includes(nodeId)) nextArr.push(nodeId);
+               return { ...n, next: nextArr };
+            }
+         }
+         return n;
+       }));
+       setConnectingFrom(null);
+    } else {
+       setConnectingFrom({ id: nodeId, port });
+    }
   };
 
-  const handleConnect = (fromId: string, toId: string) => {
-    if (fromId === toId) return;
-    setNodes(nodes.map(n => {
+  const disconnect = (fromId: string, toId: string, port?: string) => {
+    setNodes(nodes.map((n: Node) => {
       if (n.id === fromId) {
-        const next = n.next || [];
-        if (next.includes(toId)) return n;
-        return { ...n, next: [...next, toId] };
+        if (n.type === 'logic') {
+           const nextObj = { ...(n.next as any) };
+           if (port === 'true') nextObj.true = undefined;
+           if (port === 'false') nextObj.false = undefined;
+           return { ...n, next: nextObj };
+        } else {
+           return { ...n, next: (n.next as string[]).filter(id => id !== toId) };
+        }
       }
       return n;
     }));
-    setConnectingFrom(null);
   };
 
-  const disconnect = (fromId: string, toId: string) => {
-    setNodes(nodes.map(n => n.id === fromId ? { ...n, next: (n.next || []).filter(id => id !== toId) } : n));
-  };
+  // MODAL CONFIG
+  const activeNode = nodes.find(n => n.id === configNodeId);
 
   if (view === 'composer') {
     return (
-      <div className="h-[78vh] flex flex-col bg-white border border-slate-200 rounded-[3.5rem] overflow-hidden animate-in zoom-in-95 shadow-2xl relative">
+      <div className="h-[82vh] flex flex-col bg-white border border-slate-200 rounded-[3.5rem] overflow-hidden animate-in zoom-in-95 shadow-2xl relative">
         {/* HEADER */}
         <header className="bg-white border-b border-slate-100 p-8 flex items-center justify-between z-30">
           <div className="flex items-center gap-6">
@@ -232,243 +246,332 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }) => {
             <div className="h-10 w-[1px] bg-slate-100"></div>
             <div>
               <input 
-                value={editingAutomation.name}
-                onChange={(e) => setEditingAutomation({...editingAutomation, name: e.target.value})}
+                value={editingAutomation?.name || ''}
+                onChange={(e) => setEditingAutomation(prev => ({...(prev || {}), name: e.target.value}))}
                 className="text-2xl font-black text-slate-900 outline-none bg-transparent hover:bg-slate-50 px-2 rounded-lg transition-all w-64"
-                placeholder="Nome do Fluxo"
+                placeholder="Workflow Name"
               />
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em] mt-1 ml-2">PRO-GRADE Orchestrator <span className="text-indigo-600">v2.1</span></p>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em] mt-1 ml-2 flex items-center gap-2">
+                 <Shield size={10} className="text-indigo-600"/> Production Grade <span className="text-indigo-600">v2.1</span>
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-4">
-             <button 
-                onClick={handleSave} 
-                className="bg-indigo-600 text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-3 hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100"
-             >
-               {submitting ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />} Salvar Fluxo
+             <button onClick={handleSave} className="bg-indigo-600 text-white px-8 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-3 hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 hover:scale-[1.02] active:scale-95">
+               <Save size={16} /> Salvar Workflow
              </button>
           </div>
         </header>
 
         {/* CANVAS */}
         <div 
-          className="flex-1 relative bg-[#FDFDFD] overflow-hidden"
+          className="flex-1 relative bg-[#FAFAFA] overflow-hidden"
           onMouseMove={onMouseMove}
-          onMouseUp={onMouseUp}
+          onMouseUp={() => setDraggedNode(null)}
           ref={canvasRef}
         >
-          {/* SVG GRID BACKGROUND */}
-          <div className="absolute inset-0 opacity-[0.04] pointer-events-none" style={{ backgroundImage: 'radial-gradient(#000 1.5px, transparent 1.5px)', backgroundSize: '32px 32px' }}></div>
+          {/* DOT GRID */}
+          <div className="absolute inset-0 opacity-[0.05] pointer-events-none" style={{ backgroundImage: 'radial-gradient(#000 1.5px, transparent 1.5px)', backgroundSize: '32px 32px' }}></div>
           
-          {/* CONNECTIONS LAYER */}
+          {/* SVG CONNECTIONS */}
           <svg className="absolute inset-0 pointer-events-none w-full h-full z-0">
-             {nodes.map(node => (node.next || []).map(nextId => {
-               const target = nodes.find(n => n.id === nextId);
-               if (!target) return null;
-               
-               const startX = node.x + 320; // Width of node card
-               const startY = node.y + 100; // Middle of card vertically approx
-               const endX = target.x;
-               const endY = target.y + 100;
-               
-               const cp1X = startX + (endX - startX) / 2;
-               const cp2X = startX + (endX - startX) / 2;
-               
-               return (
-                 <g key={`${node.id}-${nextId}`} className="group pointer-events-auto cursor-pointer">
-                    <path 
-                      d={`M ${startX} ${startY} C ${cp1X} ${startY} ${cp2X} ${endY} ${endX} ${endY}`} 
-                      stroke="#6366F1" strokeWidth="3" fill="none" 
-                      className="opacity-40 group-hover:opacity-100 transition-opacity"
-                    />
-                    <circle cx={startX} cy={startY} r="4" fill="#6366F1" />
-                    <circle cx={endX} cy={endY} r="4" fill="#6366F1" />
-                    {/* Disconnect helper */}
-                    <foreignObject x={(startX+endX)/2 - 12} y={(startY+endY)/2 - 12} width="24" height="24">
-                        <button onClick={() => disconnect(node.id, nextId)} className="w-6 h-6 bg-white border border-slate-200 rounded-full flex items-center justify-center text-slate-400 hover:text-rose-600 hover:border-rose-200 shadow-sm transition-all"><Unlink size={10}/></button>
-                    </foreignObject>
-                 </g>
-               );
-             }))}
+             {nodes.map(node => {
+               const connections: { toId: string, port: string }[] = [];
+               if (node.type === 'logic') {
+                  const nextObj = node.next as any;
+                  if (nextObj?.true) connections.push({ toId: nextObj.true, port: 'true' });
+                  if (nextObj?.false) connections.push({ toId: nextObj.false, port: 'false' });
+               } else if (Array.isArray(node.next)) {
+                  node.next.forEach(toId => connections.push({ toId, port: 'out' }));
+               }
+
+               return connections.map(conn => {
+                 const target = nodes.find(n => n.id === conn.toId);
+                 if (!target) return null;
+
+                 const startX = node.x + 300;
+                 const startY = node.y + (conn.port === 'true' ? 80 : conn.port === 'false' ? 120 : 100);
+                 const endX = target.x;
+                 const endY = target.y + 100;
+
+                 const cp1X = startX + (endX - startX) * 0.5;
+                 const cp2X = startX + (endX - startX) * 0.5;
+
+                 return (
+                   <g key={`${node.id}-${conn.toId}-${conn.port}`}>
+                      <path 
+                        d={`M ${startX} ${startY} C ${cp1X} ${startY} ${cp2X} ${endY} ${endX} ${endY}`} 
+                        stroke={conn.port === 'true' ? '#10B981' : conn.port === 'false' ? '#F43F5E' : '#6366F1'} 
+                        strokeWidth="3" fill="none" className="opacity-40 animate-dash" 
+                        strokeDasharray="8 8"
+                      />
+                      <foreignObject x={(startX+endX)/2 - 12} y={(startY+endY)/2 - 12} width="24" height="24" className="pointer-events-auto">
+                        <button onClick={() => disconnect(node.id, conn.toId, conn.port)} className="w-6 h-6 bg-white border border-slate-200 rounded-full flex items-center justify-center text-slate-300 hover:text-rose-600 hover:border-rose-100 shadow-sm transition-all"><Unlink size={10}/></button>
+                      </foreignObject>
+                   </g>
+                 );
+               });
+             })}
           </svg>
 
-          {/* NODES LAYER */}
-          <div className="absolute inset-0 z-10 p-12">
+          {/* NODES */}
+          <div className="absolute inset-0 z-10 p-12 overflow-visible">
             {nodes.map(node => (
               <div 
                 key={node.id} 
-                className={`absolute bg-white border ${draggedNode === node.id ? 'border-indigo-500 shadow-2xl scale-[1.02]' : 'border-slate-100 shadow-xl'} rounded-[2.5rem] p-8 w-[20rem] group cursor-grab active:cursor-grabbing transition-all hover:border-indigo-200 z-20 overflow-visible`}
+                className={`absolute bg-white border ${draggedNode === node.id ? 'border-indigo-500 shadow-2xl scale-[1.02]' : 'border-slate-100 shadow-xl'} rounded-[2rem] p-6 w-[18rem] group cursor-grab active:cursor-grabbing transition-all hover:border-indigo-200 z-20`}
                 style={{ left: node.x, top: node.y }}
                 onMouseDown={(e) => onMouseDown(node.id, e)}
               >
-                {/* HEADER */}
-                <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg ${
-                      node.type === 'trigger' ? 'bg-indigo-600 text-white' : 
-                      node.type === 'response' ? 'bg-emerald-600 text-white' : 
-                      node.type === 'logic' ? 'bg-slate-900 text-white' : 'bg-slate-900 text-white'
-                    }`}>
-                      {node.type === 'trigger' ? <Zap size={22}/> : node.type === 'response' ? <ArrowRight size={22}/> : node.type === 'logic' ? <GitBranch size={22}/> : <Database size={22}/>}
-                    </div>
-                    <div>
-                      <h5 className="text-[8px] font-black uppercase tracking-widest text-slate-400">Node ID: {node.id.split('_').pop()}</h5>
-                      <span className="text-xs font-black text-slate-900 uppercase tracking-tighter">{node.label}</span>
-                    </div>
-                  </div>
-                  <button onClick={() => removeNode(node.id)} className="text-slate-100 hover:text-rose-600 transition-colors p-1"><Trash2 size={16}/></button>
+                <div className="flex items-center justify-between mb-4">
+                   <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-lg ${
+                        node.type === 'trigger' ? 'bg-indigo-600' : 
+                        node.type === 'logic' ? 'bg-slate-900' : 
+                        node.type === 'response' ? 'bg-emerald-600' : 
+                        node.type === 'http' ? 'bg-amber-500' : 'bg-indigo-500'
+                      }`}>
+                        {node.type === 'trigger' ? <Zap size={18}/> : node.type === 'logic' ? <GitBranch size={18}/> : node.type === 'response' ? <ArrowRight size={18}/> : <Database size={18}/>}
+                      </div>
+                      <div>
+                        <span className="text-[7px] font-black uppercase tracking-widest text-slate-400 block mb-0.5">#{node.id.split('_').pop()}</span>
+                        <span className="text-[10px] font-black text-slate-900 uppercase tracking-tighter">{node.label}</span>
+                      </div>
+                   </div>
+                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => setConfigNodeId(node.id)} className="p-1.5 hover:bg-slate-50 rounded-lg text-slate-300 hover:text-indigo-600 transition-all"><Settings size={14}/></button>
+                      <button onClick={() => setNodes(nodes.filter(n => n.id !== node.id))} className="p-1.5 hover:bg-slate-50 rounded-lg text-slate-300 hover:text-rose-600 transition-all"><Trash2 size={14}/></button>
+                   </div>
                 </div>
 
-                {/* CONFIG CONTENT */}
-                <div className="space-y-4">
-                  {node.type === 'trigger' && (
-                    <div className="space-y-4">
-                      <div className="space-y-1">
-                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Tabela Alvo</label>
-                        <select 
-                          value={editingAutomation.trigger_config.table}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setEditingAutomation({...editingAutomation, trigger_config: {...editingAutomation.trigger_config, table: val}});
-                            handleFetchColumns(val);
-                          }}
-                          onMouseDown={(e) => e.stopPropagation()}
-                          className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-3 px-4 text-xs font-black text-indigo-600 outline-none appearance-none cursor-pointer focus:ring-4 focus:ring-indigo-500/5">
-                          {tables.map((t: any) => (
-                            <option key={typeof t === 'string' ? t : t.name} value={typeof t === 'string' ? t : t.name}>
-                              {typeof t === 'string' ? t : t.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                  )}
+                <p className="text-[9px] text-slate-500 font-medium truncate mb-2 opacity-60">
+                   {node.type === 'trigger' ? `${editingAutomation.trigger_config.table} • ${editingAutomation.trigger_config.event}` : 
+                    node.type === 'logic' ? 'Processamento Condicional' : 'Configuração Enterprise'}
+                </p>
 
-                  {node.type === 'query' && (
-                    <div className="space-y-3">
-                      <div className="space-y-1">
-                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">SQL Query</label>
-                        <textarea 
-                          value={node.config.sql}
-                          onChange={(e) => setNodes(nodes.map(n => n.id === node.id ? {...n, config: {...n.config, sql: e.target.value}} : n))}
-                          onMouseDown={(e) => e.stopPropagation()}
-                          className="w-full bg-slate-900 border border-slate-800 rounded-xl py-3 px-4 text-[10px] font-mono text-indigo-300 outline-none h-20 resize-none"
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {node.type === 'logic' && (
-                    <div className="space-y-3">
-                      <div className="space-y-1">
-                        <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest ml-1">Comparar Coluna</label>
-                        <select 
-                           value={node.config.left?.replace('node_1.data.', '')}
-                           onChange={(e) => setNodes(nodes.map(n => n.id === node.id ? {...n, config: {...n.config, left: `node_1.data.${e.target.value}`}} : n))}
-                           onMouseDown={(e) => e.stopPropagation()}
-                           className="w-full bg-slate-50 border border-slate-100 rounded-xl py-2 px-3 text-[10px] font-bold">
-                           <option value="">(Selecione uma coluna)</option>
-                           {(columns[editingAutomation.trigger_config.table] || []).map(col => (
-                             <option key={col} value={col}>{col}</option>
-                           ))}
-                        </select>
-                      </div>
-                      <select 
-                        value={node.config.op}
-                        onChange={(e) => setNodes(nodes.map(n => n.id === node.id ? {...n, config: {...n.config, op: e.target.value}} : n))}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        className="w-full bg-slate-50 border border-slate-100 rounded-xl py-2 px-3 text-[10px] font-black">
-                        <option value="eq">Igual a</option>
-                        <option value="neq">Diferente de</option>
-                        <option value="contains">Contém</option>
-                      </select>
-                      <input 
-                         value={node.config.right}
-                         onChange={(e) => setNodes(nodes.map(n => n.id === node.id ? {...n, config: {...n.config, right: e.target.value}} : n))}
-                         onMouseDown={(e) => e.stopPropagation()}
-                         placeholder="Valor esperado"
-                         className="w-full bg-slate-50 border border-slate-100 rounded-xl py-2 px-3 text-[10px] font-bold"
-                      />
-                    </div>
-                  )}
-
-                  {node.type === 'response' && (
-                    <div className="space-y-3">
-                       <div className="flex items-center justify-between ml-1">
-                          <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Custom Response Body</label>
-                          <div className="group relative">
-                             <button className="text-[8px] font-black text-indigo-600 hover:text-indigo-800 uppercase flex items-center gap-1 transition-all"><Terminal size={8}/> Variáveis</button>
-                             <div className="absolute right-0 bottom-full mb-2 w-48 bg-white border border-slate-100 rounded-2xl shadow-2xl p-4 hidden group-hover:block z-50 animate-in fade-in slide-in-from-bottom-2">
-                                <h6 className="text-[8px] font-black text-slate-900 uppercase tracking-widest mb-3 border-b border-slate-50 pb-2">Disponíveis</h6>
-                                <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar">
-                                   <div className="text-[7px] font-mono text-slate-400 mb-1">Entrada (Trigger)</div>
-                                   {(columns[editingAutomation.trigger_config.table] || ['id']).map(col => (
-                                      <button 
-                                        key={col}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          const tag = `{{node_1.data.${col}}}`;
-                                          const currentBody = typeof node.config.body === 'string' ? node.config.body : JSON.stringify(node.config.body, null, 2);
-                                          setNodes(nodes.map(n => n.id === node.id ? {...n, config: {...n.config, body: currentBody + (currentBody.length > 2 ? ', ' : '') + `"${col}": "${tag}"`}} : n));
-                                        }}
-                                        className="w-full text-left px-2 py-1.5 hover:bg-slate-50 rounded-lg text-indigo-600 font-mono text-[8px] truncate transition-all">
-                                        node_1.data.{col}
-                                      </button>
-                                   ))}
-                                </div>
-                             </div>
-                          </div>
-                       </div>
-                       <textarea 
-                          value={typeof node.config.body === 'string' ? node.config.body : JSON.stringify(node.config.body, null, 2)}
-                          onChange={(e) => {
-                            try {
-                                const parsed = JSON.parse(e.target.value);
-                                setNodes(nodes.map(n => n.id === node.id ? {...n, config: {...n.config, body: parsed}} : n));
-                            } catch {
-                                setNodes(nodes.map(n => n.id === node.id ? {...n, config: {...n.config, body: e.target.value}} : n));
-                            }
-                          }}
-                          onMouseDown={(e) => e.stopPropagation()}
-                          className="w-full bg-indigo-950/5 border border-indigo-100 rounded-2xl py-3 px-4 text-[10px] font-mono text-emerald-700 outline-none h-24 resize-none"
-                        />
-                    </div>
-                  )}
-                </div>
-                
                 {/* PORTS */}
-                <div 
-                  className="port absolute -left-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center cursor-pointer hover:border-indigo-400 hover:scale-110 transition-all z-30 shadow-md group/port"
-                  onClick={() => connectingFrom && handleConnect(connectingFrom, node.id)}
-                >
-                   <div className={`w-2 h-2 rounded-full ${connectingFrom ? 'bg-indigo-400 animate-pulse' : 'bg-slate-200 group-hover/port:bg-indigo-300'}`}></div>
+                <div className="port absolute -left-2.5 top-1/2 -translate-y-1/2 w-5 h-5 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center cursor-pointer hover:border-indigo-400 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'out')}>
+                   <div className="w-1.5 h-1.5 rounded-full bg-slate-200 group-hover/port:bg-indigo-400"></div>
                 </div>
-                <div 
-                  className="port absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center cursor-pointer hover:border-indigo-400 hover:scale-110 transition-all z-30 shadow-md group/port"
-                  onClick={() => setConnectingFrom(node.id)}
-                >
-                   <div className={`w-2 h-2 rounded-full ${connectingFrom === node.id ? 'bg-indigo-500' : 'bg-slate-200 group-hover/port:bg-indigo-300'}`}></div>
-                </div>
+
+                {node.type === 'logic' ? (
+                  <>
+                    <div className="port absolute -right-2.5 top-[70px] w-5 h-5 bg-white border-2 border-emerald-100 rounded-full flex items-center justify-center cursor-pointer hover:border-emerald-500 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'true')}>
+                       <div className="w-1.5 h-1.5 rounded-full bg-emerald-200 group-hover/port:bg-emerald-500"></div>
+                       <span className="absolute left-6 text-[7px] font-black text-emerald-500 uppercase tracking-widest opacity-0 group-hover/port:opacity-100 transition-opacity">True</span>
+                    </div>
+                    <div className="port absolute -right-2.5 top-[110px] w-5 h-5 bg-white border-2 border-rose-100 rounded-full flex items-center justify-center cursor-pointer hover:border-rose-500 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'false')}>
+                       <div className="w-1.5 h-1.5 rounded-full bg-rose-200 group-hover/port:bg-rose-500"></div>
+                       <span className="absolute left-6 text-[7px] font-black text-rose-500 uppercase tracking-widest opacity-0 group-hover/port:opacity-100 transition-opacity">False</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="port absolute -right-2.5 top-1/2 -translate-y-1/2 w-5 h-5 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center cursor-pointer hover:border-indigo-400 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'out')}>
+                    <div className={`w-1.5 h-1.5 rounded-full ${connectingFrom?.id === node.id ? 'bg-indigo-600 animate-pulse' : 'bg-slate-200 group-hover/port:bg-indigo-400'}`}></div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
-          
+
           {/* TOOLBOX */}
           <div className="absolute bottom-10 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur-2xl border border-slate-200 rounded-[2.5rem] px-10 py-5 shadow-2xl flex items-center gap-8 z-40 transition-all hover:border-indigo-100">
-             <ToolboxItem icon={<Database size={20}/>} label="Query" onClick={() => addNode('query')} color="bg-slate-900" />
+             <ToolboxItem icon={<GitBranch size={20}/>} label="Logic" onClick={() => addNode('logic')} color="bg-slate-900" />
              <ToolboxItem icon={<Globe size={20}/>} label="HTTP" onClick={() => addNode('http')} color="bg-amber-500" />
-             <ToolboxItem icon={<GitBranch size={20}/>} label="Logic" onClick={() => addNode('logic')} color="bg-indigo-600" />
+             <ToolboxItem icon={<Layers size={20}/>} label="Transform" onClick={() => addNode('transform')} color="bg-indigo-600" />
              <div className="w-[1px] h-10 bg-slate-100 mx-1"></div>
              <ToolboxItem icon={<ArrowRight size={20}/>} label="Output" onClick={() => addNode('response')} color="bg-emerald-600" />
           </div>
-
-          {/* CONNECTING FEEDBACK */}
-          {connectingFrom && (
-             <div className="absolute top-8 left-1/2 -translate-x-1/2 bg-indigo-600 text-white px-6 py-2 rounded-full text-[10px] font-black uppercase tracking-[0.2em] animate-bounce z-50 flex items-center gap-3 shadow-2xl shadow-indigo-200">
-                <LinkIcon size={14}/> Selecione o nó de destino
-             </div>
-          )}
         </div>
+
+        {/* N8N STYLE MODAL OVERLAY */}
+        {configNodeId && activeNode && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-end animate-in fade-in duration-300">
+             <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setConfigNodeId(null)}></div>
+             <div className="relative w-[45rem] h-full bg-white shadow-2xl flex flex-col animate-in slide-in-from-right duration-500">
+                <header className="p-8 border-b border-slate-50 flex items-center justify-between">
+                   <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-lg">
+                         <Settings size={22}/>
+                      </div>
+                      <div>
+                         <h2 className="text-xl font-black text-slate-900 uppercase tracking-tighter">Configuração do Nó</h2>
+                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{activeNode.type} • {activeNode.id}</p>
+                      </div>
+                   </div>
+                   <button onClick={() => setConfigNodeId(null)} className="w-10 h-10 hover:bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 transition-all"><X size={20}/></button>
+                </header>
+                
+                <div className="flex-1 overflow-y-auto p-12 custom-scrollbar">
+                   {activeNode.type === 'trigger' && (
+                     <div className="space-y-8">
+                        <div className="space-y-4">
+                           <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Tabela de Interceptação</label>
+                           <select 
+                             value={editingAutomation.trigger_config.table}
+                             onChange={(e) => {
+                               const val = e.target.value;
+                               setEditingAutomation({...editingAutomation, trigger_config: {...editingAutomation.trigger_config, table: val}});
+                               handleFetchColumns(val);
+                             }}
+                             className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                             {tables.map((t: any) => <option key={typeof t === 'string' ? t : t.name} value={typeof t === 'string' ? t : t.name}>{typeof t === 'string' ? t : t.name}</option>)}
+                           </select>
+                        </div>
+                        <div className="space-y-4">
+                           <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Eventos</label>
+                           <div className="grid grid-cols-4 gap-2">
+                              {['*', 'INSERT', 'UPDATE', 'DELETE'].map(ev => (
+                                <button key={ev} onClick={() => setEditingAutomation({...editingAutomation, trigger_config: {...editingAutomation.trigger_config, event: ev}})} className={`py-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${editingAutomation.trigger_config.event === ev ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>{ev}</button>
+                              ))}
+                           </div>
+                        </div>
+                     </div>
+                   )}
+
+                   {activeNode.type === 'logic' && (
+                      <div className="space-y-8">
+                         <div className="flex items-center justify-between">
+                            <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Condições de Saída</label>
+                            <div className="flex bg-slate-50 p-1 rounded-xl">
+                               <button onClick={() => setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, match: 'all'}} : n))} className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase transition-all ${activeNode.config.match === 'all' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'}`}>AND</button>
+                               <button onClick={() => setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, match: 'any'}} : n))} className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase transition-all ${activeNode.config.match === 'any' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'}`}>OR</button>
+                            </div>
+                         </div>
+                         <div className="space-y-4">
+                            {activeNode.config.conditions?.map((c: any, i: number) => (
+                               <div key={i} className="bg-slate-50 rounded-[2rem] p-6 flex items-center gap-4 group">
+                                  <select 
+                                    className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold"
+                                    value={c.left}
+                                    onChange={(e) => {
+                                       const nc = [...activeNode.config.conditions];
+                                       nc[i].left = e.target.value;
+                                       setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, conditions: nc}} : n));
+                                    }}
+                                  >
+                                     <option value="">Selecione a Coluna</option>
+                                     {(columns[editingAutomation.trigger_config.table] || []).map(col => <option key={col} value={`trigger.data.${col}`}>{col}</option>)}
+                                  </select>
+                                  <select 
+                                    className="w-32 bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs font-black"
+                                    value={c.op}
+                                    onChange={(e) => {
+                                       const nc = [...activeNode.config.conditions];
+                                       nc[i].op = e.target.value;
+                                       setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, conditions: nc}} : n));
+                                    }}
+                                  >
+                                     <option value="eq">==</option>
+                                     <option value="neq">!=</option>
+                                     <option value="gt">&gt;</option>
+                                     <option value="lt">&lt;</option>
+                                     <option value="contains">CONTAINS</option>
+                                  </select>
+                                  <input 
+                                    className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold"
+                                    placeholder="Valor"
+                                    value={c.right}
+                                    onChange={(e) => {
+                                       const nc = [...activeNode.config.conditions];
+                                       nc[i].right = e.target.value;
+                                       setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, conditions: nc}} : n));
+                                    }}
+                                  />
+                                  <button className="text-slate-200 hover:text-rose-500 transition-colors"><Trash2 size={16}/></button>
+                               </div>
+                            ))}
+                            <button 
+                              onClick={() => {
+                                const nc = [...(activeNode.config.conditions || []), { left: '', op: 'eq', right: '' }];
+                                setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, conditions: nc}} : n));
+                              }}
+                              className="w-full py-4 border-2 border-dashed border-slate-100 rounded-[2rem] text-slate-300 hover:text-indigo-600 hover:border-indigo-100 transition-all font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2"
+                            >
+                              <Plus size={14}/> Adicionar Condição
+                            </button>
+                         </div>
+                      </div>
+                   )}
+
+                   {activeNode.type === 'http' && (
+                      <div className="space-y-8">
+                         <div className="space-y-4">
+                            <label className="text-xs font-black text-slate-900 uppercase tracking-widest">URL do Endpoint</label>
+                            <div className="flex gap-2">
+                               <select className="w-32 bg-slate-900 text-white border-none rounded-2xl px-4 py-3 text-[10px] font-black uppercase tracking-widest" value={activeNode.config.method} onChange={(e) => setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, method: e.target.value}} : n))}>
+                                  <option>GET</option>
+                                  <option>POST</option>
+                                  <option>PUT</option>
+                                  <option>DELETE</option>
+                               </select>
+                               <input className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold" placeholder="https://api.exemplo.com/v1" value={activeNode.config.url} onChange={(e) => setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, url: e.target.value}} : n))} />
+                            </div>
+                         </div>
+                         <div className="grid grid-cols-2 gap-6">
+                            <div className="space-y-4">
+                               <label className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2"><Key size={12} className="text-amber-500"/> Autenticação</label>
+                               <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" value={activeNode.config.auth} onChange={(e) => setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, auth: e.target.value}} : n))}>
+                                  <option value="none">Nenhuma</option>
+                                  <option value="bearer">Bearer Token</option>
+                                  <option value="apikey">Basic Auth</option>
+                                  <option value="mtls">mTLS (Certificado)</option>
+                               </select>
+                            </div>
+                            <div className="space-y-4">
+                               <label className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2"><RefreshCcw size={12} className="text-emerald-500"/> Retentativas</label>
+                               <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" value={activeNode.config.retries} onChange={(e) => setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, retries: parseInt(e.target.value)}} : n))} />
+                            </div>
+                         </div>
+                      </div>
+                   )}
+
+                   {activeNode.type === 'response' && (
+                      <div className="space-y-6">
+                         <div className="space-y-4">
+                            <label className="text-xs font-black text-slate-900 uppercase tracking-widest">HTTP Status Code</label>
+                            <input type="number" className="w-32 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold" value={200} />
+                         </div>
+                         <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                               <label className="text-xs font-black text-slate-900 uppercase tracking-widest">JSON Response Payload</label>
+                               <button className="text-[10px] font-black text-indigo-600 uppercase flex items-center gap-2 hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-all"><Terminal size={12}/> Injetar Variável</button>
+                            </div>
+                            <textarea 
+                              className="w-full h-80 bg-slate-900 text-emerald-400 font-mono text-xs p-8 rounded-[2.5rem] border border-slate-800 outline-none shadow-2xl custom-scrollbar"
+                              value={typeof activeNode.config.body === 'string' ? activeNode.config.body : JSON.stringify(activeNode.config.body, null, 2)}
+                              onChange={(e) => {
+                                 try {
+                                    const parsed = JSON.parse(e.target.value);
+                                    setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, body: parsed}} : n));
+                                 } catch {
+                                    setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, body: e.target.value}} : n));
+                                 }
+                              }}
+                            />
+                         </div>
+                      </div>
+                   )}
+                </div>
+
+                <footer className="p-8 border-t border-slate-50 flex justify-end">
+                    <button onClick={() => setConfigNodeId(null)} className="bg-slate-900 text-white px-10 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shadow-xl shadow-slate-100 flex items-center gap-3">
+                       <Check size={16}/> Confirmar Configuração
+                    </button>
+                </footer>
+             </div>
+          </div>
+        )}
+
+        <style>{`
+          @keyframes dash {
+            to { stroke-dashoffset: -1000; }
+          }
+          .animate-dash { animation: dash 60s linear infinite; }
+          .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+          .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+          .custom-scrollbar::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 10px; }
+        `}</style>
       </div>
     );
   }
@@ -485,85 +588,92 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }) => {
       )}
 
       <header className="flex items-center justify-between">
-        <div className="flex bg-slate-100 p-1 rounded-2xl">
-           <button onClick={() => setActiveTab('workflows')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'workflows' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Workflows</button>
-           <button onClick={() => setActiveTab('runs')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'runs' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Monitoramento</button>
+        <div className="flex bg-slate-100 p-1 rounded-2xl shadow-inner">
+           <button onClick={() => setActiveTab('workflows')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'workflows' ? 'bg-white text-slate-900 shadow-md' : 'text-slate-400 hover:text-slate-600'}`}>Orquestrações</button>
+           <button onClick={() => setActiveTab('runs')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'runs' ? 'bg-white text-slate-900 shadow-md' : 'text-slate-400 hover:text-slate-600'}`}>Logs de Execução</button>
         </div>
-        <button onClick={handleCreateNew} className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-3 hover:bg-black transition-all shadow-2xl">
+        <button onClick={handleCreateNew} className="bg-slate-900 text-white px-8 py-4 rounded-[2rem] font-black text-[10px] uppercase tracking-widest flex items-center gap-3 hover:bg-black transition-all shadow-2xl hover:scale-[1.02] active:scale-95">
            <div className="w-5 h-5 bg-indigo-500 rounded-lg flex items-center justify-center"><Plus size={14} /></div>
-           Criar Nova Orquestração
+           Criar Novo Fluxo
         </button>
       </header>
 
       {loading ? (
         <div className="py-40 flex flex-col items-center justify-center text-slate-200">
           <Loader2 size={60} className="animate-spin mb-6" />
-          <p className="text-[10px] font-black uppercase tracking-widest">Iniciando Orchestrator...</p>
+          <p className="text-[10px] font-black uppercase tracking-widest">Sincronizando Engine...</p>
         </div>
       ) : activeTab === 'workflows' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {automations.length === 0 && (
-            <div className="col-span-full py-40 border border-slate-100 rounded-[3rem] flex flex-col items-center justify-center text-slate-300">
-              <Workflow size={60} className="mb-4 opacity-10" />
-              <p className="text-[10px] font-black uppercase tracking-widest">Aguardando seus fluxos...</p>
-            </div>
-          )}
           {automations.map(auto => (
-            <div key={auto.id} className="bg-white border border-slate-100 rounded-[2.5rem] p-8 shadow-sm hover:shadow-2xl transition-all group relative">
+            <div key={auto.id} className="bg-white border border-slate-100 rounded-[3rem] p-10 shadow-sm hover:shadow-[0_20px_50px_-12px_rgba(0,0,0,0.05)] transition-all group relative overflow-hidden border-b-4 border-b-indigo-50">
                <div className="flex items-start justify-between mb-8">
-                 <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg ${auto.is_active ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
-                   <GitBranch size={24} />
+                 <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg ${auto.is_active ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-300'}`}>
+                   <Workflow size={24} />
                  </div>
                  <div className="flex items-center gap-1">
-                   <button onClick={() => handleEdit(auto)} className="p-2 hover:bg-slate-50 rounded-xl text-slate-400 hover:text-indigo-600 transition-all"><Settings size={18}/></button>
-                   <button onClick={() => handleDelete(auto.id)} className="p-2 hover:bg-slate-50 rounded-xl text-slate-400 hover:text-rose-600 transition-all"><Trash2 size={18}/></button>
+                   <button onClick={() => { setEditingAutomation(auto); setNodes(auto.nodes || []); setView('composer'); }} className="p-2.5 hover:bg-slate-50 rounded-xl text-slate-200 hover:text-indigo-600 transition-all"><Settings size={18}/></button>
+                   <button onClick={() => handleDelete(auto.id)} className="p-2.5 hover:bg-slate-50 rounded-xl text-slate-200 hover:text-rose-600 transition-all"><Trash2 size={18}/></button>
                  </div>
                </div>
-               <h4 className="text-lg font-black text-slate-900 mb-2 truncate">{auto.name}</h4>
-               <p className="text-xs text-slate-500 font-medium mb-6 line-clamp-2">{auto.description}</p>
-               <div className="flex gap-2 mb-8">
-                  <span className="text-[9px] font-black bg-slate-50 text-indigo-600 px-3 py-1.5 rounded-full uppercase border border-indigo-100 flex items-center gap-1.5">
-                    <Activity size={10} className="animate-pulse"/> 
-                    {Math.floor(Math.random() * 5000)} Éventos
+               <h4 className="text-xl font-black text-slate-900 mb-2 truncate uppercase tracking-tighter">{auto.name}</h4>
+               <p className="text-xs text-slate-400 font-medium mb-8 line-clamp-2 h-8">{auto.description}</p>
+               
+               <div className="flex gap-2 mb-8 border-t border-slate-50 pt-6">
+                  <span className="text-[8px] font-black bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg uppercase tracking-widest flex items-center gap-2">
+                     <Activity size={10} className="animate-pulse"/> {Math.floor(Math.random() * 8000)} events
                   </span>
-                  <span className="text-[9px] font-black bg-slate-50 text-emerald-600 px-3 py-1.5 rounded-full uppercase border border-emerald-100 flex items-center gap-1.5">
-                    <Zap size={10}/> 
-                    {Math.floor(Math.random() * 20) + 5}ms avg
-                  </span>
-                  <span className="text-[9px] font-black bg-slate-50 text-slate-500 px-3 py-1.5 rounded-full uppercase border border-slate-100">
-                    {typeof auto.trigger_config?.table === 'object' ? auto.trigger_config.table.name : (auto.trigger_config?.table || '*')}
+                  <span className="text-[8px] font-black bg-emerald-50 text-emerald-600 px-3 py-1.5 rounded-lg uppercase tracking-widest flex items-center gap-2">
+                     <Zap size={10}/> {Math.floor(Math.random() * 30) + 2}ms
                   </span>
                </div>
-               <div className="flex items-center justify-between pt-6 border-t border-slate-50">
+
+               <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${auto.is_active ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
-                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{auto.is_active ? 'Ativo' : 'Pausado'}</span>
+                    <div className={`w-2 h-2 rounded-full ${auto.is_active ? 'bg-emerald-500 shadow-[0_0_10px_#10b981]' : 'bg-slate-200'}`}></div>
+                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{auto.is_active ? 'Live' : 'Paused'}</span>
                   </div>
-                  <button onClick={() => handleToggle(auto)} className="text-[9px] font-black text-slate-500 uppercase hover:text-slate-900 transition-all">Alternar</button>
+                  <button onClick={() => handleToggle(auto)} className="text-[8px] font-black text-slate-900 uppercase tracking-widest hover:bg-slate-50 px-4 py-2 rounded-lg transition-all border border-slate-100">Toggle Status</button>
                </div>
             </div>
           ))}
+          {automations.length === 0 && (
+             <div className="col-span-full py-40 bg-slate-50/50 border-4 border-dashed border-slate-100 rounded-[4rem] flex flex-col items-center justify-center text-slate-300">
+                <Layout size={64} className="mb-6 opacity-20"/>
+                <p className="text-xs font-black uppercase tracking-[0.2em]">O Orquestrador aguarda sua visão.</p>
+             </div>
+          )}
         </div>
       ) : (
-        <div className="bg-white border border-slate-100 rounded-[3rem] overflow-hidden shadow-sm">
+        <div className="bg-white border border-slate-100 rounded-[3rem] overflow-hidden shadow-2xl">
            <table className="w-full text-left">
-             <thead className="bg-slate-50 border-b border-slate-100">
-               <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                 <th className="px-8 py-6">Status</th>
-                 <th className="px-8 py-6">Timestamp</th>
-                 <th className="px-8 py-6">Latência</th>
-                 <th className="px-8 py-6 text-right">Ação</th>
+             <thead>
+               <tr className="bg-slate-50/50 border-b border-slate-100 text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                 <th className="px-10 py-8">Status</th>
+                 <th className="px-10 py-8">Timestamp de Execução</th>
+                 <th className="px-10 py-8">Latência Real</th>
+                 <th className="px-10 py-8 text-right">Ação</th>
                </tr>
              </thead>
-             <tbody className="divide-y divide-slate-100">
+             <tbody className="divide-y divide-slate-50">
                {runs.map(run => (
-                 <tr key={run.id} className="hover:bg-slate-50/50 transition-all">
-                   <td className="px-8 py-6">
-                     <span className={`text-[10px] font-black uppercase tracking-widest ${run.status === 'success' ? 'text-emerald-500' : 'text-rose-500'}`}>{run.status}</span>
+                 <tr key={run.id} className="hover:bg-slate-50/30 transition-all font-medium">
+                   <td className="px-10 py-8">
+                     <div className="flex items-center gap-2">
+                        <CheckCircle2 size={16} className={run.status === 'success' ? 'text-emerald-500' : 'text-rose-500'}/>
+                        <span className={`text-[10px] font-black uppercase tracking-widest ${run.status === 'success' ? 'text-emerald-600' : 'text-rose-600'}`}>{run.status}</span>
+                     </div>
                    </td>
-                   <td className="px-8 py-6 font-mono text-[10px] text-slate-500">{new Date(run.created_at).toLocaleString()}</td>
-                   <td className="px-8 py-6 font-mono text-[10px] text-slate-500">{run.execution_time_ms}ms</td>
-                   <td className="px-8 py-6 text-right"><button className="text-[10px] font-black text-indigo-600 uppercase">Log</button></td>
+                   <td className="px-10 py-8 font-mono text-[10px] text-slate-500">{new Date(run.created_at).toLocaleString()}</td>
+                   <td className="px-10 py-8">
+                      <div className="flex items-center gap-2">
+                         <div className="w-16 h-1 bg-slate-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-indigo-500" style={{ width: `${Math.min(run.execution_time_ms / 10, 100)}%` }}></div>
+                         </div>
+                         <span className="font-mono text-[10px] text-slate-400">{run.execution_time_ms}ms</span>
+                      </div>
+                   </td>
+                   <td className="px-10 py-8 text-right"><button className="text-[9px] font-black text-indigo-600 hover:text-indigo-800 uppercase tracking-widest bg-indigo-50/50 px-4 py-2 rounded-lg transition-all">Ver Detalhes</button></td>
                  </tr>
                ))}
              </tbody>
@@ -574,9 +684,9 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }) => {
   );
 };
 
-const ToolboxItem: React.FC<{ icon: any, label: string, onClick: () => void, color: string }> = ({ icon, label, onClick, color }) => (
-  <button onClick={onClick} className="flex flex-col items-center gap-2 group transition-all hover:-translate-y-1">
-    <div className={`w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:${color} group-hover:text-white transition-all shadow-inner border border-transparent group-hover:bg-opacity-100 group-hover:border-transparent group-hover:shadow-lg`}>
+const ToolboxItem: React.FC<{ icon: React.ReactNode, label: string, onClick: () => void, color: string }> = ({ icon, label, onClick, color }) => (
+  <button onClick={onClick} className="flex flex-col items-center gap-2 group transition-all hover:-translate-y-2">
+    <div className={`w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-300 group-hover:${color} group-hover:text-white transition-all shadow-inner border border-transparent group-hover:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.1)]`}>
       {icon}
     </div>
     <span className="text-[8px] font-black uppercase text-slate-400 group-hover:text-slate-900 tracking-widest transition-colors">{label}</span>
