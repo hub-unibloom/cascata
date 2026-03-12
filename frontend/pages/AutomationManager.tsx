@@ -61,6 +61,8 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
   const [stats, setStats] = useState<Record<string, AutomationStats>>({});
   const [runsFilter, setRunsFilter] = useState<string | null>(null);
   const [vaultSecrets, setVaultSecrets] = useState<any[]>([]);
+  const [functions, setFunctions] = useState<{name: string}[]>([]);
+  const [functionArgs, setFunctionArgs] = useState<Record<string, {name: string, type: string, mode: string}[]>>({});
   
   // COMPOSER STATE
   const [editingAutomation, setEditingAutomation] = useState<Partial<Automation> | null>(null);
@@ -144,8 +146,31 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
     } catch (e) { console.error("Columns fetch error"); }
   };
 
+  const fetchFunctions = async () => {
+    try {
+      const res = await fetch(`/api/data/${projectId}/functions`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` }
+      });
+      const data = await res.json();
+      setFunctions(Array.isArray(data) ? data : []);
+    } catch (e) { console.error("Functions fetch error"); }
+  };
+
+  const fetchFunctionDef = async (fnName: string) => {
+    if (functionArgs[fnName]) return;
+    try {
+      const res = await fetch(`/api/data/${projectId}/functions/${fnName}/definition`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` }
+      });
+      const data = await res.json();
+      if (data?.args && Array.isArray(data.args)) {
+        setFunctionArgs((prev: Record<string, {name: string, type: string, mode: string}[]>) => ({ ...prev, [fnName]: data.args }));
+      }
+    } catch (e) { console.error("Function def fetch error"); }
+  };
+
   useEffect(() => { 
-      Promise.all([fetchAutomations(), fetchRuns(), fetchStats(), fetchTables(), fetchVault()]).then(() => setLoading(false)); 
+      Promise.all([fetchAutomations(), fetchRuns(), fetchStats(), fetchTables(), fetchVault(), fetchFunctions()]).then(() => setLoading(false)); 
   }, [projectId]);
 
   // COMPOSER ACTIONS
@@ -168,37 +193,54 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
   const handleDelete = async (id: string) => {
     if (!window.confirm('Tem certeza que deseja excluir esta orquestração?')) return;
     try {
-      await fetch(`/api/data/${projectId}/automations/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/data/${projectId}/automations/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` }
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Falha ao excluir'); }
       setAutomations((prev: Automation[]) => prev.filter((a: Automation) => a.id !== id));
-    } catch (e) { console.error(e); }
+      setSuccess('Workflow excluído.');
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (e: any) { setError(e.message || 'Erro ao excluir.'); setTimeout(() => setError(null), 5000); }
   };
 
   const handleToggle = async (auto: Automation) => {
     try {
       const newStatus = !auto.is_active;
-      await fetch(`/api/data/${projectId}/automations/${auto.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ is_active: newStatus }),
-        headers: { 'Content-Type': 'application/json' }
+      const res = await fetch(`/api/data/${projectId}/automations`, {
+        method: 'POST',
+        body: JSON.stringify({ ...auto, is_active: newStatus }),
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` }
       });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Falha ao alterar status'); }
       setAutomations((prev: Automation[]) => prev.map((a: Automation) => a.id === auto.id ? { ...a, is_active: newStatus } : a));
-    } catch (e) { console.error(e); }
+      setSuccess(newStatus ? 'Workflow ativado.' : 'Workflow pausado.');
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (e: any) { setError(e.message || 'Erro ao alterar status.'); setTimeout(() => setError(null), 5000); }
   };
 
   const handleSave = async () => {
-    if (!editingAutomation || !editingAutomation.name) { setError("Nome é obrigatório."); return; }
+    if (!editingAutomation || !editingAutomation.name) { setError("Nome é obrigatório."); setTimeout(() => setError(null), 5000); return; }
     setSubmitting(true);
     try {
-      await fetch(`/api/data/${projectId}/automations`, {
+      const payload = {
+        ...(editingAutomation || {}),
+        nodes: JSON.stringify(nodes),
+        trigger_config: JSON.stringify(editingAutomation.trigger_config || {})
+      };
+      const res = await fetch(`/api/data/${projectId}/automations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` },
-        body: JSON.stringify({ ...(editingAutomation || {}), nodes })
+        body: JSON.stringify(payload)
       });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || data.message || 'Falha ao salvar workflow');
       setView('list');
       fetchAutomations();
+      fetchStats();
       setSuccess("Workflow salvo com sucesso.");
-    } catch (e: any) { setError("Erro ao salvar."); }
-    finally { setSubmitting(false); setTimeout(() => setSuccess(null), 3000); }
+    } catch (e: any) { setError(e.message || "Erro ao salvar."); }
+    finally { setSubmitting(false); setTimeout(() => { setSuccess(null); setError(null); }, 5000); }
   };
 
   const addNode = (type: Node['type']) => {
@@ -430,6 +472,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
              <ToolboxItem icon={<Globe size={20}/>} label="HTTP" onClick={() => addNode('http')} color="bg-amber-500" />
              <ToolboxItem icon={<Terminal size={20}/>} label="SQL" onClick={() => addNode('query')} color="bg-rose-600" />
              <ToolboxItem icon={<Database size={20}/>} label="Data" onClick={() => addNode('data')} color="bg-cyan-600" />
+             <ToolboxItem icon={<Code size={20}/>} label="RPC" onClick={() => addNode('rpc')} color="bg-violet-600" />
              <ToolboxItem icon={<Layers size={20}/>} label="Transform" onClick={() => addNode('transform')} color="bg-indigo-600" />
              <div className="w-[1px] h-10 bg-slate-100 mx-1"></div>
              <ToolboxItem icon={<ArrowRight size={20}/>} label="Output" onClick={() => addNode('response')} color="bg-emerald-600" />
@@ -702,11 +745,83 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
 
                          {(activeNode.config.operation === 'insert' || activeNode.config.operation === 'update') && (
                             <div className="space-y-4">
-                               <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Dados (Payload)</label>
-                               <textarea className="w-full h-40 bg-slate-900 text-cyan-400 font-mono text-xs p-6 rounded-2xl border border-slate-800 outline-none" placeholder='{"campo": "{{trigger.data.id}}"}' value={typeof activeNode.config.body === 'string' ? activeNode.config.body : JSON.stringify(activeNode.config.body, null, 2)} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
-                                  try { const p = JSON.parse(e.target.value); setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, body: p}} : n)); }
-                                  catch { setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, body: e.target.value}} : n)); }
-                               }} />
+                               <div className="flex items-center justify-between">
+                                  <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Dados (Payload)</label>
+                                  <div className="flex bg-slate-100 p-0.5 rounded-lg">
+                                     <button onClick={() => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _payloadMode: 'visual'}} : n))} className={`px-3 py-1 rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${(activeNode.config._payloadMode || 'visual') === 'visual' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'}`}>Visual</button>
+                                     <button onClick={() => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _payloadMode: 'code'}} : n))} className={`px-3 py-1 rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${activeNode.config._payloadMode === 'code' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'}`}>Código</button>
+                                  </div>
+                               </div>
+
+                               {(activeNode.config._payloadMode || 'visual') === 'visual' ? (
+                                  <div className="space-y-3">
+                                     {/* Source Selector */}
+                                     <div className="bg-indigo-50/50 border border-indigo-100 rounded-2xl p-4 space-y-3">
+                                        <label className="text-[9px] font-black text-indigo-600 uppercase tracking-widest flex items-center gap-2"><Database size={10}/> Fonte dos Dados</label>
+                                        <select className="w-full bg-white border border-indigo-200 rounded-xl px-3 py-2 text-[10px] font-bold" value={activeNode.config._dataSource || 'trigger'} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _dataSource: e.target.value}} : n))}>
+                                           <option value="trigger">{"Trigger (Dados Originais)"}</option>
+                                           {nodes.filter((n: Node) => n.id !== activeNode.id && n.type !== 'trigger').map((n: Node) => <option key={n.id} value={n.id}>{n.label} (#{n.id.split('_').pop()})</option>)}
+                                        </select>
+                                     </div>
+
+                                     {/* Field Mapper */}
+                                     <div className="bg-white border border-slate-200 rounded-2xl divide-y divide-slate-100">
+                                        {(activeNode.config._dataSource === 'trigger' || !activeNode.config._dataSource) && editingAutomation?.trigger_config?.table && (columns[editingAutomation.trigger_config.table] || []).map((col: string) => {
+                                           const fields = activeNode.config._fields || {};
+                                           const isChecked = fields[col] !== undefined;
+                                           return (
+                                              <div key={col} className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50/50 transition-colors">
+                                                 <input type="checkbox" checked={isChecked} onChange={() => {
+                                                    const nf = {...fields};
+                                                    if (isChecked) delete nf[col]; else nf[col] = `{{trigger.data.${col}}}`;
+                                                    const body = Object.fromEntries(Object.entries(nf).map(([k, v]) => [k, v]));
+                                                    setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _fields: nf, body}} : n));
+                                                 }} className="w-4 h-4 rounded border-slate-300 text-indigo-600 accent-indigo-600" />
+                                                 <span className="text-[10px] font-bold text-slate-700 flex-1">{col}</span>
+                                                 {isChecked && <span className="text-[8px] font-mono text-indigo-400 bg-indigo-50 px-2 py-1 rounded-lg">{fields[col]}</span>}
+                                              </div>
+                                           );
+                                        })}
+                                        {activeNode.config._dataSource && activeNode.config._dataSource !== 'trigger' && (
+                                           <div className="p-4 text-center text-[10px] text-slate-400 font-bold uppercase">
+                                              Campos do nó #{activeNode.config._dataSource.split('_').pop()} serão resolvidos em runtime
+                                           </div>
+                                        )}
+                                     </div>
+
+                                     {/* Custom Fields */}
+                                     <div className="space-y-2">
+                                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Campos Extras</label>
+                                        {(activeNode.config._customFields || []).map((cf: {key: string, value: string}, i: number) => (
+                                           <div key={i} className="flex gap-2">
+                                              <input className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-bold" placeholder="chave" value={cf.key} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                                 const ncf = [...(activeNode.config._customFields || [])]; ncf[i].key = e.target.value;
+                                                 const body = {...(activeNode.config.body || {}), [e.target.value]: ncf[i].value};
+                                                 setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
+                                              }} />
+                                              <input className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-mono" placeholder="{{node_id.data.campo}}" value={cf.value} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                                 const ncf = [...(activeNode.config._customFields || [])]; ncf[i].value = e.target.value;
+                                                 const body = {...(activeNode.config.body || {}), [ncf[i].key]: e.target.value};
+                                                 setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
+                                              }} />
+                                              <button className="text-slate-300 hover:text-rose-500 transition-colors" onClick={() => {
+                                                 const ncf = (activeNode.config._customFields || []).filter((_: any, idx: number) => idx !== i);
+                                                 setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf}} : n));
+                                              }}><Trash2 size={14}/></button>
+                                           </div>
+                                        ))}
+                                        <button className="w-full py-2 border border-dashed border-slate-200 rounded-xl text-[9px] font-black uppercase text-slate-400 hover:text-indigo-600 hover:border-indigo-200 transition-all" onClick={() => {
+                                           const ncf = [...(activeNode.config._customFields || []), { key: '', value: '' }];
+                                           setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf}} : n));
+                                        }}>+ Campo Extra</button>
+                                     </div>
+                                  </div>
+                               ) : (
+                                  <textarea className="w-full h-40 bg-slate-900 text-cyan-400 font-mono text-xs p-6 rounded-2xl border border-slate-800 outline-none" placeholder='{"campo": "valor"}' value={typeof activeNode.config.body === 'string' ? activeNode.config.body : JSON.stringify(activeNode.config.body, null, 2)} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
+                                     try { const p = JSON.parse(e.target.value); setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, body: p}} : n)); }
+                                     catch { setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, body: e.target.value}} : n)); }
+                                  }} />
+                               )}
                             </div>
                          )}
                       </div>
@@ -715,12 +830,76 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                    {activeNode.type === 'transform' && (
                       <div className="space-y-8">
                          <div className="space-y-4">
-                            <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Mapeamento JSON</label>
-                            <textarea className="w-full h-80 bg-slate-900 text-indigo-400 font-mono text-xs p-8 rounded-[2.5rem] border border-slate-800 outline-none shadow-2xl" value={typeof activeNode.config.body === 'string' ? activeNode.config.body : JSON.stringify(activeNode.config.body, null, 2)} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
-                               try { const p = JSON.parse(e.target.value); setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, body: p}} : n)); }
-                               catch { setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, body: e.target.value}} : n)); }
-                            }} />
-                            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest leading-relaxed">Dica: Use {"{{node_id.data.campo}}"} para injetar dados de outros nós.</p>
+                            <div className="flex items-center justify-between">
+                               <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Mapeamento de Dados</label>
+                               <div className="flex bg-slate-100 p-0.5 rounded-lg">
+                                  <button onClick={() => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _payloadMode: 'visual'}} : n))} className={`px-3 py-1 rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${(activeNode.config._payloadMode || 'visual') === 'visual' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'}`}>Visual</button>
+                                  <button onClick={() => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _payloadMode: 'code'}} : n))} className={`px-3 py-1 rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${activeNode.config._payloadMode === 'code' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'}`}>Código</button>
+                               </div>
+                            </div>
+
+                            {(activeNode.config._payloadMode || 'visual') === 'visual' ? (
+                               <div className="space-y-3">
+                                  <div className="bg-indigo-50/50 border border-indigo-100 rounded-2xl p-4 space-y-3">
+                                     <label className="text-[9px] font-black text-indigo-600 uppercase tracking-widest flex items-center gap-2"><Layers size={10}/> Fonte dos Dados</label>
+                                     <select className="w-full bg-white border border-indigo-200 rounded-xl px-3 py-2 text-[10px] font-bold" value={activeNode.config._dataSource || 'trigger'} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _dataSource: e.target.value}} : n))}>
+                                        <option value="trigger">{"Trigger (Dados Originais)"}</option>
+                                        {nodes.filter((n: Node) => n.id !== activeNode.id && n.type !== 'trigger').map((n: Node) => <option key={n.id} value={n.id}>{n.label} (#{n.id.split('_').pop()})</option>)}
+                                     </select>
+                                  </div>
+                                  <div className="bg-white border border-slate-200 rounded-2xl divide-y divide-slate-100">
+                                     {(activeNode.config._dataSource === 'trigger' || !activeNode.config._dataSource) && editingAutomation?.trigger_config?.table && (columns[editingAutomation.trigger_config.table] || []).map((col: string) => {
+                                        const fields = activeNode.config._fields || {};
+                                        const isChecked = fields[col] !== undefined;
+                                        return (
+                                           <div key={col} className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50/50 transition-colors">
+                                              <input type="checkbox" checked={isChecked} onChange={() => {
+                                                 const nf = {...fields};
+                                                 if (isChecked) delete nf[col]; else nf[col] = `{{trigger.data.${col}}}`;
+                                                 const body = Object.fromEntries(Object.entries(nf).map(([k, v]) => [k, v]));
+                                                 setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _fields: nf, body}} : n));
+                                              }} className="w-4 h-4 rounded border-slate-300 text-indigo-600 accent-indigo-600" />
+                                              <span className="text-[10px] font-bold text-slate-700 flex-1">{col}</span>
+                                              {isChecked && <span className="text-[8px] font-mono text-indigo-400 bg-indigo-50 px-2 py-1 rounded-lg">{fields[col]}</span>}
+                                           </div>
+                                        );
+                                     })}
+                                  </div>
+                                  <div className="space-y-2">
+                                     <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Campos Extras / Transformações</label>
+                                     {(activeNode.config._customFields || []).map((cf: {key: string, value: string}, i: number) => (
+                                        <div key={i} className="flex gap-2">
+                                           <input className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-bold" placeholder="nova_chave" value={cf.key} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                              const ncf = [...(activeNode.config._customFields || [])]; ncf[i].key = e.target.value;
+                                              const body = {...(activeNode.config.body || {}), [e.target.value]: ncf[i].value};
+                                              setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
+                                           }} />
+                                           <input className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-mono" placeholder="{{node_id.data.campo}}" value={cf.value} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                              const ncf = [...(activeNode.config._customFields || [])]; ncf[i].value = e.target.value;
+                                              const body = {...(activeNode.config.body || {}), [ncf[i].key]: e.target.value};
+                                              setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
+                                           }} />
+                                           <button className="text-slate-300 hover:text-rose-500 transition-colors" onClick={() => {
+                                              const ncf = (activeNode.config._customFields || []).filter((_: any, idx: number) => idx !== i);
+                                              setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf}} : n));
+                                           }}><Trash2 size={14}/></button>
+                                        </div>
+                                     ))}
+                                     <button className="w-full py-2 border border-dashed border-slate-200 rounded-xl text-[9px] font-black uppercase text-slate-400 hover:text-indigo-600 hover:border-indigo-200 transition-all" onClick={() => {
+                                        const ncf = [...(activeNode.config._customFields || []), { key: '', value: '' }];
+                                        setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf}} : n));
+                                     }}>+ Campo Extra / Transformação</button>
+                                  </div>
+                               </div>
+                            ) : (
+                               <div className="space-y-2">
+                                  <textarea className="w-full h-80 bg-slate-900 text-indigo-400 font-mono text-xs p-8 rounded-[2.5rem] border border-slate-800 outline-none shadow-2xl" value={typeof activeNode.config.body === 'string' ? activeNode.config.body : JSON.stringify(activeNode.config.body, null, 2)} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
+                                     try { const p = JSON.parse(e.target.value); setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, body: p}} : n)); }
+                                     catch { setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, body: e.target.value}} : n)); }
+                                  }} />
+                                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest leading-relaxed">Use {"{{node_id.data.campo}}"} para injetar dados.</p>
+                               </div>
+                            )}
                          </div>
                       </div>
                    )}
@@ -728,23 +907,62 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                    {activeNode.type === 'rpc' && (
                       <div className="space-y-8">
                          <div className="space-y-4">
-                            <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Database Function (RPC)</label>
-                            <input className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold" placeholder="api.minha_funcao" value={activeNode.config.function} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, function: e.target.value}} : n))} />
+                            <label className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2"><Code size={12} className="text-violet-500"/> Função do Banco (RPC)</label>
+                            <select 
+                               className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3.5 text-sm font-bold"
+                               value={activeNode.config.function || ''}
+                               onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
+                                  const fnName = e.target.value;
+                                  setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, function: fnName, args: {}}} : n));
+                                  if (fnName) fetchFunctionDef(fnName);
+                               }}
+                            >
+                               <option value="">Selecione uma função...</option>
+                               {functions.map((fn: {name: string}) => <option key={fn.name} value={fn.name}>{fn.name}</option>)}
+                            </select>
+                            {!functions.length && (
+                               <p className="text-[9px] text-amber-600 font-bold bg-amber-50 px-4 py-2 rounded-xl border border-amber-100">Nenhuma função encontrada. Crie funções no SQL Editor primeiro.</p>
+                            )}
                          </div>
-                         <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                               <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Argumentos (JSON Array)</label>
-                               <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Ex: {"[\"{{trigger.data.id}}\", 123]"}</p>
+
+                         {/* Auto-detected Arguments */}
+                         {activeNode.config.function && (
+                            <div className="space-y-4">
+                               <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Parâmetros</label>
+                               {functionArgs[activeNode.config.function] ? (
+                                  <div className="space-y-3">
+                                     {functionArgs[activeNode.config.function].filter((a: {mode: string}) => a.mode === 'IN' || a.mode === 'INOUT').map((arg: {name: string, type: string}, i: number) => (
+                                        <div key={i} className="bg-slate-50 rounded-2xl p-4 space-y-2">
+                                           <div className="flex items-center justify-between">
+                                              <span className="text-[10px] font-black text-slate-700 uppercase tracking-widest">{arg.name || `arg_${i + 1}`}</span>
+                                              <span className="text-[8px] font-bold text-violet-500 bg-violet-50 px-2 py-1 rounded-lg uppercase">{arg.type}</span>
+                                           </div>
+                                           <input 
+                                              className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-mono"
+                                              placeholder={`Valor ou {{trigger.data.campo}}`}
+                                              value={(activeNode.config.args && typeof activeNode.config.args === 'object' && !Array.isArray(activeNode.config.args)) ? (activeNode.config.args[arg.name || `arg_${i + 1}`] || '') : ''}
+                                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                                 const argKey = arg.name || `arg_${i + 1}`;
+                                                 const newArgs = {...(typeof activeNode.config.args === 'object' && !Array.isArray(activeNode.config.args) ? activeNode.config.args : {}), [argKey]: e.target.value};
+                                                 setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, args: newArgs}} : n));
+                                              }}
+                                           />
+                                        </div>
+                                     ))}
+                                     {functionArgs[activeNode.config.function].filter((a: {mode: string}) => a.mode === 'IN' || a.mode === 'INOUT').length === 0 && (
+                                        <p className="text-[10px] text-slate-400 font-bold bg-slate-50 px-4 py-3 rounded-xl text-center uppercase">Esta função não requer parâmetros</p>
+                                     )}
+                                  </div>
+                               ) : (
+                                  <div className="animate-pulse bg-slate-50 rounded-2xl p-6 text-center">
+                                     <p className="text-[10px] text-slate-400 font-bold uppercase">Carregando definição da função...</p>
+                                  </div>
+                               )}
                             </div>
-                            <textarea 
-                              className="w-full h-40 bg-slate-900 text-indigo-300 font-mono text-xs p-6 rounded-2xl border border-slate-800 outline-none" 
-                              placeholder='["arg1", "arg2"]' 
-                              value={typeof activeNode.config.args === 'string' ? activeNode.config.args : JSON.stringify(activeNode.config.args, null, 2)} 
-                              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
-                                 try { const p = JSON.parse(e.target.value); setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, args: p}} : n)); }
-                                 catch { setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, args: e.target.value}} : n)); }
-                              }} 
-                            />
+                         )}
+
+                         <div className="bg-violet-50 rounded-2xl p-4 border border-violet-100">
+                            <p className="text-[9px] text-violet-700 font-bold uppercase leading-relaxed"><Shield size={10} className="inline mr-1"/> Funções executam com a ROLE do usuário que acionou o gatilho. RLS é respeitado.</p>
                          </div>
                       </div>
                    )}
@@ -757,28 +975,103 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                          </div>
                          <div className="space-y-4">
                             <div className="flex items-center justify-between">
-                               <label className="text-xs font-black text-slate-900 uppercase tracking-widest">JSON Response Payload</label>
-                               <div className="relative group/help">
-                                 <button className="text-[10px] font-black text-indigo-600 uppercase flex items-center gap-2 hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-all"><Terminal size={12}/> Injetar Variável</button>
-                                 <div className="absolute right-0 bottom-full mb-2 w-48 bg-slate-900 text-white p-4 rounded-2xl text-[10px] font-medium opacity-0 group-hover/help:opacity-100 transition-opacity z-50 pointer-events-none shadow-2xl border border-slate-700">
-                                    <span className="text-indigo-400 font-black block mb-2 uppercase">Variáveis:</span>
-                                    <code className="text-emerald-400 block mb-1">{"{{"}trigger.data.*{"}}"}</code>
-                                    <code className="text-emerald-400 block">{"{{"}node_id.data.*{"}}"}</code>
-                                 </div>
+                               <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Response Payload</label>
+                               <div className="flex bg-slate-100 p-0.5 rounded-lg">
+                                  <button onClick={() => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _payloadMode: 'visual'}} : n))} className={`px-3 py-1 rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${(activeNode.config._payloadMode || 'visual') === 'visual' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'}`}>Visual</button>
+                                  <button onClick={() => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _payloadMode: 'code'}} : n))} className={`px-3 py-1 rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${activeNode.config._payloadMode === 'code' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'}`}>Código</button>
                                </div>
                             </div>
-                            <textarea 
-                              className="w-full h-80 bg-slate-900 text-emerald-400 font-mono text-xs p-8 rounded-[2.5rem] border border-slate-800 outline-none shadow-2xl custom-scrollbar"
-                              value={typeof activeNode.config.body === 'string' ? activeNode.config.body : JSON.stringify(activeNode.config.body, null, 2)}
-                              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
-                                 try {
-                                    const parsed = JSON.parse(e.target.value);
-                                    setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, body: parsed}} : n));
-                                 } catch {
-                                    setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, body: e.target.value}} : n));
-                                 }
-                              }}
-                            />
+
+                            {(activeNode.config._payloadMode || 'visual') === 'visual' ? (
+                               <div className="space-y-3">
+                                  <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-4 space-y-3">
+                                     <label className="text-[9px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-2"><ArrowRight size={10}/> Fonte dos Dados da Resposta</label>
+                                     <select className="w-full bg-white border border-emerald-200 rounded-xl px-3 py-2 text-[10px] font-bold" value={activeNode.config._dataSource || 'trigger'} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _dataSource: e.target.value}} : n))}>
+                                        <option value="trigger">{"Trigger (Dados Originais)"}</option>
+                                        {nodes.filter((n: Node) => n.id !== activeNode.id && n.type !== 'trigger').map((n: Node) => <option key={n.id} value={n.id}>{n.label} (#{n.id.split('_').pop()})</option>)}
+                                     </select>
+                                  </div>
+
+                                  <div className="bg-white border border-slate-200 rounded-2xl divide-y divide-slate-100">
+                                     {(activeNode.config._dataSource === 'trigger' || !activeNode.config._dataSource) && editingAutomation?.trigger_config?.table && (columns[editingAutomation.trigger_config.table] || []).map((col: string) => {
+                                        const fields = activeNode.config._fields || {};
+                                        const isChecked = fields[col] !== undefined;
+                                        return (
+                                           <div key={col} className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50/50 transition-colors">
+                                              <input type="checkbox" checked={isChecked} onChange={() => {
+                                                 const nf = {...fields};
+                                                 if (isChecked) delete nf[col]; else nf[col] = `{{trigger.data.${col}}}`;
+                                                 const body = Object.fromEntries(Object.entries(nf).map(([k, v]) => [k, v]));
+                                                 setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _fields: nf, body}} : n));
+                                              }} className="w-4 h-4 rounded border-slate-300 text-emerald-600 accent-emerald-600" />
+                                              <span className="text-[10px] font-bold text-slate-700 flex-1">{col}</span>
+                                              {isChecked && <span className="text-[8px] font-mono text-emerald-400 bg-emerald-50 px-2 py-1 rounded-lg">{fields[col]}</span>}
+                                           </div>
+                                        );
+                                     })}
+                                     {activeNode.config._dataSource && activeNode.config._dataSource !== 'trigger' && (
+                                        <div className="p-4 text-center text-[10px] text-slate-400 font-bold uppercase">
+                                           Dados do nó #{activeNode.config._dataSource.split('_').pop()} serão mesclados na resposta em runtime
+                                        </div>
+                                     )}
+                                  </div>
+
+                                  <div className="space-y-2">
+                                     <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Campos Extras na Resposta</label>
+                                     {(activeNode.config._customFields || []).map((cf: {key: string, value: string}, i: number) => (
+                                        <div key={i} className="flex gap-2">
+                                           <input className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-bold" placeholder="chave_pix" value={cf.key} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                              const ncf = [...(activeNode.config._customFields || [])]; ncf[i].key = e.target.value;
+                                              const body = {...(activeNode.config.body || {}), [e.target.value]: ncf[i].value};
+                                              setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
+                                           }} />
+                                           <input className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-mono" placeholder="{{node_3.data.pix_key}}" value={cf.value} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                              const ncf = [...(activeNode.config._customFields || [])]; ncf[i].value = e.target.value;
+                                              const body = {...(activeNode.config.body || {}), [ncf[i].key]: e.target.value};
+                                              setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
+                                           }} />
+                                           <button className="text-slate-300 hover:text-rose-500 transition-colors" onClick={() => {
+                                              const ncf = (activeNode.config._customFields || []).filter((_: any, idx: number) => idx !== i);
+                                              setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf}} : n));
+                                           }}><Trash2 size={14}/></button>
+                                        </div>
+                                     ))}
+                                     <button className="w-full py-2 border border-dashed border-slate-200 rounded-xl text-[9px] font-black uppercase text-slate-400 hover:text-emerald-600 hover:border-emerald-200 transition-all" onClick={() => {
+                                        const ncf = [...(activeNode.config._customFields || []), { key: '', value: '' }];
+                                        setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf}} : n));
+                                     }}>+ Campo Extra na Resposta</button>
+                                  </div>
+
+                                  <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-100">
+                                     <p className="text-[9px] text-emerald-700 font-bold uppercase leading-relaxed"><ArrowRight size={10} className="inline mr-1"/> Este payload será enviado como resposta da API ao cliente final.</p>
+                                  </div>
+                               </div>
+                            ) : (
+                               <div className="space-y-2">
+                                  <div className="flex justify-end">
+                                     <div className="relative group/help">
+                                        <button className="text-[10px] font-black text-indigo-600 uppercase flex items-center gap-2 hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-all"><Terminal size={12}/> Variáveis</button>
+                                        <div className="absolute right-0 bottom-full mb-2 w-48 bg-slate-900 text-white p-4 rounded-2xl text-[10px] font-medium opacity-0 group-hover/help:opacity-100 transition-opacity z-50 pointer-events-none shadow-2xl border border-slate-700">
+                                           <span className="text-indigo-400 font-black block mb-2 uppercase">Variáveis:</span>
+                                           <code className="text-emerald-400 block mb-1">{"{{"}trigger.data.*{"}}"}</code>
+                                           <code className="text-emerald-400 block">{"{{"}node_id.data.*{"}}"}</code>
+                                        </div>
+                                     </div>
+                                  </div>
+                                  <textarea 
+                                    className="w-full h-80 bg-slate-900 text-emerald-400 font-mono text-xs p-8 rounded-[2.5rem] border border-slate-800 outline-none shadow-2xl custom-scrollbar"
+                                    value={typeof activeNode.config.body === 'string' ? activeNode.config.body : JSON.stringify(activeNode.config.body, null, 2)}
+                                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
+                                       try {
+                                          const parsed = JSON.parse(e.target.value);
+                                          setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, body: parsed}} : n));
+                                       } catch {
+                                          setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, body: e.target.value}} : n));
+                                       }
+                                    }}
+                                  />
+                               </div>
+                            )}
                          </div>
                       </div>
                    )}
