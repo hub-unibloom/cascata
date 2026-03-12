@@ -778,6 +778,7 @@ export class DataController {
                     [name, description, trigger_type, trigger_config, nodes, is_active ?? true, id, req.project.slug]
                 );
                 if (result.rowCount === 0) return res.status(404).json({ error: 'Automation not found.' });
+                AutomationService.invalidateCache(req.project.slug);
                 res.json(result.rows[0]);
             } else {
                 // Insert
@@ -787,6 +788,7 @@ export class DataController {
                      RETURNING *`,
                     [req.project.slug, name, description, trigger_type, trigger_config, nodes, is_active ?? true]
                 );
+                AutomationService.invalidateCache(req.project.slug);
                 res.json(result.rows[0]);
             }
         } catch (e: any) { next(e); }
@@ -799,6 +801,7 @@ export class DataController {
                 'DELETE FROM system.automations WHERE id = $1 AND project_slug = $2',
                 [req.params.id, req.project.slug]
             );
+            AutomationService.invalidateCache(req.project.slug);
             res.json({ success: true });
         } catch (e: any) { next(e); }
     }
@@ -821,6 +824,41 @@ export class DataController {
 
             const result = await systemPool.query(query, params);
             res.json(result.rows);
+        } catch (e: any) { next(e); }
+    }
+
+    static async getAutomationStats(req: CascataRequest, res: any, next: any) {
+        if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
+        try {
+            // One aggregation query per project — joins automation_runs grouped by automation_id.
+            // LEFT JOIN ensures automations with zero runs still appear (with 0 counts).
+            const result = await systemPool.query(
+                `SELECT
+                    a.id                                                        AS automation_id,
+                    COUNT(r.id)::int                                            AS total_runs,
+                    COUNT(r.id) FILTER (WHERE r.status = 'success')::int        AS success_count,
+                    COUNT(r.id) FILTER (WHERE r.status = 'failed')::int         AS failed_count,
+                    ROUND(AVG(r.execution_time_ms))::int                        AS avg_ms,
+                    MAX(r.created_at)                                           AS last_run_at
+                 FROM system.automations a
+                 LEFT JOIN system.automation_runs r
+                   ON r.automation_id = a.id AND r.project_slug = a.project_slug
+                 WHERE a.project_slug = $1
+                 GROUP BY a.id`,
+                [req.project.slug]
+            );
+            // Return as a map { [automation_id]: stats } for O(1) lookup in the frontend
+            const statsMap: Record<string, any> = {};
+            for (const row of result.rows) {
+                statsMap[row.automation_id] = {
+                    total_runs:    row.total_runs,
+                    success_count: row.success_count,
+                    failed_count:  row.failed_count,
+                    avg_ms:        row.avg_ms ?? 0,
+                    last_run_at:   row.last_run_at
+                };
+            }
+            res.json(statsMap);
         } catch (e: any) { next(e); }
     }
 
@@ -953,10 +991,21 @@ export class DataController {
                         payload: responseData,
                         projectSlug: req.project.slug,
                         jwtSecret: req.project.jwt_secret,
-                        projectPool: req.projectPool!
+                        projectPool: req.projectPool!,
+                        // --- SECURITY: Pass the caller's identity so SQL nodes
+                        //     can enforce RLS with the correct role and claims. ---
+                        userRole: req.userRole,
+                        jwtClaims: {
+                            sub:        req.user?.sub,
+                            email:      req.user?.email,
+                            role:       req.userRole,
+                            identifier: (req.user as any)?.identifier,
+                            provider:   (req.user as any)?.provider,
+                        }
                     }
                 );
             }
+
 
             if (buildResult.cacheKey && !fromCache) {
                 res.setHeader('X-Cascata-Cache', 'MISS');

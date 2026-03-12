@@ -33,9 +33,21 @@ interface Automation {
 
 interface ExecutionRun {
   id: string;
-  status: 'success' | 'error';
+  automation_id: string;
+  status: 'success' | 'error' | 'failed';
   execution_time_ms: number;
+  error_message?: string | null;
+  trigger_payload?: any;
+  final_output?: any;
   created_at: string;
+}
+
+interface AutomationStats {
+  total_runs: number;
+  success_count: number;
+  failed_count: number;
+  avg_ms: number;
+  last_run_at: string | null;
 }
 
 const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { projectId: string }) => {
@@ -46,6 +58,8 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
   const [view, setView] = useState<'list' | 'composer'>('list');
   const [activeTab, setActiveTab] = useState<'workflows' | 'runs'>('workflows');
   const [runs, setRuns] = useState<ExecutionRun[]>([]);
+  const [stats, setStats] = useState<Record<string, AutomationStats>>({});
+  const [runsFilter, setRunsFilter] = useState<string | null>(null);
   
   // COMPOSER STATE
   const [editingAutomation, setEditingAutomation] = useState<Partial<Automation> | null>(null);
@@ -70,14 +84,27 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
     } catch (e) { console.error("Automations fetch error"); }
   };
 
-  const fetchRuns = async () => {
+  const fetchRuns = async (automationId?: string | null) => {
     try {
-      const res = await fetch(`/api/data/${projectId}/automations/runs`, {
+      const url = automationId
+        ? `/api/data/${projectId}/automations/runs?automation_id=${automationId}`
+        : `/api/data/${projectId}/automations/runs`;
+      const res = await fetch(url, {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` }
       });
       const data = await res.json();
       setRuns(Array.isArray(data) ? data : []);
     } catch (e) { console.error("Runs fetch error"); }
+  };
+
+  const fetchStats = async () => {
+    try {
+      const res = await fetch(`/api/data/${projectId}/automations/stats`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` }
+      });
+      const data = await res.json();
+      if (data && typeof data === 'object') setStats(data);
+    } catch (e) { console.error("Stats fetch error"); }
   };
 
   const fetchTables = async () => {
@@ -107,7 +134,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
   };
 
   useEffect(() => { 
-      Promise.all([fetchAutomations(), fetchRuns(), fetchTables()]).then(() => setLoading(false)); 
+      Promise.all([fetchAutomations(), fetchRuns(), fetchStats(), fetchTables()]).then(() => setLoading(false)); 
   }, [projectId]);
 
   // COMPOSER ACTIONS
@@ -621,22 +648,47 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                <h4 className="text-xl font-black text-slate-900 mb-2 truncate uppercase tracking-tighter">{auto.name}</h4>
                <p className="text-xs text-slate-400 font-medium mb-8 line-clamp-2 h-8">{auto.description}</p>
                
-               <div className="flex gap-2 mb-8 border-t border-slate-50 pt-6">
-                  <span className="text-[8px] font-black bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg uppercase tracking-widest flex items-center gap-2">
-                     <Activity size={10} className="animate-pulse"/> {Math.floor(Math.random() * 8000)} events
-                  </span>
-                  <span className="text-[8px] font-black bg-emerald-50 text-emerald-600 px-3 py-1.5 rounded-lg uppercase tracking-widest flex items-center gap-2">
-                     <Zap size={10}/> {Math.floor(Math.random() * 30) + 2}ms
-                  </span>
+               <div className="flex flex-wrap gap-2 mb-8 border-t border-slate-50 pt-6">
+                  {(() => {
+                    const s = stats[auto.id];
+                    const totalRuns   = s?.total_runs   ?? 0;
+                    const avgMs       = s?.avg_ms       ?? 0;
+                    const failedCount = s?.failed_count ?? 0;
+                    const hasFailures = failedCount > 0;
+                    return (
+                      <>
+                        <span className="text-[8px] font-black bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg uppercase tracking-widest flex items-center gap-2" title={`${s?.success_count ?? 0} sucessos / ${failedCount} falhas`}>
+                          <Activity size={10} className={totalRuns > 0 ? 'animate-pulse' : ''}/>
+                          {totalRuns} {totalRuns === 1 ? 'execução' : 'execuções'}
+                        </span>
+                        <span className={`text-[8px] font-black px-3 py-1.5 rounded-lg uppercase tracking-widest flex items-center gap-2 ${
+                          avgMs === 0 ? 'bg-slate-50 text-slate-400' :
+                          hasFailures ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'
+                        }`} title={s?.last_run_at ? `Último: ${new Date(s.last_run_at).toLocaleString()}` : 'Sem execuções ainda'}>
+                          <Zap size={10}/>{avgMs > 0 ? `${avgMs}ms avg` : '-- ms'}
+                        </span>
+                        {hasFailures && (
+                          <span className="text-[8px] font-black bg-rose-50 text-rose-500 px-3 py-1.5 rounded-lg uppercase tracking-widest flex items-center gap-2">
+                            <AlertCircle size={10}/> {failedCount} {failedCount === 1 ? 'falha' : 'falhas'}
+                          </span>
+                        )}
+                      </>
+                    );
+                  })()}
                </div>
 
                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${auto.is_active ? 'bg-emerald-500 shadow-[0_0_10px_#10b981]' : 'bg-slate-200'}`}></div>
-                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{auto.is_active ? 'Live' : 'Paused'}</span>
-                  </div>
-                  <button onClick={() => handleToggle(auto)} className="text-[8px] font-black text-slate-900 uppercase tracking-widest hover:bg-slate-50 px-4 py-2 rounded-lg transition-all border border-slate-100">Toggle Status</button>
-               </div>
+                   <div className="flex items-center gap-2">
+                     <div className={`w-2 h-2 rounded-full ${auto.is_active ? 'bg-emerald-500 shadow-[0_0_10px_#10b981]' : 'bg-slate-200'}`}></div>
+                     <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{auto.is_active ? 'Live' : 'Paused'}</span>
+                   </div>
+                   <div className="flex items-center gap-2">
+                     <button onClick={() => { setRunsFilter(auto.id); fetchRuns(auto.id); setActiveTab('runs'); }} className="text-[8px] font-black text-slate-400 uppercase tracking-widest hover:bg-slate-50 px-3 py-2 rounded-lg transition-all border border-slate-100 flex items-center gap-1">
+                       <History size={10}/> Logs
+                     </button>
+                     <button onClick={() => handleToggle(auto)} className="text-[8px] font-black text-slate-900 uppercase tracking-widest hover:bg-slate-50 px-4 py-2 rounded-lg transition-all border border-slate-100">Toggle</button>
+                   </div>
+                </div>
             </div>
           ))}
           {automations.length === 0 && (

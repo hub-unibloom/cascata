@@ -3,6 +3,8 @@ import { Pool } from 'pg';
 import { QueueService } from './QueueService.js';
 import { RateLimitService } from './RateLimitService.js';
 import { systemPool } from '../src/config/main.js';
+import { validateTargetUrl } from '../src/utils/index.js';
+
 
 /**
  * CASCATA AUTOMATIONS ENGINE
@@ -23,9 +25,90 @@ export interface AutomationContext {
     projectSlug: string;
     jwtSecret: string;
     projectPool: Pool;
+    /**
+     * The role of the user who triggered this automation.
+     * Used to enforce RLS inside SQL nodes. Defaults to 'authenticated'.
+     */
+    userRole?: string;
+    /**
+     * Claims from the user's JWT, injected as Postgres LOCAL config vars
+     * so that `auth.uid()`, `auth.role()`, etc. work correctly inside SQL nodes.
+     */
+    jwtClaims?: {
+        sub?: string;
+        email?: string;
+        role?: string;
+        identifier?: string;
+        provider?: string;
+    };
+}
+
+// SQL statements that cannot be run inside a restricted session.
+// This is a defense-in-depth layer on top of the role restriction.
+const FORBIDDEN_SQL_PATTERNS = [
+    /;\s*-{2,}/,                                  // Comment after semicolon (multi-statement bypass attempt)
+    /COPY\s+/i,                                   // COPY command (file system access)
+    /pg_read_file\s*\(/i,                         // File read
+    /pg_write_file\s*\(/i,                        // File write
+    /pg_ls_dir\s*\(/i,                            // Dir listing
+    /pg_terminate_backend\s*\(/i,                 // Kill sessions
+    /pg_cancel_backend\s*\(/i,                    // Cancel queries
+    /pg_reload_conf\s*\(/i,                       // Reload config
+    /ALTER\s+SYSTEM\s+/i,                         // Alter global PG config
+    /CREATE\s+OR\s+REPLACE\s+FUNCTION/i,          // Function creation (code injection)
+    /\bDO\s+\$\$/i,                               // Anonymous DO blocks (arbitrary PL/pgSQL)
+    /PERFORM\s+dblink/i,                          // Remote connections
+];
+
+const AUTOMATION_SQL_TIMEOUT_MS = 8000; // 8 seconds max per SQL node
+
+// ---------------------------------------------------------------------------
+// INTERCEPTOR CACHE — avoids hitting the DB on every single HTTP request.
+// Key: projectSlug, Value: { automations, loadedAt }.
+// TTL: 5 minutes. Invalidated explicitly on upsert/delete via invalidateCache().
+// ---------------------------------------------------------------------------
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+interface CachedAutomations {
+    automations: any[];
+    loadedAt: number;
 }
 
 export class AutomationService {
+
+    private static interceptorCache = new Map<string, CachedAutomations>();
+
+    /**
+     * Invalidates the interceptor cache for a given project.
+     * Must be called after any automation upsert or delete.
+     */
+    public static invalidateCache(projectSlug: string): void {
+        this.interceptorCache.delete(projectSlug);
+    }
+
+    /**
+     * Loads active API_INTERCEPT automations from cache or DB.
+     * Returns the full array — filtering by table/event is done by the caller.
+     */
+    private static async getActiveInterceptors(projectSlug: string): Promise<any[]> {
+        const cached = this.interceptorCache.get(projectSlug);
+        if (cached && (Date.now() - cached.loadedAt) < CACHE_TTL_MS) {
+            return cached.automations;
+        }
+
+        const res = await systemPool.query(
+            `SELECT id, nodes, trigger_config
+             FROM system.automations
+             WHERE project_slug = $1
+             AND is_active = true
+             AND trigger_type = 'API_INTERCEPT'`,
+            [projectSlug]
+        );
+
+        const entry: CachedAutomations = { automations: res.rows, loadedAt: Date.now() };
+        this.interceptorCache.set(projectSlug, entry);
+        return res.rows;
+    }
 
     /**
      * Intercepts a response before it's sent to the client.
@@ -39,24 +122,28 @@ export class AutomationService {
         context: AutomationContext
     ): Promise<any> {
         try {
-            // 1. Fetch active interception automations for this project/table
-            const res = await systemPool.query(
-                `SELECT nodes, trigger_config 
-                 FROM system.automations 
-                 WHERE project_slug = $1 
-                 AND is_active = true 
-                 AND trigger_type = 'API_INTERCEPT'
-                 AND (trigger_config->>'table' = $2 OR trigger_config->>'table' = '*')
-                 AND (trigger_config->>'event' = $3 OR trigger_config->>'event' = '*')`,
-                [projectSlug, tableName, eventType]
-            );
+            // 1. Read from cache (or populate it on first call / after TTL)
+            const allInterceptors = await this.getActiveInterceptors(projectSlug);
 
-            if (res.rows.length === 0) return initialPayload;
+            // 2. Filter by table + event in memory (fast — typically < 10 automations per project)
+            const matching = allInterceptors.filter(a => {
+                const tbl = a.trigger_config?.table;
+                const evt = a.trigger_config?.event;
+                return (tbl === tableName || tbl === '*') && (evt === eventType || evt === '*');
+            });
+
+            if (matching.length === 0) return initialPayload;
 
             let currentPayload = initialPayload;
-            for (const automation of res.rows) {
+            for (const automation of matching) {
                 const nodes = automation.nodes as AutomationNode[];
-                currentPayload = await this.executeWorkflow(nodes, currentPayload, context);
+                currentPayload = await this.runAutomationLogged(
+                    automation.id,
+                    projectSlug,
+                    nodes,
+                    currentPayload,
+                    context
+                );
             }
 
             return currentPayload;
@@ -64,6 +151,28 @@ export class AutomationService {
             console.error('[AutomationEngine] Interception Error:', e);
             return initialPayload; // Fail-safe: Return original data
         }
+
+    }
+
+    /**
+     * FIX 4 — ASYNC DISPATCH (Non-blocking for DB_EVENT / CRON / WEBHOOK triggers).
+     * Called by external event sources (RealtimeService, CronService, WebhookService).
+     * Uses setImmediate to yield control BEFORE executing the workflow, so the
+     * caller (typically a DB notify handler) is never blocked.
+     */
+    public static dispatchAsyncTrigger(
+        automationId: string,
+        projectSlug: string,
+        nodes: AutomationNode[],
+        triggerPayload: any,
+        context: AutomationContext
+    ): void {
+        // setImmediate schedules in the next iteration of the event loop —
+        // the caller returns immediately, with zero latency added to any HTTP path.
+        (globalThis as any).setImmediate(() => {
+            this.runAutomationLogged(automationId, projectSlug, nodes, triggerPayload, context)
+                .catch(e => console.error(`[AutomationEngine:Async] Unhandled error in automation ${automationId}:`, e));
+        });
     }
 
     /**
@@ -131,29 +240,58 @@ export class AutomationService {
                 return transformed;
 
             case 'query':
-                const { sql, params } = node.config;
-                if (!sql) return null;
-                const resolvedParams = (params || []).map((p: string) => this.getVarSync(p, context.vars));
-                const res = await context.projectPool.query(sql, resolvedParams);
-                return res.rows;
+                return this.executeSecureSqlNode(node, context);
 
-            case 'http':
+            case 'http': {
+                const targetUrl = this.resolveVariables(node.config.url || '', context.vars);
+                if (!targetUrl) throw new Error('[AutomationEngine] HTTP node requires a URL.');
+
+                // --- FIX 2: SSRF PROTECTION ---
+                // validateTargetUrl performs full DNS resolution and blocks any URL
+                // that resolves to a private/loopback/link-local IP or internal container hostname.
+                // This call throws if the URL is blocked — which halts the node safely.
+                await validateTargetUrl(targetUrl);
+
+                // --- AUTH HEADER INJECTION ---
+                // Credentials are stored in node.config, never interpolated into the URL.
+                const authHeaders: Record<string, string> = {};
+                const authMode = node.config.auth || 'none';
+                if (authMode === 'bearer' && node.config.auth_token) {
+                    authHeaders['Authorization'] = `Bearer ${this.resolveVariables(node.config.auth_token, context.vars)}`;
+                } else if (authMode === 'apikey' && node.config.auth_user && node.config.auth_pass) {
+                    const encoded = (globalThis as any).Buffer.from(
+                        `${this.resolveVariables(node.config.auth_user, context.vars)}:${this.resolveVariables(node.config.auth_pass, context.vars)}`
+                    ).toString('base64');
+                    authHeaders['Authorization'] = `Basic ${encoded}`;
+                }
+
+                const method = node.config.method || 'POST';
+                const resolvedBody = method !== 'GET'
+                    ? JSON.stringify(this.resolveObject(node.config.body, context.vars))
+                    : undefined;
+
+                const resolvedHeaders = {
+                    'Content-Type': 'application/json',
+                    ...authHeaders,
+                    ...(node.config.headers ? this.resolveObject(node.config.headers, context.vars) : {})
+                };
+
                 const maxRetries = node.config.retries || 0;
                 let attempt = 0;
                 let lastErr;
 
                 while (attempt <= maxRetries) {
                     try {
-                        // Use globalThis to bypass potential 'fetch' resolution issues during compilation in some Node envs
-                        const response = await (globalThis as any).fetch(node.config.url, {
-                            method: node.config.method || 'POST',
-                            body: node.config.method !== 'GET' ? JSON.stringify(this.resolveObject(node.config.body, context.vars)) : undefined,
-                            headers: { 
-                                'Content-Type': 'application/json',
-                                ...(node.config.headers ? this.resolveObject(node.config.headers, context.vars) : {})
-                            }
+                        const response = await (globalThis as any).fetch(targetUrl, {
+                            method,
+                            body: resolvedBody,
+                            headers: resolvedHeaders
                         });
-                        return await response.json();
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                        }
+                        const ct = response.headers.get('content-type') || '';
+                        return ct.includes('application/json') ? await response.json() : await response.text();
                     } catch (e) {
                         lastErr = e;
                         attempt++;
@@ -161,6 +299,7 @@ export class AutomationService {
                     }
                 }
                 throw lastErr;
+            }
 
             case 'logic':
             case 'condition':
@@ -187,6 +326,147 @@ export class AutomationService {
 
             default:
                 return null;
+        }
+    }
+
+    // =========================================================================
+    // SECURE SQL NODE EXECUTOR (Hardened v2.1)
+    // Inspired by the queryWithRLS ceremony in /src/utils/index.ts.
+    //
+    // SECURITY LAYERS:
+    //   1. Forbidden pattern check (blocks COPY, DO $$, file access, etc.)
+    //   2. SET LOCAL ROLE → restricts privileges to the triggering user's role.
+    //      The automation engine can NEVER have more DB access than the original user.
+    //   3. SET LOCAL statement_timeout → kills long-running/infinite queries.
+    //   4. JWT claims are propagated via SET LOCAL so RLS policies (auth.uid(), etc.)
+    //      continue to work exactly as they do in regular API calls.
+    //   5. All parameters are resolved AFTER the SQL string is finalized and
+    //      passed as Postgres $N parameters — never interpolated into the SQL string.
+    //   6. Wrapped in a BEGIN/ROLLBACK transaction to prevent DDL auto-commits.
+    //      Even if someone bypasses layers 1-4, DDL inside ROLLBACK is a no-op.
+    // =========================================================================
+    private static async executeSecureSqlNode(node: AutomationNode, context: AutomationContext): Promise<any> {
+        const { sql, params, readonly } = node.config;
+
+        if (!sql || typeof sql !== 'string' || sql.trim() === '') {
+            return null;
+        }
+
+        // --- LAYER 1: FORBIDDEN PATTERN FIREWALL ---
+        for (const pattern of FORBIDDEN_SQL_PATTERNS) {
+            if (pattern.test(sql)) {
+                const err = `[AutomationEngine] SQL Node BLOCKED — forbidden pattern detected: ${pattern.toString()}`;
+                console.error(err);
+                throw new Error('Security Violation: This SQL statement is not allowed in Automation nodes.');
+            }
+        }
+
+        // --- LAYER 2: RESOLVE PARAMETERS (never interpolate into the SQL string) ---
+        const resolvedParams = Array.isArray(params)
+            ? params.map((p: string) => this.getVarSync(p, context.vars))
+            : [];
+        
+        // --- LAYER 3: DETERMINE SECURITY CONTEXT ---
+        const role = context.userRole || 'authenticated';
+        const claims = context.jwtClaims || {};
+
+        // We must sanitize the role name — only allow known roles to prevent
+        // SET LOCAL ROLE injection (the only remaining vector after parameterization).
+        const ALLOWED_ROLES = ['anon', 'authenticated', 'service_role', 'cascata_api_role'];
+        const safeRole = ALLOWED_ROLES.includes(role) ? role : 'authenticated';
+
+        const quoteLocal = (s: string | undefined | null): string => {
+            if (s === undefined || s === null || s === '') return "''";
+            return `'${String(s).replace(/'/g, "''")}'`;
+        };
+
+        const setupSql = `
+            SET LOCAL ROLE ${safeRole};
+            SET LOCAL statement_timeout = '${AUTOMATION_SQL_TIMEOUT_MS}';
+            SET LOCAL "request.jwt.claim.sub"        = ${quoteLocal(claims.sub)};
+            SET LOCAL "request.jwt.claim.role"       = ${quoteLocal(claims.role || safeRole)};
+            SET LOCAL "request.jwt.claim.email"      = ${quoteLocal(claims.email)};
+            SET LOCAL "request.jwt.claim.identifier" = ${quoteLocal(claims.identifier)};
+            SET LOCAL "request.jwt.claim.provider"   = ${quoteLocal(claims.provider)};
+        `;
+
+        // --- LAYER 4: EXECUTE INSIDE AN ISOLATED TRANSACTION ---
+        const client = await context.projectPool.connect();
+        try {
+            await client.query('BEGIN');
+            
+            // If the node is configured as read-only (or is a SELECT), add that safeguard too.
+            const isSelect = /^\s*SELECT\s/i.test(sql);
+            if (readonly === true || isSelect) {
+                await client.query('SET TRANSACTION READ ONLY');
+            }
+
+            await client.query(setupSql);
+
+            const res = await client.query(sql, resolvedParams);
+
+            // Always rollback, never commit DDL from an automation node.
+            // ROLLBACK after SELECT is a no-op — safe for read queries too.
+            await client.query('ROLLBACK');
+
+            return res.rows;
+        } catch (e: any) {
+            await client.query('ROLLBACK').catch(() => {});
+            // Re-wrap timeout errors for clarity in the execution log
+            if (e.code === '57014') {
+                throw new Error(`[AutomationEngine] SQL Node timeout (>${AUTOMATION_SQL_TIMEOUT_MS}ms). Optimize your query.`);
+            }
+            throw e;
+        } finally {
+            client.release();
+        }
+    }
+
+    // =========================================================================
+    // FIX 3 — EXECUTION LOGGING (Ghost Logs Eliminated)
+    // Every automation run — synchronous (API_INTERCEPT) or async (DB_EVENT etc.)
+    // — now writes a record to system.automation_runs.
+    // Captures: status, execution_time_ms, trigger_payload, final_output, error_message.
+    // The write uses the systemPool (not the project pool) so it is never blocked
+    // by RLS policies on the project DB.
+    // =========================================================================
+    private static async runAutomationLogged(
+        automationId: string,
+        projectSlug: string,
+        nodes: AutomationNode[],
+        triggerPayload: any,
+        context: AutomationContext
+    ): Promise<any> {
+        const startedAt = Date.now();
+        let status: 'success' | 'failed' = 'success';
+        let finalOutput: any = null;
+        let errorMessage: string | null = null;
+
+        try {
+            finalOutput = await this.executeWorkflow(nodes, triggerPayload, context);
+            return finalOutput;
+        } catch (e: any) {
+            status = 'failed';
+            errorMessage = e?.message || 'Unknown error';
+            throw e; // Re-throw so interceptResponse fail-safe still works
+        } finally {
+            const execution_time_ms = Date.now() - startedAt;
+            // Fire-and-forget: we NEVER block on log write.
+            // If the DB is down it simply misses a record — better than crashing the workflow.
+            systemPool.query(
+                `INSERT INTO system.automation_runs
+                    (automation_id, project_slug, status, execution_time_ms, trigger_payload, final_output, error_message)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [
+                    automationId,
+                    projectSlug,
+                    status,
+                    execution_time_ms,
+                    JSON.stringify(triggerPayload),
+                    finalOutput !== null ? JSON.stringify(finalOutput) : null,
+                    errorMessage
+                ]
+            ).catch((e: any) => console.error('[AutomationEngine] Failed to write run log:', e.message));
         }
     }
 
