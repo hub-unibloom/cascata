@@ -509,15 +509,26 @@ export class DataController {
                                     -- (Already handled by FORCE RLS below, but being explicit)
                                     
                                     -- 3. RLS Atomic Blindagem (Row Level Protection)
-                                    -- Applied to all interactive tables in the schema
+                                    -- We only force RLS if the table ALREADY has it enabled by the user.
+                                    -- This respects the "Disabled - Open Access" state during construction.
                                     FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = s LOOP
-                                        EXECUTE format('ALTER TABLE %I.%I ENABLE ROW LEVEL SECURITY', s, t);
-                                        EXECUTE format('ALTER TABLE %I.%I FORCE ROW LEVEL SECURITY', s, t);
-                                        
-                                        -- System Identity Bypass: Ensures Dashboard/Backend are never locked out
-                                        IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = s AND tablename = t AND policyname = 'master_system_policy') THEN
-                                            EXECUTE format('CREATE POLICY master_system_policy ON %I.%I FOR ALL TO service_role, %I USING (true) WITH CHECK (true)', s, t, current_user);
-                                        END IF;
+                                        -- Check current RLS status
+                                        DECLARE
+                                            is_rls_active BOOLEAN;
+                                        BEGIN
+                                            SELECT relrowsecurity INTO is_rls_active FROM pg_class 
+                                            JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace 
+                                            WHERE nspname = s AND relname = t;
+
+                                            IF is_rls_active THEN
+                                                EXECUTE format('ALTER TABLE %I.%I FORCE ROW LEVEL SECURITY', s, t);
+                                                
+                                                -- System Identity Bypass: Ensures Dashboard/Backend are never locked out
+                                                IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = s AND tablename = t AND policyname = 'master_system_policy') THEN
+                                                    EXECUTE format('CREATE POLICY master_system_policy ON %I.%I FOR ALL TO service_role, %I USING (true) WITH CHECK (true)', s, t, current_user);
+                                                END IF;
+                                            END IF;
+                                        END;
                                     END LOOP;
                                 END LOOP;
                             END $$;
@@ -560,19 +571,23 @@ export class DataController {
 
             // Execute the schema creation
             await req.projectPool!.query(sql);
-            await req.projectPool!.query(`ALTER TABLE ${safeSchema}.${safeName} ENABLE ROW LEVEL SECURITY`);
-            await req.projectPool!.query(`ALTER TABLE ${safeSchema}.${safeName} FORCE ROW LEVEL SECURITY`);
 
-            // Security Blindagem: Create Master Policy for Service Role and Owner (God Mode)
-            // This ensures System Dashboard and Backend always have access despite RLS.
-            // Using a DO block to safely handle 'IF NOT EXISTS' for policies.
-            await req.projectPool!.query(`
-                DO $$ BEGIN
-                    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = ${quotePostgresLiteral(schema as string)} AND tablename = ${quotePostgresLiteral(name)} AND policyname = 'master_system_policy') THEN
-                        EXECUTE format('CREATE POLICY master_system_policy ON %I.%I FOR ALL TO service_role, %I USING (true) WITH CHECK (true)', ${quotePostgresLiteral(schema as string)}, ${quotePostgresLiteral(name)}, current_user);
-                    END IF;
-                END $$;
-            `);
+            // Optional RLS Enforcement (True by default, but user can opt-out for construction)
+            const rlsEnabled = req.body.rls_enabled !== false;
+            
+            if (rlsEnabled) {
+                await req.projectPool!.query(`ALTER TABLE ${safeSchema}.${safeName} ENABLE ROW LEVEL SECURITY`);
+                await req.projectPool!.query(`ALTER TABLE ${safeSchema}.${safeName} FORCE ROW LEVEL SECURITY`);
+
+                // Security Blindagem: Create Master Policy for Service Role and Owner (God Mode)
+                await req.projectPool!.query(`
+                    DO $$ BEGIN
+                        IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = ${quotePostgresLiteral(schema as string)} AND tablename = ${quotePostgresLiteral(name)} AND policyname = 'master_system_policy') THEN
+                            EXECUTE format('CREATE POLICY master_system_policy ON %I.%I FOR ALL TO service_role, %I USING (true) WITH CHECK (true)', ${quotePostgresLiteral(schema as string)}, ${quotePostgresLiteral(name)}, current_user);
+                        END IF;
+                    END $$;
+                `);
+            }
 
             // 1. Core Event Webhook Trigger
             await req.projectPool!.query(`CREATE TRIGGER ${name}_changes AFTER INSERT OR UPDATE OR DELETE ON ${safeSchema}.${safeName} FOR EACH ROW EXECUTE FUNCTION public.notify_changes();`);

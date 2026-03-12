@@ -146,12 +146,12 @@ router.get('/assets/:id/history', DataController.getAssetHistory as any);
 router.get('/stats', DataController.getStats as any);
 
 // Auth (Data Plane)
-router.get('/auth/users', DataAuthController.listUsers as any);
-router.post('/auth/users', DataAuthController.createUser as any);
-router.post('/auth/users/:id/identities', DataAuthController.linkIdentity as any);
-router.delete('/auth/users/:id/strategies/:identityId', DataAuthController.unlinkIdentity as any);
-router.patch('/auth/users/:id/status', DataAuthController.updateUserStatus as any);
-router.delete('/auth/users/:id', DataAuthController.deleteUser as any);
+router.get('/auth/users', requireManagementRole as any, DataAuthController.listUsers as any);
+router.post('/auth/users', requireManagementRole as any, DataAuthController.createUser as any);
+router.post('/auth/users/:id/identities', requireManagementRole as any, DataAuthController.linkIdentity as any);
+router.delete('/auth/users/:id/strategies/:identityId', requireManagementRole as any, DataAuthController.unlinkIdentity as any);
+router.patch('/auth/users/:id/status', requireManagementRole as any, DataAuthController.updateUserStatus as any);
+router.delete('/auth/users/:id', requireManagementRole as any, DataAuthController.deleteUser as any);
 router.post('/auth/token', DataAuthController.legacyToken as any);
 router.post('/auth/link', DataAuthController.linkConfig as any);
 router.post('/auth/challenge', DataAuthController.challenge as any);

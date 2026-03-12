@@ -386,14 +386,32 @@ export const cascataAuth: RequestHandler = async (req: any, res: any, next: any)
 export const requireManagementRole: RequestHandler = (req: any, res: any, next: any) => {
     const r = req as CascataRequest;
     
-    // allow isSystemRequest (Secret Key or Admin Token)
-    // AND service_role (Project Service Key)
+    // 1. Full Access: isSystemRequest (Secret Key or Admin Token) OR service_role (Project Service Key)
     if (r.isSystemRequest || r.userRole === 'service_role') {
         return next();
     }
 
+    // 2. Controlled Bypass: Schema Discovery for anon_key
+    // Allows reading 'the skeleton' if explicitly enabled and CORS matches.
+    const metadataRoutes = ['/schemas', '/tables', '/columns'];
+    const isMetadataRoute = metadataRoutes.some(p => req.path.includes(p));
+    const isReadRequest = req.method === 'GET';
+
+    if (r.userRole === 'anon' && isMetadataRoute && isReadRequest) {
+        const metadata = r.project?.metadata || {};
+        if (metadata.schema_discovery_enabled) {
+            const origin = req.headers.origin;
+            const allowedOrigins = metadata.allowed_origins || [];
+            
+            // If allowedOrigins is ['*'] or contains the request origin, allow the bypass
+            if (allowedOrigins.includes('*') || (origin && allowedOrigins.includes(origin))) {
+                return next();
+            }
+        }
+    }
+
     res.status(403).json({ 
         error: 'Management Access Required', 
-        message: 'This operation requires a Service Key or Admin credentials. Anonymous or Authenticated user keys are not permitted.' 
+        message: 'This operation requires a Service Key or Admin credentials. Anonymous user keys are restricted unless Schema Discovery is explicitly enabled and authorized via CORS.' 
     });
 };
