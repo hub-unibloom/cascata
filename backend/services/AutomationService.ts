@@ -79,6 +79,7 @@ export class AutomationService {
         if (!startNode) return payload;
 
         let currentNode: AutomationNode | undefined = startNode;
+        context.vars = context.vars || {};
         context.vars['$input'] = payload;
         context.vars['trigger'] = { data: payload };
 
@@ -99,15 +100,17 @@ export class AutomationService {
                     if (nextObj && typeof nextObj === 'object' && !Array.isArray(nextObj)) {
                         nextId = result ? nextObj.true : nextObj.false;
                     } else if (Array.isArray(currentNode.next)) {
-                        nextId = result ? currentNode.next[0] : currentNode.next[1];
+                        const nextArr = currentNode.next as string[];
+                        nextId = result ? nextArr[0] : nextArr[1];
                     }
                 } else {
-                    nextId = Array.isArray(currentNode.next) ? currentNode.next[0] : (currentNode.next as any)?.out;
+                    const nextAny = currentNode.next as any;
+                    nextId = Array.isArray(currentNode.next) ? currentNode.next[0] : nextAny?.out || nextAny?.next;
                 }
 
                 currentNode = nextId ? nodeMap.get(nextId) : undefined;
             } catch (err) {
-                console.error(`[AutomationEngine] Node ${currentNode.id} (${currentNode.type}) failed:`, err);
+                console.error(`[AutomationEngine] Node ${currentNode?.id} (${currentNode?.type}) failed:`, err);
                 break;
             }
         }
@@ -119,6 +122,8 @@ export class AutomationService {
      * Node Logic Processor
      */
     private static async processNode(node: AutomationNode, context: AutomationContext): Promise<any> {
+        if (!node.config) return null;
+        
         switch (node.type) {
             case 'transform':
                 const transformed = this.resolveObject(node.config.body || node.config.template, context.vars);
@@ -127,6 +132,7 @@ export class AutomationService {
 
             case 'query':
                 const { sql, params } = node.config;
+                if (!sql) return null;
                 const resolvedParams = (params || []).map((p: string) => this.getVarSync(p, context.vars));
                 const res = await context.projectPool.query(sql, resolvedParams);
                 return res.rows;
@@ -138,7 +144,8 @@ export class AutomationService {
 
                 while (attempt <= maxRetries) {
                     try {
-                        const response = await fetch(node.config.url, {
+                        // Use globalThis to bypass potential 'fetch' resolution issues during compilation in some Node envs
+                        const response = await (globalThis as any).fetch(node.config.url, {
                             method: node.config.method || 'POST',
                             body: node.config.method !== 'GET' ? JSON.stringify(this.resolveObject(node.config.body, context.vars)) : undefined,
                             headers: { 
@@ -190,7 +197,8 @@ export class AutomationService {
     private static resolveVariables(template: string, vars: Record<string, any>): string {
         if (!template) return '';
         return template.replace(/\{\{([^}]+)\}\}/g, (_, path) => {
-            return this.getVarSync(path.trim(), vars) || '';
+            const val = this.getVarSync(path.trim(), vars);
+            return val !== null && val !== undefined ? String(val) : '';
         });
     }
 
@@ -208,9 +216,11 @@ export class AutomationService {
     }
 
     private static getVarSync(path: string, vars: Record<string, any>): any {
+        if (!path) return null;
         const parts = path.split('.');
         let current = vars;
         for (const part of parts) {
+            if (current === null || current === undefined || typeof current !== 'object') return null;
             if (current[part] === undefined) return null;
             current = current[part];
         }

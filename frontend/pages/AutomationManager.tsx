@@ -38,7 +38,7 @@ interface ExecutionRun {
   created_at: string;
 }
 
-const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }) => {
+const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { projectId: string }) => {
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [tables, setTables] = useState<any[]>([]);
   const [columns, setColumns] = useState<Record<string, string[]>>({});
@@ -101,7 +101,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }) => {
       });
       const data = await res.json();
       if (Array.isArray(data)) {
-        setColumns(prev => ({ ...prev, [tableName]: data.map((c: { name: string }) => c.name) }));
+        setColumns((prev: Record<string, string[]>) => ({ ...prev, [tableName]: data.map((c: { name: string }) => c.name) }));
       }
     } catch (e) { console.error("Columns fetch error"); }
   };
@@ -131,7 +131,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }) => {
     if (!window.confirm('Tem certeza que deseja excluir esta orquestração?')) return;
     try {
       await fetch(`/api/data/${projectId}/automations/${id}`, { method: 'DELETE' });
-      setAutomations(prev => prev.filter((a: Automation) => a.id !== id));
+      setAutomations((prev: Automation[]) => prev.filter((a: Automation) => a.id !== id));
     } catch (e) { console.error(e); }
   };
 
@@ -143,18 +143,18 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }) => {
         body: JSON.stringify({ is_active: newStatus }),
         headers: { 'Content-Type': 'application/json' }
       });
-      setAutomations(prev => prev.map((a: Automation) => a.id === auto.id ? { ...a, is_active: newStatus } : a));
+      setAutomations((prev: Automation[]) => prev.map((a: Automation) => a.id === auto.id ? { ...a, is_active: newStatus } : a));
     } catch (e) { console.error(e); }
   };
 
   const handleSave = async () => {
-    if (!editingAutomation.name) { setError("Nome é obrigatório."); return; }
+    if (!editingAutomation || !editingAutomation.name) { setError("Nome é obrigatório."); return; }
     setSubmitting(true);
     try {
       await fetch(`/api/data/${projectId}/automations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` },
-        body: JSON.stringify({ ...editingAutomation, nodes })
+        body: JSON.stringify({ ...(editingAutomation || {}), nodes })
       });
       setView('list');
       fetchAutomations();
@@ -180,13 +180,13 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }) => {
   const onMouseDown = (id: string, e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('.port')) return;
     setDraggedNode(id);
-    const node = nodes.find(n => n.id === id);
+    const node = nodes.find((n: Node) => n.id === id);
     if (node) setOffset({ x: e.clientX - node.x, y: e.clientY - node.y });
   };
 
   const onMouseMove = (e: React.MouseEvent) => {
     if (draggedNode) {
-      setNodes(nodes.map(n => n.id === draggedNode ? { ...n, x: e.clientX - offset.x, y: e.clientY - offset.y } : n));
+      setNodes(nodes.map((n: Node) => n.id === draggedNode ? { ...n, x: e.clientX - offset.x, y: e.clientY - offset.y } : n));
     }
   };
 
@@ -232,7 +232,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }) => {
   };
 
   // MODAL CONFIG
-  const activeNode = nodes.find(n => n.id === configNodeId);
+  const activeNode = nodes.find((n: Node) => n.id === configNodeId);
 
   if (view === 'composer') {
     return (
@@ -345,7 +345,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }) => {
                 </div>
 
                 <p className="text-[9px] text-slate-500 font-medium truncate mb-2 opacity-60">
-                   {node.type === 'trigger' ? `${editingAutomation.trigger_config.table} • ${editingAutomation.trigger_config.event}` : 
+                   {node.type === 'trigger' ? `${editingAutomation?.trigger_config?.table || '*'} • ${editingAutomation?.trigger_config?.event || '*'}` : 
                     node.type === 'logic' ? 'Processamento Condicional' : 'Configuração Enterprise'}
                 </p>
 
@@ -408,21 +408,23 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }) => {
                         <div className="space-y-4">
                            <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Tabela de Interceptação</label>
                            <select 
-                             value={editingAutomation.trigger_config.table}
+                             value={editingAutomation?.trigger_config?.table || ''}
                              onChange={(e) => {
                                const val = e.target.value;
-                               setEditingAutomation({...editingAutomation, trigger_config: {...editingAutomation.trigger_config, table: val}});
-                               handleFetchColumns(val);
+                               if (editingAutomation) {
+                                  setEditingAutomation({...editingAutomation, trigger_config: {...(editingAutomation.trigger_config || {}), table: val}});
+                                  handleFetchColumns(val);
+                               }
                              }}
                              className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
-                             {tables.map((t: any) => <option key={typeof t === 'string' ? t : t.name} value={typeof t === 'string' ? t : t.name}>{typeof t === 'string' ? t : t.name}</option>)}
+                             {tables.map((t: any) => <option key={typeof t === 'string' ? t : (t as any).name} value={typeof t === 'string' ? t : (t as any).name}>{typeof t === 'string' ? t : (t as any).name}</option>)}
                            </select>
                         </div>
                         <div className="space-y-4">
                            <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Eventos</label>
                            <div className="grid grid-cols-4 gap-2">
-                              {['*', 'INSERT', 'UPDATE', 'DELETE'].map(ev => (
-                                <button key={ev} onClick={() => setEditingAutomation({...editingAutomation, trigger_config: {...editingAutomation.trigger_config, event: ev}})} className={`py-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${editingAutomation.trigger_config.event === ev ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>{ev}</button>
+                              {['*', 'INSERT', 'UPDATE', 'DELETE'].map((ev: string) => (
+                                <button key={ev} onClick={() => editingAutomation && setEditingAutomation({...editingAutomation, trigger_config: {...(editingAutomation.trigger_config || {}), event: ev}})} className={`py-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${editingAutomation?.trigger_config?.event === ev ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>{ev}</button>
                               ))}
                            </div>
                         </div>
@@ -447,11 +449,11 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }) => {
                                     onChange={(e) => {
                                        const nc = [...activeNode.config.conditions];
                                        nc[i].left = e.target.value;
-                                       setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, conditions: nc}} : n));
+                                       setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, conditions: nc}} : n));
                                     }}
                                   >
                                      <option value="">Selecione a Coluna</option>
-                                     {(columns[editingAutomation.trigger_config.table] || []).map(col => <option key={col} value={`trigger.data.${col}`}>{col}</option>)}
+                                     {(editingAutomation?.trigger_config?.table && columns[editingAutomation.trigger_config.table] || []).map(col => <option key={col} value={`trigger.data.${col}`}>{col}</option>)}
                                   </select>
                                   <select 
                                     className="w-32 bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs font-black"
@@ -459,7 +461,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }) => {
                                     onChange={(e) => {
                                        const nc = [...activeNode.config.conditions];
                                        nc[i].op = e.target.value;
-                                       setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, conditions: nc}} : n));
+                                       setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, conditions: nc}} : n));
                                     }}
                                   >
                                      <option value="eq">==</option>
