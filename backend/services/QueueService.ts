@@ -8,7 +8,7 @@ import { systemPool } from '../src/config/main.js';
 import { PoolService } from './PoolService.js';
 import { PushProcessor } from './PushProcessor.js';
 import { BackupService } from './BackupService.js';
-import { ImportService } from './ImportService.js'; 
+import { ImportService } from './ImportService.js';
 import process from 'process';
 
 const DRAGONFLY_CONFIG = {
@@ -24,12 +24,12 @@ export class QueueService {
     private static pushQueue: Queue;
     private static backupQueue: Queue;
     private static maintenanceQueue: Queue;
-    private static restoreQueue: Queue; 
-    
+    private static restoreQueue: Queue;
+
     private static pushWorker: Worker;
     private static backupWorker: Worker;
     private static maintenanceWorker: Worker;
-    private static restoreWorker: Worker; 
+    private static restoreWorker: Worker;
 
     private static async validateTarget(targetUrl: string): Promise<void> {
         try {
@@ -59,12 +59,12 @@ export class QueueService {
 
         this.maintenanceQueue = new Queue('cascata-maintenance', { ...DRAGONFLY_CONFIG });
 
-        this.restoreQueue = new Queue('cascata-restore', { ...DRAGONFLY_CONFIG }); 
+        this.restoreQueue = new Queue('cascata-restore', { ...DRAGONFLY_CONFIG });
 
         // CRITICAL FIX: Enable Workers for CONTROL_PLANE to handle Imports/Backups
-        const shouldRunWorkers = process.env.SERVICE_MODE === 'WORKER' || 
-                                 process.env.SERVICE_MODE === 'CONTROL_PLANE' || 
-                                 !process.env.SERVICE_MODE;
+        const shouldRunWorkers = process.env.SERVICE_MODE === 'WORKER' ||
+            process.env.SERVICE_MODE === 'CONTROL_PLANE' ||
+            !process.env.SERVICE_MODE;
 
         if (shouldRunWorkers) {
             console.log(`[QueueService] Starting Workers (Mode: ${process.env.SERVICE_MODE || 'DEFAULT'})...`);
@@ -110,14 +110,15 @@ export class QueueService {
             if (job.name === 'purge-logs') {
                 console.log('[Queue:Maintenance] Running global log purge...');
                 try {
-                    const projects = await systemPool.query('SELECT slug, log_retention_days FROM system.projects');
+                    const projects = await systemPool.query('SELECT slug, log_retention_days, archive_logs FROM system.projects');
                     let totalPurged = 0;
                     for (const proj of projects.rows) {
                         const days = proj.log_retention_days || 30;
-                        const res = await systemPool.query(`SELECT system.purge_old_logs($1, $2)`, [proj.slug, days]);
+                        const archive = proj.archive_logs || false;
+                        const res = await systemPool.query(`SELECT system.purge_old_logs($1, $2, $3)`, [proj.slug, days, archive]);
                         totalPurged += parseInt(res.rows[0].purge_old_logs);
                     }
-                    console.log(`[Queue:Maintenance] Purged ${totalPurged} old logs.`);
+                    console.log(`[Queue:Maintenance] Purged/Archived ${totalPurged} old logs.`);
                 } catch (e: any) {
                     console.error('[Queue:Maintenance] Log purge failed:', e.message);
                 }
@@ -128,20 +129,20 @@ export class QueueService {
         this.restoreWorker = new Worker('cascata-restore', async (job: Job) => {
             const { operationId, temp_path, slug, name, mode, include_data } = job.data;
             console.log(`[Queue:Restore] Starting import for ${slug} (Op: ${operationId})`);
-            
+
             try {
                 await systemPool.query('UPDATE system.async_operations SET status = $1, updated_at = NOW() WHERE id = $2', ['processing', operationId]);
-                
+
                 const result = await ImportService.restoreProject(temp_path, slug, systemPool, { mode, includeData: include_data, nameOverride: name });
-                
+
                 await systemPool.query('UPDATE system.async_operations SET status = $1, result = $2, updated_at = NOW() WHERE id = $3', ['completed', JSON.stringify(result), operationId]);
                 console.log(`[Queue:Restore] Success for ${slug}`);
             } catch (e: any) {
                 console.error(`[Queue:Restore] Failed for ${slug}:`, e.message);
                 await systemPool.query('UPDATE system.async_operations SET status = $1, result = $2, updated_at = NOW() WHERE id = $3', ['failed', JSON.stringify({ error: e.message }), operationId]);
-                throw e; 
+                throw e;
             }
-        }, { ...DRAGONFLY_CONFIG, concurrency: 1 }); 
+        }, { ...DRAGONFLY_CONFIG, concurrency: 1 });
 
         // Schedule Maintenance Jobs
         this.maintenanceQueue.add('purge-logs', {}, {

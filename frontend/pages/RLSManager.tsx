@@ -265,6 +265,7 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
     // Custom Messages
     const [msgAnon, setMsgAnon] = useState('');
     const [msgAuth, setMsgAuth] = useState('');
+    const [selectedWindows, setSelectedWindows] = useState<string[]>(['default']);
 
     // CRUD Operation Limits
     const [crudRatesAnon, setCrudRatesAnon] = useState<any>({ create: 10, read: 20, update: 10, delete: 5 });
@@ -491,13 +492,24 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
                     burst_limit_anon: burstAnon,
                     rate_limit_auth: rateAuth,
                     burst_limit_auth: burstAuth,
-                    window_seconds: windowSec,
                     message_anon: msgAnon,
                     message_auth: msgAuth,
-                    crud_limits: finalCrudLimits,
-                    group_limits: finalGroupLimits,
-                    operation_weights: crudWeights,
-                    is_cumulative: isCumulative
+                    metadata: {
+                        crud_limits: finalCrudLimits,
+                        group_limits: finalGroupLimits,
+                        time_windows: selectedWindows.map(tw => {
+                            const baseSec = tw === 'daily' ? 86400 : tw === 'weekly' ? 604800 : tw === 'monthly' ? 2592000 : windowSec;
+                            const mult = tw === 'daily' ? 100 : tw === 'weekly' ? 500 : tw === 'monthly' ? 2000 : 1;
+                            return {
+                                type: tw,
+                                window_seconds: baseSec,
+                                limit: Math.floor(rateAuth * mult),
+                                burst: Math.floor(burstAuth * mult)
+                            };
+                        }),
+                        operation_weights: crudWeights,
+                        is_cumulative: isCumulative
+                    }
                 })
             });
             setShowSmartModal(false);
@@ -899,6 +911,34 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
                                             </button>
                                         ))}
                                     </div>
+                                </div>
+
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">3. Time Windows (Multi-Dimensional)</label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {[
+                                            { id: 'default', label: 'Standard', sub: `${windowSec}s` },
+                                            { id: 'daily', label: 'Daily', sub: '24h' },
+                                            { id: 'weekly', label: 'Weekly', sub: '7d' },
+                                            { id: 'monthly', label: 'Monthly', sub: '30d' },
+                                        ].map(w => (
+                                            <button
+                                                key={w.id}
+                                                onClick={() => {
+                                                    if (selectedWindows.includes(w.id)) {
+                                                        if (selectedWindows.length > 1) setSelectedWindows(selectedWindows.filter(x => x !== w.id));
+                                                    } else {
+                                                        setSelectedWindows([...selectedWindows, w.id]);
+                                                    }
+                                                }}
+                                                className={`px-4 py-2 rounded-xl border text-left transition-all ${selectedWindows.includes(w.id) ? 'bg-indigo-50 border-indigo-200 text-indigo-700 ring-2 ring-indigo-500/10' : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300'}`}
+                                            >
+                                                <span className="text-[10px] font-black uppercase block leading-none mb-1">{w.label}</span>
+                                                <span className="text-[8px] font-bold opacity-60 uppercase">{w.sub}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <p className="text-[8px] text-slate-400 font-bold mt-2 uppercase tracking-tighter">Pro-Tip: Tiered protection against burst vs sustained abuse.</p>
                                 </div>
 
                                 {/* TABS FOR GRANULAR CONFIG */}

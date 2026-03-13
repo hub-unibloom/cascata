@@ -640,60 +640,58 @@ export class RateLimitService {
             weight = weights[operation] || 1;
         }
 
-        const key = `rate:${projectSlug}:${tier}:${subject}:${ruleId}`;
-        try {
-            // --- CUMULATIVE QUOTA (ROLLOVER) ---
-            if (isCumulative && (tier === 'auth' || tier === 'custom_key') && subject !== 'anonymous') {
-                const balanceKey = `${projectSlug}:${tier}:${subject}:${ruleId}`;
-                let balance = await this.getQuotaBalance(balanceKey, systemPool);
+        // --- MULTI-WINDOW ENFORCEMENT ---
+        const windows = (matchedRule as any)?.time_windows || [{ type: 'default', window_seconds: windowSecs, limit, burst }];
 
-                // If balance is negative, it means we used up rollover, check main limit
-                // If balance is positive, we use it first
-                if (balance > 0) {
-                    // Use balance, don't increment Dragonfly counter yet or return allowed
-                    await this.updateQuotaBalance(balanceKey, -weight, windowSecs, systemPool);
-                    return { blocked: false };
-                }
-            }
+        for (const win of windows) {
+            const winSecs = win.window_seconds || windowSecs;
+            const winLimit = win.limit || limit;
+            const winBurst = win.burst || burst;
+            const winKey = `rate:${projectSlug}:${tier}:${subject}:${ruleId}:${win.type || 'default'}`;
 
-            const pipeline = this.dragonfly.multi();
-            // Optimized: Increment by WEIGHT instead of 1
-            pipeline.incrby(key, weight);
-            pipeline.ttl(key);
-            const results = await pipeline.exec();
+            try {
+                // --- CUMULATIVE QUOTA (ROLLOVER) ---
+                if (isCumulative && (tier === 'auth' || tier === 'custom_key') && subject !== 'anonymous') {
+                    const balanceKey = `${projectSlug}:${tier}:${subject}:${ruleId}:${win.type || 'default'}`;
+                    let balance = await RateLimitService.getQuotaBalance(balanceKey, systemPool);
 
-            if (!results) throw new Error("Dragonfly failed");
-            const [incrErr, incrRes] = results[0];
-            const [ttlErr, ttlRes] = results[1];
-            if (incrErr) throw incrErr;
-
-            const count = incrRes as number;
-            const ttl = ttlRes as number;
-
-            if (ttl === -1) {
-                await this.dragonfly.expire(key, windowSecs);
-            }
-
-            const totalLimit = limit + burst;
-            if (count > totalLimit) {
-                let customMessage = matchedRule?.message_auth || 'Rate limit exceeded';
-                if (tier === 'anon' && matchedRule?.message_anon) {
-                    customMessage = matchedRule.message_anon;
+                    if (balance > 0) {
+                        await RateLimitService.updateQuotaBalance(balanceKey, -weight, winSecs, systemPool);
+                        continue; // Pass this window
+                    }
                 }
 
-                return {
-                    blocked: true,
-                    limit,
-                    remaining: 0,
-                    retryAfter: ttl > 0 ? ttl : windowSecs,
-                    customMessage
-                };
+                const pipeline = this.dragonfly.multi();
+                pipeline.incrby(winKey, weight);
+                pipeline.ttl(winKey);
+                const results = await pipeline.exec();
+
+                if (!results) continue;
+                const count = results[0][1] as number;
+                const ttl = results[1][1] as number;
+
+                if (ttl === -1) await this.dragonfly.expire(winKey, winSecs);
+
+                const totalLimit = winLimit + winBurst;
+                if (count > totalLimit) {
+                    let customMessage = matchedRule?.message_auth || 'Rate limit exceeded';
+                    if (tier === 'anon' && matchedRule?.message_anon) customMessage = matchedRule.message_anon;
+
+                    return {
+                        blocked: true,
+                        limit: winLimit,
+                        remaining: 0,
+                        retryAfter: ttl > 0 ? ttl : winSecs,
+                        customMessage: `${customMessage} (${win.type || 'standard'} limit)`
+                    };
+                }
+            } catch (e) {
+                console.error("RateLimit Multi-Window Error:", e);
+                // Fail open for individual window failures
             }
-            return { blocked: false, limit, remaining: Math.max(0, totalLimit - count) };
-        } catch (e) {
-            console.error("RateLimit Error:", e);
-            return { blocked: false };
         }
+
+        return { blocked: false, limit, remaining: 1 }; // Approximate
     }
 
     private static async getQuotaBalance(balanceKey: string, pool: any): Promise<number> {

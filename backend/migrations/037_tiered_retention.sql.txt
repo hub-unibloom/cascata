@@ -1,0 +1,63 @@
+
+-- Migração 032: Tiered Retention (Expurgo) e Archiving
+
+-- 0. Adiciona flag de arquivamento na tabela de projetos
+ALTER TABLE system.projects
+ADD COLUMN IF NOT EXISTS archive_logs BOOLEAN DEFAULT FALSE;
+
+-- 1. Tabela de Arquivamento de Logs (Cold Storage Interno)
+-- Esta tabela armazena logs que foram expurgados da api_logs mas que ainda devem ser mantidos para auditoria longa ou estatísticas.
+CREATE TABLE IF NOT EXISTS system.archived_logs (
+    id UUID PRIMARY KEY,
+    project_slug TEXT NOT NULL,
+    method TEXT,
+    path TEXT,
+    status_code INTEGER,
+    duration_ms INTEGER,
+    ip_address TEXT,
+    user_id UUID,
+    api_key_id UUID,
+    request_payload JSONB,
+    response_payload JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexação para busca em arquivos
+CREATE INDEX IF NOT EXISTS idx_archived_logs_slug ON system.archived_logs(project_slug);
+CREATE INDEX IF NOT EXISTS idx_archived_logs_created ON system.archived_logs(created_at);
+
+-- 2. Função de Purge Atualizada com Suporte a Arquivamento
+-- Agora aceita um terceiro parâmetro opcional p_archive.
+CREATE OR REPLACE FUNCTION system.purge_old_logs(p_slug TEXT, p_days INTEGER, p_archive BOOLEAN DEFAULT FALSE)
+RETURNS INTEGER AS $$
+DECLARE
+    count INTEGER;
+BEGIN
+    -- Ativa modo de manutenção apenas para esta transação
+    PERFORM set_config('cascata.maintenance_mode', 'true', true);
+    
+    -- Se p_archive for TRUE, movemos os dados antes de deletar
+    IF p_archive THEN
+        INSERT INTO system.archived_logs (id, project_slug, method, path, status_code, duration_ms, ip_address, user_id, api_key_id, request_payload, response_payload, created_at)
+        SELECT id, project_slug, method, path, status_code, duration_ms, ip_address, user_id, api_key_id, request_payload, response_payload, created_at
+        FROM system.api_logs
+        WHERE project_slug = p_slug 
+        AND created_at < NOW() - (p_days || ' days')::INTERVAL;
+    END IF;
+
+    -- Deleta logs antigos
+    WITH deleted AS (
+        DELETE FROM system.api_logs 
+        WHERE project_slug = p_slug 
+        AND created_at < NOW() - (p_days || ' days')::INTERVAL
+        RETURNING id
+    )
+    SELECT count(*) INTO count FROM deleted;
+    
+    RETURN count;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Comentários
+COMMENT ON TABLE system.archived_logs IS 'Armazena logs de API arquivados para retenção de longo prazo.';
+COMMENT ON FUNCTION system.purge_old_logs IS 'Deleta ou arquiva logs antigos baseando-se na política de retenção.';

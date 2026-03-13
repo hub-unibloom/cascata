@@ -83,12 +83,12 @@ export class AdminController {
 
     static async createProject(req: CascataRequest, res: any, next: any) {
         const { name, slug, timezone, custom_domain } = req.body;
-        
+
         // Comprehensive Payload Validation
         if (!name || !slug) {
             return res.status(400).json({ error: "Name and Slug are strictly required." });
         }
-        
+
         if (slug.length < 3 || slug.length > 50) {
             return res.status(400).json({ error: "Slug must be between 3 and 50 characters." });
         }
@@ -178,13 +178,14 @@ export class AdminController {
             }
 
             const { custom_domain, log_retention_days, metadata, ssl_certificate_source, status } = req.body;
-            
-            const fields: string[] = []; 
-            const values: any[] = []; 
+
+            const fields: string[] = [];
+            const values: any[] = [];
             let idx = 1;
 
             if (status !== undefined) { fields.push(`status = $${idx++}`); values.push(status); }
             if (log_retention_days !== undefined) { fields.push(`log_retention_days = $${idx++}`); values.push(log_retention_days); }
+            if (req.body.archive_logs !== undefined) { fields.push(`archive_logs = $${idx++}`); values.push(req.body.archive_logs); }
             if (ssl_certificate_source !== undefined) { fields.push(`ssl_certificate_source = $${idx++}`); values.push(ssl_certificate_source); }
             if (custom_domain !== undefined) { fields.push(`custom_domain = $${idx++}`); values.push(custom_domain); }
 
@@ -264,7 +265,7 @@ export class AdminController {
                             }
                         }
                     } catch (lockErr) {
-                         console.error(`[AdminController] Failed to compile Native DCL Security Locks for ${projectSlug}:`, lockErr);
+                        console.error(`[AdminController] Failed to compile Native DCL Security Locks for ${projectSlug}:`, lockErr);
                     }
                 }
             }
@@ -326,7 +327,8 @@ export class AdminController {
         try { await systemPool.query('UPDATE system.projects SET blocklist = array_remove(blocklist, $1) WHERE slug = $2', [req.params.ip, req.params.slug]); res.json({ success: true }); } catch (e: any) { next(e); }
     }
     static async purgeLogs(req: CascataRequest, res: any, next: any) {
-        try { await systemPool.query(`SELECT system.purge_old_logs($1, $2)`, [req.params.slug, Number(req.query.days)]); res.json({ success: true }); } catch (e: any) { next(e); }
+        const archive = req.query.archive === 'true';
+        try { await systemPool.query(`SELECT system.purge_old_logs($1, $2, $3)`, [req.params.slug, Number(req.query.days), archive]); res.json({ success: true }); } catch (e: any) { next(e); }
     }
     static async exportProject(req: CascataRequest, res: any, next: any) {
         try {
@@ -463,7 +465,7 @@ export class AdminController {
     static async createWebhook(req: CascataRequest, res: any, next: any) {
         try {
             const { target_url, event_type, table_name, filters, fallback_url, retry_policy } = req.body;
-            
+
             // Validate inputs
             if (!target_url || !event_type || !table_name) {
                 return res.status(400).json({ error: 'Missing requried fields: target_url, event_type, table_name' });
@@ -517,15 +519,15 @@ export class AdminController {
             if (filters !== undefined) { fields.push(`filters = $${idx++}`); values.push(JSON.stringify(filters)); }
             if (fallback_url !== undefined) { fields.push(`fallback_url = $${idx++}`); values.push(fallback_url); }
             if (retry_policy !== undefined) { fields.push(`retry_policy = $${idx++}`); values.push(JSON.stringify(retry_policy)); }
-            
+
             if (fields.length === 0) return res.json({ success: true });
-            
+
             values.push(req.params.id, req.params.slug);
             const query = `UPDATE system.webhooks SET ${fields.join(', ')}, updated_at = NOW() WHERE id = $${idx} AND project_slug = $${idx + 1} RETURNING *`;
-            
+
             const result = await systemPool.query(query, values);
             if (result.rows.length === 0) return res.status(404).json({ error: 'Webhook not found' });
-            
+
             res.json(result.rows[0]);
         } catch (e: any) {
             next(e);
@@ -536,24 +538,24 @@ export class AdminController {
         try {
             const hookRes = await systemPool.query('SELECT * FROM system.webhooks WHERE id = $1 AND project_slug = $2', [req.params.id, req.params.slug]);
             if (hookRes.rows.length === 0) return res.status(404).json({ error: 'Webhook not found' });
-            
+
             const hook = hookRes.rows[0];
             const projRes = await systemPool.query(
                 "SELECT pgp_sym_decrypt(jwt_secret::bytea, $1) as jwt_secret FROM system.projects WHERE slug = $2",
                 [SYS_SECRET, hook.project_slug]
             );
-            
+
             const jwtSecret = projRes.rows[0].jwt_secret;
-            
+
             await WebhookService.dispatch(
-                hook.project_slug, 
-                hook.table_name, 
-                hook.event_type, 
-                req.body.payload || { test: true, timestamp: new Date().toISOString() }, 
-                systemPool, 
+                hook.project_slug,
+                hook.table_name,
+                hook.event_type,
+                req.body.payload || { test: true, timestamp: new Date().toISOString() },
+                systemPool,
                 jwtSecret
             );
-            
+
             res.json({ success: true, message: 'Test payload scheduled for dispatch via WebhookService' });
         } catch (e: any) {
             next(e);
@@ -573,11 +575,11 @@ export class AdminController {
             const dbRes = await systemPool.query(
                 "SELECT settings as db_config FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'system_config'"
             );
-            
-            res.json({ 
-                domain: domainRes.rows[0]?.domain, 
-                ai_config: aiRes.rows[0]?.ai_config || {}, 
-                db_config: dbRes.rows[0]?.db_config || {} 
+
+            res.json({
+                domain: domainRes.rows[0]?.domain,
+                ai_config: aiRes.rows[0]?.ai_config || {},
+                db_config: dbRes.rows[0]?.db_config || {}
             });
         } catch (e: any) {
             next(e);
@@ -641,7 +643,7 @@ export class AdminController {
         try {
             const { domain, email, provider, cert, key } = req.body;
             if (!domain) return res.status(400).json({ error: 'Domain is required' });
-            
+
             const result = await CertificateService.requestCertificate(domain, email, provider, systemPool, { cert, key });
             res.json(result);
         } catch (e: any) {
@@ -653,7 +655,7 @@ export class AdminController {
         try {
             const { domain } = req.params;
             if (!domain) return res.status(400).json({ error: 'Domain param is required' });
-            
+
             await CertificateService.deleteCertificate(domain, systemPool);
             res.json({ success: true, message: `SSL Certificate for ${domain} wiped and nginx reloaded.` });
         } catch (e: any) {

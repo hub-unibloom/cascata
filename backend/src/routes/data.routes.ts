@@ -125,16 +125,16 @@ router.delete('/policies/:table/:name', requireManagementRole as any, SecurityCo
 router.get('/logs', requireManagementRole as any, SecurityController.getLogs as any);
 
 // Key Groups (New)
-router.get('/security/key-groups', SecurityController.listKeyGroups as any);
-router.post('/security/key-groups', SecurityController.createKeyGroup as any);
-router.delete('/security/key-groups/:id', SecurityController.deleteKeyGroup as any);
+router.get('/security/key-groups', requireManagementRole as any, SecurityController.listKeyGroups as any);
+router.post('/security/key-groups', requireManagementRole as any, SecurityController.createKeyGroup as any);
+router.delete('/security/key-groups/:id', requireManagementRole as any, SecurityController.deleteKeyGroup as any);
 
 // API Keys
-router.get('/api-keys', SecurityController.listApiKeys as any);
-router.post('/api-keys', SecurityController.createApiKey as any);
-router.patch('/api-keys/:id', SecurityController.updateApiKey as any);
-router.post('/api-keys/:id/migrate', SecurityController.migrateApiKey as any);
-router.delete('/api-keys/:id', SecurityController.deleteApiKey as any);
+router.get('/api-keys', requireManagementRole as any, SecurityController.listApiKeys as any);
+router.post('/api-keys', requireManagementRole as any, SecurityController.createApiKey as any);
+router.patch('/api-keys/:id', requireManagementRole as any, SecurityController.updateApiKey as any);
+router.post('/api-keys/:id/migrate', requireManagementRole as any, SecurityController.migrateApiKey as any);
+router.delete('/api-keys/:id', requireManagementRole as any, SecurityController.deleteApiKey as any);
 
 // System Assets & Settings
 router.get('/ui-settings/:table', DataController.getUiSettings as any);
@@ -143,7 +143,7 @@ router.get('/assets', DataController.getAssets as any);
 router.post('/assets', DataController.upsertAsset as any);
 router.delete('/assets/:id', DataController.deleteAsset as any);
 router.get('/assets/:id/history', DataController.getAssetHistory as any);
-router.get('/stats', DataController.getStats as any);
+router.get('/stats', requireManagementRole as any, DataController.getStats as any);
 
 // CASCATA AUTOMATIONS (MANAGEMENT)
 router.get('/automations', requireManagementRole as any, DataController.listAutomations as any);
