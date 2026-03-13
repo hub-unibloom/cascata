@@ -581,10 +581,12 @@ export class DataController {
                 await req.projectPool!.query(`ALTER TABLE ${safeSchema}.${safeName} FORCE ROW LEVEL SECURITY`);
 
                 // Security Blindagem: Create Master Policy for Service Role and Owner (God Mode)
+                const tblName = String(name);
+                const schName = String(schema);
                 await req.projectPool!.query(`
                     DO $$ BEGIN
-                        IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = ${quotePostgresLiteral(schema as string)} AND tablename = ${quotePostgresLiteral(name)} AND policyname = 'master_system_policy') THEN
-                            EXECUTE format('CREATE POLICY master_system_policy ON %I.%I FOR ALL TO service_role, current_user USING (true) WITH CHECK (true)', ${quotePostgresLiteral(schema as string)}.replace(/'/g, ""), ${quotePostgresLiteral(name)}.replace(/'/g, ""));
+                        IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = ${quotePostgresLiteral(schName)} AND tablename = ${quotePostgresLiteral(tblName)} AND policyname = 'master_system_policy') THEN
+                            EXECUTE format('CREATE POLICY master_system_policy ON %I.%I FOR ALL TO service_role, current_user USING (true) WITH CHECK (true)', ${quotePostgresLiteral(schName)}.slice(1, -1), ${quotePostgresLiteral(tblName)}.slice(1, -1));
                         END IF;
                     END $$;
                 `);

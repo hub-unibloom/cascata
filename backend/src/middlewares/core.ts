@@ -69,8 +69,8 @@ export const resolveProject: RequestHandler = async (req: any, res: any, next: a
     }
 
     // Extract from Headers (API/CLI)
-    const authHeader = req.headers['authorization'];
-    let bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : (req.query.token as string);
+    const authHeader = req.headers['authorization'] as string | undefined;
+    let bearerToken = (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) ? authHeader.split(' ')[1] : (req.query.token as string);
 
     r.isSystemRequest = false;
 
@@ -108,7 +108,7 @@ export const resolveProject: RequestHandler = async (req: any, res: any, next: a
     // If we have an API Key or Project Token, we treat this as a Tenant Request.
     // DANGER: We must ensure isSystemRequest is FALSE here if a tenant-specific key is provided,
     // even if the user has an Admin Cookie in their browser.
-    const hasTenantKey = !!(req.headers['apikey'] || req.query.apikey || req.query.anon_key || (bearerToken && bearerToken.split('.').length !== 3));
+    const hasTenantKey = !!(req.headers['apikey'] || req.query.apikey || req.query.anon_key || (typeof bearerToken === 'string' && bearerToken.split('.').length !== 3));
     if (hasTenantKey) {
         r.isSystemRequest = false;
     }
@@ -315,8 +315,8 @@ export const cascataAuth: RequestHandler = async (req: any, res: any, next: any)
             r.userRole = 'anon';
 
             // Extract token to identify the App Client (Flutterflow sometimes sends anon_key in Bearer)
-            const authHeader = req.headers['authorization'];
-            const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+            const authHeader = req.headers['authorization'] as string | undefined;
+            const bearerToken = (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) ? authHeader.split(' ')[1] : null;
             const apiKeyHeader = (req.headers['apikey'] || req.query.apikey || req.query.anon_key) as string;
             const tokenToInspect = apiKeyHeader || bearerToken;
 
@@ -327,8 +327,8 @@ export const cascataAuth: RequestHandler = async (req: any, res: any, next: any)
             return next();
         }
 
-        const authHeader = req.headers['authorization'];
-        const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : (req.query.token as string);
+        const authHeader = req.headers['authorization'] as string | undefined;
+        const bearerToken = (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) ? authHeader.split(' ')[1] : (req.query.token as string);
         const apiKeyHeader = (req.headers['apikey'] || req.query.apikey || req.query.anon_key) as string;
 
         const checkApiKeyLogic = (token: string) => {
@@ -351,7 +351,7 @@ export const cascataAuth: RequestHandler = async (req: any, res: any, next: any)
             return false;
         };
 
-        if (bearerToken) {
+        if (bearerToken && typeof bearerToken === 'string') {
             if (bearerToken.split('.').length === 3) {
                 try {
                     const isBlacklisted = await RateLimitService.isTokenBlacklisted(bearerToken);
