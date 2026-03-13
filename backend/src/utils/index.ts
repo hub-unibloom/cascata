@@ -413,66 +413,80 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
             const client = await targetPool.connect();
             try {
 
-                // 🚀 FAST-PATH (1-TCP RTT): Bypass the Transaction entirely for Admin Services
-                if (role === 'service_role') {
-                    const results = await client.query({
-                        text: queryText,
-                        values: params,
-                        name: statementName
-                    });
+                const execute = async (useRetry = true): Promise<any> => {
+                    try {
+                        // 🚀 FAST-PATH (1-TCP RTT): Bypass the Transaction entirely for Admin Services
+                        if (role === 'service_role') {
+                            const results = await client.query({
+                                text: queryText,
+                                values: params,
+                                name: statementName
+                            });
 
-                    // Set Semáforo Pós-Write
-                    if (isWriteDml && affectedTable && dfly) {
-                        const semaforoKey = `cascata_rw_lock:${req.project?.slug || 'unknown'}:${affectedTable}`;
-                        try { dfly.set(semaforoKey, 'LOCKED', 'PX', 2500).catch(() => {}); } catch (e) {}
+                            // Set Semáforo Pós-Write
+                            if (isWriteDml && affectedTable && dfly) {
+                                const semaforoKey = `cascata_rw_lock:${req.project?.slug || 'unknown'}:${affectedTable}`;
+                                try { dfly.set(semaforoKey, 'LOCKED', 'PX', 2500).catch(() => {}); } catch (e) {}
+                            }
+                            
+                            return (Array.isArray(results) && results.length > 0) ? results[results.length - 1] : results;
+                        }
+
+                        // 🛡️ SECURE PATH: RLS Evaluation forces PostgreSQL Query Planner
+                        await client.query('BEGIN');
+                        
+                        const safeSub = quotePostgresLiteral(sub);
+                        const safeRole = quotePostgresLiteral(role);
+                        const safeEmail = quotePostgresLiteral(email);
+                        const safeIdentifier = quotePostgresLiteral(identifier);
+                        const safeProvider = quotePostgresLiteral(provider);
+
+                        const setupSql = `
+                            SET LOCAL ROLE ${safeRole};
+                            SET LOCAL "request.jwt.claim.sub" = ${safeSub};
+                            SET LOCAL "request.jwt.claim.role" = ${safeRole};
+                            SET LOCAL "request.jwt.claim.email" = ${safeEmail};
+                            SET LOCAL "request.jwt.claim.identifier" = ${safeIdentifier};
+                            SET LOCAL "request.jwt.claim.provider" = ${safeProvider};
+                            SET LOCAL statement_timeout = '30000';
+                        `;
+                        
+                        await client.query(setupSql);
+
+                        const results = await client.query({
+                            text: queryText,
+                            values: params,
+                            name: statementName
+                        });
+
+                        await client.query('COMMIT');
+
+                        // Set Semáforo Pós-Write
+                        if (isWriteDml && affectedTable && dfly) {
+                            const semaforoKey = `cascata_rw_lock:${req.project?.slug || 'unknown'}:${affectedTable}`;
+                            try { dfly.set(semaforoKey, 'LOCKED', 'PX', 2500).catch(() => {}); } catch (e) {}
+                        }
+
+                        return (Array.isArray(results) && results.length > 0) ? results[results.length - 1] : results;
+
+                    } catch (error: any) {
+                        // O SANTO GRAAL DA AUTO-CURA (0A000: Stale Plan Recovery)
+                        if (useRetry && error.code === '0A000') {
+                            console.warn(`[queryWithRLS] Stale plan detected in pool connection. Purging and retrying query...`);
+                            if (role !== 'service_role') await client.query('ROLLBACK').catch(() => {});
+                            await client.query('DEALLOCATE ALL'); 
+                            return await execute(false); // Repeat WITHOUT name cache or with clean slate
+                        }
+
+                        if (role !== 'service_role') {
+                            await client.query('ROLLBACK').catch(() => {});
+                        }
+                        throw error;
                     }
-                    
-                    return (Array.isArray(results) && results.length > 0) ? results[results.length - 1] : results;
-                }
+                };
 
-                // 🛡️ SECURE PATH: RLS Evaluation forces PostgreSQL Query Planner
-                // to evaluate context BEFORE the query tree expands policy bounds
-                await client.query('BEGIN');
-                
-                const safeSub = quotePostgresLiteral(sub);
-                const safeRole = quotePostgresLiteral(role);
-                const safeEmail = quotePostgresLiteral(email);
-                const safeIdentifier = quotePostgresLiteral(identifier);
-                const safeProvider = quotePostgresLiteral(provider);
+                return await execute();
 
-                const setupSql = `
-                    SET LOCAL ROLE ${safeRole};
-                    SET LOCAL "request.jwt.claim.sub" = ${safeSub};
-                    SET LOCAL "request.jwt.claim.role" = ${safeRole};
-                    SET LOCAL "request.jwt.claim.email" = ${safeEmail};
-                    SET LOCAL "request.jwt.claim.identifier" = ${safeIdentifier};
-                    SET LOCAL "request.jwt.claim.provider" = ${safeProvider};
-                    SET LOCAL statement_timeout = '30000';
-                `;
-                
-                await client.query(setupSql);
-
-                const results = await client.query({
-                    text: queryText,
-                    values: params,
-                    name: statementName
-                });
-
-                await client.query('COMMIT');
-
-                // Set Semáforo Pós-Write
-                if (isWriteDml && affectedTable && dfly) {
-                    const semaforoKey = `cascata_rw_lock:${req.project?.slug || 'unknown'}:${affectedTable}`;
-                    try { dfly.set(semaforoKey, 'LOCKED', 'PX', 2500).catch(() => {}); } catch (e) {}
-                }
-
-                return (Array.isArray(results) && results.length > 0) ? results[results.length - 1] : results;
-
-            } catch (error) {
-                if (role !== 'service_role') {
-                    await client.query('ROLLBACK').catch(() => {});
-                }
-                throw error;
             } finally {
                 client.release();
             }

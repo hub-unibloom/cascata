@@ -164,7 +164,9 @@ export class DataController {
             query += ` LIMIT $1 OFFSET $2`;
 
             const result = await queryWithRLS(req, async (client) => {
-                return await client.query(query, [limit, offset], `qRows_${safeSchema}_${safeTable}_${sortColumn}_${sortDirection}_${limit}_${offset}`);
+                // REMOVED static statement name: Dynamic SELECT * queries should NOT use named plans 
+                // because column count changes frequently during development.
+                return await client.query(query, [limit, offset]);
             });
             res.json(result.rows);
         } catch (e: any) { next(e); }
@@ -485,6 +487,15 @@ export class DataController {
                 // Auto-grant: After DDL, ensure cascata_api_role can access all user schemas
                 const cmd = (result.command || '').toUpperCase();
                 if (['CREATE', 'ALTER', 'DROP'].includes(cmd)) {
+                    // CASCATA HYBRID REFRESH: Force Pool Service to eject all connections for this tenant
+                    // This is the nuclear option to prevent "cached plan" errors after schema changes.
+                    try {
+                        const PoolSvc = (await import('../../services/PoolService.js')).PoolService;
+                        await PoolSvc.reload(req.project.slug);
+                    } catch (poolErr) {
+                        console.warn('[runRawQuery] Pool reload failed:', poolErr);
+                    }
+
                     try {
                         await client.query(`
                             DO $$ 
@@ -624,6 +635,13 @@ export class DataController {
             }
 
             if (description) await req.projectPool!.query(`COMMENT ON TABLE ${safeSchema}.${safeName} IS $1`, [description]);
+            
+            // SECURITY HYBRID FLUSH: Ensure new table structure is recognized immediately
+            try {
+                const PoolSvc = (await import('../../services/PoolService.js')).PoolService;
+                await PoolSvc.reload(req.project.slug);
+            } catch (e) {}
+
             res.json({ success: true });
         } catch (e: any) { next(e); }
     }
@@ -643,6 +661,13 @@ export class DataController {
                 const deletedName = `_deleted_${Date.now()}_${req.params.table}`;
                 await req.projectPool!.query(`ALTER TABLE ${safeSchema}.${quoteId(req.params.table)} RENAME TO ${quoteId(deletedName)}`);
             }
+
+            // Pool Refresh to clear cached plans of the modified table
+            try {
+                const PoolSvc = (await import('../../services/PoolService.js')).PoolService;
+                await PoolSvc.reload(req.project.slug);
+            } catch (e) {}
+
             res.json({ success: true });
         } catch (e: any) { next(e); }
     }
@@ -663,6 +688,12 @@ export class DataController {
             const safeSchema = quoteId(schema as string);
             const originalName = req.params.table.replace(/^_deleted_\d+_/, '');
             await req.projectPool!.query(`ALTER TABLE ${safeSchema}.${quoteId(req.params.table)} RENAME TO ${quoteId(originalName)}`);
+            
+            try {
+                const PoolSvc = (await import('../../services/PoolService.js')).PoolService;
+                await PoolSvc.reload(req.project.slug);
+            } catch (e) {}
+
             res.json({ success: true, restoredName: originalName });
         } catch (e: any) { next(e); }
     }
