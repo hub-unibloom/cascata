@@ -1,0 +1,96 @@
+╔══════════════════════════════════════════════════════╗
+║     RELATÓRIO DE STRESS — 12/03/2026 17:58:47     ║
+╚══════════════════════════════════════════════════════╝
+
+  Endpoint Base  : http://100.52.212.178/api/data/teste/rest/v1
+  Início         : 17:58:03
+  Fim            : 17:58:47
+  Duração        : 44s
+  Concorrência   : 50 workers
+  Total req.     : 268
+  Throughput     : 6.0 req/s
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  RESULTADO GERAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ✅  Sucesso    : 175  (65.2%)
+  ❌  Falhas     : 93  (34.7%)
+  📦  Resp. média: 3637798 bytes (reqs OK)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  LATÊNCIA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ├─ Mínima : 389ms
+  ├─ Média  : 7317ms
+  ├─ P95    : 10003ms
+  ├─ P99    : 10003ms
+  └─ Máxima : 10003ms
+
+  Distribuição de latência ao longo do tempo:
+  ▂▃▄▅▅▆▇▇▇▇▇▇▇▂▆▅▇▄▅▅▂▃▅▅▇▇▇▇▇▇▅▅▅▃▆▇▆▇
+  0ms                               10003ms
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ONDE ESTÁ O GARGALO (TCP vs App vs Transferência)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ├─ TCP connect   : 3174ms
+  ├─ App/DB (TTFB) : -16ms   ← onde o banco processa
+  ├─ Transferência : 4159ms
+  └─ Total médio   : 7317ms
+
+  ⚠️  DIAGNÓSTICO: gargalo na rede/TCP (connect 3174ms)
+      → checar: firewall, keep-alive, proxy
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HTTP CODES NAS FALHAS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ├─ HTTP 000   : 93 ocorrências
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ANÁLISE DOS ERROS (body das respostas)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Top mensagens de erro (body):
+
+  Erros por endpoint:
+  ├─ insert_pedido             HTTP 000  (18×)
+  ├─ get_estoque_baixo         HTTP 000  (17×)
+  ├─ get_top_itens             HTTP 000  (16×)
+  ├─ get_produtos              HTTP 000  (15×)
+  ├─ get_pedidos               HTTP 000  (14×)
+  ├─ get_categorias            HTTP 000  (13×)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  POR ENDPOINT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ⚠️   insert_pedido                 ok=27    fail=18    ( 40% erro)  avg=6736ms
+  ⚠️   get_estoque_baixo             ok=38    fail=17    ( 30% erro)  avg=6624ms
+  ⚠️   get_top_itens                 ok=25    fail=16    ( 39% erro)  avg=6481ms
+  ⚠️   get_produtos                  ok=23    fail=15    ( 39% erro)  avg=7325ms
+  ⚠️   get_pedidos                   ok=34    fail=14    ( 29% erro)  avg=10001ms
+  ⚠️   get_categorias                ok=28    fail=13    ( 31% erro)  avg=6568ms
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  EVOLUÇÃO A CADA 100 REQUISIÇÕES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ✅  Reqs    1– 100  |  ok=61  (61%)  fail=39  (39%)
+  ✅  Reqs  101– 200  |  ok=77  (77%)  fail=23  (23%)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ESTABILIDADE E COLAPSOS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Ponto de degradação (>20% erro): req #64 às 17:58:08
+  MTBF (tempo médio entre falhas): 0,3s
+  Maior sequência de falhas consecutivas: 36 reqs
+
+  ⚠️  Colapso detectado na req #70 (≥80% erros em janela 20)
+  ✅  Recuperação na req #127 (voltou a <20% erros)
+  ⚠️  Colapso detectado na req #200 (≥80% erros em janela 20)
+  ✅  Recuperação na req #269 (voltou a <20% erros)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ARQUIVOS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Log CSV    : /home/cocorico/Documentos/proejetos/cascata/relatorios/stress_20260312_175800.csv
+  Erros JSONL: /home/cocorico/Documentos/proejetos/cascata/relatorios/erros_20260312_175800.jsonl
+  Relatório  : /home/cocorico/Documentos/proejetos/cascata/relatorios/relatorio_20260312_175800.txt
+══════════════════════════════════════════════════════

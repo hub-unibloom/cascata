@@ -5,8 +5,8 @@ map $http_upgrade $connection_upgrade {
 }
 
 # Definição de Zonas de Rate Limit
-limit_req_zone $binary_remote_addr zone=api_limit:10m rate=50r/s;
-limit_req_zone $binary_remote_addr zone=auth_limit:10m rate=5r/s;
+limit_req_zone $binary_remote_addr zone=api_limit:10m rate=1000r/s;
+limit_req_zone $binary_remote_addr zone=auth_limit:10m rate=100r/s;
 limit_conn_zone $binary_remote_addr zone=conn_limit:10m;
 
 # ============================================================

@@ -120,9 +120,9 @@ export class RateLimitService {
             // Dragonfly principal (Comandos)
             this.dragonfly.connect().catch((e: any) => console.warn("[RateLimit] Initial Dragonfly connect failed:", e.message));
             this.dragonfly.on('error', (err: any) => { this.isDragonflyHealthy = false; });
-            this.dragonfly.on('connect', () => { 
-                console.log('[RateLimit] Dragonfly Connected & Healthy.'); 
-                this.isDragonflyHealthy = true; 
+            this.dragonfly.on('connect', () => {
+                console.log('[RateLimit] Dragonfly Connected & Healthy.');
+                this.isDragonflyHealthy = true;
             });
 
             // Dragonfly Sub (Escutando Invalidações Globais)
@@ -130,12 +130,12 @@ export class RateLimitService {
                 this.dragonflySub?.subscribe('sys:cache:invalidate', (err: any, count: any) => {
                     if (err) console.error("Failed to subscribe to invalidation channel", err);
                 });
-                
+
                 // DRAGONFLY SEMANTIC CACHE (Fase 1.3)
                 this.dragonflySub?.subscribe('cascata_cache_invalidate', (err: any, count: any) => {
                     if (err) console.error("Failed to subscribe to semantic cache invalidation", err);
                 });
-            }).catch(() => {});
+            }).catch(() => { });
 
             this.dragonflySub.on('message', async (channel: string, message: string) => {
                 if (channel === 'sys:cache:invalidate') {
@@ -152,7 +152,7 @@ export class RateLimitService {
                     }
                     console.log(`[L1 Cache] Interceptor dropped project config for: ${message}`);
                 }
-                
+
                 // DRAGONFLY SEMANTIC CACHE (Fase 1.3)
                 // Se o DB nos avisa que uma tabela mudou, limpamos toda a query pool dela
                 if (channel === 'cascata_cache_invalidate') {
@@ -288,7 +288,7 @@ export class RateLimitService {
         let domainResolver = null;
 
         const host = req.headers.host?.split(':')[0] || '';
-        
+
         if (req.url.startsWith('/api/data/')) {
             const parts = req.url.split('/');
             if (parts.length >= 4) slugResolver = parts[3];
@@ -299,10 +299,10 @@ export class RateLimitService {
         if (!slugResolver && !domainResolver) return;
 
         // Fase 1: Zero-Network (Ram Síncrona, 0 microsegundos de atraso I/O)
-        const l1Hit = slugResolver 
+        const l1Hit = slugResolver
             ? this.getCachedProjectSync(slugResolver, 'slug')
             : this.getCachedProjectSync(domainResolver!, 'domain');
-        
+
         if (l1Hit) {
             req.project = l1Hit;
             return;
@@ -321,7 +321,7 @@ export class RateLimitService {
         // Fase 3: High-I/O Penalty (Fallback pro Banco de Dados, custa conexão e trava Node)
         try {
             const sysSecret = process.env.SYSTEM_JWT_SECRET || '';
-            const query = slugResolver 
+            const query = slugResolver
                 ? `SELECT id, name, slug, db_name, custom_domain, ssl_certificate_source, blocklist, metadata, status,
                           pgp_sym_decrypt(jwt_secret::bytea, $1::text) as jwt_secret,
                           pgp_sym_decrypt(anon_key::bytea, $1::text) as anon_key,
@@ -333,7 +333,7 @@ export class RateLimitService {
                           pgp_sym_decrypt(service_key::bytea, $1::text) as service_key
                    FROM system.projects WHERE custom_domain = $2`;
             const val = slugResolver ? slugResolver : domainResolver;
-            
+
             const res = await systemPool.query(query, [sysSecret, val]);
             if (res.rows.length > 0) {
                 let projectConfig = {};
@@ -344,9 +344,9 @@ export class RateLimitService {
                     // system.project_configs pode não existir ainda — fallback seguro a {}
                 }
                 const project = { ...res.rows[0], config: projectConfig };
-                
+
                 // Popula o cache para NUNCA MAIS ter que esperar o Banco
-                await this.cacheProject(project); 
+                await this.cacheProject(project);
                 req.project = project;
             }
         } catch (e) {
@@ -575,9 +575,11 @@ export class RateLimitService {
             return false;
         });
 
+        let isCumulative = false;
         if (matchedRule) {
             ruleId = matchedRule.id;
             if (matchedRule.window_seconds) windowSecs = matchedRule.window_seconds;
+            isCumulative = (matchedRule as any).is_cumulative || false;
 
             if (tier === 'custom_key' && keyGroupId && matchedRule.group_limits && matchedRule.group_limits[keyGroupId]) {
                 const gLimit = matchedRule.group_limits[keyGroupId];
@@ -591,6 +593,10 @@ export class RateLimitService {
                 limit = ruleRate;
                 burst = ruleBurst;
                 crudConfig = gLimit.crud;
+                // If not explicitly set in rule, use group default
+                if ((matchedRule as any).is_cumulative === undefined) {
+                    isCumulative = memCached?.data.is_cumulative_default || false;
+                }
             } else if (tier === 'auth') {
                 limit = matchedRule.rate_limit_auth ?? (matchedRule.rate_limit * 2);
                 burst = matchedRule.burst_limit_auth ?? (matchedRule.burst_limit * 2);
@@ -623,10 +629,36 @@ export class RateLimitService {
             ruleId = `${ruleId}:${operation}`;
         }
 
+        // --- NEW: Operation Weights Logic ---
+        // Weights are applied to the increment value (cost of the request)
+        let weight = 1;
+        if (operation && matchedRule) {
+            // Check if there are specific weights for this operation in the rule or group
+            const weights: Record<string, number> = (matchedRule as any).operation_weights || {
+                read: 1, create: 5, update: 2, delete: 3
+            };
+            weight = weights[operation] || 1;
+        }
+
         const key = `rate:${projectSlug}:${tier}:${subject}:${ruleId}`;
         try {
+            // --- CUMULATIVE QUOTA (ROLLOVER) ---
+            if (isCumulative && (tier === 'auth' || tier === 'custom_key') && subject !== 'anonymous') {
+                const balanceKey = `${projectSlug}:${tier}:${subject}:${ruleId}`;
+                let balance = await this.getQuotaBalance(balanceKey, systemPool);
+
+                // If balance is negative, it means we used up rollover, check main limit
+                // If balance is positive, we use it first
+                if (balance > 0) {
+                    // Use balance, don't increment Dragonfly counter yet or return allowed
+                    await this.updateQuotaBalance(balanceKey, -weight, windowSecs, systemPool);
+                    return { blocked: false };
+                }
+            }
+
             const pipeline = this.dragonfly.multi();
-            pipeline.incr(key);
+            // Optimized: Increment by WEIGHT instead of 1
+            pipeline.incrby(key, weight);
             pipeline.ttl(key);
             const results = await pipeline.exec();
 
@@ -636,30 +668,59 @@ export class RateLimitService {
             if (incrErr) throw incrErr;
 
             const count = incrRes as number;
-            const currentTtl = ttlRes as number;
+            const ttl = ttlRes as number;
 
-            if (currentTtl === -1) await this.dragonfly.expire(key, windowSecs);
+            if (ttl === -1) {
+                await this.dragonfly.expire(key, windowSecs);
+            }
 
             const totalLimit = limit + burst;
             if (count > totalLimit) {
-                let customMessage = keyCustomMessage;
-                if (!customMessage && matchedRule) {
-                    if (tier === 'anon') customMessage = matchedRule.message_anon;
-                    if (tier === 'auth') customMessage = matchedRule.message_auth;
+                let customMessage = matchedRule?.message_auth || 'Rate limit exceeded';
+                if (tier === 'anon' && matchedRule?.message_anon) {
+                    customMessage = matchedRule.message_anon;
                 }
 
                 return {
                     blocked: true,
                     limit,
                     remaining: 0,
-                    retryAfter: currentTtl > 0 ? currentTtl : windowSecs,
+                    retryAfter: ttl > 0 ? ttl : windowSecs,
                     customMessage
                 };
             }
             return { blocked: false, limit, remaining: Math.max(0, totalLimit - count) };
         } catch (e) {
+            console.error("RateLimit Error:", e);
             return { blocked: false };
         }
+    }
+
+    private static async getQuotaBalance(balanceKey: string, pool: any): Promise<number> {
+        try {
+            const res = await pool.query(
+                `SELECT balance FROM system.quota_balances 
+                 WHERE project_slug || ':' || tier || ':' || subject_id || ':' || resource_id = $1`,
+                [balanceKey]
+            );
+            return res.rows.length > 0 ? parseInt(res.rows[0].balance) : 0;
+        } catch (e) { return 0; }
+    }
+
+    private static async updateQuotaBalance(balanceKey: string, delta: number, windowSecs: number, pool: any) {
+        try {
+            // Split balanceKey back to components for DB update
+            const [projectSlug, tier, subjectId, ...ruleParts] = balanceKey.split(':');
+            const ruleId = ruleParts.join(':');
+
+            await pool.query(
+                `INSERT INTO system.quota_balances (project_slug, tier, subject_id, resource_id, window_type, balance, last_reset)
+                 VALUES ($1, $2, $3, $4, 'custom', $5, NOW())
+                 ON CONFLICT (project_slug, tier, subject_id, resource_id, window_type)
+                 DO UPDATE SET balance = system.quota_balances.balance + $5, last_reset = NOW()`,
+                [projectSlug, tier, subjectId, ruleId, delta]
+            );
+        } catch (e) { console.error("[Rollover] Failed to update balance", e); }
     }
 
     public static async checkAuthLockout(slug: string, ip: string, identifier?: string, config?: AuthSecurityConfig): Promise<{ locked: boolean, reason?: string }> {
