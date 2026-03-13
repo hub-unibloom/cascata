@@ -31,6 +31,9 @@ interface RateLimitRule {
     window_seconds: number;
     message_anon?: string;
     message_auth?: string;
+    is_cumulative?: boolean;
+    operation_weights?: Record<string, number>;
+    time_windows?: any[];
 }
 
 interface CrudConfig {
@@ -57,6 +60,7 @@ interface KeyGroupData {
     rejection_message?: string;
     nerf_config?: NerfConfig;
     scopes: string[];
+    is_cumulative_default?: boolean;
 }
 
 interface ApiKeyData {
@@ -67,6 +71,7 @@ interface ApiKeyData {
     scopes?: string[];
     expires_at?: string;
     is_nerfed?: boolean; // Runtime flag
+    is_cumulative_default?: boolean; // Inherited from group
 }
 
 interface RateCheckResult {
@@ -414,7 +419,7 @@ export class RateLimitService {
 
         try {
             const res = await systemPool.query(
-                `SELECT id, name, rate_limit, burst_limit, window_seconds, crud_limits, scopes, rejection_message, nerf_config 
+                `SELECT id, name, rate_limit, burst_limit, window_seconds, crud_limits, scopes, rejection_message, nerf_config, is_cumulative_default 
                  FROM system.api_key_groups WHERE id = $1`,
                 [groupId]
             );
@@ -470,16 +475,18 @@ export class RateLimitService {
                     if (now > expiry) {
                         if (keyData.group_id) {
                             const group = await this.getGroupData(keyData.group_id, systemPool);
-                            if (group && group.nerf_config?.enabled) {
-                                const secondsSinceExpiry = (now.getTime() - expiry.getTime()) / 1000;
-
-                                if (secondsSinceExpiry < (group.nerf_config.start_delay_seconds || 0)) {
-                                    // Grace period
-                                } else {
-                                    if (group.nerf_config.stop_after_seconds > -1 && secondsSinceExpiry > (group.nerf_config.start_delay_seconds + group.nerf_config.stop_after_seconds)) {
-                                        return null; // Dead
+                            if (group) {
+                                keyData.is_cumulative_default = group.is_cumulative_default;
+                                if (group.nerf_config?.enabled) {
+                                    const secondsSinceExpiry = (now.getTime() - expiry.getTime()) / 1000;
+                                    if (secondsSinceExpiry < (group.nerf_config.start_delay_seconds || 0)) {
+                                        // Grace period
+                                    } else {
+                                        if (group.nerf_config.stop_after_seconds > -1 && secondsSinceExpiry > (group.nerf_config.start_delay_seconds + group.nerf_config.stop_after_seconds)) {
+                                            return null; // Dead
+                                        }
+                                        isNerfed = true;
                                     }
-                                    isNerfed = true;
                                 }
                             } else {
                                 return null;
@@ -487,6 +494,10 @@ export class RateLimitService {
                         } else {
                             return null;
                         }
+                    } else if (keyData.group_id) {
+                        // Even if not expired, we need to load group defaults like rollover
+                        const group = await this.getGroupData(keyData.group_id, systemPool);
+                        if (group) keyData.is_cumulative_default = group.is_cumulative_default;
                     }
                 }
 
@@ -579,7 +590,7 @@ export class RateLimitService {
         if (matchedRule) {
             ruleId = matchedRule.id;
             if (matchedRule.window_seconds) windowSecs = matchedRule.window_seconds;
-            isCumulative = (matchedRule as any).is_cumulative || false;
+            isCumulative = matchedRule.is_cumulative || false;
 
             if (tier === 'custom_key' && keyGroupId && matchedRule.group_limits && matchedRule.group_limits[keyGroupId]) {
                 const gLimit = matchedRule.group_limits[keyGroupId];
@@ -594,7 +605,7 @@ export class RateLimitService {
                 burst = ruleBurst;
                 crudConfig = gLimit.crud;
                 // If not explicitly set in rule, use group default
-                if ((matchedRule as any).is_cumulative === undefined) {
+                if (matchedRule.is_cumulative === undefined) {
                     isCumulative = memCached?.data.is_cumulative_default || false;
                 }
             } else if (tier === 'auth') {
@@ -634,14 +645,14 @@ export class RateLimitService {
         let weight = 1;
         if (operation && matchedRule) {
             // Check if there are specific weights for this operation in the rule or group
-            const weights: Record<string, number> = (matchedRule as any).operation_weights || {
+            const weights: Record<string, number> = matchedRule.operation_weights || {
                 read: 1, create: 5, update: 2, delete: 3
             };
             weight = weights[operation] || 1;
         }
 
         // --- MULTI-WINDOW ENFORCEMENT ---
-        const windows = (matchedRule as any)?.time_windows || [{ type: 'default', window_seconds: windowSecs, limit, burst }];
+        const windows = matchedRule?.time_windows || [{ type: 'default', window_seconds: windowSecs, limit, burst }];
 
         for (const win of windows) {
             const winSecs = win.window_seconds || windowSecs;
@@ -652,11 +663,11 @@ export class RateLimitService {
             try {
                 // --- CUMULATIVE QUOTA (ROLLOVER) ---
                 if (isCumulative && (tier === 'auth' || tier === 'custom_key') && subject !== 'anonymous') {
-                    const balanceKey = `${projectSlug}:${tier}:${subject}:${ruleId}:${win.type || 'default'}`;
-                    let balance = await RateLimitService.getQuotaBalance(balanceKey, systemPool);
+                    const winType = win.type || 'default';
+                    let balance = await RateLimitService.getQuotaBalance(projectSlug, tier, subject, ruleId, winType, systemPool);
 
                     if (balance > 0) {
-                        await RateLimitService.updateQuotaBalance(balanceKey, -weight, winSecs, systemPool);
+                        await RateLimitService.updateQuotaBalance(projectSlug, tier, subject, ruleId, winType, -weight, systemPool);
                         continue; // Pass this window
                     }
                 }
@@ -694,29 +705,25 @@ export class RateLimitService {
         return { blocked: false, limit, remaining: 1 }; // Approximate
     }
 
-    private static async getQuotaBalance(balanceKey: string, pool: any): Promise<number> {
+    private static async getQuotaBalance(projectSlug: string, tier: string, subjectId: string, ruleId: string, windowType: string, pool: any): Promise<number> {
         try {
             const res = await pool.query(
                 `SELECT balance FROM system.quota_balances 
-                 WHERE project_slug || ':' || tier || ':' || subject_id || ':' || resource_id = $1`,
-                [balanceKey]
+                 WHERE project_slug = $1 AND tier = $2 AND subject_id = $3 AND resource_id = $4 AND window_type = $5`,
+                [projectSlug, tier, subjectId, ruleId, windowType]
             );
             return res.rows.length > 0 ? parseInt(res.rows[0].balance) : 0;
         } catch (e) { return 0; }
     }
 
-    private static async updateQuotaBalance(balanceKey: string, delta: number, windowSecs: number, pool: any) {
+    private static async updateQuotaBalance(projectSlug: string, tier: string, subjectId: string, ruleId: string, windowType: string, delta: number, pool: any) {
         try {
-            // Split balanceKey back to components for DB update
-            const [projectSlug, tier, subjectId, ...ruleParts] = balanceKey.split(':');
-            const ruleId = ruleParts.join(':');
-
             await pool.query(
                 `INSERT INTO system.quota_balances (project_slug, tier, subject_id, resource_id, window_type, balance, last_reset)
-                 VALUES ($1, $2, $3, $4, 'custom', $5, NOW())
+                 VALUES ($1, $2, $3, $4, $5, $6, NOW())
                  ON CONFLICT (project_slug, tier, subject_id, resource_id, window_type)
-                 DO UPDATE SET balance = system.quota_balances.balance + $5, last_reset = NOW()`,
-                [projectSlug, tier, subjectId, ruleId, delta]
+                 DO UPDATE SET balance = system.quota_balances.balance + $6, last_reset = NOW()`,
+                [projectSlug, tier, subjectId, ruleId, windowType, delta]
             );
         } catch (e) { console.error("[Rollover] Failed to update balance", e); }
     }

@@ -586,7 +586,7 @@ export class DataController {
                 await req.projectPool!.query(`
                     DO $$ BEGIN
                         IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = ${quotePostgresLiteral(schName)} AND tablename = ${quotePostgresLiteral(tblName)} AND policyname = 'master_system_policy') THEN
-                            EXECUTE format('CREATE POLICY master_system_policy ON %I.%I FOR ALL TO service_role, current_user USING (true) WITH CHECK (true)', ${quotePostgresLiteral(schName)}.slice(1, -1), ${quotePostgresLiteral(tblName)}.slice(1, -1));
+                            EXECUTE format('CREATE POLICY master_system_policy ON %I.%I FOR ALL TO service_role, current_user USING (true) WITH CHECK (true)', ${quotePostgresLiteral(schName)}, ${quotePostgresLiteral(tblName)});
                         END IF;
                     END $$;
                 `);

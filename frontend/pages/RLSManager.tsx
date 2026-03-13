@@ -926,7 +926,7 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
                                                 key={w.id}
                                                 onClick={() => {
                                                     if (selectedWindows.includes(w.id)) {
-                                                        if (selectedWindows.length > 1) setSelectedWindows(selectedWindows.filter(x => x !== w.id));
+                                                        if (selectedWindows.length > 1) setSelectedWindows(selectedWindows.filter((x: string) => x !== w.id));
                                                     } else {
                                                         setSelectedWindows([...selectedWindows, w.id]);
                                                     }

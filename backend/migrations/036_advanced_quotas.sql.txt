@@ -4,7 +4,13 @@
 -- 1. Expansão da tabela de limites de taxa para suportar pesos e flag acumulativa
 ALTER TABLE system.rate_limits
 ADD COLUMN IF NOT EXISTS is_cumulative BOOLEAN DEFAULT false,
-ADD COLUMN IF NOT EXISTS time_windows JSONB DEFAULT '["default"]'::jsonb; -- Ex: ["daily", "monthly"]
+ADD COLUMN IF NOT EXISTS operation_weights JSONB DEFAULT '{
+    "read": 1,
+    "create": 5,
+    "update": 2,
+    "delete": 3
+}'::jsonb,
+ADD COLUMN IF NOT EXISTS time_windows JSONB DEFAULT NULL; 
 
 -- 2. Expansão da tabela de grupos de chaves para suportar as novas políticas por padrão
 ALTER TABLE system.api_key_groups
@@ -20,12 +26,13 @@ ADD COLUMN IF NOT EXISTS default_weights JSONB DEFAULT '{
 CREATE TABLE IF NOT EXISTS system.quota_balances (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_slug TEXT NOT NULL REFERENCES system.projects(slug) ON DELETE CASCADE,
+    tier TEXT NOT NULL, -- 'auth' ou 'custom_key'
     subject_id TEXT NOT NULL, -- UUID do usuário ou ID da chave API
     resource_id TEXT NOT NULL, -- ID do limite de taxa (rule_id)
-    window_type TEXT NOT NULL, -- 'daily', 'weekly', 'monthly'
+    window_type TEXT NOT NULL, -- 'daily', 'weekly', 'monthly' ou 'custom'
     balance BIGINT DEFAULT 0,
     last_reset TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(project_slug, subject_id, resource_id, window_type)
+    UNIQUE(project_slug, tier, subject_id, resource_id, window_type)
 );
 
 -- 4. Comentários para documentação
