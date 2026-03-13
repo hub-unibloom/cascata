@@ -108,8 +108,7 @@ export const resolveProject: RequestHandler = async (req: any, res: any, next: a
     // If we have an API Key or Project Token, we treat this as a Tenant Request.
     // DANGER: We must ensure isSystemRequest is FALSE here if a tenant-specific key is provided,
     // even if the user has an Admin Cookie in their browser.
-    const apiKeyHeader = (req.headers['apikey'] || req.query.apikey || req.query.anon_key) as string;
-    const hasTenantKey = !!(apiKeyHeader || (bearerToken && bearerToken.split('.').length !== 3));
+    const hasTenantKey = !!(req.headers['apikey'] || req.query.apikey || req.query.anon_key || (bearerToken && bearerToken.split('.').length !== 3));
     if (hasTenantKey) {
         r.isSystemRequest = false;
     }

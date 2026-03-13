@@ -526,7 +526,7 @@ export class DataController {
                                                 
                                                 -- System Identity Bypass: Ensures Dashboard/Backend are never locked out
                                                 IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = s AND tablename = t AND policyname = 'master_system_policy') THEN
-                                                    EXECUTE format('CREATE POLICY master_system_policy ON %I.%I FOR ALL TO service_role, %I USING (true) WITH CHECK (true)', s, t, current_user);
+                                                    EXECUTE format('CREATE POLICY master_system_policy ON %I.%I FOR ALL TO service_role, current_user USING (true) WITH CHECK (true)', s, t);
                                                 END IF;
                                             END IF;
                                         END;
@@ -584,7 +584,7 @@ export class DataController {
                 await req.projectPool!.query(`
                     DO $$ BEGIN
                         IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = ${quotePostgresLiteral(schema as string)} AND tablename = ${quotePostgresLiteral(name)} AND policyname = 'master_system_policy') THEN
-                            EXECUTE format('CREATE POLICY master_system_policy ON %I.%I FOR ALL TO service_role, %I USING (true) WITH CHECK (true)', ${quotePostgresLiteral(schema as string)}.replace(/'/g, ""), ${quotePostgresLiteral(name)}.replace(/'/g, ""), current_user);
+                            EXECUTE format('CREATE POLICY master_system_policy ON %I.%I FOR ALL TO service_role, current_user USING (true) WITH CHECK (true)', ${quotePostgresLiteral(schema as string)}.replace(/'/g, ""), ${quotePostgresLiteral(name)}.replace(/'/g, ""));
                         END IF;
                     END $$;
                 `);
