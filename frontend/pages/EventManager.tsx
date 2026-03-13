@@ -179,7 +179,7 @@ const EventManager: React.FC<{ projectId: string }> = ({ projectId }) => {
   };
 
   return (
-    <div className="p-8 lg:p-12 max-w-6xl mx-auto w-full space-y-12 pb-40">
+    <div className="p-6 lg:p-10 w-full min-h-screen space-y-12 pb-40">
       
       {/* Toast */}
       {(success || error) && (
@@ -225,8 +225,8 @@ const EventManager: React.FC<{ projectId: string }> = ({ projectId }) => {
           <p className="text-sm font-black uppercase tracking-widest">Sincronizando endpoints...</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-          <div className="lg:col-span-2 space-y-6">
+        <div className="flex flex-col lg:flex-row gap-10 items-start">
+          <div className="flex-1 space-y-6 w-full">
             {webhooks.length === 0 && (
               <div className="py-40 border-4 border-dashed border-slate-100 rounded-[3rem] flex flex-col items-center justify-center text-slate-300">
                 <Zap size={60} className="mb-4 opacity-10" />
@@ -311,7 +311,7 @@ const EventManager: React.FC<{ projectId: string }> = ({ projectId }) => {
             ))}
           </div>
 
-          <aside className="space-y-8">
+          <aside className="w-full lg:w-[350px] shrink-0 space-y-8">
             <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-2xl">
                 <Activity className="absolute -bottom-4 -right-4 text-white/5 w-40 h-40" />
                 <h3 className="text-lg font-black uppercase tracking-tight mb-4 flex items-center gap-2">

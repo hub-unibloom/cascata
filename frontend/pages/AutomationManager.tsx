@@ -1127,7 +1127,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
           <p className="text-[10px] font-black uppercase tracking-widest">Sincronizando Engine...</p>
         </div>
       ) : activeTab === 'workflows' ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
           {automations.map((auto: Automation) => (
             <div key={auto.id} className="bg-white border border-slate-100 rounded-[3rem] p-10 shadow-sm hover:shadow-[0_20px_50px_-12px_rgba(0,0,0,0.05)] transition-all group relative overflow-hidden border-b-4 border-b-indigo-50">
                <div className="flex items-start justify-between mb-8">
