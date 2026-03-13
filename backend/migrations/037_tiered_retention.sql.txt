@@ -1,5 +1,5 @@
 
--- Migração 032: Tiered Retention (Expurgo) e Archiving
+-- Migração 037: Tiered Retention (Expurgo) e Archiving
 
 -- 0. Adiciona flag de arquivamento na tabela de projetos
 ALTER TABLE system.projects
