@@ -13,12 +13,12 @@ import {
 
 interface Node {
   id: string;
-  type: 'trigger' | 'query' | 'http' | 'logic' | 'response' | 'transform' | 'data' | 'rpc';
+  type: 'trigger' | 'query' | 'http' | 'logic' | 'response' | 'transform' | 'data' | 'rpc' | 'convert';
   x: number;
   y: number;
   label: string;
   config: any;
-  next?: string[] | { true?: string, false?: string, out?: string };
+  next?: string[] | { true?: string, false?: string, out?: string, error?: string };
 }
 
 interface Automation {
@@ -50,6 +50,8 @@ interface AutomationStats {
   last_run_at: string | null;
 }
 
+const SYSTEM_RPC_PREFIXES = ['uuid_', 'pg_', 'armor', 'crypt', 'digest', 'hmac', 'gen_', 'encrypt', 'decrypt', 'pissh_', 'notify_', 'dearmor', 'fips_mode'];
+
 const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { projectId: string }) => {
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [tables, setTables] = useState<any[]>([]);
@@ -80,6 +82,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
 
   const [submitting, setSubmitting] = useState(false);
   const [testingNodeId, setTestingNodeId] = useState<string | null>(null);
+  const [rpcSearch, setRpcSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -201,7 +204,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
   const fetchFunctionDef = async (fnName: string) => {
     if (functionArgs[fnName]) return;
     try {
-      const res = await fetch(`/api/data/${projectId}/functions/${fnName}/definition`, {
+      const res = await fetch(`/api/data/${projectId}/rpc/${fnName}/definition`, {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` }
       });
       const data = await res.json();
@@ -387,7 +390,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
           const idx = parseInt(idxStr);
           const np = [...(nextConfig._payload || [])];
           if (np[idx]) {
-            np[idx].value = path;
+            np[idx] = { ...np[idx], value: path }; // SYNERGY: Non-mutating update
             nextConfig._payload = np;
             // SYNERGY: Maintain flat body object for engine consistency
             nextConfig.body = Object.fromEntries(np.filter((x: any) => x.column).map((x: any) => [x.column, x.value]));
@@ -396,14 +399,14 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
           const idx = parseInt(idxStr);
           const nextFilters = [...(nextConfig.filters || [])];
           if (nextFilters[idx]) {
-            nextFilters[idx].value = path;
+            nextFilters[idx] = { ...nextFilters[idx], value: path }; // SYNERGY: Non-mutating update
             nextConfig.filters = nextFilters;
           }
         } else if (parent === '_customFields') {
           const idx = parseInt(idxStr);
           const ncf = [...(nextConfig._customFields || [])];
           if (ncf[idx]) {
-             ncf[idx].value = path;
+             ncf[idx] = { ...ncf[idx], value: path }; // SYNERGY: Non-mutating update
              nextConfig._customFields = ncf;
              // SYNERGY: Auto-merge with visual fields for response payloads
              nextConfig.body = {
@@ -464,8 +467,9 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
               type === 'data' ? { operation: 'select', table: '', filters: [], body: {} } :
               type === 'rpc' ? { function: '', args: [] } :
               type === 'transform' ? { body: {} } : 
+              type === 'convert' ? { value: '', toType: 'string' } :
               type === 'response' ? { status_code: 200, body: { success: true } } : {},
-      next: (type === 'logic') ? { true: undefined, false: undefined } : []
+      next: (type === 'logic') ? { true: undefined, false: undefined } : (type === 'http') ? { out: undefined, error: undefined } : []
     };
     setNodes([...nodes, newNode] as Node[]);
     setConfigNodeId(id);
@@ -485,7 +489,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
     }
   };
 
-  const handlePortClick = (nodeId: string, port: 'out' | 'true' | 'false') => {
+  const handlePortClick = (nodeId: string, port: 'out' | 'true' | 'false' | 'error') => {
     if (connectingFrom) {
        // Cannot connect to itself
        if (connectingFrom.id === nodeId) { setConnectingFrom(null); return; }
@@ -634,7 +638,8 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                          node.type === 'response' ? <ArrowRight size={18}/> : 
                          node.type === 'query' ? <Terminal size={18}/> :
                          node.type === 'data' ? <Database size={18}/> :
-                         node.type === 'rpc' ? <Code size={18}/> : <Layers size={18}/>}
+                         node.type === 'rpc' ? <Code size={18}/> : 
+                         node.type === 'convert' ? <RefreshCcw size={18}/> : <Layers size={18}/>}
                       </div>
                       <div>
                         <span className="text-[7px] font-black uppercase tracking-widest text-slate-400 block mb-0.5">#{node.id.split('_').pop()}</span>
@@ -668,6 +673,17 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                        <span className="absolute left-6 text-[7px] font-black text-rose-500 uppercase tracking-widest opacity-0 group-hover/port:opacity-100 transition-opacity">False</span>
                     </div>
                   </>
+                ) : node.type === 'http' ? (
+                   <>
+                     <div className="port absolute -right-2.5 top-[70px] w-5 h-5 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center cursor-pointer hover:border-indigo-400 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'out')}>
+                        <div className={`w-1.5 h-1.5 rounded-full ${connectingFrom?.id === node.id && connectingFrom?.port === 'out' ? 'bg-indigo-600 animate-pulse' : 'bg-slate-200 group-hover/port:bg-indigo-400'}`}></div>
+                        <span className="absolute left-6 text-[7px] font-black text-slate-400 uppercase tracking-widest opacity-0 group-hover/port:opacity-100 transition-opacity">Out</span>
+                     </div>
+                     <div className="port absolute -right-2.5 top-[110px] w-5 h-5 bg-white border-2 border-rose-100 rounded-full flex items-center justify-center cursor-pointer hover:border-rose-500 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'error')}>
+                        <div className={`w-1.5 h-1.5 rounded-full ${connectingFrom?.id === node.id && connectingFrom?.port === 'error' ? 'bg-rose-600 animate-pulse' : 'bg-rose-200 group-hover/port:bg-rose-500'}`}></div>
+                        <span className="absolute left-6 text-[7px] font-black text-rose-500 uppercase tracking-widest opacity-0 group-hover/port:opacity-100 transition-opacity">Error</span>
+                     </div>
+                   </>
                 ) : (
                   <div className="port absolute -right-2.5 top-1/2 -translate-y-1/2 w-5 h-5 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center cursor-pointer hover:border-indigo-400 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'out')}>
                     <div className={`w-1.5 h-1.5 rounded-full ${connectingFrom?.id === node.id ? 'bg-indigo-600 animate-pulse' : 'bg-slate-200 group-hover/port:bg-indigo-400'}`}></div>
@@ -684,6 +700,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
              <ToolboxItem icon={<Terminal size={20}/>} label="SQL" onClick={() => addNode('query')} color="bg-rose-600" />
              <ToolboxItem icon={<Database size={20}/>} label="Data" onClick={() => addNode('data')} color="bg-cyan-600" />
              <ToolboxItem icon={<Code size={20}/>} label="RPC" onClick={() => addNode('rpc')} color="bg-violet-600" />
+             <ToolboxItem icon={<RefreshCcw size={20}/>} label="Convert" onClick={() => addNode('convert')} color="bg-pink-600" />
              <ToolboxItem icon={<Layers size={20}/>} label="Transform" onClick={() => addNode('transform')} color="bg-indigo-600" />
              <div className="w-[1px] h-10 bg-slate-100 mx-1"></div>
              <ToolboxItem icon={<ArrowRight size={20}/>} label="Output" onClick={() => addNode('response')} color="bg-emerald-600" />
@@ -710,32 +727,32 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                 
                 <div className="flex-1 overflow-y-auto p-12 custom-scrollbar">
                    {activeNode.type === 'trigger' && (
-                     <div className="space-y-8">
-                        <div className="space-y-4">
-                           <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Tabela de Interceptação</label>
-                           <select 
-                             value={editingAutomation?.trigger_config?.table || ''}
-                             onChange={(e) => {
-                               const val = e.target.value;
-                               if (editingAutomation) {
-                                  setEditingAutomation({...editingAutomation, trigger_config: {...(editingAutomation.trigger_config || {}), table: val}});
-                                  handleFetchColumns(val);
-                               }
-                             }}
-                             className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
-                             {tables.map((t: any) => <option key={typeof t === 'string' ? t : (t as any).name} value={typeof t === 'string' ? t : (t as any).name}>{typeof t === 'string' ? t : (t as any).name}</option>)}
-                           </select>
-                        </div>
-                        <div className="space-y-4">
-                           <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Eventos</label>
-                           <div className="grid grid-cols-4 gap-2">
-                              {['*', 'INSERT', 'UPDATE', 'DELETE'].map((ev: string) => (
-                                <button key={ev} onClick={() => editingAutomation && setEditingAutomation({...editingAutomation, trigger_config: {...(editingAutomation.trigger_config || {}), event: ev}})} className={`py-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${editingAutomation?.trigger_config?.event === ev ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>{ev}</button>
-                              ))}
-                           </div>
-                        </div>
-                     </div>
-                   )}
+                      <div className="space-y-8">
+                         <div className="space-y-4">
+                            <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Tabela de Interceptação</label>
+                            <select 
+                              value={editingAutomation?.trigger_config?.table || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (editingAutomation) {
+                                   setEditingAutomation({...editingAutomation, trigger_config: {...(editingAutomation.trigger_config || {}), table: val}});
+                                   handleFetchColumns(val);
+                                }
+                              }}
+                              className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                              {tables.map((t: any) => <option key={typeof t === 'string' ? t : (t as any).name} value={typeof t === 'string' ? t : (t as any).name}>{typeof t === 'string' ? t : (t as any).name}</option>)}
+                            </select>
+                         </div>
+                         <div className="space-y-4">
+                            <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Eventos</label>
+                            <div className="grid grid-cols-4 gap-2">
+                               {['*', 'INSERT', 'UPDATE', 'DELETE'].map((ev: string) => (
+                                 <button key={ev} onClick={() => editingAutomation && setEditingAutomation({...editingAutomation, trigger_config: {...(editingAutomation.trigger_config || {}), event: ev}})} className={`py-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${editingAutomation?.trigger_config?.event === ev ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>{ev}</button>
+                               ))}
+                            </div>
+                         </div>
+                      </div>
+                    )}
 
                    {activeNode.type === 'logic' && (
                       <div className="space-y-8">
@@ -953,15 +970,78 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                    </div>
                                 ))}
                              </div>
-                          </div>
-                       </div>
+                           </div>
+
+                           <div className="space-y-4 pt-6 border-t border-slate-100">
+                              <label className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2"><Settings size={12} className="text-indigo-500"/> Performance & Reliability</label>
+                              <div className="grid grid-cols-2 gap-4">
+                                 <div className="space-y-2">
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">Timeout (ms)</span>
+                                    <input 
+                                       type="number"
+                                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold"
+                                       value={activeNode.config.timeout || 15000}
+                                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                          const val = parseInt(e.target.value, 10);
+                                          setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, timeout: val}} : n));
+                                       }}
+                                    />
+                                 </div>
+                                 <div className="space-y-2">
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">Retentativas Max.</span>
+                                    <input 
+                                       type="number"
+                                       min="0"
+                                       max="10"
+                                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold"
+                                       value={activeNode.config.retries || 0}
+                                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                          const val = parseInt(e.target.value, 10);
+                                          setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, retries: val}} : n));
+                                       }}
+                                    />
+                                 </div>
+                              </div>
+                           </div>
+                        </div>
+                   )}
+
+                   {activeNode.type === 'convert' && (
+                      <div className="space-y-8">
+                         <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                               <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Valor de Entrada</label>
+                               <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: 'value', type: 'config' })} />
+                            </div>
+                            <input 
+                               className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-6 py-4 text-sm font-bold text-pink-600" 
+                               placeholder="{{node.data.campo}} ou valor fixo"
+                               value={activeNode.config.value || ''} 
+                               onChange={(e) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, value: e.target.value}} : n))}
+                            />
+                         </div>
+                         <div className="space-y-4">
+                            <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Converter para:</label>
+                            <select 
+                               className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" 
+                               value={activeNode.config.toType || 'string'} 
+                               onChange={(e) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, toType: e.target.value}} : n))}
+                            >
+                               <option value="string">String (Texto)</option>
+                               <option value="int">Integer (Número Inteiro)</option>
+                               <option value="float">Float (Número Decimal)</option>
+                               <option value="boolean">Boolean (Verdadeiro/Falso)</option>
+                               <option value="json">JSON (Objeto/Array)</option>
+                            </select>
+                         </div>
+                      </div>
                    )}
 
                    {activeNode.type === 'query' && (
                       <div className="space-y-8">
                          <div className="space-y-4">
                             <label className="text-xs font-black text-slate-900 uppercase tracking-widest">SQL Statement (Restricted RLS)</label>
-                            <textarea className="w-full h-80 bg-slate-900 text-amber-400 font-mono text-xs p-8 rounded-[2.5rem] border border-slate-800 outline-none shadow-2xl" value={activeNode.config.sql} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, sql: e.target.value}} : n))} />
+                            <textarea className="w-full h-80 bg-slate-900 text-amber-400 font-mono text-xs p-8 rounded-[2.5rem] border border-slate-800 outline-none shadow-2xl" value={activeNode.config.sql} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, sql: e.target.value}} : n))} />
                          </div>
                          <div className="bg-amber-50 rounded-2xl p-6 border border-amber-100">
                             <h4 className="flex items-center gap-2 text-amber-800 font-black text-[10px] uppercase tracking-widest mb-2"><Shield size={12}/> Security Note</h4>
@@ -975,7 +1055,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                          <div className="grid grid-cols-2 gap-6">
                             <div className="space-y-4">
                                <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Operação</label>
-                               <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" value={activeNode.config.operation} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, operation: e.target.value}} : n))}>
+                               <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" value={activeNode.config.operation} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, operation: e.target.value}} : n))}>
                                   <option value="select">SELECT (Read)</option>
                                   <option value="insert">INSERT (Create)</option>
                                   <option value="upsert">UPSERT (Create or Update)</option>
@@ -1088,11 +1168,11 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                                       className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-medium" 
                                                       placeholder="Valor ou {{var}}" 
                                                       value={p.value} 
-                                                      onChange={(e) => {
+                                                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                                                          const np = [...(activeNode.config._payload || [])];
                                                          np[i].value = e.target.value;
-                                                         const body = Object.fromEntries(np.filter(x => x.column).map(x => [x.column, x.value]));
-                                                         setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, _payload: np, body}} : n));
+                                                         const body = Object.fromEntries(np.filter((x: {column: string}) => x.column).map((x: {column: string, value: string}) => [x.column, x.value]));
+                                                         setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _payload: np, body}} : n));
                                                       }} 
                                                     />
                                                     <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: `_payload.${i}.value`, type: 'config' })} />
@@ -1223,9 +1303,23 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                    {activeNode.type === 'rpc' && (
                       <div className="space-y-8">
                          <div className="space-y-4">
-                            <label className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2"><Code size={12} className="text-violet-500"/> Função do Banco (RPC)</label>
+                            <label className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center justify-between">
+                               <div className="flex items-center gap-2">
+                                  <Code size={12} className="text-violet-500"/> Função do Banco (RPC)
+                               </div>
+                               <div className="flex items-center gap-2 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                                  <Search size={10} className="text-slate-400"/>
+                                  <input 
+                                    className="bg-transparent border-none outline-none text-[8px] font-bold w-24 placeholder:text-slate-400" 
+                                    placeholder="FILTRAR..." 
+                                    value={rpcSearch}
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRpcSearch(e.target.value)}
+                                  />
+                               </div>
+                            </label>
+                            
                             <select 
-                               className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3.5 text-sm font-bold"
+                               className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3.5 text-sm font-bold shadow-sm focus:ring-2 focus:ring-violet-500/20 transition-all outline-none"
                                value={activeNode.config.function || ''}
                                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
                                   const fnName = e.target.value;
@@ -1234,10 +1328,23 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                }}
                             >
                                <option value="">Selecione uma função...</option>
-                               {functions.map((fn: {name: string}) => <option key={fn.name} value={fn.name}>{fn.name}</option>)}
+                               {functions
+                                 .filter((fn: {name: string}) => {
+                                    const isSystem = SYSTEM_RPC_PREFIXES.some((p: string) => fn.name.startsWith(p));
+                                    const matchesSearch = fn.name.toLowerCase().includes(rpcSearch.toLowerCase());
+                                    return !isSystem && matchesSearch;
+                                 })
+                                 .map((fn: {name: string}) => (
+                                    <option key={fn.name} value={fn.name}>{fn.name}</option>
+                                 ))
+                               }
                             </select>
-                            {!functions.length && (
-                               <p className="text-[9px] text-amber-600 font-bold bg-amber-50 px-4 py-2 rounded-xl border border-amber-100">Nenhuma função encontrada. Crie funções no SQL Editor primeiro.</p>
+                            
+                            {!functions.some((fn: {name: string}) => !SYSTEM_RPC_PREFIXES.some((p: string) => fn.name.startsWith(p))) && (
+                               <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-100 rounded-2xl">
+                                  <AlertCircle size={16} className="text-amber-500"/>
+                                  <p className="text-[10px] text-amber-700 font-bold leading-relaxed">Nenhuma função customizada encontrada. Crie funções no SQL Editor para orquestrá-las aqui.</p>
+                               </div>
                             )}
                          </div>
 
@@ -1376,20 +1483,20 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                      <div className="space-y-2">
                                         {(activeNode.config._customFields || []).map((cf: {key: string, value: string}, i: number) => (
                                            <div key={i} className="flex gap-2 items-center bg-slate-50 p-2 rounded-2xl border border-slate-100 group">
-                                              <input className="w-1/3 bg-white border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-bold" placeholder="ID" value={cf.key} onChange={(e) => {
+                                              <input className="w-1/3 bg-white border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-bold" placeholder="ID" value={cf.key} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                                                  const ncf = [...(activeNode.config._customFields || [])]; ncf[i].key = e.target.value;
                                                  const body = {
-                                                   ...activeNode.config._fields,
-                                                   ...Object.fromEntries(ncf.filter(x => x.key).map(x => [x.key, x.value]))
+                                                   ...(activeNode.config._fields || {}),
+                                                   ...Object.fromEntries(ncf.filter((x: any) => x.key).map((x: any) => [x.key, x.value]))
                                                  };
                                                  setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
                                               }} />
                                               <div className="flex-1 flex gap-2 items-center">
-                                                  <input className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-medium" placeholder="Valor ou {{var}}" value={cf.value} onChange={(e) => {
+                                                  <input className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-medium" placeholder="Valor ou {{var}}" value={cf.value} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                                                      const ncf = [...(activeNode.config._customFields || [])]; ncf[i].value = e.target.value;
                                                      const body = {
-                                                       ...activeNode.config._fields,
-                                                       ...Object.fromEntries(ncf.filter(x => x.key).map(x => [x.key, x.value]))
+                                                       ...(activeNode.config._fields || {}),
+                                                       ...Object.fromEntries(ncf.filter((x: any) => x.key).map((x: any) => [x.key, x.value]))
                                                      };
                                                      setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
                                                   }} />
@@ -1419,8 +1526,8 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                            <code className="text-emerald-400 block">{"{{"}node_id.data.*{"}}"}</code>
                                         </div>
                                      </div>
-                                  </div>
-                                  <textarea 
+                                  </div
+                                  ><textarea 
                                     className="w-full h-80 bg-slate-900 text-emerald-400 font-mono text-xs p-8 rounded-[2.5rem] border border-slate-800 outline-none shadow-2xl custom-scrollbar"
                                     value={typeof activeNode.config.body === 'string' ? activeNode.config.body : JSON.stringify(activeNode.config.body, null, 2)}
                                     onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -1601,7 +1708,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
   );
 };
 
-const TestNodeButton: React.FC<{ 
+const AutomationTestPanel: React.FC<{ 
   onTest: () => void, 
   loading: boolean,
   lastResult?: any 
@@ -1632,7 +1739,7 @@ const TestNodeButton: React.FC<{
   </div>
 );
 
-const ToolboxItem: React.FC<{ icon: React.ReactNode, label: string, onClick: () => void, color: string }> = ({ icon, label, onClick, color }) => (
+const ToolboxItem = ({ icon, label, onClick, color }: { icon: React.ReactNode, label: string, onClick: () => void, color: string }) => (
   <button onClick={onClick} className="flex flex-col items-center gap-2 group transition-all hover:-translate-y-2">
     <div className={`w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-300 group-hover:${color} group-hover:text-white transition-all shadow-inner border border-transparent group-hover:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.1)]`}>
       {icon}

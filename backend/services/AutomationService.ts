@@ -14,9 +14,9 @@ import { validateTargetUrl } from '../src/utils/index.js';
 
 export interface AutomationNode {
     id: string;
-    type: 'trigger' | 'action' | 'logic' | 'condition' | 'response' | 'query' | 'http' | 'transform' | 'data' | 'rpc';
+    type: 'trigger' | 'action' | 'logic' | 'condition' | 'response' | 'query' | 'http' | 'transform' | 'data' | 'rpc' | 'convert';
     config: any;
-    next?: string[] | { true?: string, false?: string };
+    next?: string[] | { true?: string, false?: string, out?: string, error?: string };
 }
 
 export interface AutomationContext {
@@ -214,7 +214,11 @@ export class AutomationService {
                     }
                 } else {
                     const nextAny = currentNode.next as any;
-                    nextId = Array.isArray(currentNode.next) ? currentNode.next[0] : nextAny?.out || nextAny?.next;
+                    if (currentNode.type === 'http' && result?.__error) {
+                        nextId = nextAny?.error;
+                    } else {
+                        nextId = Array.isArray(currentNode.next) ? currentNode.next[0] : nextAny?.out || nextAny?.next;
+                    }
                 }
 
                 currentNode = nextId ? nodeMap.get(nextId) : undefined;
@@ -326,7 +330,26 @@ export class AutomationService {
                         if (attempt <= maxRetries) await new Promise(r => setTimeout(r, 1000 * attempt));
                     }
                 }
+                const nextAny = node.next as any;
+                if (nextAny?.error) {
+                    return { __error: true, message: (lastErr as any)?.message || 'HTTP Failed after retries' };
+                }
                 throw lastErr;
+            }
+
+            case 'convert': {
+                const { value, toType } = node.config;
+                const source = this.resolveVariables(value || '', context.vars);
+                
+                let converted: any = source;
+                switch (toType) {
+                    case 'int': converted = parseInt(source, 10); break;
+                    case 'float': converted = parseFloat(source); break;
+                    case 'string': converted = String(source); break;
+                    case 'boolean': converted = (source === 'true' || source === '1' || (source as any) === true); break;
+                    case 'json': try { converted = JSON.parse(source); } catch { converted = source; } break;
+                }
+                return converted;
             }
 
             case 'logic':
