@@ -271,7 +271,9 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
     const [crudRatesAnon, setCrudRatesAnon] = useState<any>({ create: 10, read: 20, update: 10, delete: 5 });
     const [crudRatesAuth, setCrudRatesAuth] = useState<any>({ create: 50, read: 100, update: 50, delete: 20 });
     const [crudWeights, setCrudWeights] = useState<any>({ read: 1, create: 5, update: 2, delete: 3 });
-    const [isCumulative, setIsCumulative] = useState(false);
+    const [isCumulative, setIsCumulative] = useState<Record<string, boolean>>({
+        create: false, read: false, update: false, delete: false
+    });
 
     // GROUP CONFIG STATE
     const [groupLimits, setGroupLimits] = useState<Record<string, any>>({});
@@ -563,8 +565,21 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
         }
 
         // 5. Open Modal
+        // 5. Open Modal
         setShowSmartModal(true);
         setActiveModalTab('anon');
+
+        // 6. Populate Rollover (Cumulative)
+        if (rule.metadata?.is_cumulative) {
+            setIsCumulative(typeof rule.metadata.is_cumulative === 'object' ? rule.metadata.is_cumulative : {
+                create: rule.metadata.is_cumulative,
+                read: rule.metadata.is_cumulative,
+                update: rule.metadata.is_cumulative,
+                delete: rule.metadata.is_cumulative
+            });
+        } else {
+            setIsCumulative({ create: false, read: false, update: false, delete: false });
+        }
     };
 
     const handleDeleteRule = async (id: string) => {
@@ -854,7 +869,7 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
             {/* SMART MODAL */}
             {showSmartModal && (
                 <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
-                    <div className="bg-white rounded-[3rem] w-full max-w-4xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+                    <div className="bg-white rounded-[3rem] w-full max-w-6xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
                         <header className="p-8 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
                             <div className="flex items-center gap-4">
                                 <div className="w-12 h-12 bg-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-lg"><ShieldAlert size={24} /></div>
@@ -898,10 +913,7 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
                                         </select>
                                     </div>
                                 )}
-                            </div>
 
-                            {/* RIGHT: RULES */}
-                            <div className="space-y-6">
                                 <div>
                                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">2. Security Level</label>
                                     <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 mb-6 shadow-sm">
@@ -912,6 +924,10 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
                                         ))}
                                     </div>
                                 </div>
+                            </div>
+
+                            {/* RIGHT: RULES */}
+                            <div className="space-y-6">
 
                                 <div>
                                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">3. Time Windows (Multi-Dimensional)</label>
@@ -946,7 +962,9 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
                                     <div className="flex border-b border-slate-200 mb-6">
                                         <button onClick={() => setActiveModalTab('anon')} className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest ${activeModalTab === 'anon' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-400'}`}>Anonymous</button>
                                         <button onClick={() => setActiveModalTab('auth')} className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest ${activeModalTab === 'auth' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-400'}`}>Authenticated</button>
-                                        <button onClick={() => setActiveModalTab('groups')} className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest ${activeModalTab === 'groups' ? 'text-emerald-600 border-b-2 border-emerald-600' : 'text-slate-400'}`}>Key Groups</button>
+                                        {targetType !== 'auth' && (
+                                            <button onClick={() => setActiveModalTab('groups')} className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest ${activeModalTab === 'groups' ? 'text-emerald-600 border-b-2 border-emerald-600' : 'text-slate-400'}`}>Key Groups</button>
+                                        )}
                                     </div>
 
                                     {activeModalTab === 'anon' && (
@@ -960,11 +978,11 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
                                             {targetType === 'table' && (
                                                 <div className="bg-white p-4 rounded-2xl border border-slate-100 mt-4">
                                                     <h4 className="text-[10px] font-black uppercase text-indigo-400 mb-3 tracking-widest">Advanced CRUD Limits</h4>
-                                                    <div className="grid grid-cols-2 gap-3">
-                                                        <SmartLimitInput label="Create (POST)" value={crudRatesAnon.create} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, create: v })} color="emerald" />
-                                                        <SmartLimitInput label="Read (GET)" value={crudRatesAnon.read} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, read: v })} color="blue" />
-                                                        <SmartLimitInput label="Update (PATCH)" value={crudRatesAnon.update} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, update: v })} color="amber" />
-                                                        <SmartLimitInput label="Delete (DEL)" value={crudRatesAnon.delete} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, delete: v })} color="rose" />
+                                                    <div className="grid grid-cols-4 gap-3">
+                                                        <SmartLimitInput label="Create / Envios" value={crudRatesAnon.create} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, create: v })} color="emerald" cumulative={isCumulative.create} onCumulativeChange={(v) => setIsCumulative({ ...isCumulative, create: v })} showAdvanced={true} />
+                                                        <SmartLimitInput label="Read / Consultas" value={crudRatesAnon.read} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, read: v })} color="blue" cumulative={isCumulative.read} onCumulativeChange={(v) => setIsCumulative({ ...isCumulative, read: v })} showAdvanced={true} />
+                                                        <SmartLimitInput label="Update / Edições" value={crudRatesAnon.update} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, update: v })} color="amber" cumulative={isCumulative.update} onCumulativeChange={(v) => setIsCumulative({ ...isCumulative, update: v })} showAdvanced={true} />
+                                                        <SmartLimitInput label="Delete / Remoções" value={crudRatesAnon.delete} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, delete: v })} color="rose" cumulative={isCumulative.delete} onCumulativeChange={(v) => setIsCumulative({ ...isCumulative, delete: v })} showAdvanced={true} />
                                                     </div>
                                                 </div>
                                             )}
@@ -984,19 +1002,24 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
                                             {targetType === 'table' && (
                                                 <div className="bg-white p-4 rounded-2xl border border-slate-100 mt-4">
                                                     <h4 className="text-[10px] font-black uppercase text-indigo-400 mb-3 tracking-widest">Advanced CRUD Limits</h4>
-                                                    <div className="grid grid-cols-2 gap-3">
-                                                        {['read', 'create', 'update', 'delete'].map(op => (
+                                                    <div className="grid grid-cols-4 gap-3">
+                                                        {[
+                                                            { op: 'create', label: 'Create / Envios', color: 'emerald' },
+                                                            { op: 'read', label: 'Read / Consultas', color: 'blue' },
+                                                            { op: 'update', label: 'Update / Edições', color: 'amber' },
+                                                            { op: 'delete', label: 'Delete / Remoções', color: 'rose' }
+                                                        ].map(({ op, label, color }) => (
                                                             <SmartLimitInput
                                                                 key={op}
-                                                                label={`${op} limit`}
+                                                                label={label}
                                                                 value={crudRatesAuth[op]}
                                                                 onChange={v => setCrudRatesAuth({ ...crudRatesAuth, [op]: v })}
                                                                 weight={crudWeights[op]}
                                                                 onWeightChange={v => setCrudWeights({ ...crudWeights, [op]: v })}
-                                                                cumulative={isCumulative}
-                                                                onCumulativeChange={setIsCumulative}
+                                                                cumulative={isCumulative[op]}
+                                                                onCumulativeChange={(v) => setIsCumulative({ ...isCumulative, [op]: v })}
                                                                 showAdvanced={true}
-                                                                color="indigo"
+                                                                color={color}
                                                             />
                                                         ))}
                                                     </div>
@@ -1039,9 +1062,14 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
 
                                                             {targetType === 'table' && (
                                                                 <div className="grid grid-cols-4 gap-1 pt-2 border-t border-slate-100">
-                                                                    {['read', 'create', 'update', 'delete'].map(op => (
+                                                                    {[
+                                                                        { op: 'create', label: 'Envios', color: 'bg-emerald-50 text-emerald-700' },
+                                                                        { op: 'read', label: 'Consultas', color: 'bg-blue-50 text-blue-700' },
+                                                                        { op: 'update', label: 'Edições', color: 'bg-amber-50 text-amber-700' },
+                                                                        { op: 'delete', label: 'Remoções', color: 'bg-rose-50 text-rose-700' }
+                                                                    ].map(({ op, label, color }) => (
                                                                         <div key={op} className="flex flex-col items-center">
-                                                                            <span className="text-[8px] font-black uppercase text-slate-300 mb-1">{op.substring(0, 1)}</span>
+                                                                            <span className="text-[8px] font-black uppercase text-slate-300 mb-1">{label}</span>
                                                                             <input
                                                                                 type="text"
                                                                                 value={limits.crud?.[op] === -1 ? 'inf' : limits.crud?.[op]}
@@ -1049,7 +1077,7 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
                                                                                     const val = e.target.value === 'inf' ? -1 : parseInt(e.target.value);
                                                                                     setGroupLimits({ ...groupLimits, [gid]: { ...limits, crud: { ...(limits.crud || {}), [op]: val } } })
                                                                                 }}
-                                                                                className="w-full text-center bg-indigo-50 text-indigo-700 rounded border-none text-[9px] font-mono font-bold py-1"
+                                                                                className={`w-full text-center rounded border-none text-[9px] font-mono font-bold py-1 ${color}`}
                                                                             />
                                                                         </div>
                                                                     ))}
