@@ -144,7 +144,7 @@ export class AutomationService {
 
                 // SYNERGY: Check trigger filters BEFORE starting the workflow
                 const triggerNode = nodes.find(n => n.type === 'trigger');
-                if (triggerNode?.config?.conditions?.length > 0) {
+                if (triggerNode && triggerNode.config?.conditions?.length > 0) {
                    const matches = this.evaluateLogic(triggerNode, context);
                    if (!matches) {
                        console.log(`[AutomationEngine] Trigger filters did not match for ${automation.id}. Skipping.`);

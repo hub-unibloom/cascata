@@ -62,3 +62,6 @@ O C6 Bank cadastra essa URL. Quando um boleto é pago, ele faz `POST` nessa URL.
 ---
 
 Quer que eu projete a arquitetura completa disso — schema do banco, estrutura do endpoint e como plugar na sua `AutomationService` já existente?
+
+
+Percebi uma lacuna de uam nova feature, ela está docuementada no "/home/cocorico/Documentos/proejetos/cascata/nova_feature_webhook.txt", ela é bastante tecnica e não leva em considderação nosso ambiente por inteiro por isso solicito reanalise e nosso sistema para estudo aprofundado e implmentação inteligente e inergico essa feature, ela menciona bancofinanceiros, mas ddeve ser agnostica a isso pois poem servir de diversas maneiras, eua choq ue devemos ter um novo trigger que vai trabalhar com essa nova feature de dentro do nossas automaçẽos, mas essa dideia aina nãoe stá solicia se eve ser um novo trigger com atendimento externo ou se eve ser um novo campo asism como temos campos separaos para comunicar externamente, e outro para automações de comunicados internos 

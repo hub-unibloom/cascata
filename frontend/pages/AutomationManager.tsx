@@ -63,6 +63,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
   const [stats, setStats] = useState<Record<string, AutomationStats>>({});
   const [runsFilter, setRunsFilter] = useState<string | null>(null);
   const [vaultSecrets, setVaultSecrets] = useState<any[]>([]);
+  const [webhookReceivers, setWebhookReceivers] = useState<any[]>([]); // SYNERGY: Webhook In
   const [showVariablePicker, setShowVariablePicker] = useState<{ 
     nodeId: string, 
     field: string, 
@@ -214,8 +215,18 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
     } catch (e) { console.error("Function def fetch error"); }
   };
 
+  const fetchWebhookReceivers = async () => {
+    try {
+      const res = await fetch(`/api/webhooks/${projectId}/receivers`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` }
+      });
+      const data = await res.json();
+      setWebhookReceivers(Array.isArray(data) ? data : []);
+    } catch (e) { console.error("Webhook receivers fetch error"); }
+  };
+
   useEffect(() => { 
-      Promise.all([fetchAutomations(), fetchRuns(), fetchStats(), fetchTables(), fetchVault(), fetchFunctions()]).then(() => setLoading(false)); 
+      Promise.all([fetchAutomations(), fetchRuns(), fetchStats(), fetchTables(), fetchVault(), fetchFunctions(), fetchWebhookReceivers()]).then(() => setLoading(false)); 
   }, [projectId]);
 
   useEffect(() => {
@@ -524,13 +535,16 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
   const disconnect = (fromId: string, toId: string, port?: string) => {
     setNodes(nodes.map((n: Node) => {
       if (n.id === fromId) {
-        if (n.type === 'logic') {
+        if (n.type === 'logic' || n.type === 'http') {
            const nextObj = { ...(n.next as any) };
            if (port === 'true') nextObj.true = undefined;
            if (port === 'false') nextObj.false = undefined;
+           if (port === 'out') nextObj.out = undefined;
+           if (port === 'error') nextObj.error = undefined;
            return { ...n, next: nextObj };
         } else {
-           return { ...n, next: (n.next as string[]).filter(id => id !== toId) };
+           const nextArr = Array.isArray(n.next) ? n.next : [];
+           return { ...n, next: nextArr.filter(id => id !== toId) };
         }
       }
       return n;
@@ -587,6 +601,10 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                   const nextObj = node.next as any;
                   if (nextObj?.true) connections.push({ toId: nextObj.true, port: 'true' });
                   if (nextObj?.false) connections.push({ toId: nextObj.false, port: 'false' });
+               } else if (node.type === 'http') {
+                  const nextObj = node.next as any;
+                  if (nextObj?.out) connections.push({ toId: nextObj.out, port: 'out' });
+                  if (nextObj?.error) connections.push({ toId: nextObj.error, port: 'error' });
                } else if (Array.isArray(node.next)) {
                   node.next.forEach(toId => connections.push({ toId, port: 'out' }));
                }
@@ -595,10 +613,13 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                  const target = nodes.find(n => n.id === conn.toId);
                  if (!target) return null;
 
-                 const startX = node.x + 300;
-                 const startY = node.y + (conn.port === 'true' ? 80 : conn.port === 'false' ? 120 : 100);
+                 const startX = node.x + (18 * 16); // Node width (w-[18rem])
+                 const startY = node.y + (
+                   (conn.port === 'true' || (conn.port === 'out' && node.type === 'http')) ? 70 : 
+                   (conn.port === 'false' || conn.port === 'error') ? 110 : 100
+                 );
                  const endX = target.x;
-                 const endY = target.y + 100;
+                 const endY = target.y + 50; 
 
                  const cp1X = startX + (endX - startX) * 0.5;
                  const cp2X = startX + (endX - startX) * 0.5;
@@ -738,30 +759,71 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                 
                 <div className="flex-1 overflow-y-auto p-12 custom-scrollbar">
                    {activeNode.type === 'trigger' && (
-                      <div className="space-y-8">
+                      <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                         {/* SYNERGY: Trigger Type Selector (Enterprise Agnostic) */}
                          <div className="space-y-4">
-                            <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Tabela de Interceptação</label>
-                            <select 
-                              value={editingAutomation?.trigger_config?.table || ''}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                if (editingAutomation) {
-                                   setEditingAutomation({...editingAutomation, trigger_config: {...(editingAutomation.trigger_config || {}), table: val}});
-                                   handleFetchColumns(val);
-                                }
-                              }}
-                              className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
-                              {tables.map((t: any) => <option key={typeof t === 'string' ? t : (t as any).name} value={typeof t === 'string' ? t : (t as any).name}>{typeof t === 'string' ? t : (t as any).name}</option>)}
-                            </select>
-                         </div>
-                         <div className="space-y-4">
-                            <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Eventos</label>
-                            <div className="grid grid-cols-4 gap-2">
-                               {['*', 'INSERT', 'UPDATE', 'DELETE'].map((ev: string) => (
-                                 <button key={ev} onClick={() => editingAutomation && setEditingAutomation({...editingAutomation, trigger_config: {...(editingAutomation.trigger_config || {}), event: ev}})} className={`py-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${editingAutomation?.trigger_config?.event === ev ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>{ev}</button>
-                               ))}
+                            <label className="text-xs font-black text-indigo-600 uppercase tracking-widest">Origem do Gatilho</label>
+                            <div className="grid grid-cols-2 gap-4">
+                               <button 
+                                  onClick={() => setEditingAutomation(editingAutomation ? { ...editingAutomation, trigger_type: 'API_INTERCEPT' } : null)}
+                                  className={`py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${editingAutomation?.trigger_type !== 'WEBHOOK_IN' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+                               >
+                                  <Database size={14}/> Evento de Banco
+                               </button>
+                               <button 
+                                  onClick={() => setEditingAutomation(editingAutomation ? { ...editingAutomation, trigger_type: 'WEBHOOK_IN' } : null)}
+                                  className={`py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${editingAutomation?.trigger_type === 'WEBHOOK_IN' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+                                >
+                                  <Globe size={14}/> Webhook Externo
+                               </button>
                             </div>
                          </div>
+
+                         {editingAutomation?.trigger_type === 'WEBHOOK_IN' ? (
+                            <div className="space-y-4">
+                               <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Webhook Receiver</label>
+                               <select 
+                                  value={editingAutomation?.trigger_config?.receiver_id || ''}
+                                  onChange={(e) => setEditingAutomation({...editingAutomation, trigger_config: {...(editingAutomation.trigger_config || {}), receiver_id: e.target.value}})}
+                                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10"
+                               >
+                                  <option value="">Selecione um Receiver</option>
+                                  {webhookReceivers.map(r => <option key={r.id} value={r.id}>{r.name} ({r.path_slug})</option>)}
+                               </select>
+                               {webhookReceivers.length === 0 && (
+                                  <div className="bg-rose-50 border border-rose-100 rounded-2xl p-4 text-center">
+                                     <p className="text-[10px] text-rose-500 font-bold uppercase tracking-widest">Nenhum Webhook Receiver configurado.</p>
+                                     <button className="text-[9px] font-black text-rose-600 hover:underline mt-1">CONFIGURAR EVENTOS EXTERNOS</button>
+                                  </div>
+                               )}
+                            </div>
+                         ) : (
+                            <>
+                               <div className="space-y-4">
+                                  <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Tabela de Interceptação</label>
+                                  <select 
+                                    value={editingAutomation?.trigger_config?.table || ''}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      if (editingAutomation) {
+                                         setEditingAutomation({...editingAutomation, trigger_config: {...(editingAutomation.trigger_config || {}), table: val}});
+                                         handleFetchColumns(val);
+                                      }
+                                    }}
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                                    {tables.map((t: any) => <option key={typeof t === 'string' ? t : (t as any).name} value={typeof t === 'string' ? t : (t as any).name}>{typeof t === 'string' ? t : (t as any).name}</option>)}
+                                  </select>
+                               </div>
+                               <div className="space-y-4">
+                                  <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Eventos</label>
+                                  <div className="grid grid-cols-4 gap-2">
+                                     {['*', 'INSERT', 'UPDATE', 'DELETE'].map((ev: string) => (
+                                       <button key={ev} onClick={() => editingAutomation && setEditingAutomation({...editingAutomation, trigger_config: {...(editingAutomation.trigger_config || {}), event: ev}})} className={`py-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${editingAutomation?.trigger_config?.event === ev ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>{ev}</button>
+                                     ))}
+                                  </div>
+                               </div>
+                            </>
+                         )}
 
                          {/* SYNERGY: Trigger Conditions (Conditional Trigger) */}
                          <div className="pt-8 border-t border-slate-50 space-y-8">
