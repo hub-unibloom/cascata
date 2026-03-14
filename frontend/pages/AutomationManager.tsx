@@ -178,6 +178,17 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
       Promise.all([fetchAutomations(), fetchRuns(), fetchStats(), fetchTables(), fetchVault(), fetchFunctions()]).then(() => setLoading(false)); 
   }, [projectId]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setConfigNodeId(null);
+        setShowVariablePicker(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   // COMPOSER ACTIONS
   const handleCreateNew = () => {
     const triggerTable = (tables[0] && typeof tables[0] === 'object') ? (tables[0] as any).name : (tables[0] || '*');
@@ -917,7 +928,11 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                             </div>
                             <div className="space-y-4">
                                <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Tabela</label>
-                               <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" value={activeNode.config.table} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, table: e.target.value}} : n))}>
+                               <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" value={activeNode.config.table} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
+                                  const tableName = e.target.value;
+                                  if (tableName) handleFetchColumns(tableName);
+                                  setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, table: tableName}} : n));
+                               }}>
                                   <option value="">Selecione...</option>
                                   {tables.map((t: string | { name: string }) => <option key={typeof t === 'string' ? t : t.name} value={typeof t === 'string' ? t : t.name}>{typeof t === 'string' ? t : t.name}</option>)}
                                </select>
