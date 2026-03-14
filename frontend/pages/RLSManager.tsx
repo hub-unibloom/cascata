@@ -288,7 +288,7 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
         message: 'Rate limit exceeded',
         is_cumulative_default: false,
         default_weights: { read: 1, create: 1, update: 1, delete: 1 },
-        nerf: { enabled: false, delay: 300, stop_after: 3600, mode: 'speed' }
+        nerf: { enabled: false, delay: 300, stop_after: 3600, mode: 'speed', speed_pct: 10 }
     });
 
     const [executing, setExecuting] = useState(false);
@@ -370,7 +370,8 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
                         enabled: newGroupConfig.nerf.enabled,
                         start_delay_seconds: newGroupConfig.nerf.delay,
                         mode: newGroupConfig.nerf.mode,
-                        stop_after_seconds: newGroupConfig.nerf.stop_after
+                        stop_after_seconds: newGroupConfig.nerf.stop_after,
+                        speed_pct: newGroupConfig.nerf.speed_pct || 10
                     }
                 })
             });
@@ -396,7 +397,7 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
                 message: '',
                 is_cumulative_default: false,
                 default_weights: { read: 1, create: 1, update: 1, delete: 1 },
-                nerf: { enabled: false, delay: 600, mode: 'speed', stop_after: -1 }
+                nerf: { enabled: false, delay: 600, mode: 'speed', stop_after: -1, speed_pct: 10 }
             });
         } catch (e) { alert("Failed to save group"); }
     };
@@ -411,7 +412,13 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
             message: group.rejection_message || '',
             is_cumulative_default: group.is_cumulative_default || false,
             default_weights: group.default_weights || { read: 1, create: 1, update: 1, delete: 1 },
-            nerf: group.nerf_config || { enabled: false, delay: 600, mode: 'speed', stop_after: -1 }
+            nerf: group.nerf_config ? { 
+                enabled: group.nerf_config.enabled ?? false, 
+                delay: group.nerf_config.start_delay_seconds ?? 600, 
+                mode: group.nerf_config.mode ?? 'speed', 
+                stop_after: group.nerf_config.stop_after_seconds ?? -1,
+                speed_pct: group.nerf_config.speed_pct ?? 10
+            } : { enabled: false, delay: 600, mode: 'speed', stop_after: -1, speed_pct: 10 }
         });
         setShowCreateGroupModal(true);
     };
@@ -1192,11 +1199,31 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
                                         <div>
                                             <label className="text-[9px] font-bold text-amber-700 uppercase">Tipo de Punição</label>
                                             <select value={newGroupConfig.nerf.mode} onChange={e => setNewGroupConfig({ ...newGroupConfig, nerf: { ...newGroupConfig.nerf, mode: e.target.value } })} className="w-full p-2 bg-white border border-amber-200 rounded-lg text-xs font-bold">
-                                                <option value="speed">Velocidade Reduzida (Speed Reduction - 10%)</option>
+                                                <option value="speed">Velocidade Reduzida (Speed Reduction %)</option>
                                                 {/* Future: <option value="quota">Request Quota</option> */}
                                             </select>
+                                        </div>
+
+                                        {newGroupConfig.nerf.mode === 'speed' && (
+                                            <div className="space-y-2">
+                                                <div className="flex justify-between items-center">
+                                                    <label className="text-[9px] font-bold text-amber-700 uppercase">Capacidade Mantida</label>
+                                                    <span className="text-[10px] font-black text-amber-600 bg-white px-2 py-0.5 rounded-full border border-amber-100">{newGroupConfig.nerf.speed_pct || 10}%</span>
+                                                </div>
+                                                <input 
+                                                    type="range" 
+                                                    min="1" 
+                                                    max="100" 
+                                                    value={newGroupConfig.nerf.speed_pct || 10} 
+                                                    onChange={e => setNewGroupConfig({ ...newGroupConfig, nerf: { ...newGroupConfig.nerf, speed_pct: parseInt(e.target.value) } })}
+                                                    className="w-full h-1.5 bg-amber-200 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                                />
+                                            </div>
+                                        )}
+
+                                        <div>
                                             <p className="text-[9px] text-amber-600 mt-2 italic bg-white/50 p-2 rounded">
-                                                A "Velocidade Reduzida" mantém a chave funcionando mas com capacidade limitada a 10% do original. Ideal para não quebrar apps de clientes que esqueceram de renovar.
+                                                A "Velocidade Reduzida" mantém a chave funcionando mas com capacidade limitada a {newGroupConfig.nerf.speed_pct || 10}% do original. Ideal para não quebrar apps de clientes que esqueceram de renovar.
                                             </p>
                                         </div>
                                     </div>

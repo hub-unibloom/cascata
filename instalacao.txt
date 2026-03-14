@@ -15,6 +15,7 @@ for i in backend/migrations/*.txt; do mv "$i" "${i%.txt}"; done
 					mv frontend/Dockerfile.txt frontend/Dockerfile
 					mv frontend/nginx.conf.txt frontend/nginx.conf
 					mv nginx-controller/Dockerfile.txt nginx-controller/Dockerfile
+					mv scripts/firewall-sync.sh.txt scripts/firewall-sync.sh
 					mkdir -p /cascata-data/pg /cascata-data/qdrant /cascata-data/dragonfly /cascata-data/storage /cascata-data/certs /cascata-data/acme_challenge /cascata-data/nginx_dynamic
 					docker compose up -d --build
 
@@ -45,6 +46,7 @@ mv database/docker-entrypoint-cascata.sh.txt database/docker-entrypoint-cascata.
 mv frontend/Dockerfile.txt frontend/Dockerfile
 mv frontend/nginx.conf.txt frontend/nginx.conf
 mv nginx-controller/Dockerfile.txt nginx-controller/Dockerfile
+mv scripts/firewall-sync.sh.txt scripts/firewall-sync.sh
 
 # Editar variáveis de ambiente
 nano .env
@@ -102,3 +104,9 @@ sudo apt upgrade -y
 
 # 10. Aplicar o grupo imediatamente (sem reboot)
 newgrp docker
+
+# 11. Edge Defense (Opcional - Firewall do Sistema)
+# Este script bloqueia IPs abusadores diretamente no Kernel (ipset/iptables).
+# Deve ser rodado NO HOST da VPS (não dentro do Docker).
+# sudo apt install -y ipset redis-tools
+# nohup scripts/firewall-sync.sh > scripts/firewall.log 2>&1 &

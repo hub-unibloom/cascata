@@ -33,7 +33,10 @@ const SystemSettings: React.FC = () => {
   });
 
   // Db Config
-  const [globalDbConfig, setGlobalDbConfig] = useState({ maxConnections: 100 });
+  const [globalDbConfig, setGlobalDbConfig] = useState({ 
+      max_connections: 100,
+      adaptive_nerf_enabled: true 
+  });
 
   // NETWORK STATE
   const [serverIp, setServerIp] = useState('Checking...');
@@ -681,6 +684,48 @@ const SystemSettings: React.FC = () => {
               </div>
           </div>
       )}
+
+      {/* VERIFICAÇÃO DE SEGURANÇA GLOBAL */}
+      <div className="bg-slate-900 border border-slate-800 rounded-[3.5rem] p-10 shadow-2xl relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-8 group">
+          <div className="absolute top-0 left-0 p-16 opacity-5 group-hover:scale-110 transition-transform duration-700"><ShieldAlert size={200} className="text-blue-500"/></div>
+          
+          <div className="relative z-10 flex-1">
+              <h3 className="text-3xl font-black text-white tracking-tight flex items-center gap-4 mb-2">
+                  <div className="w-14 h-14 bg-blue-600 text-white rounded-2xl flex items-center justify-center shadow-lg"><Activity size={24} /></div>
+                  Adaptive Security Controls
+              </h3>
+              <p className="text-slate-400 font-medium text-sm leading-relaxed max-w-xl">
+                  Enable or disable <b>Adaptive Rate Limiting</b> system-wide. When active, the orchestrator will automatically throttle all traffic globally if CPU load exceeds 90% to prevent service downtime.
+              </p>
+          </div>
+
+          <div className="relative z-10 bg-white/5 backdrop-blur-sm border border-white/10 p-6 rounded-[2.5rem] flex items-center gap-6">
+              <div className="text-right">
+                  <span className={`block text-xs font-black uppercase tracking-widest ${globalDbConfig.adaptive_nerf_enabled ? 'text-blue-400' : 'text-slate-500'}`}>
+                      {globalDbConfig.adaptive_nerf_enabled ? 'Adaptive Nerf Active' : 'Adaptive Nerf Scaled Back'}
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-bold">Hardware-Aware Protection</span>
+              </div>
+              <button 
+                  onClick={() => {
+                      const newVal = !globalDbConfig.adaptive_nerf_enabled;
+                      const updated = { ...globalDbConfig, adaptive_nerf_enabled: newVal };
+                      setGlobalDbConfig(updated);
+                      // Immediate save for system stability responsiveness
+                      fetch('/api/control/system/settings', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` },
+                          body: JSON.stringify({ db_config: updated })
+                      }).then(() => setSuccess(newVal ? "Proteção Adaptativa Ativada" : "Proteção Adaptativa Desativada"));
+                  }}
+                  className={`w-20 h-10 rounded-full p-1 transition-all duration-300 ${globalDbConfig.adaptive_nerf_enabled ? 'bg-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.4)]' : 'bg-slate-800 shadow-inner'}`}
+              >
+                  <div className={`w-8 h-8 bg-white rounded-full shadow-md transition-transform duration-300 flex items-center justify-center ${globalDbConfig.adaptive_nerf_enabled ? 'translate-x-10' : 'translate-x-0'}`}>
+                       {globalDbConfig.adaptive_nerf_enabled ? <CheckCircle2 size={16} className="text-blue-600"/> : <Activity size={16} className="text-slate-400"/>}
+                  </div>
+              </button>
+          </div>
+      </div>
 
       {/* Verify Password Modal */}
       {showVerifyModal && (

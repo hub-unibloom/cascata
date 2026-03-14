@@ -47,6 +47,7 @@ interface NerfConfig {
     enabled: boolean;
     start_delay_seconds: number;
     mode: 'speed' | 'quota';
+    speed_pct?: number; // Nova: % de cota mantida no nerf (default 10)
     stop_after_seconds: number; // -1 for never stop
 }
 
@@ -102,6 +103,13 @@ export class RateLimitService {
         updateAgeOnGet: true
     });
 
+    // L1 Cache para Multiplicador Adaptativo (CPU) e IP Blocklist (Zero-Network)
+    private static adaptiveMultiplier = 1.0;
+    private static lastMultiplierCheck = 0;
+    private static isAdaptiveEnabled = true; // Global master switch
+    private static ipBlocklist = new Set<string>();
+    private static lastBlocklistSync = 0;
+
     private static keysCache = new Map<string, { data: ApiKeyData, cachedAt: number }>();
     private static groupsCache = new Map<string, { data: KeyGroupData, cachedAt: number }>();
     private static CACHE_TTL = 60 * 1000;
@@ -144,40 +152,28 @@ export class RateLimitService {
 
             this.dragonflySub.on('message', async (channel: string, message: string) => {
                 if (channel === 'sys:cache:invalidate') {
-                    // A mensagem pode vir como slug ou custom_domain. Ex: "meu_app" ou "api.meuapp.com"
-                    // Por garantia, se for "slug:x", dropamos "slug:x". O LRU cuida do formato exato salvo.
                     if (message.startsWith('slug:')) {
                         this.l1ProjectCache.delete(message);
                     } else if (message.startsWith('domain:')) {
                         this.l1ProjectCache.delete(message);
                     } else {
-                        // Se mandaram só o identificador brunto, varremos e removemos por segurança.
                         this.l1ProjectCache.delete(`slug:${message}`);
                         this.l1ProjectCache.delete(`domain:${message}`);
                     }
-                    console.log(`[L1 Cache] Interceptor dropped project config for: ${message}`);
                 }
-
-                // DRAGONFLY SEMANTIC CACHE (Fase 1.3)
-                // Se o DB nos avisa que uma tabela mudou, limpamos toda a query pool dela
                 if (channel === 'cascata_cache_invalidate') {
                     try {
                         const payload = JSON.parse(message);
                         if (payload.table && this.dragonfly && this.isDragonflyHealthy) {
-                            // Deleta todas as keys qcache:Tabela:*
-                            // Num cenário extreme scale, usaríamos SCAN, mas p/ fase 1 KEYS com drop asincrono em NodeJS resolve.
                             const keys = await this.dragonfly.keys(`qcache:${payload.table}:*`);
-                            if (keys.length > 0) {
-                                await this.dragonfly.del(...keys);
-                                console.log(`[Semantic Cache] Ejected ${keys.length} cached queries for table: ${payload.table}`);
-                            }
+                            if (keys.length > 0) await this.dragonfly.del(...keys);
                         }
-                    } catch (err) {
-                        console.error("[Semantic Cache] Invalidation Parsing Error", err);
-                    }
+                    } catch (err) {}
                 }
             });
 
+            // Initial sync
+            this.refreshGlobalSettings().catch(() => {});
         } catch (e) {
             console.error("[RateLimit] Fatal Dragonfly Init Error:", e);
             this.dragonfly = null;
@@ -246,6 +242,21 @@ export class RateLimitService {
         try {
             await this.dragonfly.del(`storage:usage:${projectSlug}`);
         } catch (e) { }
+    }
+
+    public static async refreshGlobalSettings() {
+        try {
+            const dbRes = await systemPool.query(
+                "SELECT settings FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'system_config'"
+            );
+            if (dbRes.rows[0]?.settings) {
+                const settings = dbRes.rows[0].settings;
+                this.isAdaptiveEnabled = settings.adaptive_nerf_enabled !== false; 
+                console.log(`[RateLimit] Global Settings Refreshed. Adaptive Enabled: ${this.isAdaptiveEnabled}`);
+            }
+        } catch (e) {
+            console.warn("[RateLimit] Failed to refresh global settings, using defaults.");
+        }
     }
 
     // --- PROJECT CACHING (System Protection & L1 Sync Acceleration) ---
@@ -412,6 +423,72 @@ export class RateLimitService {
         } catch (e) { }
     }
 
+    // --- ADAPTIVE RATE LIMITING & EDGE DEFENSE ---
+
+    public static async getAdaptiveMultiplier(): Promise<number> {
+        // L1 Cache: Só consulta Dragonfly/OS a cada 2 segundos
+        if (Date.now() - this.lastMultiplierCheck < 2000) return this.adaptiveMultiplier;
+        this.lastMultiplierCheck = Date.now();
+
+        if (!this.dragonfly || !this.isDragonflyHealthy) return 1.0;
+
+        try {
+            const loadStr = await this.dragonfly.get('sys:health:cpu_load');
+            const load = parseFloat(loadStr || '0');
+
+            if (!this.isAdaptiveEnabled) {
+                this.adaptiveMultiplier = 1.0;
+                return 1.0;
+            }
+
+            if (load > 90) {
+                // Se a carga estiver extrema (>90%), reduzimos todas as cotas do servidor em 50%
+                this.adaptiveMultiplier = 0.5;
+            } else if (load > 75) {
+                // Carga alta (>75%): Redução de 20% proativa
+                this.adaptiveMultiplier = 0.8;
+            } else {
+                this.adaptiveMultiplier = 1.0;
+            }
+
+            return this.adaptiveMultiplier;
+        } catch (e) { return 1.0; }
+    }
+
+    public static async isIpBlocked(ip: string): Promise<boolean> {
+        // L1 Blocklist Sync (Local V8 RAM) - Sync a cada 10 segundos
+        if (Date.now() - this.lastBlocklistSync > 10000) {
+            this.syncBlocklist().catch(() => {});
+        }
+        return this.ipBlocklist.has(ip);
+    }
+
+    private static async syncBlocklist() {
+        if (!this.dragonfly || !this.isDragonflyHealthy) return;
+        try {
+            const list = await this.dragonfly.smembers('sys:firewall:blocklist');
+            this.ipBlocklist = new Set(list);
+            this.lastBlocklistSync = Date.now();
+        } catch (e) {}
+    }
+
+    public static async registerStrike(ip: string, reason: string = 'abuse') {
+        if (!this.dragonfly || !this.isDragonflyHealthy) return;
+        try {
+            const key = `abuser:strikes:${ip}`;
+            const strikes = await this.dragonfly.incr(key);
+            if (strikes === 1) await this.dragonfly.expire(key, 3600); // 1h windows for strikes
+
+            if (strikes >= 10) { // 10 strikes em 1h = Banimento Automático
+                await this.dragonfly.sadd('sys:firewall:blocklist', ip);
+                // Opcional: TTL pro banimento (ex: 24h)
+                // Usamos sets para facilitar a exportação pro iptables/ipset
+                this.ipBlocklist.add(ip);
+                console.warn(`[EdgeDefense] IP ${ip} blocked due to ${reason}. Recent strikes: ${strikes}`);
+            }
+        } catch (e) {}
+    }
+
     // --- DATA FETCHING ---
     private static async getGroupData(groupId: string, systemPool: Pool): Promise<KeyGroupData | null> {
         const memCached = this.groupsCache.get(groupId);
@@ -528,6 +605,14 @@ export class RateLimitService {
     ): Promise<RateCheckResult> {
         if (!this.dragonfly || !this.isDragonflyHealthy) return { blocked: false };
 
+        // 0. Edge Defense: IP Blocklist Check (Fast Path)
+        if (await this.isIpBlocked(ip)) {
+            return { blocked: true, retryAfter: 3600, customMessage: 'Firewall: Your IP is blacklisted for abuse.' };
+        }
+
+        // 0.1 Adaptive Multiplier (CPU Backpressure)
+        const adaptiveMult = await this.getAdaptiveMultiplier();
+
         let subject = ip;
         let ruleId = 'default';
         let limit = 50;
@@ -555,7 +640,8 @@ export class RateLimitService {
                         keyCustomMessage = gData.rejection_message;
 
                         if (keyData.is_nerfed) {
-                            limit = Math.max(1, Math.floor(limit * 0.1));
+                            const speedPct = gData.nerf_config?.speed_pct ?? 10;
+                            limit = Math.max(1, Math.floor(limit * (speedPct / 100)));
                             burst = 0;
                         }
                     }
@@ -598,7 +684,9 @@ export class RateLimitService {
                 let ruleBurst = gLimit.burst;
                 const memCached = this.keysCache.get(authToken || '');
                 if (memCached?.data.is_nerfed) {
-                    ruleRate = Math.max(1, Math.floor(ruleRate * 0.1));
+                    const groupData = keyGroupId ? await this.getGroupData(keyGroupId, systemPool) : null;
+                    const speedPct = groupData?.nerf_config?.speed_pct ?? 10;
+                    ruleRate = Math.max(1, Math.floor(ruleRate * (speedPct / 100)));
                     ruleBurst = 0;
                 }
                 limit = ruleRate;
@@ -631,7 +719,9 @@ export class RateLimitService {
 
             const memCached = authToken ? this.keysCache.get(authToken) : null;
             if (memCached?.data.is_nerfed) {
-                limit = Math.max(1, Math.floor(specificLimit * 0.1));
+                const groupData = keyGroupId ? await this.getGroupData(keyGroupId, systemPool) : null;
+                const speedPct = groupData?.nerf_config?.speed_pct ?? 10;
+                limit = Math.max(1, Math.floor(specificLimit * (speedPct / 100)));
                 burst = 0;
             } else {
                 limit = specificLimit;
@@ -656,8 +746,9 @@ export class RateLimitService {
 
         for (const win of windows) {
             const winSecs = win.window_seconds || windowSecs;
-            const winLimit = win.limit || limit;
-            const winBurst = win.burst || burst;
+            // Apply Adaptive Multiplier to limits
+            const winLimit = Math.floor((win.limit || limit) * adaptiveMult);
+            const winBurst = Math.floor((win.burst || burst) * adaptiveMult);
             const winKey = `rate:${projectSlug}:${tier}:${subject}:${ruleId}:${win.type || 'default'}`;
 
             try {
@@ -687,6 +778,10 @@ export class RateLimitService {
                 if (count > totalLimit) {
                     let customMessage = matchedRule?.message_auth || 'Rate limit exceeded';
                     if (tier === 'anon' && matchedRule?.message_anon) customMessage = matchedRule.message_anon;
+
+                    if (win.type === 'default' || win.type === 'standard') {
+                        await this.registerStrike(ip, 'exceeding default rate limits');
+                    }
 
                     return {
                         blocked: true,

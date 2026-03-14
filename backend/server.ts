@@ -154,6 +154,25 @@ else {
             console.log('[System:Primary] Running Temp File Garbage Collection...');
             cleanTempUploads().catch(e => console.error('[GC] Failed:', e));
         }, 60 * 60 * 1000);
+
+        // --- CPU LOAD MONITOR (For Adaptive Rate Limiting) ---
+        setInterval(async () => {
+            if (!RateLimitService['dragonfly'] || !RateLimitService['isDragonflyHealthy']) return;
+            try {
+                const load = os.loadavg()[0]; // 1-min load average
+                const cpuCount = os.cpus().length;
+                const loadPct = Math.min(100, Math.floor((load / cpuCount) * 100));
+                
+                await RateLimitService['dragonfly'].set('sys:health:cpu_load', loadPct.toString(), 'EX', 10);
+            } catch (e) {}
+        }, 5000); // Update every 5 seconds
+
+        // --- GLOBAL SETTINGS REFRESH (For Adaptive Rate Limiting Toggle) ---
+        setInterval(async () => {
+            try {
+                await RateLimitService.refreshGlobalSettings();
+            } catch (e) {}
+        }, 30000); // Sync every 30 seconds
         
         // O Master segura a promessa de vida com o banco e roda as migrações uma única vez no boot
         (async () => {

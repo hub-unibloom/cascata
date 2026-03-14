@@ -613,6 +613,8 @@ export class AdminController {
                 );
                 // Dynamically update Pool configurations across the cluster
                 PoolService.configure(req.body.db_config);
+                // Trigger immediate refresh of RateLimit global settings
+                RateLimitService.refreshGlobalSettings().catch(() => {});
             }
 
             await systemPool.query('COMMIT');
