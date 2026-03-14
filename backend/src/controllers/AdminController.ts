@@ -694,8 +694,8 @@ export class AdminController {
 
         for (const r of defaultRules) {
             await systemPool.query(
-                `INSERT INTO system.rate_limits (project_slug, route_pattern, method, rate_limit, burst_limit, window_seconds, is_active) 
-                 VALUES ($1, $2, 'ALL', $3, $4, $5, true)
+                `INSERT INTO system.rate_limits (project_slug, route_pattern, method, rate_limit, burst_limit, window_seconds) 
+                 VALUES ($1, $2, 'ALL', $3, $4, $5)
                  ON CONFLICT DO NOTHING`,
                 [slug, r.pattern, r.rate, r.burst, r.secs]
             );
