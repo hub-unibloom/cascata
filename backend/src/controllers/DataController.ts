@@ -12,6 +12,55 @@ import { systemPool } from '../config/main.js';
 
 export class DataController {
 
+    /**
+     * Isolates and executes a single node for testing purposes.
+     * Used by the frontend to inspect node outputs and structure.
+     */
+    static async testNode(req: CascataRequest, res: any, next: any) {
+        if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
+        const { node, triggerPayload } = req.body;
+
+        if (!node || !node.type) {
+            return res.status(400).json({ error: 'Invalid node configuration.' });
+        }
+
+        try {
+            const context: any = {
+                vars: {
+                    trigger: { data: triggerPayload || {} },
+                    $input: triggerPayload || {}
+                },
+                projectSlug: req.project.slug,
+                projectPool: req.projectPool!,
+                userRole: req.user.role || 'authenticated',
+                jwtClaims: req.user
+            };
+
+            const result = await AutomationService.processNode(node, context);
+            
+            // Analyze keys if the result is an object or array of objects
+            let detectedKeys: string[] = [];
+            if (result && typeof result === 'object') {
+                const sample = Array.isArray(result) ? result[0] : result;
+                if (sample && typeof sample === 'object') {
+                    detectedKeys = Object.keys(sample);
+                }
+            }
+
+            res.json({
+                success: true,
+                output: result,
+                keys: detectedKeys
+            });
+        } catch (e: any) {
+            res.status(500).json({ 
+                success: false, 
+                error: e.message,
+                stack: process.env.NODE_ENV === 'development' ? e.stack : undefined
+            });
+        }
+    }
+
     // --- HELPER: SCHEMA SECURITY GUARD ---
     private static checkSchemaAccess(req: CascataRequest): boolean {
         // 1. Admin/Dashboard always allowed

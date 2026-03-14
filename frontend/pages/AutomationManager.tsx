@@ -79,8 +79,45 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
   const canvasRef = useRef<HTMLDivElement>(null);
 
   const [submitting, setSubmitting] = useState(false);
+  const [testingNodeId, setTestingNodeId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  const handleNodeTest = async (node: Node) => {
+    setTestingNodeId(node.id);
+    try {
+      const res = await fetch(`/api/data/${projectId}/automations/test-node`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${localStorage.getItem('cascata_token')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ 
+          node,
+          triggerPayload: editingAutomation?.trigger_config?.sample_payload || {}
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNodes(nodes.map(n => n.id === node.id ? {
+          ...n, 
+          config: {
+            ...n.config, 
+            _sampleData: data.output,
+            _sampleKeys: data.keys
+          }
+        } : n));
+        setSuccess('Nó executado com sucesso!');
+        setTimeout(() => setSuccess(null), 2000);
+      } else {
+        setError(data.error || 'Erro ao testar nó');
+      }
+    } catch (e) {
+      setError('Erro de conexão ao testar nó');
+    } finally {
+      setTestingNodeId(null);
+    }
+  };
 
   const fetchAutomations = async () => {
     try {
@@ -1002,69 +1039,74 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                </div>
 
                                {(activeNode.config._payloadMode || 'visual') === 'visual' ? (
-                                  <div className="space-y-3">
-                                     {/* Source Selector */}
-                                     <div className="bg-indigo-50/50 border border-indigo-100 rounded-2xl p-4 space-y-3">
-                                        <label className="text-[9px] font-black text-indigo-600 uppercase tracking-widest flex items-center gap-2"><Database size={10}/> Fonte dos Dados</label>
-                                        <select className="w-full bg-white border border-indigo-200 rounded-xl px-3 py-2 text-[10px] font-bold" value={activeNode.config._dataSource || 'trigger'} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _dataSource: e.target.value}} : n))}>
-                                           <option value="trigger">{"Trigger (Dados Originais)"}</option>
-                                           {nodes.filter((n: Node) => n.id !== activeNode.id && n.type !== 'trigger').map((n: Node) => <option key={n.id} value={n.id}>{n.label} (#{n.id.split('_').pop()})</option>)}
-                                        </select>
-                                     </div>
-
-                                     {/* Field Mapper */}
-                                     <div className="bg-white border border-slate-200 rounded-2xl divide-y divide-slate-100">
-                                        {(activeNode.config._dataSource === 'trigger' || !activeNode.config._dataSource) && editingAutomation?.trigger_config?.table && (columns[editingAutomation.trigger_config.table] || []).map((col: string) => {
-                                           const fields = activeNode.config._fields || {};
-                                           const isChecked = fields[col] !== undefined;
-                                           return (
-                                              <div key={col} className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50/50 transition-colors">
-                                                 <input type="checkbox" checked={isChecked} onChange={() => {
-                                                    const nf = {...fields};
-                                                    if (isChecked) delete nf[col]; else nf[col] = `{{trigger.data.${col}}}`;
-                                                    const body = Object.fromEntries(Object.entries(nf).map(([k, v]) => [k, v]));
-                                                    setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _fields: nf, body}} : n));
-                                                 }} className="w-4 h-4 rounded border-slate-300 text-indigo-600 accent-indigo-600" />
-                                                 <span className="text-[10px] font-bold text-slate-700 flex-1">{col}</span>
-                                                 {isChecked && <span className="text-[8px] font-mono text-indigo-400 bg-indigo-50 px-2 py-1 rounded-lg">{fields[col]}</span>}
+                                  <div className="space-y-4">
+                                     <div className="bg-white border border-slate-200 rounded-[2rem] p-6 space-y-4 shadow-sm">
+                                        <div className="flex items-center justify-between mb-2">
+                                           <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Mapeamento de Campos</label>
+                                           <p className="text-[8px] text-slate-400 font-bold uppercase">Atribuir valores às colunas</p>
+                                        </div>
+                                        
+                                        <div className="space-y-3">
+                                           {(activeNode.config._payload || []).map((p: {column: string, value: string}, i: number) => (
+                                              <div key={i} className="flex gap-2 items-center bg-slate-50 p-3 rounded-2xl border border-slate-100 group">
+                                                 <select 
+                                                   className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-bold" 
+                                                   value={p.column} 
+                                                   onChange={(e) => {
+                                                      const np = [...(activeNode.config._payload || [])];
+                                                      np[i].column = e.target.value;
+                                                      const body = Object.fromEntries(np.filter(x => x.column).map(x => [x.column, x.value]));
+                                                      setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, _payload: np, body}} : n));
+                                                   }}
+                                                 >
+                                                    <option value="">Coluna...</option>
+                                                    {(activeNode.config.table && columns[activeNode.config.table] || []).map(col => <option key={col} value={col}>{col}</option>)}
+                                                 </select>
+                                                 
+                                                 <div className="flex-[2] flex gap-2 items-center">
+                                                    <input 
+                                                      className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-medium" 
+                                                      placeholder="Valor ou {{var}}" 
+                                                      value={p.value} 
+                                                      onChange={(e) => {
+                                                         const np = [...(activeNode.config._payload || [])];
+                                                         np[i].value = e.target.value;
+                                                         const body = Object.fromEntries(np.filter(x => x.column).map(x => [x.column, x.value]));
+                                                         setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, _payload: np, body}} : n));
+                                                      }} 
+                                                    />
+                                                    <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: `_payload.${i}.value`, type: 'config' })} />
+                                                 </div>
+                                                 
+                                                 <button 
+                                                   className="text-slate-300 hover:text-rose-500 transition-colors" 
+                                                   onClick={() => {
+                                                      const np = activeNode.config._payload.filter((_: any, idx: number) => idx !== i);
+                                                      const body = Object.fromEntries(np.filter((x: any) => x.column).map((x: any) => [x.column, x.value]));
+                                                      setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, _payload: np, body}} : n));
+                                                   }}
+                                                 >
+                                                   <Trash2 size={14}/>
+                                                 </button>
                                               </div>
-                                           );
-                                        })}
-                                        {activeNode.config._dataSource && activeNode.config._dataSource !== 'trigger' && (
-                                           <div className="p-4 text-center text-[10px] text-slate-400 font-bold uppercase">
-                                              Campos do nó #{activeNode.config._dataSource.split('_').pop()} serão resolvidos em runtime
-                                           </div>
-                                        )}
+                                           ))}
+                                        </div>
+
+                                        <button 
+                                          className="w-full py-3 border border-dashed border-indigo-100 rounded-2xl text-[10px] font-black uppercase text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50/30 transition-all flex items-center justify-center gap-2" 
+                                          onClick={() => {
+                                             const np = [...(activeNode.config._payload || []), { column: '', value: '' }];
+                                             setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, _payload: np}} : n));
+                                          }}
+                                        >
+                                           <Plus size={14}/> Adicionar Campo
+                                        </button>
                                      </div>
 
-                                     {/* Custom Fields */}
-                                     <div className="space-y-2">
-                                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Campos Extras</label>
-                                        {(activeNode.config._customFields || []).map((cf: {key: string, value: string}, i: number) => (
-                                           <div key={i} className="flex gap-2">
-                                              <input className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-bold" placeholder="chave" value={cf.key} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                                                 const ncf = [...(activeNode.config._customFields || [])]; ncf[i].key = e.target.value;
-                                                 const body = {...(activeNode.config.body || {}), [e.target.value]: ncf[i].value};
-                                                 setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
-                                              }} />
-                                              <div className="flex-1 flex gap-2 items-center">
-                                               <input className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-mono" placeholder="{{node_id.data.campo}}" value={cf.value} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                                                  const ncf = [...(activeNode.config._customFields || [])]; ncf[i].value = e.target.value;
-                                                  const body = {...(activeNode.config.body || {}), [ncf[i].key]: e.target.value};
-                                                  setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
-                                               }} />
-                                               <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: i.toString(), type: 'custom_field' })} />
-                                            </div>
-                                              <button className="text-slate-300 hover:text-rose-500 transition-colors" onClick={() => {
-                                                 const ncf = (activeNode.config._customFields || []).filter((_: any, idx: number) => idx !== i);
-                                                 setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf}} : n));
-                                              }}><Trash2 size={14}/></button>
-                                           </div>
-                                        ))}
-                                        <button className="w-full py-2 border border-dashed border-slate-200 rounded-xl text-[9px] font-black uppercase text-slate-400 hover:text-indigo-600 hover:border-indigo-200 transition-all" onClick={() => {
-                                           const ncf = [...(activeNode.config._customFields || []), { key: '', value: '' }];
-                                           setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf}} : n));
-                                        }}>+ Campo Extra</button>
+                                     <div className="bg-indigo-50/30 p-4 rounded-2xl border border-indigo-100/50">
+                                        <p className="text-[8px] text-indigo-700/70 font-bold uppercase leading-relaxed text-center">
+                                           Dica: Use o Variable Picker para injetar resultados de nós anteriores ou variáveis do gatilho.
+                                        </p>
                                      </div>
                                   </div>
                                ) : (
@@ -1235,70 +1277,115 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                             </div>
 
                             {(activeNode.config._payloadMode || 'visual') === 'visual' ? (
-                               <div className="space-y-3">
-                                  <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-4 space-y-3">
-                                     <label className="text-[9px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-2"><ArrowRight size={10}/> Fonte dos Dados da Resposta</label>
-                                     <select className="w-full bg-white border border-emerald-200 rounded-xl px-3 py-2 text-[10px] font-bold" value={activeNode.config._dataSource || 'trigger'} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _dataSource: e.target.value}} : n))}>
-                                        <option value="trigger">{"Trigger (Dados Originais)"}</option>
-                                        {nodes.filter((n: Node) => n.id !== activeNode.id && n.type !== 'trigger').map((n: Node) => <option key={n.id} value={n.id}>{n.label} (#{n.id.split('_').pop()})</option>)}
-                                     </select>
+                               <div className="space-y-4">
+                                  <div className="bg-emerald-50/50 border border-emerald-100 rounded-[2rem] p-6 space-y-4">
+                                     <div className="flex items-center justify-between">
+                                        <label className="text-[10px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-2"><ArrowRight size={10}/> Fonte dos Dados</label>
+                                        <select className="bg-white border border-emerald-200 rounded-xl px-3 py-1.5 text-[10px] font-bold outline-none" value={activeNode.config._dataSource || 'trigger'} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _dataSource: e.target.value, _fields: {}}} : n))}>
+                                           <option value="trigger">{"Trigger (Gatilho)"}</option>
+                                           {nodes.filter((n: Node) => n.id !== activeNode.id && n.type !== 'trigger').map((n: Node) => <option key={n.id} value={n.id}>{n.label} (#{n.id.split('_').pop()})</option>)}
+                                        </select>
+                                     </div>
+
+                                     <div className="bg-white border border-slate-200 rounded-2xl divide-y divide-slate-100 overflow-hidden min-h-[100px]">
+                                        {(() => {
+                                           const sourceId = activeNode.config._dataSource || 'trigger';
+                                           const sourceNode = nodes.find(n => n.id === sourceId);
+                                           let availableKeys: string[] = [];
+                                           
+                                           if (sourceId === 'trigger') {
+                                              availableKeys = editingAutomation?.trigger_config?.table ? (columns[editingAutomation.trigger_config.table] || []) : [];
+                                           } else if (sourceNode) {
+                                              availableKeys = sourceNode.config._sampleKeys || [];
+                                           }
+
+                                           if (availableKeys.length === 0) {
+                                              return (
+                                                 <div className="p-8 text-center space-y-4">
+                                                    <div className="flex justify-center"><AlertCircle size={24} className="text-slate-200"/></div>
+                                                    <p className="text-[10px] text-slate-400 font-bold uppercase leading-relaxed px-4">
+                                                       {sourceId === 'trigger' 
+                                                         ? "Nenhuma tabela selecionada no gatilho." 
+                                                         : `Clique em "Testar Nó" no drawer do nó #${sourceId.split('_').pop()} para extrair os campos disponíveis.`}
+                                                    </p>
+                                                    {sourceId !== 'trigger' && (
+                                                       <button 
+                                                         onClick={() => setConfigNodeId(sourceId)}
+                                                         className="text-[9px] font-black text-indigo-600 uppercase tracking-widest border-b border-indigo-200"
+                                                       >
+                                                          Abrir Configurações do Nó #{sourceId.split('_').pop()}
+                                                       </button>
+                                                    )}
+                                                 </div>
+                                              );
+                                           }
+
+                                           return availableKeys.map((col: string) => {
+                                              const fields = activeNode.config._fields || {};
+                                              const isChecked = fields[col] !== undefined;
+                                              const path = sourceId === 'trigger' ? `{{trigger.data.${col}}}` : `{{${sourceId}.data.${col}}}`;
+                                              return (
+                                                 <div key={col} className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50/50 transition-colors">
+                                                    <input type="checkbox" checked={isChecked} onChange={() => {
+                                                       const nf = {...fields};
+                                                       if (isChecked) delete nf[col]; else nf[col] = path;
+                                                       const body = {
+                                                         ...(activeNode.config.body || {}),
+                                                         ...nf
+                                                       };
+                                                       setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _fields: nf, body}} : n));
+                                                    }} className="w-4 h-4 rounded border-slate-300 text-emerald-600 accent-emerald-600" />
+                                                    <span className="text-[10px] font-bold text-slate-700 flex-1">{col}</span>
+                                                    {isChecked && <span className="text-[7px] font-mono text-emerald-500 bg-emerald-50 px-2 py-1 rounded-lg uppercase">{path}</span>}
+                                                 </div>
+                                              );
+                                           });
+                                        })()}
+                                     </div>
                                   </div>
 
-                                  <div className="bg-white border border-slate-200 rounded-2xl divide-y divide-slate-100">
-                                     {(activeNode.config._dataSource === 'trigger' || !activeNode.config._dataSource) && editingAutomation?.trigger_config?.table && (columns[editingAutomation.trigger_config.table] || []).map((col: string) => {
-                                        const fields = activeNode.config._fields || {};
-                                        const isChecked = fields[col] !== undefined;
-                                        return (
-                                           <div key={col} className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50/50 transition-colors">
-                                              <input type="checkbox" checked={isChecked} onChange={() => {
-                                                 const nf = {...fields};
-                                                 if (isChecked) delete nf[col]; else nf[col] = `{{trigger.data.${col}}}`;
-                                                 const body = Object.fromEntries(Object.entries(nf).map(([k, v]) => [k, v]));
-                                                 setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _fields: nf, body}} : n));
-                                              }} className="w-4 h-4 rounded border-slate-300 text-emerald-600 accent-emerald-600" />
-                                              <span className="text-[10px] font-bold text-slate-700 flex-1">{col}</span>
-                                              {isChecked && <span className="text-[8px] font-mono text-emerald-400 bg-emerald-50 px-2 py-1 rounded-lg">{fields[col]}</span>}
+                                  <div className="space-y-4">
+                                     <div className="flex items-center justify-between">
+                                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Campos Personalizados</label>
+                                        <button className="text-[8px] font-black text-indigo-600 uppercase border-b border-indigo-100" onClick={() => {
+                                           const ncf = [...(activeNode.config._customFields || []), { key: '', value: '' }];
+                                           setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf}} : n));
+                                        }}>+ Adicionar Campo</button>
+                                     </div>
+                                     
+                                     <div className="space-y-2">
+                                        {(activeNode.config._customFields || []).map((cf: {key: string, value: string}, i: number) => (
+                                           <div key={i} className="flex gap-2 items-center bg-slate-50 p-2 rounded-2xl border border-slate-100 group">
+                                              <input className="w-1/3 bg-white border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-bold" placeholder="ID" value={cf.key} onChange={(e) => {
+                                                 const ncf = [...(activeNode.config._customFields || [])]; ncf[i].key = e.target.value;
+                                                 const body = {
+                                                   ...activeNode.config._fields,
+                                                   ...Object.fromEntries(ncf.filter(x => x.key).map(x => [x.key, x.value]))
+                                                 };
+                                                 setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
+                                              }} />
+                                              <div className="flex-1 flex gap-2 items-center">
+                                                  <input className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-medium" placeholder="Valor ou {{var}}" value={cf.value} onChange={(e) => {
+                                                     const ncf = [...(activeNode.config._customFields || [])]; ncf[i].value = e.target.value;
+                                                     const body = {
+                                                       ...activeNode.config._fields,
+                                                       ...Object.fromEntries(ncf.filter(x => x.key).map(x => [x.key, x.value]))
+                                                     };
+                                                     setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
+                                                  }} />
+                                                  <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: `_customFields.${i}.value`, type: 'config' })} />
+                                               </div>
+                                              <button className="text-slate-300 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100" onClick={() => {
+                                                 const ncf = (activeNode.config._customFields || []).filter((_: any, idx: number) => idx !== i);
+                                                 const body = {
+                                                   ...activeNode.config._fields,
+                                                   ...Object.fromEntries(ncf.filter(x => x.key).map(x => [x.key, x.value]))
+                                                 };
+                                                 setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
+                                              }}><Trash2 size={14}/></button>
                                            </div>
-                                        );
-                                     })}
-                                     {activeNode.config._dataSource && activeNode.config._dataSource !== 'trigger' && (
-                                        <div className="p-4 text-center text-[10px] text-slate-400 font-bold uppercase">
-                                           Dados do nó #{activeNode.config._dataSource.split('_').pop()} serão mesclados na resposta em runtime
-                                        </div>
-                                     )}
-                                  </div>
-
-                                  <div className="space-y-2">
-                                     <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Campos Extras na Resposta</label>
-                                     {(activeNode.config._customFields || []).map((cf: {key: string, value: string}, i: number) => (
-                                        <div key={i} className="flex gap-2">
-                                           <input className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-bold" placeholder="chave_pix" value={cf.key} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                                              const ncf = [...(activeNode.config._customFields || [])]; ncf[i].key = e.target.value;
-                                              const body = {...(activeNode.config.body || {}), [e.target.value]: ncf[i].value};
-                                              setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
-                                           }} />
-                                           <div className="flex-1 flex gap-2 items-center">
-                                               <input className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-mono" placeholder="{{node_3.data.pix_key}}" value={cf.value} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                                                  const ncf = [...(activeNode.config._customFields || [])]; ncf[i].value = e.target.value;
-                                                  const body = {...(activeNode.config.body || {}), [ncf[i].key]: e.target.value};
-                                                  setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
-                                               }} />
-                                               <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: i.toString(), type: 'custom_field' })} />
-                                            </div>
-                                           <button className="text-slate-300 hover:text-rose-500 transition-colors" onClick={() => {
-                                              const ncf = (activeNode.config._customFields || []).filter((_: any, idx: number) => idx !== i);
-                                              setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf}} : n));
-                                           }}><Trash2 size={14}/></button>
-                                        </div>
-                                     ))}
-                                     <button className="w-full py-2 border border-dashed border-slate-200 rounded-xl text-[9px] font-black uppercase text-slate-400 hover:text-emerald-600 hover:border-emerald-200 transition-all" onClick={() => {
-                                        const ncf = [...(activeNode.config._customFields || []), { key: '', value: '' }];
-                                        setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf}} : n));
-                                     }}>+ Campo Extra na Resposta</button>
-                                  </div>
-
-                                  <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-100">
-                                     <p className="text-[9px] text-emerald-700 font-bold uppercase leading-relaxed"><ArrowRight size={10} className="inline mr-1"/> Este payload será enviado como resposta da API ao cliente final.</p>
+                                        ))}
+                                     </div>
                                   </div>
                                </div>
                             ) : (
@@ -1493,6 +1580,37 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
     </div>
   );
 };
+
+const TestNodeButton: React.FC<{ 
+  onTest: () => void, 
+  loading: boolean,
+  lastResult?: any 
+}> = ({ onTest, loading, lastResult }) => (
+  <div className="space-y-3">
+    <button 
+      onClick={onTest} 
+      disabled={loading}
+      className={`w-full py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${
+        loading ? 'bg-slate-100 text-slate-400' : 'bg-indigo-600 text-white hover:bg-black shadow-lg shadow-indigo-100'
+      }`}
+    >
+      {loading ? <Loader2 size={14} className="animate-spin"/> : <Play size={14}/>}
+      {loading ? 'Executando Teste...' : 'Testar Nó'}
+    </button>
+    
+    {lastResult && (
+      <div className="bg-slate-900 rounded-2xl p-4 overflow-hidden border border-slate-800">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[8px] font-black text-indigo-400 uppercase tracking-widest">Resultado do Teste</span>
+          <span className="text-[8px] font-mono text-slate-500">JSON</span>
+        </div>
+        <pre className="text-[10px] font-mono text-emerald-400 overflow-x-auto custom-scrollbar max-h-40">
+          {JSON.stringify(lastResult, null, 2)}
+        </pre>
+      </div>
+    )}
+  </div>
+);
 
 const ToolboxItem: React.FC<{ icon: React.ReactNode, label: string, onClick: () => void, color: string }> = ({ icon, label, onClick, color }) => (
   <button onClick={onClick} className="flex flex-col items-center gap-2 group transition-all hover:-translate-y-2">

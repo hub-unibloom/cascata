@@ -228,9 +228,9 @@ export class AutomationService {
     }
 
     /**
-     * Node Logic Processor
+     * Node Logic Processor (Exposed for isolated testing)
      */
-    private static async processNode(node: AutomationNode, context: AutomationContext): Promise<any> {
+    public static async processNode(node: AutomationNode, context: AutomationContext): Promise<any> {
         if (!node.config) return null;
         
         switch (node.type) {

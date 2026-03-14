@@ -151,6 +151,7 @@ router.post('/automations', requireManagementRole as any, DataController.upsertA
 router.delete('/automations/:id', requireManagementRole as any, DataController.deleteAutomation as any);
 router.get('/automations/stats', requireManagementRole as any, DataController.getAutomationStats as any);
 router.get('/automations/runs', requireManagementRole as any, DataController.listAutomationRuns as any);
+router.post('/automations/test-node', requireManagementRole as any, DataController.testNode as any);
 
 // Auth (Data Plane)
 router.get('/auth/users', requireManagementRole as any, DataAuthController.listUsers as any);
