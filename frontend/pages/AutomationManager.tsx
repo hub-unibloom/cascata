@@ -366,7 +366,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
     if (!showVariablePicker) return;
     const { nodeId, field, type } = showVariablePicker;
     
-    setNodes(nodes.map((n: Node) => {
+    setNodes((prevNodes: Node[]) => prevNodes.map((n: Node) => {
       if (n.id !== nodeId) return n;
       const nextConfig = { ...n.config };
       
@@ -376,33 +376,53 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
         nextConfig.body = { ...(nextConfig.body || {}), [field]: path };
       } else if (type === 'url') {
         nextConfig.url = path;
+      } else if (type === 'rpc_arg') {
+        nextConfig.args = { ...(nextConfig.args || {}), [field]: path };
+      } else if (field.includes('.')) {
+        const parts = field.split('.');
+        const parent = parts[0];
+        const idxStr = parts[1];
+        
+        if (parent === '_payload') {
+          const idx = parseInt(idxStr);
+          const np = [...(nextConfig._payload || [])];
+          if (np[idx]) {
+            np[idx].value = path;
+            nextConfig._payload = np;
+            // SYNERGY: Maintain flat body object for engine consistency
+            nextConfig.body = Object.fromEntries(np.filter((x: any) => x.column).map((x: any) => [x.column, x.value]));
+          }
+        } else if (parent === 'filters') {
+          const idx = parseInt(idxStr);
+          const nextFilters = [...(nextConfig.filters || [])];
+          if (nextFilters[idx]) {
+            nextFilters[idx].value = path;
+            nextConfig.filters = nextFilters;
+          }
+        } else if (parent === '_customFields') {
+          const idx = parseInt(idxStr);
+          const ncf = [...(nextConfig._customFields || [])];
+          if (ncf[idx]) {
+             ncf[idx].value = path;
+             nextConfig._customFields = ncf;
+             // SYNERGY: Auto-merge with visual fields for response payloads
+             nextConfig.body = {
+               ...(nextConfig._fields || {}),
+               ...Object.fromEntries(ncf.filter((x: any) => x.key).map((x: any) => [x.key, x.value]))
+             };
+          }
+        } else if (parent === '_rpcArgs') {
+           nextConfig.args = { ...(nextConfig.args || {}), [idxStr]: path };
+        }
       } else if (type === 'config') {
         nextConfig[field] = path;
-      } else if (type === 'custom_field' || field.includes('.')) {
-         // Handle both simple indices and paths
-         if (field.includes('.')) {
-            const parts = field.split('.');
-            if (parts[0] === '_rpcArgs') {
-               nextConfig.args = { ...(nextConfig.args || {}), [parts[1]]: path };
-            } else if (parts[0] === 'filters') {
-               const idx = parseInt(parts[1]);
-               const nextFilters = [...(nextConfig.filters || [])];
-               if (nextFilters[idx]) {
-                  nextFilters[idx].value = path;
-                  nextConfig.filters = nextFilters;
-               }
-            }
-         } else {
-            const idx = parseInt(field);
-            const ncf = [...(nextConfig._customFields || [])];
-            if (ncf[idx]) {
-               ncf[idx].value = path;
-               nextConfig._customFields = ncf;
-               if (ncf[idx].key && (n.type === 'response' || n.type === 'transform' || n.type === 'data')) {
-                  nextConfig.body = { ...(nextConfig.body || {}), [ncf[idx].key]: path };
-               }
-            }
-         }
+      } else if (type === 'custom_field') {
+        const idx = parseInt(field);
+        const ncf = [...(nextConfig._customFields || [])];
+        if (ncf[idx]) {
+           ncf[idx].value = path;
+           nextConfig._customFields = ncf;
+        }
       }
       
       return { ...n, config: nextConfig };
@@ -979,7 +999,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                          {activeNode.config.operation === 'upsert' && (
                             <div className="space-y-4 bg-indigo-50/20 p-6 rounded-[2rem] border border-indigo-100/50">
                                <label className="text-[9px] font-black text-indigo-900 uppercase tracking-widest leading-none">Conflict Columns (e.g. email, id)</label>
-                               <input className="w-full bg-white border border-indigo-100 rounded-xl px-4 py-3 text-xs font-mono" placeholder="id, email" value={activeNode.config.conflict_cols || ''} onChange={(e) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, conflict_cols: e.target.value}} : n))} />
+                               <input className="w-full bg-white border border-indigo-100 rounded-xl px-4 py-3 text-xs font-mono" placeholder="id, email" value={activeNode.config.conflict_cols || ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, conflict_cols: e.target.value}} : n))} />
                             </div>
                          )}
                          {(activeNode.config.operation !== 'insert') && (
@@ -1096,7 +1116,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                           className="w-full py-3 border border-dashed border-indigo-100 rounded-2xl text-[10px] font-black uppercase text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50/30 transition-all flex items-center justify-center gap-2" 
                                           onClick={() => {
                                              const np = [...(activeNode.config._payload || []), { column: '', value: '' }];
-                                             setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, _payload: np}} : n));
+                                             setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _payload: np}} : n));
                                           }}
                                         >
                                            <Plus size={14}/> Adicionar Campo
