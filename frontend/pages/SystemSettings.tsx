@@ -62,10 +62,12 @@ const SystemSettings: React.FC = () => {
 
   // --- INITIALIZATION ---
   useEffect(() => {
-    // 1. Check IP
-    fetch('https://api.ipify.org?format=json')
+    // 1. Check Server Public IP (Secure Backend Fetch)
+    fetch('/api/control/system/public-ip', {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` }
+    })
       .then(res => res.json())
-      .then(data => setServerIp(data.ip))
+      .then(data => setServerIp(data.ip || 'Unknown'))
       .catch(() => setServerIp('Network Error'));
 
     // 2. Load Global Config
@@ -365,8 +367,8 @@ const SystemSettings: React.FC = () => {
                         <input 
                             type="number" 
                             min="10"
-                            value={globalDbConfig.maxConnections} 
-                            onChange={(e) => setGlobalDbConfig({...globalDbConfig, maxConnections: parseInt(e.target.value)})} 
+                            value={globalDbConfig.max_connections} 
+                            onChange={(e) => setGlobalDbConfig({...globalDbConfig, max_connections: parseInt(e.target.value) || 100})} 
                             className="w-full bg-slate-50 border border-slate-100 rounded-[1.8rem] py-5 px-8 text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-blue-500/10 transition-all text-center" 
                         />
                     </div>

@@ -741,63 +741,75 @@ export class RateLimitService {
             weight = weights[operation] || 1;
         }
 
-        // --- MULTI-WINDOW ENFORCEMENT ---
+        // --- PRE-VALIDATION (Dry-run) ---
         const windows = matchedRule?.time_windows || [{ type: 'default', window_seconds: windowSecs, limit, burst }];
-
+        const winResults: Array<{ key: string, limit: number, burst: number, secs: number, type: string, useQuota: boolean }> = [];
+        
         for (const win of windows) {
             const winSecs = win.window_seconds || windowSecs;
-            // Apply Adaptive Multiplier to limits
             const winLimit = Math.floor((win.limit || limit) * adaptiveMult);
             const winBurst = Math.floor((win.burst || burst) * adaptiveMult);
             const winKey = `rate:${projectSlug}:${tier}:${subject}:${ruleId}:${win.type || 'default'}`;
+            const winType = win.type || 'default';
 
-            try {
-                // --- CUMULATIVE QUOTA (ROLLOVER) ---
-                if (isCumulative && (tier === 'auth' || tier === 'custom_key') && subject !== 'anonymous') {
-                    const winType = win.type || 'default';
-                    let balance = await RateLimitService.getQuotaBalance(projectSlug, tier, subject, ruleId, winType, systemPool);
+            const memCached = authToken ? this.keysCache.get(authToken) : null;
+            const keyIsNerfed = memCached?.data.is_nerfed || false;
 
-                    if (balance > 0) {
-                        await RateLimitService.updateQuotaBalance(projectSlug, tier, subject, ruleId, winType, -weight, systemPool);
-                        continue; // Pass this window
-                    }
+            let useQuota = false;
+            // Atomic Sinergy: Only allow quota bypass if NOT nerfed. Balance should not bypass punishment.
+            if (isCumulative && !keyIsNerfed && (tier === 'auth' || tier === 'custom_key') && subject !== 'anonymous') {
+                const balance = await RateLimitService.getQuotaBalance(projectSlug, tier, subject, ruleId, winType, systemPool);
+                if (balance >= weight) {
+                    useQuota = true;
                 }
+            }
 
-                const pipeline = this.dragonfly.multi();
-                pipeline.incrby(winKey, weight);
-                pipeline.ttl(winKey);
-                const results = await pipeline.exec();
+            if (!useQuota) {
+                // Standard limit check (Dry-run)
+                const currentStr = await this.dragonfly.get(winKey);
+                const currentCount = currentStr ? parseInt(currentStr) : 0;
+                const totalAllowed = winLimit + winBurst;
 
-                if (!results) continue;
-                const count = results[0][1] as number;
-                const ttl = results[1][1] as number;
-
-                if (ttl === -1) await this.dragonfly.expire(winKey, winSecs);
-
-                const totalLimit = winLimit + winBurst;
-                if (count > totalLimit) {
+                if (currentCount + weight > totalAllowed) {
                     let customMessage = matchedRule?.message_auth || 'Rate limit exceeded';
                     if (tier === 'anon' && matchedRule?.message_anon) customMessage = matchedRule.message_anon;
 
-                    if (win.type === 'default' || win.type === 'standard') {
+                    if (winType === 'default' || winType === 'standard') {
                         await this.registerStrike(ip, 'exceeding default rate limits');
                     }
 
+                    const ttl = await this.dragonfly.ttl(winKey);
                     return {
                         blocked: true,
                         limit: winLimit,
                         remaining: 0,
                         retryAfter: ttl > 0 ? ttl : winSecs,
-                        customMessage: `${customMessage} (${win.type || 'standard'} limit)`
+                        customMessage: `${customMessage} (${winType} limit)`
                     };
                 }
-            } catch (e) {
-                console.error("RateLimit Multi-Window Error:", e);
-                // Fail open for individual window failures
+            }
+
+            winResults.push({ key: winKey, limit: winLimit, burst: winBurst, secs: winSecs, type: winType, useQuota });
+        }
+
+        // --- COMMITMENT PHASE (Sinergy) ---
+        // If we reached here, ALL windows are allowed. Now we commit the changes.
+        for (const res of winResults) {
+            if (res.useQuota) {
+                // Fair Billing: Only deduct now that we know the entire request is valid
+                await RateLimitService.updateQuotaBalance(projectSlug, tier, subject, ruleId, res.type, -weight, systemPool);
+            } else {
+                const pipeline = this.dragonfly.multi();
+                pipeline.incrby(res.key, weight);
+                pipeline.ttl(res.key);
+                const results = await pipeline.exec();
+                if (results && results[1][1] === -1) {
+                    await this.dragonfly.expire(res.key, res.secs);
+                }
             }
         }
 
-        return { blocked: false, limit, remaining: 1 }; // Approximate
+        return { blocked: false, limit, remaining: 1 };
     }
 
     private static async getQuotaBalance(projectSlug: string, tier: string, subjectId: string, ruleId: string, windowType: string, pool: any): Promise<number> {

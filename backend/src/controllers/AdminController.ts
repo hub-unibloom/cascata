@@ -664,4 +664,14 @@ export class AdminController {
             res.status(500).json({ error: e.message });
         }
     }
+
+    static async getServerPublicIp(req: CascataRequest, res: any, next: any) {
+        try {
+            const response = await axios.get('https://api.ipify.org?format=json', { timeout: 5000 });
+            res.json(response.data);
+        } catch (e) {
+            // Fallback to local address if external service is down
+            res.json({ ip: 'Local/Discovery Mode' });
+        }
+    }
 }

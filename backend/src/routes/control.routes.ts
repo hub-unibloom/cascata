@@ -34,6 +34,7 @@ router.get('/me/ip', (req: any, res: any) => {
 
 router.put('/auth/profile', AdminController.updateProfile as any);
 router.get('/system/settings', AdminController.getSystemSettings as any);
+router.get('/system/public-ip', AdminController.getServerPublicIp as any);
 router.post('/system/settings', AdminController.updateSystemSettings as any);
 router.get('/system/certificates/status', AdminController.listCertificates as any);
 router.post('/system/certificates', AdminController.createCertificate as any);
