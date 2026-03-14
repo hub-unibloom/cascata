@@ -559,8 +559,10 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
 
         if (rule.route_pattern === '*') {
             type = 'global';
-        } else if (rule.route_pattern === 'auth:*') {
+        } else if (rule.route_pattern.startsWith('auth:')) {
             type = 'auth';
+            entity = rule.route_pattern.replace('auth:', '');
+            if (entity === '*') entity = ''; // Full wildcard
         } else if (rule.route_pattern.startsWith('table:')) {
             type = 'table';
             entity = rule.route_pattern.replace('table:', '');

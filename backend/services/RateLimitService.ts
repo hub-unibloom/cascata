@@ -593,7 +593,7 @@ export class RateLimitService {
             const rules = res.rows || [];
 
             // Specificity-based Sorting: Exact > Prefix > Global
-            rules.sort((a, b) => {
+            rules.sort((a: any, b: any) => {
                 const patA = a.route_pattern || '';
                 const patB = b.route_pattern || '';
 
