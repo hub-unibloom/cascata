@@ -785,7 +785,16 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                           className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10" 
                                           placeholder="ex: order-paid"
                                           value={editingAutomation?.trigger_config?.path_slug || ''}
-                                          onChange={(e) => setEditingAutomation({...editingAutomation, trigger_config: {...(editingAutomation.trigger_config || {}), path_slug: e.target.value}})}
+                                          onChange={(e) => {
+                                             const val = e.target.value
+                                               .toLowerCase()
+                                               .normalize('NFD')
+                                               .replace(/[\u0300-\u036f]/g, '') // Remove accents
+                                               .replace(/[^a-z0-9-_]/g, '-')    // Replace special chars with dash
+                                               .replace(/-+/g, '-')             // Remove double dashes
+                                               .replace(/^-|-$/g, '');          // Remove leading/trailing dashes
+                                             setEditingAutomation({...editingAutomation, trigger_config: {...(editingAutomation.trigger_config || {}), path_slug: val}});
+                                          }}
                                         />
                                      </div>
                                   </div>
