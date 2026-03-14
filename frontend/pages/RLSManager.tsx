@@ -181,7 +181,7 @@ const SmartLimitInput: React.FC<{
     return (
         <div className="flex flex-col gap-1">
             <div className="flex justify-between items-center px-1">
-                <label className="text-[9px] font-bold text-slate-400 uppercase">{label}</label>
+                <label className="text-[9px] font-bold text-slate-400 uppercase cursor-help" title="Max requests allowed in this window">{label}</label>
                 {showAdvanced && onCumulativeChange && (
                     <button
                         onClick={() => onCumulativeChange(!cumulative)}
@@ -203,7 +203,7 @@ const SmartLimitInput: React.FC<{
 
                 {showAdvanced && onWeightChange && (
                     <div className="flex items-center gap-1 px-3 border-l border-slate-100 bg-slate-50">
-                        <span className="text-[9px] font-black text-slate-400">W</span>
+                        <span className="text-[9px] font-black text-slate-400 cursor-help" title="Operation Weight: Cost of each request (e.g., Create costs 5 units)">W</span>
                         <input
                             type="number"
                             min="1"
@@ -977,19 +977,19 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
                                     {activeModalTab === 'anon' && (
                                         <div className="space-y-4 animate-in fade-in">
                                             <div className="grid grid-cols-3 gap-4">
-                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase">Rate</label><input type="number" value={rateAnon} onChange={e => setRateAnon(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center" /></div>
-                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase">Burst</label><input type="number" value={burstAnon} onChange={e => setBurstAnon(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center" /></div>
-                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase">Seconds</label><input type="number" value={windowSec} onChange={e => setWindowSec(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center" /></div>
+                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase cursor-help" title="Requests per second limit">Rate</label><input type="number" value={rateAnon} onChange={e => setRateAnon(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center" /></div>
+                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase cursor-help" title="Extra capacity allowed for traffic spikes">Burst</label><input type="number" value={burstAnon} onChange={e => setBurstAnon(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center" /></div>
+                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase cursor-help" title="Window duration in seconds">Seconds</label><input type="number" value={windowSec} onChange={e => setWindowSec(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center" /></div>
                                             </div>
 
                                             {targetType === 'table' && (
                                                 <div className="bg-white p-4 rounded-2xl border border-slate-100 mt-4">
                                                     <h4 className="text-[10px] font-black uppercase text-indigo-400 mb-3 tracking-widest">Advanced CRUD Limits</h4>
-                                                    <div className="grid grid-cols-4 gap-3">
-                                                        <SmartLimitInput label="Create / Envios" value={crudRatesAnon.create} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, create: v })} color="emerald" cumulative={isCumulative.create} onCumulativeChange={(v) => setIsCumulative({ ...isCumulative, create: v })} showAdvanced={true} />
-                                                        <SmartLimitInput label="Read / Consultas" value={crudRatesAnon.read} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, read: v })} color="blue" cumulative={isCumulative.read} onCumulativeChange={(v) => setIsCumulative({ ...isCumulative, read: v })} showAdvanced={true} />
-                                                        <SmartLimitInput label="Update / Edições" value={crudRatesAnon.update} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, update: v })} color="amber" cumulative={isCumulative.update} onCumulativeChange={(v) => setIsCumulative({ ...isCumulative, update: v })} showAdvanced={true} />
-                                                        <SmartLimitInput label="Delete / Remoções" value={crudRatesAnon.delete} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, delete: v })} color="rose" cumulative={isCumulative.delete} onCumulativeChange={(v) => setIsCumulative({ ...isCumulative, delete: v })} showAdvanced={true} />
+                                                    <div className="grid grid-cols-2 gap-3">
+                                                        <SmartLimitInput label="Create" value={crudRatesAnon.create} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, create: v })} color="emerald" cumulative={isCumulative.create} onCumulativeChange={(v) => setIsCumulative({ ...isCumulative, create: v })} showAdvanced={true} />
+                                                        <SmartLimitInput label="Read" value={crudRatesAnon.read} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, read: v })} color="blue" cumulative={isCumulative.read} onCumulativeChange={(v) => setIsCumulative({ ...isCumulative, read: v })} showAdvanced={true} />
+                                                        <SmartLimitInput label="Update" value={crudRatesAnon.update} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, update: v })} color="amber" cumulative={isCumulative.update} onCumulativeChange={(v) => setIsCumulative({ ...isCumulative, update: v })} showAdvanced={true} />
+                                                        <SmartLimitInput label="Delete" value={crudRatesAnon.delete} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, delete: v })} color="rose" cumulative={isCumulative.delete} onCumulativeChange={(v) => setIsCumulative({ ...isCumulative, delete: v })} showAdvanced={true} />
                                                     </div>
                                                 </div>
                                             )}
@@ -1001,20 +1001,20 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
                                     {activeModalTab === 'auth' && (
                                         <div className="space-y-4 animate-in fade-in">
                                             <div className="grid grid-cols-3 gap-4">
-                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase">Rate</label><input type="number" value={rateAuth} onChange={e => setRateAuth(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center text-indigo-700 bg-indigo-50" /></div>
-                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase">Burst</label><input type="number" value={burstAuth} onChange={e => setBurstAuth(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center text-indigo-700 bg-indigo-50" /></div>
-                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase">Seconds</label><input type="number" value={windowSec} onChange={e => setWindowSec(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center" /></div>
+                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase cursor-help" title="Requests per second limit">Rate</label><input type="number" value={rateAuth} onChange={e => setRateAuth(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center text-indigo-700 bg-indigo-50" /></div>
+                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase cursor-help" title="Extra capacity allowed for traffic spikes">Burst</label><input type="number" value={burstAuth} onChange={e => setBurstAuth(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center text-indigo-700 bg-indigo-50" /></div>
+                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase cursor-help" title="Window duration in seconds">Seconds</label><input type="number" value={windowSec} onChange={e => setWindowSec(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center" /></div>
                                             </div>
 
                                             {targetType === 'table' && (
                                                 <div className="bg-white p-4 rounded-2xl border border-slate-100 mt-4">
                                                     <h4 className="text-[10px] font-black uppercase text-indigo-400 mb-3 tracking-widest">Advanced CRUD Limits</h4>
-                                                    <div className="grid grid-cols-4 gap-3">
+                                                    <div className="grid grid-cols-2 gap-3">
                                                         {[
-                                                            { op: 'create', label: 'Create / Envios', color: 'emerald' },
-                                                            { op: 'read', label: 'Read / Consultas', color: 'blue' },
-                                                            { op: 'update', label: 'Update / Edições', color: 'amber' },
-                                                            { op: 'delete', label: 'Delete / Remoções', color: 'rose' }
+                                                            { op: 'create', label: 'Create', color: 'emerald' },
+                                                            { op: 'read', label: 'Read', color: 'blue' },
+                                                            { op: 'update', label: 'Update', color: 'amber' },
+                                                            { op: 'delete', label: 'Delete', color: 'rose' }
                                                         ].map(({ op, label, color }) => (
                                                             <SmartLimitInput
                                                                 key={op}
@@ -1063,17 +1063,17 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
                                                                 <button onClick={() => handleRemoveGroupFromRule(gid)} className="text-slate-300 hover:text-rose-500"><X size={14} /></button>
                                                             </div>
                                                             <div className="grid grid-cols-2 gap-2 mb-3">
-                                                                <div className="flex items-center gap-1"><span className="text-[9px] font-bold text-slate-400 uppercase w-8">Rate</span><input type="number" value={limits.rate} onChange={(e) => setGroupLimits({ ...groupLimits, [gid]: { ...limits, rate: parseInt(e.target.value) } })} className="w-12 text-center bg-slate-50 rounded border-none text-[10px] font-bold" /></div>
-                                                                <div className="flex items-center gap-1"><span className="text-[9px] font-bold text-slate-400 uppercase w-8">Burst</span><input type="number" value={limits.burst} onChange={(e) => setGroupLimits({ ...groupLimits, [gid]: { ...limits, burst: parseInt(e.target.value) } })} className="w-12 text-center bg-slate-50 rounded border-none text-[10px] font-bold" /></div>
+                                                                <div className="flex items-center gap-1"><span className="text-[9px] font-bold text-slate-400 uppercase w-8 cursor-help" title="Requests per second limit">Rate</span><input type="number" value={limits.rate} onChange={(e) => setGroupLimits({ ...groupLimits, [gid]: { ...limits, rate: parseInt(e.target.value) } })} className="w-12 text-center bg-slate-50 rounded border-none text-[10px] font-bold" /></div>
+                                                                <div className="flex items-center gap-1"><span className="text-[9px] font-bold text-slate-400 uppercase w-8 cursor-help" title="Extra capacity allowed for traffic spikes">Burst</span><input type="number" value={limits.burst} onChange={(e) => setGroupLimits({ ...groupLimits, [gid]: { ...limits, burst: parseInt(e.target.value) } })} className="w-12 text-center bg-slate-50 rounded border-none text-[10px] font-bold" /></div>
                                                             </div>
 
                                                             {targetType === 'table' && (
-                                                                <div className="grid grid-cols-4 gap-1 pt-2 border-t border-slate-100">
+                                                                <div className="grid grid-cols-2 gap-1 pt-2 border-t border-slate-100">
                                                                     {[
-                                                                        { op: 'create', label: 'Envios', color: 'bg-emerald-50 text-emerald-700' },
-                                                                        { op: 'read', label: 'Consultas', color: 'bg-blue-50 text-blue-700' },
-                                                                        { op: 'update', label: 'Edições', color: 'bg-amber-50 text-amber-700' },
-                                                                        { op: 'delete', label: 'Remoções', color: 'bg-rose-50 text-rose-700' }
+                                                                        { op: 'create', label: 'Create', color: 'bg-emerald-50 text-emerald-700' },
+                                                                        { op: 'read', label: 'Read', color: 'bg-blue-50 text-blue-700' },
+                                                                        { op: 'update', label: 'Update', color: 'bg-amber-50 text-amber-700' },
+                                                                        { op: 'delete', label: 'Delete', color: 'bg-rose-50 text-rose-700' }
                                                                     ].map(({ op, label, color }) => (
                                                                         <div key={op} className="flex flex-col items-center">
                                                                             <span className="text-[8px] font-black uppercase text-slate-300 mb-1">{label}</span>
@@ -1126,15 +1126,15 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
                             {/* Base Limits */}
                             <div className="grid grid-cols-3 gap-4">
                                 <div>
-                                    <label className="text-[9px] font-bold text-slate-400 uppercase">Rate</label>
+                                    <label className="text-[9px] font-bold text-slate-400 uppercase cursor-help" title="Requests per second limit">Rate</label>
                                     <input type="number" value={newGroupConfig.rate} onChange={e => setNewGroupConfig({ ...newGroupConfig, rate: parseInt(e.target.value) })} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center" />
                                 </div>
                                 <div>
-                                    <label className="text-[9px] font-bold text-slate-400 uppercase">Burst</label>
+                                    <label className="text-[9px] font-bold text-slate-400 uppercase cursor-help" title="Extra capacity allowed for traffic spikes">Burst</label>
                                     <input type="number" value={newGroupConfig.burst} onChange={e => setNewGroupConfig({ ...newGroupConfig, burst: parseInt(e.target.value) })} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center" />
                                 </div>
                                 <div>
-                                    <label className="text-[9px] font-bold text-slate-400 uppercase">Seconds</label>
+                                    <label className="text-[9px] font-bold text-slate-400 uppercase cursor-help" title="Window duration in seconds">Seconds</label>
                                     <input type="number" value={newGroupConfig.seconds} onChange={e => setNewGroupConfig({ ...newGroupConfig, seconds: parseInt(e.target.value) })} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center" />
                                 </div>
                             </div>
