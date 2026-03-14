@@ -63,7 +63,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
   const [stats, setStats] = useState<Record<string, AutomationStats>>({});
   const [runsFilter, setRunsFilter] = useState<string | null>(null);
   const [vaultSecrets, setVaultSecrets] = useState<any[]>([]);
-  const [webhookReceivers, setWebhookReceivers] = useState<any[]>([]); // SYNERGY: Webhook In
+  // webhookReceivers removed as it's now integrated directly into trigger nodes
   const [showVariablePicker, setShowVariablePicker] = useState<{ 
     nodeId: string, 
     field: string, 
@@ -215,18 +215,10 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
     } catch (e) { console.error("Function def fetch error"); }
   };
 
-  const fetchWebhookReceivers = async () => {
-    try {
-      const res = await fetch(`/api/webhooks/${projectId}/receivers`, {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` }
-      });
-      const data = await res.json();
-      setWebhookReceivers(Array.isArray(data) ? data : []);
-    } catch (e) { console.error("Webhook receivers fetch error"); }
-  };
+
 
   useEffect(() => { 
-      Promise.all([fetchAutomations(), fetchRuns(), fetchStats(), fetchTables(), fetchVault(), fetchFunctions(), fetchWebhookReceivers()]).then(() => setLoading(false)); 
+      Promise.all([fetchAutomations(), fetchRuns(), fetchStats(), fetchTables(), fetchVault(), fetchFunctions()]).then(() => setLoading(false)); 
   }, [projectId]);
 
   useEffect(() => {
@@ -459,7 +451,10 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
       const res = await fetch(`/api/data/${projectId}/automations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({
+           ...payload,
+           id: editingAutomation.id // CRITICAL FIX: Ensure ID is passed for UPDATES to avoid 409 Conflict
+        })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || data.message || 'Falha ao salvar workflow');
@@ -780,22 +775,61 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                          </div>
 
                          {editingAutomation?.trigger_type === 'WEBHOOK_IN' ? (
-                            <div className="space-y-4">
-                               <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Webhook Receiver</label>
-                               <select 
-                                  value={editingAutomation?.trigger_config?.receiver_id || ''}
-                                  onChange={(e) => setEditingAutomation({...editingAutomation, trigger_config: {...(editingAutomation.trigger_config || {}), receiver_id: e.target.value}})}
-                                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10"
-                               >
-                                  <option value="">Selecione um Receiver</option>
-                                  {webhookReceivers.map(r => <option key={r.id} value={r.id}>{r.name} ({r.path_slug})</option>)}
-                               </select>
-                               {webhookReceivers.length === 0 && (
-                                  <div className="bg-rose-50 border border-rose-100 rounded-2xl p-4 text-center">
-                                     <p className="text-[10px] text-rose-500 font-bold uppercase tracking-widest">Nenhum Webhook Receiver configurado.</p>
-                                     <button className="text-[9px] font-black text-rose-600 hover:underline mt-1">CONFIGURAR EVENTOS EXTERNOS</button>
+                            <div className="space-y-6">
+                               <div className="space-y-4">
+                                  <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Configuração do Endpoint</label>
+                                  <div className="flex gap-4">
+                                     <div className="flex-1 space-y-2">
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase">URL Slug / Path</p>
+                                        <input 
+                                          className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10" 
+                                          placeholder="ex: order-paid"
+                                          value={editingAutomation?.trigger_config?.path_slug || ''}
+                                          onChange={(e) => setEditingAutomation({...editingAutomation, trigger_config: {...(editingAutomation.trigger_config || {}), path_slug: e.target.value}})}
+                                        />
+                                     </div>
                                   </div>
-                               )}
+                               </div>
+
+                               <div className="space-y-4">
+                                  <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Segurança (HMAC SHA256)</label>
+                                  <div className="space-y-4">
+                                     <select 
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold"
+                                        value={editingAutomation?.trigger_config?.auth_method || 'none'}
+                                        onChange={(e) => setEditingAutomation({...editingAutomation, trigger_config: {...(editingAutomation.trigger_config || {}), auth_method: e.target.value}})}
+                                     >
+                                        <option value="none">Nenhuma (Público)</option>
+                                        <option value="hmac_sha256">Assinatura HMAC SHA256</option>
+                                     </select>
+                                     
+                                     {editingAutomation?.trigger_config?.auth_method === 'hmac_sha256' && (
+                                        <div className="space-y-2">
+                                           <p className="text-[10px] text-slate-400 font-bold uppercase">Chave Secreta</p>
+                                           <input 
+                                             type="password"
+                                             className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10" 
+                                             placeholder="Sua-Chave-Ultra-Secreta"
+                                             value={editingAutomation?.trigger_config?.secret_key || ''}
+                                             onChange={(e) => setEditingAutomation({...editingAutomation, trigger_config: {...(editingAutomation.trigger_config || {}), secret_key: e.target.value}})}
+                                           />
+                                        </div>
+                                     )}
+                                  </div>
+                               </div>
+
+                               <div className="bg-indigo-50/50 border border-indigo-100/50 rounded-[2.5rem] p-8 space-y-4">
+                                  <div className="flex items-center gap-3">
+                                     <Globe size={18} className="text-indigo-600"/>
+                                     <h4 className="text-[10px] font-black text-slate-900 uppercase tracking-widest">Seu Endpoint é:</h4>
+                                  </div>
+                                  <code className="block bg-white p-6 rounded-2xl text-[10px] font-bold text-indigo-700 break-all border border-indigo-100 shadow-sm">
+                                     {window.location.protocol}//{window.location.host}/api/webhooks/in/{projectId}/{editingAutomation?.trigger_config?.path_slug || ':slug'}
+                                  </code>
+                                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tight text-center">
+                                     Envie POST JSON para esta URL. O payload estará disponível em <span className="text-indigo-600">{"{{trigger.data}}"}</span>
+                                  </p>
+                               </div>
                             </div>
                          ) : (
                             <>
