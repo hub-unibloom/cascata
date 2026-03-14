@@ -120,6 +120,10 @@ export class AdminController {
                 await tempClient.end().catch(console.error);
             }
             try { await axios.put(`http://${process.env.QDRANT_HOST}:6333/collections/${safeSlug}`, { vectors: { size: 1536, distance: 'Cosine' } }); } catch (e) { }
+            
+            // BORN SECURE: Populate default auth rate limits
+            await AdminController.createDefaultAuthRules(safeSlug);
+
             await CertificateService.rebuildNginxConfigs(systemPool);
             res.json({ ...insertRes.rows[0], anon_key: keys.anon, service_key: keys.service, jwt_secret: keys.jwt });
         } catch (e: any) {
@@ -158,7 +162,10 @@ export class AdminController {
                 [name, safeSlug, dbName, keys.anon, keys.service, keys.jwt, SYS_SECRET, JSON.stringify({ recovered: true, recovered_at: new Date().toISOString() })]
             );
 
-            // 4. Rebuild nginx configs
+            // 4. Born Secure: Populate default auth rate limits
+            await AdminController.createDefaultAuthRules(safeSlug);
+
+            // 5. Rebuild nginx configs
             await CertificateService.rebuildNginxConfigs(systemPool);
 
             console.log(`[AdminController] Recovered orphan project: ${safeSlug} → ${dbName}`);
@@ -673,5 +680,27 @@ export class AdminController {
             // Fallback to local address if external service is down
             res.json({ ip: 'Local/Discovery Mode' });
         }
+    }
+
+    private static async createDefaultAuthRules(slug: string) {
+        const defaultRules = [
+            { pattern: 'auth:otp_request', name: 'OTP Requests', rate: 3, burst: 5, secs: 60 },
+            { pattern: 'auth:login', name: 'Login Attempts', rate: 5, burst: 10, secs: 60 },
+            { pattern: 'auth:recovery', name: 'Account Recovery', rate: 2, burst: 3, secs: 3600 },
+            { pattern: 'auth:signup', name: 'New Signups', rate: 5, burst: 5, secs: 3600 },
+            { pattern: 'auth:verify', name: 'OTP Verifications', rate: 10, burst: 20, secs: 60 },
+            { pattern: 'auth:update_user', name: 'Profile/Security Updates', rate: 5, burst: 5, secs: 60 }
+        ];
+
+        for (const r of defaultRules) {
+            await systemPool.query(
+                `INSERT INTO system.rate_limits (project_slug, route_pattern, method, rate_limit, burst_limit, window_seconds, is_active) 
+                 VALUES ($1, $2, 'ALL', $3, $4, $5, true)
+                 ON CONFLICT DO NOTHING`,
+                [slug, r.pattern, r.rate, r.burst, r.secs]
+            );
+        }
+        // Force immediate rules reload for this project
+        await RateLimitService.refreshGlobalSettings().catch(() => {});
     }
 }
