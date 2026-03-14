@@ -266,9 +266,21 @@ export class DataAuthController {
 
     static async verifyChallenge(req: CascataRequest, res: any, next: any) {
         const deviceInfo = DataAuthController.getDeviceInfo(req);
+        const { provider, identifier, code } = req.body;
+        const secConfig = DataAuthController.getSecurityConfig(req);
+
         try {
-            const profile = await AuthService.verifyPasswordless(req.projectPool!, req.body.provider, req.body.identifier, req.body.code);
+            // FIREWALL: Check for lockout
+            if (identifier) {
+                const lockout = await RateLimitService.checkAuthLockout(req.project.slug, deviceInfo.ip!, identifier, secConfig);
+                if (lockout.locked) return res.status(429).json({ error: lockout.reason });
+            }
+
+            const profile = await AuthService.verifyPasswordless(req.projectPool!, provider, identifier, code);
             const userId = await AuthService.upsertUser(req.projectPool!, profile);
+
+            // Success: Clear failures
+            if (identifier) await RateLimitService.clearAuthFailure(req.project.slug, deviceInfo.ip!, identifier);
 
             const session = await AuthService.createSession(
                 userId,
@@ -276,7 +288,7 @@ export class DataAuthController {
                 req.project.jwt_secret,
                 '1h',
                 30,
-                req.body.provider,
+                provider,
                 deviceInfo
             );
 
@@ -290,7 +302,11 @@ export class DataAuthController {
 
             DataAuthController.setAuthCookies(res, session);
             res.json({ ...session, otp_stepup_token: stepUpToken });
-        } catch (e: any) { next(e); }
+        } catch (e: any) {
+            // Register failure on error
+            if (identifier) await RateLimitService.registerAuthFailure(req.project.slug, deviceInfo.ip!, identifier, secConfig);
+            next(e);
+        }
     }
 
     static async getUserSessions(req: CascataRequest, res: any, next: any) {
@@ -491,11 +507,17 @@ export class DataAuthController {
     }
 
     static async goTrueRecover(req: CascataRequest, res: any, next: any) {
-        try {
-            const identifier = req.body.identifier || req.body.email;
-            const provider = req.body.provider || 'email';
+        const deviceInfo = DataAuthController.getDeviceInfo(req);
+        const secConfig = DataAuthController.getSecurityConfig(req);
+        const identifier = req.body.identifier || req.body.email;
+        const provider = req.body.provider || 'email';
 
+        try {
             if (!identifier) return res.status(400).json({ error: "Identifier (or email) is required" });
+
+            // FIREWALL: Recovery Throttling
+            const lockout = await RateLimitService.checkAuthLockout(req.project.slug, deviceInfo.ip!, identifier, secConfig);
+            if (lockout.locked) return res.status(429).json({ error: lockout.reason });
 
             const projectUrl = req.project.metadata?.auth_config?.site_url || `https://${req.headers.host}`;
             const emailConfig = req.project.metadata?.auth_config?.auth_strategies?.email || { delivery_method: 'smtp' };
@@ -515,7 +537,11 @@ export class DataAuthController {
             );
 
             res.json({ success: true, message: "If an account exists, a recovery instruction was sent." });
-        } catch (e: any) { next(e); }
+        } catch (e: any) {
+            // Register failure for suspicious recovery spam
+            if (identifier) await RateLimitService.registerAuthFailure(req.project.slug, deviceInfo.ip!, identifier, secConfig);
+            next(e);
+        }
     }
 
     private static maskIdentifier(provider: string, id: string): string {
@@ -530,6 +556,7 @@ export class DataAuthController {
 
     static async goTrueUpdateUser(req: CascataRequest, res: any, next: any) {
         if (!req.user?.sub) return res.status(401).json({ error: "unauthorized" });
+        const deviceInfo = DataAuthController.getDeviceInfo(req);
         try {
             const userId = req.user.sub;
             const provider = req.body.provider || 'email';
@@ -621,7 +648,16 @@ export class DataAuthController {
                 }
 
                 // Extremely secure verification (With built-in Timing-Attack defense)
-                await AuthService.verifyPasswordless(req.projectPool!, validationProvider, validationIdentifier, reqOtp);
+                try {
+                    await AuthService.verifyPasswordless(req.projectPool!, validationProvider, validationIdentifier, reqOtp);
+                    // Clear failures on success
+                    await RateLimitService.clearAuthFailure(req.project.slug, deviceInfo.ip!, validationIdentifier);
+                } catch (err: any) {
+                    // Register failure on OTP error within Bank-Grade lock
+                    const secConfig = DataAuthController.getSecurityConfig(req);
+                    await RateLimitService.registerAuthFailure(req.project.slug, deviceInfo.ip!, validationIdentifier, secConfig);
+                    throw err;
+                }
             }
 
             const updatedUser = await GoTrueService.handleUpdateUser(req.projectPool!, userId, req.body);

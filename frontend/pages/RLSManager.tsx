@@ -166,22 +166,28 @@ const RLSTab: React.FC<{ projectId: string }> = ({ projectId }) => {
 
 // HELPER: Smart Input for Rate Limit
 const SmartLimitInput: React.FC<{
-    label: string;
-    value: string | number;
-    onChange: (val: string | number) => void;
-    weight?: number;
-    onWeightChange?: (val: number) => void;
-    cumulative?: boolean;
-    onCumulativeChange?: (val: boolean) => void;
-    color?: string;
-    showAdvanced?: boolean;
-}> = ({ label, value, onChange, weight = 1, onWeightChange, cumulative = false, onCumulativeChange, color = 'slate', showAdvanced = false }) => {
-    const isInf = value === 'inf' || value === -1;
+    label: string,
+    value: number,
+    onChange: (v: number) => void,
+    weight?: number,
+    onWeightChange?: (v: number) => void,
+    cumulative?: boolean,
+    onCumulativeChange?: (v: boolean) => void,
+    showAdvanced?: boolean,
+    color?: string,
+    windowSec?: number
+}> = ({ label, value, onChange, weight, onWeightChange, cumulative, onCumulativeChange, showAdvanced, color = 'indigo', windowSec = 1 }) => {
+    const isInf = value === -1;
 
     return (
         <div className="flex flex-col gap-1">
             <div className="flex justify-between items-center px-1">
-                <label className="text-[9px] font-bold text-slate-400 uppercase cursor-help" title="Max requests allowed in this window">{label}</label>
+                <label 
+                    className="text-[9px] font-bold text-slate-400 uppercase cursor-help" 
+                    title={`Maximum allowed "${label}" requests per window. E.g., if set to ${value === -1 ? '1000' : value}, a user can only perform "${label}" ${value === -1 ? 'infinitely' : value} times every ${windowSec} second(s).`}
+                >
+                    {label}
+                </label>
                 {showAdvanced && onCumulativeChange && (
                     <button
                         onClick={() => onCumulativeChange(!cumulative)}
@@ -203,7 +209,12 @@ const SmartLimitInput: React.FC<{
 
                 {showAdvanced && onWeightChange && (
                     <div className="flex items-center gap-1 px-3 border-l border-slate-100 bg-slate-50">
-                        <span className="text-[9px] font-black text-slate-400 cursor-help" title="Operation Weight: Cost of each request (e.g., Create costs 5 units)">W</span>
+                        <span 
+                            className="text-[9px] font-black text-slate-400 cursor-help" 
+                            title={`Operation Weight: The "Cost" of a single "${label}". If Weight=${weight || 1}, one "${label}" call consumes ${weight || 1} units from the global Rate Limit. Higher weights make this operation more "expensive".`}
+                        >
+                            W
+                        </span>
                         <input
                             type="number"
                             min="1"
@@ -290,6 +301,19 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
         default_weights: { read: 1, create: 1, update: 1, delete: 1 },
         nerf: { enabled: false, delay: 300, stop_after: 3600, mode: 'speed', speed_pct: 10 }
     });
+
+    const getDynamicTooltip = (param: 'rate' | 'burst' | 'window') => {
+        const target = targetType === 'global' ? 'the entire API' 
+                     : targetType === 'auth' ? (targetEntity ? `auth:${targetEntity} actions` : 'all auth routes')
+                     : targetType === 'table' ? `the '${targetEntity || 'selected'}' table`
+                     : targetType === 'rpc' ? `the '${targetEntity || 'selected'}' function`
+                     : 'this target';
+
+        if (param === 'rate') return `Allows ${activeModalTab === 'auth' ? rateAuth : rateAnon} requests for ${target} every ${windowSec}s.`;
+        if (param === 'burst') return `Temporary buffer for ${target}. Allows +${activeModalTab === 'auth' ? burstAuth : burstAnon} extra requests to handle spikes.`;
+        if (param === 'window') return `The time window for ${target}. Resets the quota every ${windowSec}s.`;
+        return '';
+    };
 
     const [executing, setExecuting] = useState(false);
     const [expandedGroup, setExpandedGroup] = useState<string | null>(null); // For Accordion
@@ -452,7 +476,7 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
         let method = 'ALL';
 
         if (targetType === 'global') routePattern = '*';
-        else if (targetType === 'auth') routePattern = 'auth:*';
+        else if (targetType === 'auth') routePattern = targetEntity ? `auth:${targetEntity}` : 'auth:*';
         else if (targetType === 'table') {
             if (!targetEntity) { alert("Select a table."); return; }
             routePattern = `table:${targetEntity}`;
@@ -921,6 +945,26 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
                                     </div>
                                 )}
 
+                                {targetType === 'auth' && (
+                                    <div className="animate-in fade-in slide-in-from-top-2">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Select Auth Action</label>
+                                        <select
+                                            value={targetEntity}
+                                            onChange={(e) => setTargetEntity(e.target.value)}
+                                            className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-indigo-500/10"
+                                        >
+                                            <option value="">All Auth Routes (*)</option>
+                                            <option value="login">Login Attempts</option>
+                                            <option value="otp_request">OTP Requests</option>
+                                            <option value="recovery">Recovery / Magic Link</option>
+                                            <option value="signup">New Signups</option>
+                                            <option value="verify">Verification (Codes/Tokens)</option>
+                                            <option value="update_user">Update Profile / Password</option>
+                                        </select>
+                                        <p className="text-[9px] text-slate-400 font-bold mt-2 uppercase tracking-tighter">Granular protection for sensitive identity flows.</p>
+                                    </div>
+                                )}
+
                                 <div>
                                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">2. Security Level</label>
                                     <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 mb-6 shadow-sm">
@@ -977,19 +1021,19 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
                                     {activeModalTab === 'anon' && (
                                         <div className="space-y-4 animate-in fade-in">
                                             <div className="grid grid-cols-3 gap-4">
-                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase cursor-help" title="Requests per second limit">Rate</label><input type="number" value={rateAnon} onChange={e => setRateAnon(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center" /></div>
-                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase cursor-help" title="Extra capacity allowed for traffic spikes">Burst</label><input type="number" value={burstAnon} onChange={e => setBurstAnon(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center" /></div>
-                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase cursor-help" title="Window duration in seconds">Seconds</label><input type="number" value={windowSec} onChange={e => setWindowSec(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center" /></div>
+                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase cursor-help" title={getDynamicTooltip('rate')}>Rate</label><input type="number" value={rateAnon} onChange={e => setRateAnon(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center" /></div>
+                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase cursor-help" title={getDynamicTooltip('burst')}>Burst</label><input type="number" value={burstAnon} onChange={e => setBurstAnon(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center" /></div>
+                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase cursor-help" title={getDynamicTooltip('window')}>Seconds</label><input type="number" value={windowSec} onChange={e => setWindowSec(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center" /></div>
                                             </div>
 
                                             {targetType === 'table' && (
                                                 <div className="bg-white p-4 rounded-2xl border border-slate-100 mt-4">
                                                     <h4 className="text-[10px] font-black uppercase text-indigo-400 mb-3 tracking-widest">Advanced CRUD Limits</h4>
                                                     <div className="grid grid-cols-2 gap-3">
-                                                        <SmartLimitInput label="Create" value={crudRatesAnon.create} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, create: v })} color="emerald" cumulative={isCumulative.create} onCumulativeChange={(v) => setIsCumulative({ ...isCumulative, create: v })} showAdvanced={true} />
-                                                        <SmartLimitInput label="Read" value={crudRatesAnon.read} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, read: v })} color="blue" cumulative={isCumulative.read} onCumulativeChange={(v) => setIsCumulative({ ...isCumulative, read: v })} showAdvanced={true} />
-                                                        <SmartLimitInput label="Update" value={crudRatesAnon.update} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, update: v })} color="amber" cumulative={isCumulative.update} onCumulativeChange={(v) => setIsCumulative({ ...isCumulative, update: v })} showAdvanced={true} />
-                                                        <SmartLimitInput label="Delete" value={crudRatesAnon.delete} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, delete: v })} color="rose" cumulative={isCumulative.delete} onCumulativeChange={(v) => setIsCumulative({ ...isCumulative, delete: v })} showAdvanced={true} />
+                                                        <SmartLimitInput label="Create" value={crudRatesAnon.create} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, create: v })} color="emerald" cumulative={isCumulative.create} onCumulativeChange={(v) => setIsCumulative({ ...isCumulative, create: v })} showAdvanced={true} windowSec={windowSec} />
+                                                        <SmartLimitInput label="Read" value={crudRatesAnon.read} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, read: v })} color="blue" cumulative={isCumulative.read} onCumulativeChange={(v) => setIsCumulative({ ...isCumulative, read: v })} showAdvanced={true} windowSec={windowSec} />
+                                                        <SmartLimitInput label="Update" value={crudRatesAnon.update} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, update: v })} color="amber" cumulative={isCumulative.update} onCumulativeChange={(v) => setIsCumulative({ ...isCumulative, update: v })} showAdvanced={true} windowSec={windowSec} />
+                                                        <SmartLimitInput label="Delete" value={crudRatesAnon.delete} onChange={v => setCrudRatesAnon({ ...crudRatesAnon, delete: v })} color="rose" cumulative={isCumulative.delete} onCumulativeChange={(v) => setIsCumulative({ ...isCumulative, delete: v })} showAdvanced={true} windowSec={windowSec} />
                                                     </div>
                                                 </div>
                                             )}
@@ -1001,9 +1045,9 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
                                     {activeModalTab === 'auth' && (
                                         <div className="space-y-4 animate-in fade-in">
                                             <div className="grid grid-cols-3 gap-4">
-                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase cursor-help" title="Requests per second limit">Rate</label><input type="number" value={rateAuth} onChange={e => setRateAuth(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center text-indigo-700 bg-indigo-50" /></div>
-                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase cursor-help" title="Extra capacity allowed for traffic spikes">Burst</label><input type="number" value={burstAuth} onChange={e => setBurstAuth(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center text-indigo-700 bg-indigo-50" /></div>
-                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase cursor-help" title="Window duration in seconds">Seconds</label><input type="number" value={windowSec} onChange={e => setWindowSec(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center" /></div>
+                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase cursor-help" title={getDynamicTooltip('rate')}>Rate</label><input type="number" value={rateAuth} onChange={e => setRateAuth(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center text-indigo-700 bg-indigo-50" /></div>
+                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase cursor-help" title={getDynamicTooltip('burst')}>Burst</label><input type="number" value={burstAuth} onChange={e => setBurstAuth(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center text-indigo-700 bg-indigo-50" /></div>
+                                                <div><label className="text-[9px] font-bold text-slate-400 uppercase cursor-help" title={getDynamicTooltip('window')}>Seconds</label><input type="number" value={windowSec} onChange={e => setWindowSec(parseInt(e.target.value))} className="w-full p-3 rounded-xl border border-slate-200 font-bold text-center" /></div>
                                             </div>
 
                                             {targetType === 'table' && (
@@ -1027,6 +1071,7 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
                                                                 onCumulativeChange={(v) => setIsCumulative({ ...isCumulative, [op]: v })}
                                                                 showAdvanced={true}
                                                                 color={color}
+                                                                windowSec={windowSec}
                                                             />
                                                         ))}
                                                     </div>

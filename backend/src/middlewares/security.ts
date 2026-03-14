@@ -204,7 +204,14 @@ export const dynamicRateLimiter: RequestHandler = async (req: any, res: any, nex
             }
         }
     } else if (logicalResource.includes('/auth/')) {
-        logicalResource = 'auth:*'; // Blanket auth rule matching
+        // --- GRANULAR AUTH MAPPING (Security Plus) ---
+        if (logicalResource.includes('/auth/challenge')) logicalResource = 'auth:otp_request';
+        else if (logicalResource.includes('/auth/v1/recover')) logicalResource = 'auth:recovery';
+        else if (logicalResource.includes('/auth/v1/signup')) logicalResource = 'auth:signup';
+        else if (logicalResource.includes('/auth/token') || logicalResource.includes('/auth/v1/token')) logicalResource = 'auth:login';
+        else if (logicalResource.includes('/auth/v1/verify') || logicalResource.includes('/auth/verify-challenge')) logicalResource = 'auth:verify';
+        else if (logicalResource.includes('/auth/v1/user') && (req.method === 'PUT' || req.method === 'PATCH')) logicalResource = 'auth:update_user';
+        else logicalResource = 'auth:*'; // Fallback
     } else if (logicalResource.includes('/rpc/')) {
         const rpcName = logicalResource.replace('/rpc/', '').split('/')[0];
         logicalResource = `rpc:${rpcName}`;

@@ -590,7 +590,32 @@ export class RateLimitService {
     private static async loadRules(projectSlug: string, systemPool: Pool) {
         try {
             const res = await systemPool.query(`SELECT * FROM system.rate_limits WHERE project_slug = $1`, [projectSlug]);
-            this.rulesCache.set(projectSlug, res.rows);
+            const rules = res.rows || [];
+
+            // Specificity-based Sorting: Exact > Prefix > Global
+            rules.sort((a, b) => {
+                const patA = a.route_pattern || '';
+                const patB = b.route_pattern || '';
+
+                if (patA === patB) return 0;
+                if (patA === '*') return 1;
+                if (patB === '*') return -1;
+
+                const isPrefixA = patA.endsWith('*');
+                const isPrefixB = patB.endsWith('*');
+
+                if (!isPrefixA && isPrefixB) return -1;
+                if (isPrefixA && !isPrefixB) return 1;
+
+                if (isPrefixA && isPrefixB) {
+                    // Longer prefix is more specific
+                    return patB.length - patA.length;
+                }
+
+                return 0; // Both exact
+            });
+
+            this.rulesCache.set(projectSlug, rules);
         } catch (e) { this.rulesCache.set(projectSlug, []); }
     }
 
