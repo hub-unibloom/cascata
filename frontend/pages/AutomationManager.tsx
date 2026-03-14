@@ -372,15 +372,20 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
     setNodes((prevNodes: Node[]) => prevNodes.map((n: Node) => {
       if (n.id !== nodeId) return n;
       const nextConfig = { ...n.config };
-      
+      const append = (val: string, newPath: string) => {
+        if (!val) return newPath;
+        if (val.includes(newPath)) return val; // Avoid duplicates
+        return val + " " + newPath; // SYNERGY: Multiple triggers per field
+      };
+
       if (type === 'headers') {
-        nextConfig.headers = { ...(nextConfig.headers || {}), [field]: path };
+        nextConfig.headers = { ...(nextConfig.headers || {}), [field]: append(nextConfig.headers?.[field], path) };
       } else if (type === 'body') {
-        nextConfig.body = { ...(nextConfig.body || {}), [field]: path };
+        nextConfig.body = { ...(nextConfig.body || {}), [field]: append(nextConfig.body?.[field], path) };
       } else if (type === 'url') {
-        nextConfig.url = path;
+        nextConfig.url = append(nextConfig.url, path);
       } else if (type === 'rpc_arg') {
-        nextConfig.args = { ...(nextConfig.args || {}), [field]: path };
+        nextConfig.args = { ...(nextConfig.args || {}), [field]: append(nextConfig.args?.[field], path) };
       } else if (field.includes('.')) {
         const parts = field.split('.');
         const parent = parts[0];
@@ -390,40 +395,38 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
           const idx = parseInt(idxStr);
           const np = [...(nextConfig._payload || [])];
           if (np[idx]) {
-            np[idx] = { ...np[idx], value: path }; // SYNERGY: Non-mutating update
+            np[idx] = { ...np[idx], value: append(np[idx].value, path) };
             nextConfig._payload = np;
-            // SYNERGY: Maintain flat body object for engine consistency
             nextConfig.body = Object.fromEntries(np.filter((x: any) => x.column).map((x: any) => [x.column, x.value]));
           }
         } else if (parent === 'filters') {
           const idx = parseInt(idxStr);
           const nextFilters = [...(nextConfig.filters || [])];
           if (nextFilters[idx]) {
-            nextFilters[idx] = { ...nextFilters[idx], value: path }; // SYNERGY: Non-mutating update
+            nextFilters[idx] = { ...nextFilters[idx], value: append(nextFilters[idx].value, path) };
             nextConfig.filters = nextFilters;
           }
         } else if (parent === '_customFields') {
           const idx = parseInt(idxStr);
           const ncf = [...(nextConfig._customFields || [])];
           if (ncf[idx]) {
-             ncf[idx] = { ...ncf[idx], value: path }; // SYNERGY: Non-mutating update
+             ncf[idx] = { ...ncf[idx], value: append(ncf[idx].value, path) };
              nextConfig._customFields = ncf;
-             // SYNERGY: Auto-merge with visual fields for response payloads
              nextConfig.body = {
                ...(nextConfig._fields || {}),
                ...Object.fromEntries(ncf.filter((x: any) => x.key).map((x: any) => [x.key, x.value]))
              };
           }
         } else if (parent === '_rpcArgs') {
-           nextConfig.args = { ...(nextConfig.args || {}), [idxStr]: path };
+           nextConfig.args = { ...(nextConfig.args || {}), [idxStr]: append(nextConfig.args?.[idxStr], path) };
         }
       } else if (type === 'config') {
-        nextConfig[field] = path;
+        nextConfig[field] = append(nextConfig[field], path);
       } else if (type === 'custom_field') {
         const idx = parseInt(field);
         const ncf = [...(nextConfig._customFields || [])];
         if (ncf[idx]) {
-           ncf[idx].value = path;
+           ncf[idx].value = append(ncf[idx].value, path);
            nextConfig._customFields = ncf;
         }
       }
@@ -490,9 +493,13 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
   };
 
   const handlePortClick = (nodeId: string, port: 'out' | 'true' | 'false' | 'error') => {
-    if (connectingFrom) {
-       // Cannot connect to itself
-       if (connectingFrom.id === nodeId) { setConnectingFrom(null); return; }
+     if (connectingFrom) {
+        // Cannot connect to itself or to a trigger node
+        const targetNode = nodes.find(n => n.id === nodeId);
+        if (connectingFrom.id === nodeId || targetNode?.type === 'trigger') { 
+           setConnectingFrom(null); 
+           return; 
+        }
        
        // Success connection
        setNodes(nodes.map((n: Node) => {
@@ -604,8 +611,8 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                         strokeWidth="3" fill="none" className="opacity-40 animate-dash" 
                         strokeDasharray="8 8"
                       />
-                      <foreignObject x={(startX+endX)/2 - 12} y={(startY+endY)/2 - 12} width="24" height="24" className="pointer-events-auto">
-                        <button onClick={() => disconnect(node.id, conn.toId, conn.port)} className="w-6 h-6 bg-white border border-slate-200 rounded-full flex items-center justify-center text-slate-300 hover:text-rose-600 hover:border-rose-100 shadow-sm transition-all"><Unlink size={10}/></button>
+                      <foreignObject x={(startX+endX)/2 - 12} y={(startY+endY)/2 - 12} width="24" height="24" className="pointer-events-auto z-50">
+                        <button onClick={(e) => { e.stopPropagation(); disconnect(node.id, conn.toId, conn.port); }} className="w-6 h-6 bg-white border border-slate-200 rounded-full flex items-center justify-center text-slate-300 hover:text-rose-600 hover:border-rose-100 shadow-sm transition-all"><Unlink size={10}/></button>
                       </foreignObject>
                    </g>
                  );
@@ -614,11 +621,11 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
           </svg>
 
           {/* NODES */}
-          <div className="absolute inset-0 z-10 p-12 overflow-visible">
+          <div className="absolute inset-0 z-10 p-12 overflow-visible pointer-events-none">
             {nodes.map(node => (
               <div 
                 key={node.id} 
-                className={`absolute bg-white border ${draggedNode === node.id ? 'border-indigo-500 shadow-2xl scale-[1.02]' : 'border-slate-100 shadow-xl'} rounded-[2rem] p-6 w-[18rem] group cursor-grab active:cursor-grabbing transition-all hover:border-indigo-200 z-20`}
+                className={`absolute bg-white border ${draggedNode === node.id ? 'border-indigo-500 shadow-2xl scale-[1.02]' : 'border-slate-100 shadow-xl'} rounded-[2rem] p-6 w-[18rem] group cursor-grab active:cursor-grabbing transition-all hover:border-indigo-200 z-20 pointer-events-auto`}
                 style={{ left: node.x, top: node.y }}
                 onMouseDown={(e) => onMouseDown(node.id, e)}
               >
@@ -648,7 +655,9 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                    </div>
                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button onClick={() => setConfigNodeId(node.id)} className="p-1.5 hover:bg-slate-50 rounded-lg text-slate-300 hover:text-indigo-600 transition-all"><Settings size={14}/></button>
-                      <button onClick={() => setNodes(nodes.filter(n => n.id !== node.id))} className="p-1.5 hover:bg-slate-50 rounded-lg text-slate-300 hover:text-rose-600 transition-all"><Trash2 size={14}/></button>
+                      {node.type !== 'trigger' && (
+                        <button onClick={() => setNodes(nodes.filter(n => n.id !== node.id))} className="p-1.5 hover:bg-slate-50 rounded-lg text-slate-300 hover:text-rose-600 transition-all"><Trash2 size={14}/></button>
+                      )}
                    </div>
                 </div>
 
@@ -658,9 +667,11 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                 </p>
 
                 {/* PORTS */}
-                <div className="port absolute -left-2.5 top-1/2 -translate-y-1/2 w-5 h-5 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center cursor-pointer hover:border-indigo-400 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'out')}>
-                   <div className="w-1.5 h-1.5 rounded-full bg-slate-200 group-hover/port:bg-indigo-400"></div>
-                </div>
+                {node.type !== 'trigger' && (
+                  <div className="port absolute -left-2.5 top-1/2 -translate-y-1/2 w-5 h-5 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center cursor-pointer hover:border-indigo-400 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'out')}>
+                     <div className="w-1.5 h-1.5 rounded-full bg-slate-200 group-hover/port:bg-indigo-400"></div>
+                  </div>
+                )}
 
                 {node.type === 'logic' ? (
                   <>
@@ -1095,7 +1106,11 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                         setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, filters: nf}} : n));
                                      }}>
                                         <option value="">Coluna...</option>
-                                        {(activeNode.config.table && columns[activeNode.config.table] || []).map((col: string) => <option key={col} value={col}>{col}</option>)}
+                                        {(activeNode.config.table && columns[activeNode.config.table] || []).map((col: string) => {
+                                           const isUsed = activeNode.config.filters.some((fltr: any, idx: number) => fltr.column === col && idx !== i);
+                                           if (isUsed) return null;
+                                           return <option key={col} value={col}>{col}</option>;
+                                        })}
                                      </select>
                                      <select className="w-16 bg-white border border-slate-200 rounded-xl px-2 py-2 text-[10px] font-bold" value={f.op} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
                                         const nf = [...activeNode.config.filters]; nf[i].op = e.target.value;
@@ -1149,19 +1164,23 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                         <div className="space-y-3">
                                            {(activeNode.config._payload || []).map((p: {column: string, value: string}, i: number) => (
                                               <div key={i} className="flex gap-2 items-center bg-slate-50 p-3 rounded-2xl border border-slate-100 group">
-                                                 <select 
-                                                   className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-bold" 
-                                                   value={p.column} 
-                                                   onChange={(e) => {
-                                                      const np = [...(activeNode.config._payload || [])];
-                                                      np[i].column = e.target.value;
-                                                      const body = Object.fromEntries(np.filter(x => x.column).map(x => [x.column, x.value]));
-                                                      setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, _payload: np, body}} : n));
-                                                   }}
-                                                 >
-                                                    <option value="">Coluna...</option>
-                                                    {(activeNode.config.table && columns[activeNode.config.table] || []).map(col => <option key={col} value={col}>{col}</option>)}
-                                                 </select>
+                                                  <select 
+                                                    className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-bold" 
+                                                    value={p.column} 
+                                                    onChange={(e) => {
+                                                       const np = [...(activeNode.config._payload || [])];
+                                                       np[i].column = e.target.value;
+                                                       const body = Object.fromEntries(np.filter(x => x.column).map(x => [x.column, x.value]));
+                                                       setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, _payload: np, body}} : n));
+                                                    }}
+                                                  >
+                                                     <option value="">Coluna...</option>
+                                                     {(activeNode.config.table && columns[activeNode.config.table] || []).map(col => {
+                                                        const isUsed = activeNode.config._payload.some((pl: any, idx: number) => pl.column === col && idx !== i);
+                                                        if (isUsed) return null;
+                                                        return <option key={col} value={col}>{col}</option>;
+                                                     })}
+                                                  </select>
                                                  
                                                  <div className="flex-[2] flex gap-2 items-center">
                                                     <input 
@@ -1192,15 +1211,33 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                            ))}
                                         </div>
 
-                                        <button 
-                                          className="w-full py-3 border border-dashed border-indigo-100 rounded-2xl text-[10px] font-black uppercase text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50/30 transition-all flex items-center justify-center gap-2" 
-                                          onClick={() => {
-                                             const np = [...(activeNode.config._payload || []), { column: '', value: '' }];
-                                             setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _payload: np}} : n));
-                                          }}
-                                        >
-                                           <Plus size={14}/> Adicionar Campo
-                                        </button>
+                                        <div className="flex gap-2">
+                                           <button 
+                                             className="flex-1 py-3 border border-dashed border-indigo-100 rounded-2xl text-[10px] font-black uppercase text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50/30 transition-all flex items-center justify-center gap-2" 
+                                             onClick={() => {
+                                                const np = [...(activeNode.config._payload || []), { column: '', value: '' }];
+                                                setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _payload: np}} : n));
+                                             }}
+                                           >
+                                              <Plus size={14}/> Adicionar Campo
+                                           </button>
+
+                                           {activeNode.config.table && columns[activeNode.config.table]?.some((c: string) => !activeNode.config._payload?.some((p: any) => p.column === c)) && (
+                                              <button 
+                                                className="px-4 py-3 border border-dashed border-emerald-100 rounded-2xl text-[10px] font-black uppercase text-emerald-500 hover:text-emerald-700 hover:bg-emerald-50/30 transition-all flex items-center justify-center gap-2"
+                                                onClick={() => {
+                                                   const allCols = columns[activeNode.config.table] || [];
+                                                   const existingCols = activeNode.config._payload?.map((p: any) => p.column) || [];
+                                                   const remainingCols = allCols.filter(c => !existingCols.includes(c));
+                                                   const newPayload = [...(activeNode.config._payload || []), ...remainingCols.map(c => ({ column: c, value: '' }))];
+                                                   const body = Object.fromEntries(newPayload.filter(x => x.column).map(x => [x.column, x.value]));
+                                                   setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, _payload: newPayload, body}} : n));
+                                                }}
+                                              >
+                                                 <Layers size={14}/> Todos
+                                              </button>
+                                           )}
+                                         </div>
                                      </div>
 
                                      <div className="bg-indigo-50/30 p-4 rounded-2xl border border-indigo-100/50">
