@@ -762,6 +762,83 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                ))}
                             </div>
                          </div>
+
+                         {/* SYNERGY: Trigger Conditions (Conditional Trigger) */}
+                         <div className="pt-8 border-t border-slate-50 space-y-8">
+                            <div className="flex items-center justify-between">
+                               <div>
+                                  <label className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                                     <Filter size={14} className="text-indigo-600"/> Gatilho Condicional (Opcional)
+                                  </label>
+                                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-1">A automação só executa se estas condições forem atendidas</p>
+                               </div>
+                               <div className="flex bg-slate-50 p-1 rounded-xl">
+                                  <button onClick={() => setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, match: 'all'}} : n))} className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase transition-all ${activeNode.config.match === 'all' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'}`}>AND</button>
+                                  <button onClick={() => setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, match: 'any'}} : n))} className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase transition-all ${activeNode.config.match === 'any' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'}`}>OR</button>
+                               </div>
+                            </div>
+
+                            <div className="space-y-4">
+                               {activeNode.config.conditions?.map((c: any, i: number) => (
+                                  <div key={i} className="bg-slate-50 rounded-[2rem] p-6 flex items-center gap-4 group animate-in slide-in-from-left-2 transition-all">
+                                     <select 
+                                       className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold"
+                                       value={c.left}
+                                       onChange={(e) => {
+                                          const nc = [...activeNode.config.conditions];
+                                          nc[i].left = e.target.value;
+                                          setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, conditions: nc}} : n));
+                                       }}
+                                     >
+                                        <option value="">Selecione a Coluna</option>
+                                        {(editingAutomation?.trigger_config?.table && columns[editingAutomation.trigger_config.table] || []).map(col => <option key={col} value={`trigger.data.${col}`}>{col}</option>)}
+                                     </select>
+                                     <select 
+                                       className="w-32 bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs font-black"
+                                       value={c.op}
+                                       onChange={(e) => {
+                                          const nc = [...activeNode.config.conditions];
+                                          nc[i].op = e.target.value;
+                                          setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, conditions: nc}} : n));
+                                       }}
+                                     >
+                                        <option value="eq">Igual a</option>
+                                        <option value="neq">Diferente de</option>
+                                        <option value="gt">Maior que</option>
+                                        <option value="lt">Menor que</option>
+                                        <option value="contains">Contém</option>
+                                        <option value="starts_with">Começa com</option>
+                                        <option value="ends_with">Termina com</option>
+                                        <option value="regex">Regex Match</option>
+                                        <option value="is_empty">Está Vazio</option>
+                                     </select>
+                                     <input 
+                                       className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold"
+                                       placeholder="Valor"
+                                       value={c.right}
+                                       onChange={(e) => {
+                                          const nc = [...activeNode.config.conditions];
+                                          nc[i].right = e.target.value;
+                                          setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, conditions: nc}} : n));
+                                       }}
+                                     />
+                                     <button className="text-slate-200 hover:text-rose-500 transition-colors" onClick={() => {
+                                        const nc = activeNode.config.conditions.filter((_: any, idx: number) => idx !== i);
+                                        setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, conditions: nc}} : n));
+                                     }}><Trash2 size={16}/></button>
+                                  </div>
+                               ))}
+                               <button 
+                                 onClick={() => {
+                                   const nc = [...(activeNode.config.conditions || []), { left: '', op: 'eq', right: '' }];
+                                   setNodes(nodes.map(n => n.id === activeNode.id ? {...n, config: {...n.config, conditions: nc}} : n));
+                                 }}
+                                 className="w-full py-4 border-2 border-dashed border-slate-100 rounded-[2rem] text-slate-300 hover:text-indigo-600 hover:border-indigo-100 transition-all font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2"
+                               >
+                                 <Plus size={14}/> Adicionar Condição do Gatilho
+                               </button>
+                            </div>
+                         </div>
                       </div>
                     )}
 

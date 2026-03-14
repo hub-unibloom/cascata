@@ -137,6 +137,21 @@ export class AutomationService {
             let currentPayload = initialPayload;
             for (const automation of matching) {
                 const nodes = automation.nodes as AutomationNode[];
+                context.vars = { 
+                    trigger: { data: currentPayload },
+                    $input: currentPayload
+                };
+
+                // SYNERGY: Check trigger filters BEFORE starting the workflow
+                const triggerNode = nodes.find(n => n.type === 'trigger');
+                if (triggerNode?.config?.conditions?.length > 0) {
+                   const matches = this.evaluateLogic(triggerNode, context);
+                   if (!matches) {
+                       console.log(`[AutomationEngine] Trigger filters did not match for ${automation.id}. Skipping.`);
+                       continue; 
+                   }
+                }
+
                 currentPayload = await this.runAutomationLogged(
                     automation.id,
                     projectSlug,
@@ -199,6 +214,11 @@ export class AutomationService {
                 const result = await this.processNode(currentNode, context);
                 context.vars[currentNode.id] = { data: result };
                 
+                if (currentNode.type === 'trigger' && currentNode.config?.conditions?.length > 0 && !result) {
+                    console.log(`[AutomationEngine] Workflow aborted: Trigger conditions not met.`);
+                    return payload;
+                }
+
                 if (currentNode.type === 'response') {
                     return result;
                 }
@@ -238,6 +258,13 @@ export class AutomationService {
         if (!node.config) return null;
         
         switch (node.type) {
+            case 'trigger':
+                // SYNERGY: Trigger behaves like a condition node if filters are present
+                if (node.config.conditions?.length > 0) {
+                    return this.evaluateLogic(node, context);
+                }
+                return context.vars['$input'] || null;
+
             case 'transform':
                 const transformed = this.resolveObject(node.config.body || node.config.template, context.vars);
                 context.vars['$output'] = transformed;
@@ -354,27 +381,7 @@ export class AutomationService {
 
             case 'logic':
             case 'condition':
-                const conditions = node.config.conditions || [node.config];
-                const matchType = node.config.match || 'all';
-                
-                const results = conditions.map((c: any) => {
-                    const leftValue = this.getVarSync(c.left, context.vars);
-                    const rightValue = c.right;
-                    switch (c.op) {
-                        case 'eq': return leftValue == rightValue;
-                        case 'neq': return leftValue != rightValue;
-                        case 'gt': return Number(leftValue) > Number(rightValue);
-                        case 'lt': return Number(leftValue) < Number(rightValue);
-                        case 'contains': return String(leftValue).includes(String(rightValue));
-                        case 'regex': try { return new RegExp(String(rightValue)).test(String(leftValue)); } catch { return false; }
-                        case 'starts_with': return String(leftValue).startsWith(String(rightValue));
-                        case 'ends_with': return String(leftValue).endsWith(String(rightValue));
-                        case 'is_empty': return leftValue === null || leftValue === undefined || leftValue === '' || (Array.isArray(leftValue) && leftValue.length === 0);
-                        default: return false;
-                    }
-                });
-
-                return matchType === 'all' ? results.every((r: any) => r) : results.some((r: any) => r);
+                return this.evaluateLogic(node, context);
 
             case 'response':
                 return this.resolveObject(node.config.body, context.vars);
@@ -663,6 +670,35 @@ export class AutomationService {
                 ]
             ).catch((e: any) => console.error('[AutomationEngine] Failed to write run log:', e.message));
         }
+    }
+
+    private static evaluateLogic(node: AutomationNode, context: AutomationContext): boolean {
+        const conditions = node.config.conditions || [];
+        if (conditions.length === 0 && (node.config.left || node.config.op)) {
+            // Support legacy single condition format
+            conditions.push(node.config);
+        }
+        
+        const matchType = node.config.match || 'all';
+        
+        const results = conditions.map((c: any) => {
+            const leftValue = this.getVarSync(c.left, context.vars);
+            const rightValue = c.right;
+            switch (c.op) {
+                case 'eq': return leftValue == rightValue;
+                case 'neq': return leftValue != rightValue;
+                case 'gt': return Number(leftValue) > Number(rightValue);
+                case 'lt': return Number(leftValue) < Number(rightValue);
+                case 'contains': return String(leftValue).includes(String(rightValue));
+                case 'regex': try { return new RegExp(String(rightValue)).test(String(leftValue)); } catch { return false; }
+                case 'starts_with': return String(leftValue).startsWith(String(rightValue));
+                case 'ends_with': return String(leftValue).endsWith(String(rightValue));
+                case 'is_empty': return leftValue === null || leftValue === undefined || leftValue === '' || (Array.isArray(leftValue) && leftValue.length === 0);
+                default: return false;
+            }
+        });
+
+        return matchType === 'all' ? results.every((r: any) => r) : results.some((r: any) => r);
     }
 
     /**

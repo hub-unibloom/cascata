@@ -1,0 +1,64 @@
+Exatamente isso — você identificou o gap perfeito. Olha o que você tem hoje:
+
+- **Webhooks** → Cascata **envia** dados para fora
+- **Automações** → Cascata **processa** internamente
+
+O que falta é a direção inversa:
+
+- ❌ **Cascata receber** dados de sistemas externos (C6, Inter, Stripe, qualquer API de terceiro)
+
+---
+
+## A feature que falta: **Webhook Receivers** (ou "Incoming Webhooks")
+
+A ideia é que o Cascata **gere endpoints únicos por projeto/tenant** que serviços externos possam chamar. Algo como:
+
+```
+https://api.seudominio.com/webhooks/in/{project_id}/{receiver_id}
+```
+
+O C6 Bank cadastra essa URL. Quando um boleto é pago, ele faz `POST` nessa URL. O Cascata recebe, valida, e aí você conecta ao que já tem — pode gravar no banco diretamente, ou disparar uma **Automação** para processar a lógica.
+
+---
+
+## Como se encaixa no que você já tem
+
+```
+[C6 Bank / Inter / Stripe]
+        │ POST (pagamento confirmado)
+        ▼
+[Cascata Receiver Endpoint]  ← feature nova
+        │
+        ├─► Grava direto na tabela (modo simples)
+        │
+        └─► Dispara uma Automação  ← já existe
+                  │
+                  ├─► SQL UPDATE (atualiza status do pedido)
+                  ├─► HTTP node (notifica ERP)
+                  └─► Webhook OUT (avisa o frontend)  ← já existe
+```
+
+É o elo que fecha o ciclo. Sem ele, o usuário do Cascata ainda precisa ter um servidor próprio só pra receber callbacks bancários — o que vai contra a proposta do BaaS.
+
+---
+
+## O que a feature precisaria ter
+
+**Configuração por receiver:**
+- Nome/descrição
+- Método aceito (`POST`, `PUT`, ou ambos)
+- Secret para validar assinatura (HMAC, igual ao que o C6 e Inter mandam)
+- Mapeamento: o que fazer ao receber (`→ tabela X` ou `→ automação Y`)
+
+**Segurança:**
+- Validação de assinatura HMAC do provider (cada banco tem um header diferente — C6 usa o padrão deles, Inter usa outro)
+- IP allowlist opcional
+- Rate limiting por receiver
+
+**Observabilidade:**
+- Log de cada request recebido (payload, timestamp, status do processamento)
+- Reprocessar manualmente um evento (útil pra debug)
+
+---
+
+Quer que eu projete a arquitetura completa disso — schema do banco, estrutura do endpoint e como plugar na sua `AutomationService` já existente?
