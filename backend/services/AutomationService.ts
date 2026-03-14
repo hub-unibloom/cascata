@@ -137,7 +137,7 @@ export class AutomationService {
             let currentPayload = initialPayload;
             for (const automation of matching) {
                 const nodes = automation.nodes as AutomationNode[];
-                context.vars = { 
+                context.vars = {
                     trigger: { data: currentPayload },
                     $input: currentPayload
                 };
@@ -145,11 +145,11 @@ export class AutomationService {
                 // SYNERGY: Check trigger filters BEFORE starting the workflow
                 const triggerNode = nodes.find(n => n.type === 'trigger');
                 if (triggerNode && triggerNode.config?.conditions?.length > 0) {
-                   const matches = this.evaluateLogic(triggerNode, context);
-                   if (!matches) {
-                       console.log(`[AutomationEngine] Trigger filters did not match for ${automation.id}. Skipping.`);
-                       continue; 
-                   }
+                    const matches = this.evaluateLogic(triggerNode, context);
+                    if (!matches) {
+                        console.log(`[AutomationEngine] Trigger filters did not match for ${automation.id}. Skipping.`);
+                        continue;
+                    }
                 }
 
                 currentPayload = await this.runAutomationLogged(
@@ -213,7 +213,7 @@ export class AutomationService {
             try {
                 const result = await this.processNode(currentNode, context);
                 context.vars[currentNode.id] = { data: result };
-                
+
                 if (currentNode.type === 'trigger' && currentNode.config?.conditions?.length > 0 && !result) {
                     console.log(`[AutomationEngine] Workflow aborted: Trigger conditions not met.`);
                     return payload;
@@ -242,8 +242,15 @@ export class AutomationService {
                 }
 
                 currentNode = nextId ? nodeMap.get(nextId) : undefined;
-            } catch (err) {
+            } catch (err: any) {
                 console.error(`[AutomationEngine] Node ${currentNode?.id} (${currentNode?.type}) failed:`, err);
+                context.vars[currentNode?.id || 'failed_node'] = { error: err.message || 'Node execution failed' };
+                // SYNERGY: If an error path exists, follow it; otherwise halt.
+                const nextAny = currentNode?.next as any;
+                if (nextAny?.error) {
+                    currentNode = nodeMap.get(nextAny.error);
+                    continue;
+                }
                 break;
             }
         }
@@ -256,7 +263,7 @@ export class AutomationService {
      */
     public static async processNode(node: AutomationNode, context: AutomationContext): Promise<any> {
         if (!node.config) return null;
-        
+
         switch (node.type) {
             case 'trigger':
                 // SYNERGY: Trigger behaves like a condition node if filters are present
@@ -290,7 +297,7 @@ export class AutomationService {
                 }
 
                 await validateTargetUrl(targetUrl);
-                
+
                 const timeout = node.config.timeout || 15000;
                 const redirect = node.config.follow_redirects === false ? 'manual' : 'follow';
                 const signal = (globalThis as any).AbortSignal?.timeout ? (globalThis as any).AbortSignal.timeout(timeout) : undefined;
@@ -299,25 +306,25 @@ export class AutomationService {
                 // Credentials support direct values or 'vault://NAME_OR_ID' references.
                 const authHeaders: Record<string, string> = {};
                 const authMode = node.config.auth || 'none';
-                
+
                 if (authMode === 'bearer') {
                     const rawToken = node.config.auth_token;
-                    const token = rawToken?.startsWith('vault://') 
+                    const token = rawToken?.startsWith('vault://')
                         ? await this.resolveVaultSecret(context.projectSlug, rawToken.replace('vault://', ''))
                         : this.resolveVariables(rawToken || '', context.vars);
                     if (token) authHeaders['Authorization'] = `Bearer ${token}`;
                 } else if (authMode === 'apikey') {
                     const rawUser = node.config.auth_user || '';
                     const rawPass = node.config.auth_pass || '';
-                    
+
                     const user = rawUser.startsWith('vault://')
                         ? await this.resolveVaultSecret(context.projectSlug, rawUser.replace('vault://', ''))
                         : this.resolveVariables(rawUser, context.vars);
-                        
+
                     const pass = rawPass.startsWith('vault://')
                         ? await this.resolveVaultSecret(context.projectSlug, rawPass.replace('vault://', ''))
                         : this.resolveVariables(rawPass, context.vars);
-                        
+
                     const encoded = (globalThis as any).Buffer.from(`${user}:${pass}`).toString('base64');
                     authHeaders['Authorization'] = `Basic ${encoded}`;
                 }
@@ -367,7 +374,7 @@ export class AutomationService {
             case 'convert': {
                 const { value, toType } = node.config;
                 const source = this.resolveVariables(value || '', context.vars);
-                
+
                 let converted: any = source;
                 switch (toType) {
                     case 'int': converted = parseInt(source, 10); break;
@@ -399,7 +406,7 @@ export class AutomationService {
                         if (s === undefined || s === null || s === '') return "''";
                         return `'${String(s).replace(/'/g, "''")}'`;
                     };
-                    
+
                     const setupSql = `
                         SET LOCAL ROLE ${userRole};
                         SET LOCAL "request.jwt.claim.sub" = ${quoteLocal(claims.sub)};
@@ -407,7 +414,7 @@ export class AutomationService {
                         SET LOCAL "request.jwt.claim.email" = ${quoteLocal(claims.email)};
                         SET LOCAL statement_timeout = '${AUTOMATION_SQL_TIMEOUT_MS}';
                     `;
-                    
+
                     await client.query('BEGIN');
                     await client.query(setupSql);
 
@@ -436,7 +443,7 @@ export class AutomationService {
                         const resolvedBody = this.resolveObject(body, context.vars);
                         const keys = Object.keys(resolvedBody);
                         const values = Object.values(resolvedBody);
-                        
+
                         const setClauses = keys.map((k, i) => `${k} = $${i + 1}`);
                         const whereClauses: string[] = [];
                         if (filters && Array.isArray(filters)) {
@@ -456,10 +463,10 @@ export class AutomationService {
                         const keys = Object.keys(resolvedBody);
                         const values = Object.values(resolvedBody);
                         const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
-                        
+
                         const conflictCols = node.config.conflict_cols || 'id';
                         const updateStr = keys.map(k => `${k} = EXCLUDED.${k}`).join(', ');
-                        
+
                         result = await client.query(
                             `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders}) 
                              ON CONFLICT (${conflictCols}) DO UPDATE SET ${updateStr} 
@@ -482,7 +489,7 @@ export class AutomationService {
                     await client.query('ROLLBACK');
                     return result?.rows || null;
                 } catch (e) {
-                    await client.query('ROLLBACK').catch(() => {});
+                    await client.query('ROLLBACK').catch(() => { });
                     throw e;
                 } finally {
                     client.release();
@@ -515,11 +522,11 @@ export class AutomationService {
                     const resolvedArgs = Array.isArray(args) ? this.resolveObject(args, context.vars) : [];
                     const placeholders = resolvedArgs.map((_: any, i: number) => `$${i + 1}`).join(', ');
                     const result = await client.query(`SELECT * FROM ${fnName}(${placeholders})`, resolvedArgs);
-                    
+
                     await client.query('ROLLBACK');
                     return result.rows;
                 } catch (e) {
-                    await client.query('ROLLBACK').catch(() => {});
+                    await client.query('ROLLBACK').catch(() => { });
                     throw e;
                 } finally {
                     client.release();
@@ -567,7 +574,7 @@ export class AutomationService {
         const resolvedParams = Array.isArray(params)
             ? params.map((p: string) => this.getVarSync(p, context.vars))
             : [];
-        
+
         // --- LAYER 3: DETERMINE SECURITY CONTEXT ---
         const role = context.userRole || 'authenticated';
         const claims = context.jwtClaims || {};
@@ -596,7 +603,7 @@ export class AutomationService {
         const client = await context.projectPool.connect();
         try {
             await client.query('BEGIN');
-            
+
             // If the node is configured as read-only (or is a SELECT), add that safeguard too.
             const isSelect = /^\s*SELECT\s/i.test(sql);
             if (readonly === true || isSelect) {
@@ -613,7 +620,7 @@ export class AutomationService {
 
             return res.rows;
         } catch (e: any) {
-            await client.query('ROLLBACK').catch(() => {});
+            await client.query('ROLLBACK').catch(() => { });
             // Re-wrap timeout errors for clarity in the execution log
             if (e.code === '57014') {
                 throw new Error(`[AutomationEngine] SQL Node timeout (>${AUTOMATION_SQL_TIMEOUT_MS}ms). Optimize your query.`);
@@ -678,9 +685,9 @@ export class AutomationService {
             // Support legacy single condition format
             conditions.push(node.config);
         }
-        
+
         const matchType = node.config.match || 'all';
-        
+
         const results = conditions.map((c: any) => {
             const leftValue = this.getVarSync(c.left, context.vars);
             const rightValue = c.right;
@@ -746,7 +753,7 @@ export class AutomationService {
             // Support both UUID ID or Case-sensitive Name
             const isId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
             const where = isId ? 'id = $1' : 'name = $1';
-            
+
             const res = await systemPool.query(
                 `SELECT pg_sym_decrypt(secret_value::bytea, $3) as decrypted_value
                  FROM system.project_secrets
