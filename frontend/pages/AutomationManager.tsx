@@ -8,7 +8,7 @@ import {
   ChevronRight, Save, Database, Globe, MousePointer2,
   ArrowRight, Maximize2, Minimize2, Code, ChevronDown,
   Link as LinkIcon, Unlink, Key, Shield, RefreshCcw,
-  Layers, Copy, ArrowDownRight, Check
+  Layers, Copy, ArrowDownRight, Check, Search
 } from 'lucide-react';
 
 interface Node {
@@ -56,11 +56,16 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
   const [columns, setColumns] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'list' | 'composer'>('list');
-  const [activeTab, setActiveTab] = useState<'workflows' | 'runs'>('workflows');
+  const [activeTab, setActiveTab] = useState<'editor' | 'runs'>('editor');
   const [runs, setRuns] = useState<ExecutionRun[]>([]);
   const [stats, setStats] = useState<Record<string, AutomationStats>>({});
   const [runsFilter, setRunsFilter] = useState<string | null>(null);
   const [vaultSecrets, setVaultSecrets] = useState<any[]>([]);
+  const [showVariablePicker, setShowVariablePicker] = useState<{ 
+    nodeId: string, 
+    field: string, 
+    type: 'config' | 'headers' | 'body' | 'url' | 'any' | 'rpc_arg' | 'custom_field' 
+  } | null>(null);
   const [functions, setFunctions] = useState<{name: string}[]>([]);
   const [functionArgs, setFunctionArgs] = useState<Record<string, {name: string, type: string, mode: string}[]>>({});
   
@@ -217,6 +222,144 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
       setSuccess(newStatus ? 'Workflow ativado.' : 'Workflow pausado.');
       setTimeout(() => setSuccess(null), 3000);
     } catch (e: any) { setError(e.message || 'Erro ao alterar status.'); setTimeout(() => setError(null), 5000); }
+  };
+
+  // --- VARIABLE PICKER COMPONENT ---
+  const VariablePicker = ({ onSelect, onClose }: { onSelect: (path: string) => void, onClose: () => void }) => {
+    const [searchTerm, setSearchTerm] = useState('');
+    const availableNodes = nodes.filter(n => {
+      // Find position of activeNode and show only previous nodes
+      const index = nodes.indexOf(activeNode as Node);
+      const isPrevious = nodes.indexOf(n) < index || n.type === 'trigger';
+      if (!isPrevious) return false;
+      
+      if (!searchTerm) return true;
+      const term = searchTerm.toLowerCase();
+      return n.id.toLowerCase().includes(term) || n.type.toLowerCase().includes(term);
+    });
+
+    return (
+      <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in duration-300">
+        <div className="bg-white/90 glass w-full max-w-lg rounded-[3rem] shadow-2xl border border-white/50 overflow-hidden animate-in zoom-in-95 duration-500 premium-card">
+          <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+            <div>
+              <h3 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-3"><Zap size={20} className="text-indigo-600 animate-pulse"/> Variable Picker</h3>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Select data from previous nodes</p>
+            </div>
+            <button onClick={onClose} className="p-3 hover:bg-slate-200 rounded-2xl transition-all active:scale-90"><X size={20}/></button>
+          </div>
+          <div className="px-8 py-4 bg-white border-b border-slate-50">
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <input 
+                autoFocus
+                className="w-full bg-slate-100 border-none rounded-2xl pl-12 pr-4 py-3 text-sm font-bold placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                placeholder="Search variables, nodes..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="p-4 max-h-[60vh] overflow-y-auto space-y-4">
+            {availableNodes.length > 0 ? availableNodes.map((n, idx) => (
+              <div key={n.id} className="space-y-2">
+                <div className="flex items-center gap-3 px-4 py-2 bg-slate-100 rounded-xl">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-tight">Node {idx + 1}</span>
+                    <span className="text-xs font-bold text-slate-900">{n.type.toUpperCase()}: {n.id}</span>
+                </div>
+                <div className="grid grid-cols-1 gap-1 px-2">
+                    <button 
+                        onClick={() => onSelect(`{{${n.id}.data}}`)}
+                        className="flex items-center justify-between px-4 py-3 hover:bg-indigo-50 rounded-xl transition-all group text-left"
+                    >
+                        <span className="text-xs font-medium text-slate-600 group-hover:text-indigo-700">Full Data Object</span>
+                        <code className="text-[10px] bg-slate-200 px-2 py-0.5 rounded text-slate-500 group-hover:bg-indigo-100 group-hover:text-indigo-600">data</code>
+                    </button>
+                    {(n.type === 'data' || n.type === 'trigger') && columns[n.config.table || editingAutomation?.trigger_config?.table]?.filter(col => !searchTerm || col.toLowerCase().includes(searchTerm.toLowerCase())).map(col => (
+                        <button 
+                            key={col}
+                            onClick={() => onSelect(`{{${n.id}.data.${col}}}`)}
+                            className="flex items-center justify-between px-4 py-3 hover:bg-indigo-50 rounded-xl transition-all group text-left"
+                        >
+                            <span className="text-xs font-medium text-slate-600 group-hover:text-indigo-700">{col}</span>
+                            <code className="text-[10px] bg-slate-200 px-2 py-0.5 rounded text-slate-500">data.{col}</code>
+                        </button>
+                    ))}
+                </div>
+              </div>
+            )) : (
+              <div className="p-12 text-center space-y-3">
+                <div className="w-16 h-16 bg-slate-50 rounded-[2rem] flex items-center justify-center mx-auto">
+                  <Search size={24} className="text-slate-200" />
+                </div>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Nenhuma variável encontrada</p>
+              </div>
+            )}
+          </div>
+          <div className="p-6 bg-slate-50 border-t border-slate-100">
+             <p className="text-[9px] text-slate-400 font-medium text-center uppercase tracking-widest">Tip: Click variables to inject at cursor position</p>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const PickerButton = ({ onClick }: { onClick: () => void }) => (
+    <button 
+        onClick={onClick}
+        className="p-2 text-indigo-500 hover:bg-indigo-50 rounded-lg transition-all active:scale-95"
+        title="Pick Variable"
+    >
+        <Zap size={14} fill="currentColor" />
+    </button>
+  );
+
+  const handleVariableSelect = (path: string) => {
+    if (!showVariablePicker) return;
+    const { nodeId, field, type } = showVariablePicker;
+    
+    setNodes(nodes.map((n: Node) => {
+      if (n.id !== nodeId) return n;
+      const nextConfig = { ...n.config };
+      
+      if (type === 'headers') {
+        nextConfig.headers = { ...(nextConfig.headers || {}), [field]: path };
+      } else if (type === 'body') {
+        nextConfig.body = { ...(nextConfig.body || {}), [field]: path };
+      } else if (type === 'url') {
+        nextConfig.url = path;
+      } else if (type === 'config') {
+        nextConfig[field] = path;
+      } else if (type === 'custom_field' || field.includes('.')) {
+         // Handle both simple indices and paths
+         if (field.includes('.')) {
+            const parts = field.split('.');
+            if (parts[0] === '_rpcArgs') {
+               nextConfig.args = { ...(nextConfig.args || {}), [parts[1]]: path };
+            } else if (parts[0] === 'filters') {
+               const idx = parseInt(parts[1]);
+               const nextFilters = [...(nextConfig.filters || [])];
+               if (nextFilters[idx]) {
+                  nextFilters[idx].value = path;
+                  nextConfig.filters = nextFilters;
+               }
+            }
+         } else {
+            const idx = parseInt(field);
+            const ncf = [...(nextConfig._customFields || [])];
+            if (ncf[idx]) {
+               ncf[idx].value = path;
+               nextConfig._customFields = ncf;
+               if (ncf[idx].key && (n.type === 'response' || n.type === 'transform' || n.type === 'data')) {
+                  nextConfig.body = { ...(nextConfig.body || {}), [ncf[idx].key]: path };
+               }
+            }
+         }
+      }
+      
+      return { ...n, config: nextConfig };
+    }));
+    setShowVariablePicker(null);
   };
 
   const handleSave = async () => {
@@ -559,11 +702,18 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                        setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, conditions: nc}} : n));
                                     }}
                                   >
-                                     <option value="eq">==</option>
-                                     <option value="neq">!=</option>
-                                     <option value="gt">&gt;</option>
-                                     <option value="lt">&lt;</option>
-                                     <option value="contains">CONTAINS</option>
+                                     <option value="eq">Igual a</option>
+                                     <option value="neq">Diferente de</option>
+                                     <option value="gt">Maior que</option>
+                                     <option value="lt">Menor que</option>
+                                     <option value="contains">Contém</option>
+                                     <option value="starts_with">Começa com</option>
+                                     <option value="ends_with">Termina com</option>
+                                     <option value="regex">Regex Match</option>
+                                     <option value="is_empty">Está vazio</option>
+                                     <option value="ends_with">Termina com</option>
+                                     <option value="regex">Regex Match</option>
+                                     <option value="is_empty">Está Vazio</option>
                                   </select>
                                   <input 
                                     className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold"
@@ -593,78 +743,150 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
 
                    {activeNode.type === 'http' && (
                       <div className="space-y-8">
-                         <div className="space-y-4">
-                            <label className="text-xs font-black text-slate-900 uppercase tracking-widest">URL do Endpoint</label>
-                            <div className="flex gap-2">
-                               <select className="w-32 bg-slate-900 text-white border-none rounded-2xl px-4 py-3 text-[10px] font-black uppercase tracking-widest" value={activeNode.config.method} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, method: e.target.value}} : n))}>
-                                  <option>GET</option>
-                                  <option>POST</option>
-                                  <option>PUT</option>
-                                  <option>DELETE</option>
-                               </select>
-                               <input className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold" placeholder="https://api.exemplo.com/v1" value={activeNode.config.url} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, url: e.target.value}} : n))} />
-                            </div>
-                         </div>
-                         <div className="grid grid-cols-2 gap-6">
-                            <div className="space-y-4">
-                               <label className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2"><Key size={12} className="text-amber-500"/> Autenticação</label>
-                               <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" value={activeNode.config.auth} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, auth: e.target.value}} : n))}>
-                                  <option value="none">Nenhuma</option>
-                                  <option value="bearer">Bearer Token</option>
-                                  <option value="apikey">Basic Auth (User/Pass)</option>
-                               </select>
-                            </div>
-                            <div className="space-y-4">
-                               <label className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2"><RefreshCcw size={12} className="text-emerald-500"/> Retentativas</label>
-                               <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" value={activeNode.config.retries} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, retries: parseInt(e.target.value)}} : n))} />
-                            </div>
-                         </div>
+                          <div className="space-y-4">
+                             <div className="flex items-center justify-between">
+                                <label className="text-xs font-black text-slate-900 uppercase tracking-widest">URL do Endpoint</label>
+                                <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: 'url', type: 'url' })} />
+                             </div>
+                             <input 
+                                className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-6 py-4 text-xs font-bold text-indigo-600" 
+                                placeholder="https://api.exemplo.com/v1/resource"
+                                value={activeNode.config.url || ''} 
+                                onChange={(e) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, url: e.target.value}} : n))}
+                             />
+                          </div>
 
-                         {activeNode.config.auth !== 'none' && (
-                            <div className="bg-slate-50 p-6 rounded-3xl space-y-4">
-                               {activeNode.config.auth === 'bearer' && (
-                                  <div className="space-y-2">
-                                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Bearer Token / Vault ID</label>
-                                     <div className="flex gap-2">
-                                        <input className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs" placeholder="Token ou vault://name" value={activeNode.config.auth_token || ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, auth_token: e.target.value}} : n))} />
-                                        <select className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold" onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, auth_token: `vault://${e.target.value}`}} : n))}>
-                                           <option value="">Vault Secrets</option>
-                                           {vaultSecrets.map((s: any) => <option key={s.id} value={s.name}>{s.name}</option>)}
-                                        </select>
-                                     </div>
-                                  </div>
-                               )}
-                               {activeNode.config.auth === 'apikey' && (
-                                  <div className="grid grid-cols-2 gap-4">
-                                     <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Username</label>
-                                        <input className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs" value={activeNode.config.auth_user || ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, auth_user: e.target.value}} : n))} />
-                                     </div>
-                                     <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Password / Secret</label>
-                                        <input className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs" type="password" value={activeNode.config.auth_pass || ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, auth_pass: e.target.value}} : n))} />
-                                     </div>
-                                  </div>
-                               )}
-                            </div>
-                         )}
+                          <div className="grid grid-cols-2 gap-6">
+                             <div className="space-y-4">
+                                <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Método</label>
+                                <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" value={activeNode.config.method || 'POST'} onChange={(e) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, method: e.target.value}} : n))}>
+                                   <option value="GET">GET</option>
+                                   <option value="POST">POST</option>
+                                   <option value="PUT">PUT</option>
+                                   <option value="PATCH">PATCH</option>
+                                   <option value="DELETE">DELETE</option>
+                                </select>
+                             </div>
+                             <div className="space-y-4">
+                                <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Autenticação</label>
+                                <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" value={activeNode.config.auth || 'none'} onChange={(e) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, auth: e.target.value}} : n))}>
+                                   <option value="none">Sem Autenticação</option>
+                                   <option value="bearer">Bearer Token</option>
+                                   <option value="apikey">Basic Auth (User/Pass)</option>
+                                </select>
+                             </div>
+                          </div>
 
-                         <div className="space-y-4">
-                            <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Headers Customizados (Opcional)</label>
-                            <textarea className="w-full h-24 bg-slate-900 text-amber-400 font-mono text-[10px] p-4 rounded-xl border border-slate-800 outline-none" placeholder='{"X-Custom-Header": "value"}' value={typeof activeNode.config.headers === 'string' ? activeNode.config.headers : JSON.stringify(activeNode.config.headers, null, 2)} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
-                               try { const p = JSON.parse(e.target.value); setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, headers: p}} : n)); }
-                               catch { setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, headers: e.target.value}} : n)); }
-                            }} />
-                         </div>
+                          {activeNode.config.auth !== 'none' && (
+                             <div className="bg-indigo-50/50 p-6 rounded-[2rem] border border-indigo-100 space-y-4">
+                                {activeNode.config.auth === 'bearer' && (
+                                   <div className="space-y-3">
+                                      <div className="flex items-center justify-between">
+                                          <label className="text-[10px] font-black text-indigo-900 uppercase tracking-widest">Token / Secret</label>
+                                          <div className="flex gap-2">
+                                            <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: 'auth_token', type: 'config' })} />
+                                            <select 
+                                                className="bg-white border border-indigo-200 rounded-lg px-2 py-1 text-[9px] font-black uppercase text-indigo-600"
+                                                onChange={(e) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, auth_token: `vault://${e.target.value}`}} : n))}
+                                            >
+                                                <option value="">Vault Secrets</option>
+                                                {vaultSecrets.map((s: any) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                            </select>
+                                          </div>
+                                      </div>
+                                      <input className="w-full bg-white border border-indigo-100 rounded-xl px-4 py-3 text-xs font-mono" placeholder="Token ou {{var}}" value={activeNode.config.auth_token || ''} onChange={(e) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, auth_token: e.target.value}} : n))} />
+                                   </div>
+                                )}
+                                {activeNode.config.auth === 'apikey' && (
+                                   <div className="grid grid-cols-1 gap-4">
+                                      <div className="space-y-2">
+                                         <label className="text-[10px] font-black text-indigo-900 uppercase tracking-widest">Username</label>
+                                         <input className="w-full bg-white border border-indigo-100 rounded-xl px-4 py-3 text-xs" value={activeNode.config.auth_user || ''} onChange={(e) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, auth_user: e.target.value}} : n))} />
+                                      </div>
+                                      <div className="space-y-2">
+                                         <label className="text-[10px] font-black text-indigo-900 uppercase tracking-widest">Password / Secret</label>
+                                         <div className="flex gap-2">
+                                            <input className="flex-1 bg-white border border-indigo-100 rounded-xl px-4 py-3 text-xs" type="password" value={activeNode.config.auth_pass || ''} onChange={(e) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, auth_pass: e.target.value}} : n))} />
+                                            <select 
+                                                className="bg-white border border-indigo-200 rounded-lg px-2 py-1 text-[9px] font-black uppercase text-indigo-600"
+                                                onChange={(e) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, auth_pass: `vault://${e.target.value}`}} : n))}
+                                            >
+                                                <option value="">Vault</option>
+                                                {vaultSecrets.map((s: any) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                                            </select>
+                                         </div>
+                                      </div>
+                                   </div>
+                                )}
+                             </div>
+                          )}
 
-                         <div className="space-y-4">
-                            <label className="text-xs font-black text-slate-900 uppercase tracking-widest">JSON Body</label>
-                            <textarea className="w-full h-40 bg-slate-900 text-emerald-400 font-mono text-xs p-6 rounded-2xl border border-slate-800 outline-none" placeholder='{"key": "value"}' value={typeof activeNode.config.body === 'string' ? activeNode.config.body : JSON.stringify(activeNode.config.body, null, 2)} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
-                               try { const p = JSON.parse(e.target.value); setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, body: p}} : n)); }
-                               catch { setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, body: e.target.value}} : n)); }
-                            }} />
-                         </div>
-                      </div>
+                          <div className="space-y-6">
+                             <div className="flex items-center justify-between">
+                                <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Headers</label>
+                                <button className="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:underline" onClick={() => {
+                                   const next = {...(activeNode.config.headers || {})};
+                                   next[`new_header_${Object.keys(next).length}`] = '';
+                                   setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, headers: next}} : n));
+                                }}>+ Adicionar Header</button>
+                             </div>
+                             
+                             <div className="space-y-2">
+                                {Object.entries(activeNode.config.headers || {}).map(([hk, hv]: [string, any], i) => (
+                                   <div key={i} className="flex gap-2 items-center bg-slate-50 p-3 rounded-2xl border border-slate-100 group">
+                                      <input className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-bold" placeholder="Key" value={hk} onChange={(e) => {
+                                         const next = {...activeNode.config.headers}; delete next[hk]; next[e.target.value] = hv;
+                                         setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, headers: next}} : n));
+                                      }} />
+                                      <div className="flex-1 flex gap-2 items-center">
+                                         <input className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-medium" placeholder="Value" value={hv} onChange={(e) => {
+                                            const next = {...activeNode.config.headers}; next[hk] = e.target.value;
+                                            setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, headers: next}} : n));
+                                         }} />
+                                         <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: hk, type: 'headers' })} />
+                                      </div>
+                                      <button className="opacity-0 group-hover:opacity-100 p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-all" onClick={() => {
+                                         const next = {...activeNode.config.headers}; delete next[hk];
+                                         setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, headers: next}} : n));
+                                      }}><Trash2 size={14} /></button>
+                                   </div>
+                                ))}
+                             </div>
+                          </div>
+
+                          <div className="space-y-6">
+                             <div className="flex items-center justify-between">
+                                <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Payload (JSON Body)</label>
+                                <button className="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:underline" onClick={() => {
+                                   const next = {...(activeNode.config.body || {})};
+                                   next[`field_${Object.keys(next).length}`] = '';
+                                   setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, body: next}} : n));
+                                }}>+ Adicionar Campo</button>
+                             </div>
+                             
+                             <div className="space-y-2">
+                                {Object.entries(activeNode.config.body || {}).map(([bk, bv]: [string, any], i) => (
+                                   <div key={i} className="flex gap-2 items-center bg-slate-50 p-3 rounded-2xl border border-slate-100 group">
+                                      <input className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-bold" placeholder="Chave" value={bk} onChange={(e) => {
+                                         const next = {...activeNode.config.body}; delete next[bk]; next[e.target.value] = bv;
+                                         setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, body: next}} : n));
+                                      }} />
+                                      <div className="flex-1 flex gap-2 items-center">
+                                         <input className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-medium" placeholder="Valor" value={bv} onChange={(e) => {
+                                            const next = {...activeNode.config.body}; next[bk] = e.target.value;
+                                            setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, body: next}} : n));
+                                         }} />
+                                         <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: bk, type: 'body' })} />
+                                      </div>
+                                      <button className="opacity-0 group-hover:opacity-100 p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-all" onClick={() => {
+                                         const next = {...activeNode.config.body}; delete next[bk];
+                                         setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, body: next}} : n));
+                                      }}><Trash2 size={14} /></button>
+                                   </div>
+                                ))}
+                             </div>
+                          </div>
+                       </div>
                    )}
 
                    {activeNode.type === 'query' && (
@@ -688,6 +910,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" value={activeNode.config.operation} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, operation: e.target.value}} : n))}>
                                   <option value="select">SELECT (Read)</option>
                                   <option value="insert">INSERT (Create)</option>
+                                  <option value="upsert">UPSERT (Create or Update)</option>
                                   <option value="update">UPDATE (Edit)</option>
                                   <option value="delete">DELETE (Remove)</option>
                                </select>
@@ -700,6 +923,13 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                </select>
                             </div>
                          </div>
+
+                         {activeNode.config.operation === 'upsert' && (
+                            <div className="space-y-4 bg-indigo-50/20 p-6 rounded-[2rem] border border-indigo-100/50">
+                               <label className="text-[9px] font-black text-indigo-900 uppercase tracking-widest leading-none">Conflict Columns (e.g. email, id)</label>
+                               <input className="w-full bg-white border border-indigo-100 rounded-xl px-4 py-3 text-xs font-mono" placeholder="id, email" value={activeNode.config.conflict_cols || ''} onChange={(e) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? {...n, config: {...n.config, conflict_cols: e.target.value}} : n))} />
+                            </div>
+                         )}
                          {(activeNode.config.operation !== 'insert') && (
                             <div className="space-y-4">
                                <div className="flex items-center justify-between">
@@ -726,10 +956,13 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                         <option value="like">LIKE</option>
                                         <option value="ilike">ILIKE</option>
                                      </select>
-                                     <input className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-medium" placeholder="Valor ou {{var}}" value={f.value} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                                        const nf = [...activeNode.config.filters]; nf[i].value = e.target.value;
-                                        setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, filters: nf}} : n));
-                                     }} />
+                                     <div className="flex-1 flex gap-2 items-center">
+                                         <input className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-medium" placeholder="Valor ou {{var}}" value={f.value} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                            const nf = [...activeNode.config.filters]; nf[i].value = e.target.value;
+                                            setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, filters: nf}} : n));
+                                         }} />
+                                         <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: `filters.${i}.value`, type: 'any' })} />
+                                     </div>
                                      <button className="text-slate-300 hover:text-rose-500 transition-colors" onClick={() => {
                                         const nf = activeNode.config.filters.filter((_: any, idx: number) => idx !== i);
                                         setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, filters: nf}} : n));
@@ -799,11 +1032,14 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                                  const body = {...(activeNode.config.body || {}), [e.target.value]: ncf[i].value};
                                                  setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
                                               }} />
-                                              <input className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-mono" placeholder="{{node_id.data.campo}}" value={cf.value} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                                                 const ncf = [...(activeNode.config._customFields || [])]; ncf[i].value = e.target.value;
-                                                 const body = {...(activeNode.config.body || {}), [ncf[i].key]: e.target.value};
-                                                 setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
-                                              }} />
+                                              <div className="flex-1 flex gap-2 items-center">
+                                               <input className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-mono" placeholder="{{node_id.data.campo}}" value={cf.value} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                                  const ncf = [...(activeNode.config._customFields || [])]; ncf[i].value = e.target.value;
+                                                  const body = {...(activeNode.config.body || {}), [ncf[i].key]: e.target.value};
+                                                  setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
+                                               }} />
+                                               <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: i.toString(), type: 'custom_field' })} />
+                                            </div>
                                               <button className="text-slate-300 hover:text-rose-500 transition-colors" onClick={() => {
                                                  const ncf = (activeNode.config._customFields || []).filter((_: any, idx: number) => idx !== i);
                                                  setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf}} : n));
@@ -874,11 +1110,14 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                               const body = {...(activeNode.config.body || {}), [e.target.value]: ncf[i].value};
                                               setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
                                            }} />
-                                           <input className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-mono" placeholder="{{node_id.data.campo}}" value={cf.value} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                                              const ncf = [...(activeNode.config._customFields || [])]; ncf[i].value = e.target.value;
-                                              const body = {...(activeNode.config.body || {}), [ncf[i].key]: e.target.value};
-                                              setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
-                                           }} />
+                                           <div className="flex-1 flex gap-2 items-center">
+                                               <input className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-mono" placeholder="{{node_id.data.campo}}" value={cf.value} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                                  const ncf = [...(activeNode.config._customFields || [])]; ncf[i].value = e.target.value;
+                                                  const body = {...(activeNode.config.body || {}), [ncf[i].key]: e.target.value};
+                                                  setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
+                                               }} />
+                                               <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: i.toString(), type: 'custom_field' })} />
+                                            </div>
                                            <button className="text-slate-300 hover:text-rose-500 transition-colors" onClick={() => {
                                               const ncf = (activeNode.config._customFields || []).filter((_: any, idx: number) => idx !== i);
                                               setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf}} : n));
@@ -937,16 +1176,14 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                               <span className="text-[10px] font-black text-slate-700 uppercase tracking-widest">{arg.name || `arg_${i + 1}`}</span>
                                               <span className="text-[8px] font-bold text-violet-500 bg-violet-50 px-2 py-1 rounded-lg uppercase">{arg.type}</span>
                                            </div>
-                                           <input 
-                                              className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-mono"
-                                              placeholder={`Valor ou {{trigger.data.campo}}`}
-                                              value={(activeNode.config.args && typeof activeNode.config.args === 'object' && !Array.isArray(activeNode.config.args)) ? (activeNode.config.args[arg.name || `arg_${i + 1}`] || '') : ''}
-                                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                                                 const argKey = arg.name || `arg_${i + 1}`;
-                                                 const newArgs = {...(typeof activeNode.config.args === 'object' && !Array.isArray(activeNode.config.args) ? activeNode.config.args : {}), [argKey]: e.target.value};
-                                                 setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, args: newArgs}} : n));
-                                              }}
-                                           />
+                                            <div className="flex gap-2 items-center">
+                                               <input className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm" value={(activeNode.config.args && typeof activeNode.config.args === 'object' && !Array.isArray(activeNode.config.args)) ? (activeNode.config.args[arg.name || `arg_${i + 1}`] || '') : ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                                  const argKey = arg.name || `arg_${i + 1}`;
+                                                  const newArgs = {...(typeof activeNode.config.args === 'object' && !Array.isArray(activeNode.config.args) ? activeNode.config.args : {}), [argKey]: e.target.value};
+                                                  setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, args: newArgs}} : n));
+                                               }} />
+                                               <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: arg.name || `arg_${i + 1}`, type: 'rpc_arg' })} />
+                                            </div>
                                         </div>
                                      ))}
                                      {functionArgs[activeNode.config.function].filter((a: {mode: string}) => a.mode === 'IN' || a.mode === 'INOUT').length === 0 && (
@@ -1025,11 +1262,14 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                               const body = {...(activeNode.config.body || {}), [e.target.value]: ncf[i].value};
                                               setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
                                            }} />
-                                           <input className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-mono" placeholder="{{node_3.data.pix_key}}" value={cf.value} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                                              const ncf = [...(activeNode.config._customFields || [])]; ncf[i].value = e.target.value;
-                                              const body = {...(activeNode.config.body || {}), [ncf[i].key]: e.target.value};
-                                              setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
-                                           }} />
+                                           <div className="flex-1 flex gap-2 items-center">
+                                               <input className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-mono" placeholder="{{node_3.data.pix_key}}" value={cf.value} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                                  const ncf = [...(activeNode.config._customFields || [])]; ncf[i].value = e.target.value;
+                                                  const body = {...(activeNode.config.body || {}), [ncf[i].key]: e.target.value};
+                                                  setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf, body}} : n));
+                                               }} />
+                                               <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: i.toString(), type: 'custom_field' })} />
+                                            </div>
                                            <button className="text-slate-300 hover:text-rose-500 transition-colors" onClick={() => {
                                               const ncf = (activeNode.config._customFields || []).filter((_: any, idx: number) => idx !== i);
                                               setNodes(nodes.map((n: Node) => n.id === activeNode.id ? {...n, config: {...n.config, _customFields: ncf}} : n));
@@ -1078,7 +1318,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                 </div>
 
                 <footer className="p-8 border-t border-slate-50 flex justify-end">
-                    <button onClick={() => setConfigNodeId(null)} className="bg-slate-900 text-white px-10 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all shadow-xl shadow-slate-100 flex items-center gap-3">
+                    <button onClick={() => setConfigNodeId(null)} className="btn-premium">
                        <Check size={16}/> Confirmar Configuração
                     </button>
                 </footer>
@@ -1095,6 +1335,13 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
           .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
           .custom-scrollbar::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 10px; }
         `}</style>
+
+        {showVariablePicker && (
+            <VariablePicker 
+                onSelect={handleVariableSelect} 
+                onClose={() => setShowVariablePicker(null)} 
+            />
+        )}
       </div>
     );
   }

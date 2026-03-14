@@ -243,12 +243,25 @@ export class AutomationService {
                 return this.executeSecureSqlNode(node, context);
 
             case 'http': {
-                const targetUrl = this.resolveVariables(node.config.url || '', context.vars);
+                let targetUrl = this.resolveVariables(node.config.url || '', context.vars);
                 if (!targetUrl) throw new Error('[AutomationEngine] HTTP node requires a URL.');
+
+                // --- QUERY PARAMETERS RESOLUTION ---
+                if (node.config.query_params && typeof node.config.query_params === 'object') {
+                    const resolvedParams = this.resolveObject(node.config.query_params, context.vars);
+                    const urlObj = new URL(targetUrl);
+                    Object.entries(resolvedParams).forEach(([key, val]) => {
+                        if (val !== undefined && val !== null) {
+                            urlObj.searchParams.append(key, String(val));
+                        }
+                    });
+                    targetUrl = urlObj.toString();
+                }
 
                 await validateTargetUrl(targetUrl);
                 
                 const timeout = node.config.timeout || 15000;
+                const redirect = node.config.follow_redirects === false ? 'manual' : 'follow';
                 const signal = (globalThis as any).AbortSignal?.timeout ? (globalThis as any).AbortSignal.timeout(timeout) : undefined;
 
                 // --- AUTH HEADER INJECTION & VAULT RESOLUTION ---
@@ -299,6 +312,7 @@ export class AutomationService {
                             method,
                             body: resolvedBody,
                             headers: resolvedHeaders,
+                            redirect,
                             signal
                         });
                         if (!response.ok) {
@@ -329,6 +343,10 @@ export class AutomationService {
                         case 'gt': return Number(leftValue) > Number(rightValue);
                         case 'lt': return Number(leftValue) < Number(rightValue);
                         case 'contains': return String(leftValue).includes(String(rightValue));
+                        case 'regex': try { return new RegExp(String(rightValue)).test(String(leftValue)); } catch { return false; }
+                        case 'starts_with': return String(leftValue).startsWith(String(rightValue));
+                        case 'ends_with': return String(leftValue).endsWith(String(rightValue));
+                        case 'is_empty': return leftValue === null || leftValue === undefined || leftValue === '' || (Array.isArray(leftValue) && leftValue.length === 0);
                         default: return false;
                     }
                 });
@@ -401,6 +419,21 @@ export class AutomationService {
                         const whereStr = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
                         result = await client.query(
                             `UPDATE ${table} SET ${setClauses.join(', ')} ${whereStr} RETURNING *`,
+                            values
+                        );
+                    } else if (operation === 'upsert') {
+                        const resolvedBody = this.resolveObject(body, context.vars);
+                        const keys = Object.keys(resolvedBody);
+                        const values = Object.values(resolvedBody);
+                        const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
+                        
+                        const conflictCols = node.config.conflict_cols || 'id';
+                        const updateStr = keys.map(k => `${k} = EXCLUDED.${k}`).join(', ');
+                        
+                        result = await client.query(
+                            `INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders}) 
+                             ON CONFLICT (${conflictCols}) DO UPDATE SET ${updateStr} 
+                             RETURNING *`,
                             values
                         );
                     } else if (operation === 'delete') {

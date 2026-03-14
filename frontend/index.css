@@ -4,21 +4,55 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --glass-bg: rgba(255, 255, 255, 0.7);
+    --glass-border: rgba(255, 255, 255, 0.3);
+    --premium-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.1);
+  }
   body {
     @apply antialiased text-slate-900 bg-slate-50;
   }
 }
 
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+}
+
+.premium-card {
+  @apply rounded-[2.5rem] bg-white border border-slate-200 shadow-2xl shadow-slate-200/50 transition-all duration-500 hover:shadow-indigo-500/10 hover:border-indigo-300;
+}
+
+.btn-premium {
+  @apply relative overflow-hidden bg-slate-900 text-white px-8 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black active:scale-95 transition-all shadow-xl shadow-slate-100 flex items-center justify-center gap-3;
+}
+
+.btn-premium::after {
+  content: '';
+  @apply absolute inset-0 bg-white/10 translate-y-full transition-transform duration-300;
+}
+.btn-premium:hover::after {
+  @apply translate-y-0;
+}
+
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+  100% { transform: translateY(0px); }
+}
+.animate-float { animation: float 6s ease-in-out infinite; }
+
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 4px;
 }
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background: #cbd5e1;
-  border-radius: 4px;
+  border-radius: 10px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
