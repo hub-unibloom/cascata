@@ -8,7 +8,8 @@ import {
    ChevronRight, Save, Search, Database, Globe, Cpu,
    Mail, MessageSquare, Code, Layers, RefreshCw,
    Shield, Minimize2, Maximize2, Unlink, ArrowRight, RefreshCcw, Check,
-   ChevronDown, Link as LinkIcon, Copy, ArrowDownRight, MousePointer2
+   ChevronDown, Link as LinkIcon, Copy, ArrowDownRight, MousePointer2,
+   Type, Hash, CheckSquare, Calendar, Key
 } from 'lucide-react';
 
 interface Node {
@@ -68,6 +69,10 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
       nodeId: string,
       field: string,
       type: 'config' | 'headers' | 'body' | 'url' | 'any' | 'rpc_arg' | 'custom_field'
+   } | null>(null);
+   const [showConversionPicker, setShowConversionPicker] = useState<{
+      nodeId: string,
+      field: string
    } | null>(null);
    const [functions, setFunctions] = useState<{ name: string }[]>([]);
    const [functionArgs, setFunctionArgs] = useState<Record<string, { name: string, type: string, mode: string }[]>>({});
@@ -392,6 +397,76 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
          <Zap size={14} fill="currentColor" />
       </button>
    );
+
+   const ConvertButton = ({ active, onClick }: { active: boolean, onClick: () => void }) => (
+      <button
+         onClick={onClick}
+         className={`p-2 rounded-lg transition-all active:scale-95 flex items-center gap-1.5 ${active ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}
+         title="Convert Type"
+      >
+         <RefreshCcw size={14} className={active ? 'animate-spin-slow' : ''} />
+         {active && <span className="text-[8px] font-black uppercase tracking-widest">Active</span>}
+      </button>
+   );
+
+   const ConversionPicker = ({ nodeId, field, onClose }: { nodeId: string, field: string, onClose: () => void }) => {
+      const node = nodes.find(n => n.id === nodeId);
+      if (!node) return null;
+
+      const currentType = node.config._conversions?.[field] || 'none';
+      const types = [
+         { id: 'none', label: 'Original', icon: <X size={12} /> },
+         { id: 'string', label: 'String', icon: <Type size={12} /> },
+         { id: 'number', label: 'Number', icon: <Hash size={12} /> },
+         { id: 'boolean', label: 'Boolean', icon: <CheckSquare size={12} /> },
+         { id: 'date', label: 'Date', icon: <Calendar size={12} /> },
+         { id: 'json', label: 'JSON', icon: <Code size={12} /> },
+         { id: 'uuid', label: 'UUID', icon: <Key size={12} /> },
+      ];
+
+      const setConversion = (type: string) => {
+         setNodes(nodes.map(n => {
+            if (n.id !== nodeId) return n;
+            const conversions = { ...(n.config._conversions || {}) };
+            if (type === 'none') {
+               delete conversions[field];
+            } else {
+               conversions[field] = type;
+            }
+            return { ...n, config: { ...n.config, _conversions: conversions } };
+         }));
+         onClose();
+      };
+
+      return (
+         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm" onClick={onClose}></div>
+            <div className="relative bg-white border border-slate-200 rounded-[2.5rem] shadow-2xl w-80 overflow-hidden animate-in zoom-in-95 duration-200">
+               <div className="p-6 border-b border-slate-50">
+                  <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Converter Formato</h3>
+                  <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">Garantir integridade do dado industrial</p>
+               </div>
+               <div className="p-3 grid grid-cols-1 gap-1">
+                  {types.map(t => (
+                     <button
+                        key={t.id}
+                        onClick={() => setConversion(t.id)}
+                        className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${currentType === t.id ? 'bg-indigo-600 text-white shadow-lg' : 'hover:bg-slate-50 text-slate-600'}`}
+                     >
+                        <div className="flex items-center gap-3">
+                           <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${currentType === t.id ? 'bg-white/20' : 'bg-slate-100'}`}>
+                              {t.icon}
+                           </div>
+                           <span className="text-[10px] font-black uppercase tracking-widest">{t.label}</span>
+                        </div>
+                        {currentType === t.id && <Check size={14} />}
+                     </button>
+                  ))}
+               </div>
+            </div>
+         </div>
+      );
+   };
 
    useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
@@ -773,7 +848,8 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
 
       // SENIOR UX: Only open drawer if it was a clean click AND no modifier keys were held
       // This prevents conflict with multi-selection (Shift) and alignment (Ctrl)
-      const isModifierHeld = e.shiftKey || e.ctrlKey || e.metaKey;
+      // SENIOR UX: Absolute Modifier Check (individual or combined)
+      const isModifierHeld = e.shiftKey || e.ctrlKey || e.metaKey || e.altKey;
 
       if (draggedNode && !hasMovedRef.current && !isModifierHeld) {
          // It was a clean click, not a significant drag
@@ -929,21 +1005,25 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                onDragOver={(e) => e.preventDefault()}
                onDrop={onDrop}
                onMouseDown={(e) => {
-                  if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('bg-slate-50')) {
+                  const target = e.target as HTMLElement;
+                  // Start marquee ONLY if user is not clicking a node, a port, or the zoom controls
+                  if (!target.closest('.cascata-node') && !target.closest('.port') && !target.closest('.zoom-controls')) {
                      const rect = canvasRef.current?.getBoundingClientRect();
                      if (rect) {
                         setMarquee({
                            start: { x: (e.clientX - rect.left) / zoom, y: (e.clientY - rect.top) / zoom },
                            end: { x: (e.clientX - rect.left) / zoom, y: (e.clientY - rect.top) / zoom }
                         });
-                        setSelectedNodeIds([]);
+                        if (!e.shiftKey) {
+                           setSelectedNodeIds([]);
+                        }
                      }
                   }
                   setContextMenu(null);
                }}
             >
                {/* ZOOM CONTROLS */}
-               <div className="absolute top-10 left-10 flex flex-col bg-white/90 backdrop-blur-xl border border-slate-200 rounded-3xl p-2 shadow-xl z-30 transition-all hover:border-indigo-100">
+               <div className="zoom-controls absolute top-10 left-10 flex flex-col bg-white/90 backdrop-blur-xl border border-slate-200 rounded-3xl p-2 shadow-xl z-30 transition-all hover:border-indigo-100">
                   <button onClick={() => setZoom(prev => Math.min(prev + 0.1, 2))} className="w-10 h-10 flex items-center justify-center rounded-xl hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 transition-all"><Plus size={18} /></button>
                   <div className="h-[1px] bg-slate-100 mx-2"></div>
                   <button onClick={() => setZoom(1)} className="text-[9px] font-black h-10 flex items-center justify-center text-slate-400 hover:text-indigo-600 transition-all">{Math.round(zoom * 100)}%</button>
@@ -1008,7 +1088,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                      {nodes.map(node => (
                         <div
                            key={node.id}
-                           className={`absolute bg-white border ${selectedNodeIds.includes(node.id) ? 'border-indigo-500 ring-4 ring-indigo-50 shadow-2xl scale-[1.02]' : 'border-slate-100 shadow-xl'} rounded-[2rem] p-6 w-[18rem] group cursor-grab active:cursor-grabbing transition-all z-20 pointer-events-auto
+                           className={`cascata-node absolute bg-white border ${selectedNodeIds.includes(node.id) ? 'border-indigo-500 ring-4 ring-indigo-50 shadow-2xl scale-[1.02]' : 'border-slate-100 shadow-xl'} rounded-[2rem] p-6 w-[18rem] group cursor-grab active:cursor-grabbing transition-all z-20 pointer-events-auto
                             ${node.type === 'transform' ? 'hover:border-indigo-500 hover:shadow-indigo-100/50' :
                                     node.type === 'response' ? 'hover:border-emerald-500 hover:shadow-emerald-100/50' :
                                        node.type === 'http' ? 'hover:border-amber-500 hover:shadow-amber-100/50' :
@@ -1018,7 +1098,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                                    'hover:border-slate-300'}`}
                            style={{ left: node.x, top: node.y }}
                            onMouseDown={(e) => onMouseDown(node.id, e)}
-                           onClick={(e) => { e.stopPropagation(); setConfigNodeId(node.id); }}
+                           /* Node click handled by onMouseUp */
                            onContextMenu={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
@@ -1130,12 +1210,12 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                   {/* MARQUEE VISUAL */}
                   {marquee && (
                      <div
-                        className="absolute border-2 border-indigo-400 bg-indigo-50/30 rounded-xl z-50 pointer-events-none"
+                        className="absolute border-[3px] border-indigo-500/80 bg-indigo-500/10 rounded-lg z-50 pointer-events-none transition-none"
                         style={{
-                           left: Math.min(marquee.start.x, marquee.end.x) * zoom,
-                           top: Math.min(marquee.start.y, marquee.end.y) * zoom,
-                           width: Math.abs(marquee.end.x - marquee.start.x) * zoom,
-                           height: Math.abs(marquee.end.y - marquee.start.y) * zoom
+                           left: Math.min(marquee.start.x, marquee.end.x),
+                           top: Math.min(marquee.start.y, marquee.end.y),
+                           width: Math.abs(marquee.end.x - marquee.start.x),
+                           height: Math.abs(marquee.end.y - marquee.start.y)
                         }}
                      />
                   )}
@@ -1209,7 +1289,6 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                   <ToolboxItem icon={<Terminal size={20} />} label="SQL" onDragStart={(e) => handleToolboxDragStart(e, 'query')} hoverColor="group-hover:bg-rose-600" />
                   <ToolboxItem icon={<Database size={20} />} label="Data" onDragStart={(e) => handleToolboxDragStart(e, 'data')} hoverColor="group-hover:bg-cyan-600" />
                   <ToolboxItem icon={<Code size={20} />} label="RPC" onDragStart={(e) => handleToolboxDragStart(e, 'rpc')} hoverColor="group-hover:bg-violet-600" />
-                  <ToolboxItem icon={<RefreshCcw size={20} />} label="Convert" onDragStart={(e) => handleToolboxDragStart(e, 'convert')} hoverColor="group-hover:bg-pink-600" />
                   <ToolboxItem icon={<Layers size={20} />} label="Transform" onDragStart={(e) => handleToolboxDragStart(e, 'transform')} hoverColor="group-hover:bg-indigo-600" />
                   <ToolboxItem icon={<Mail size={20} />} label="Email" onDragStart={(e) => handleToolboxDragStart(e, 'email')} hoverColor="group-hover:bg-sky-500" />
                   <div className="w-[1px] h-10 bg-slate-100 mx-1"></div>
@@ -1532,7 +1611,10 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                               <div className="space-y-4">
                                  <div className="flex items-center justify-between">
                                     <label className="text-xs font-black text-slate-900 uppercase tracking-widest">URL do Endpoint</label>
-                                    <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: 'url', type: 'url' })} />
+                                    <div className="flex gap-2">
+                                       <ConvertButton active={!!activeNode.config._conversions?.['url']} onClick={() => setShowConversionPicker({ nodeId: activeNode.id, field: 'url' })} />
+                                       <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: 'url', type: 'url' })} />
+                                    </div>
                                  </div>
                                  <input
                                     className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-6 py-4 text-xs font-bold text-indigo-600"
@@ -1570,8 +1652,10 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                           <div className="flex items-center justify-between">
                                              <label className="text-[10px] font-black text-indigo-900 uppercase tracking-widest">Token / Secret</label>
                                              <div className="flex gap-2">
+                                                <ConvertButton active={!!activeNode.config._conversions?.['auth_token']} onClick={() => setShowConversionPicker({ nodeId: activeNode.id, field: 'auth_token' })} />
                                                 <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: 'auth_token', type: 'config' })} />
-                                                <select
+                                             </div>
+                                          </div>
                                                    className="bg-white border border-indigo-200 rounded-lg px-2 py-1 text-[9px] font-black uppercase text-indigo-600"
                                                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, auth_token: `vault://${e.target.value}` } } : n))}
                                                 >
@@ -1629,6 +1713,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                                 const next = { ...activeNode.config.headers }; next[hk] = e.target.value;
                                                 setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, headers: next } } : n));
                                              }} />
+                                             <ConvertButton active={!!activeNode.config._conversions?.[hk]} onClick={() => setShowConversionPicker({ nodeId: activeNode.id, field: hk })} />
                                              <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: hk, type: 'headers' })} />
                                           </div>
                                           <button className="opacity-0 group-hover:opacity-100 p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-all" onClick={() => {
@@ -1662,6 +1747,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                                 const next = { ...activeNode.config.body }; next[bk] = e.target.value;
                                                 setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, body: next } } : n));
                                              }} />
+                                             <ConvertButton active={!!activeNode.config._conversions?.[bk]} onClick={() => setShowConversionPicker({ nodeId: activeNode.id, field: bk })} />
                                              <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: bk, type: 'body' })} />
                                           </div>
                                           <button className="opacity-0 group-hover:opacity-100 p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-all" onClick={() => {
@@ -1703,37 +1789,6 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                        />
                                     </div>
                                  </div>
-                              </div>
-                           </div>
-                        )}
-
-                        {activeNode.type === 'convert' && (
-                           <div className="space-y-8">
-                              <div className="space-y-4">
-                                 <div className="flex items-center justify-between">
-                                    <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Valor de Entrada</label>
-                                    <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: 'value', type: 'config' })} />
-                                 </div>
-                                 <input
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-6 py-4 text-sm font-bold text-pink-600"
-                                    placeholder="{{node.data.campo}} ou valor fixo"
-                                    value={activeNode.config.value || ''}
-                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, value: e.target.value } } : n))}
-                                 />
-                              </div>
-                              <div className="space-y-4">
-                                 <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Converter para:</label>
-                                 <select
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold"
-                                    value={activeNode.config.toType || 'string'}
-                                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, toType: e.target.value } } : n))}
-                                 >
-                                    <option value="string">String (Texto)</option>
-                                    <option value="int">Integer (Número Inteiro)</option>
-                                    <option value="float">Float (Número Decimal)</option>
-                                    <option value="boolean">Boolean (Verdadeiro/Falso)</option>
-                                    <option value="json">JSON (Objeto/Array)</option>
-                                 </select>
                               </div>
                            </div>
                         )}
@@ -1841,6 +1896,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                                 const nf = [...activeNode.config.filters]; nf[i].value = e.target.value;
                                                 setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, filters: nf } } : n));
                                              }} />
+                                             <ConvertButton active={!!activeNode.config._conversions?.[`filters.${i}.value`]} onClick={() => setShowConversionPicker({ nodeId: activeNode.id, field: `filters.${i}.value` })} />
                                              <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: `filters.${i}.value`, type: 'any' })} />
                                           </div>
                                           <button className="text-slate-300 hover:text-rose-500 transition-colors" onClick={() => {
@@ -1907,6 +1963,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                                                setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, _payload: np, body } } : n));
                                                             }}
                                                          />
+                                                         <ConvertButton active={!!activeNode.config._conversions?.[`_payload.${i}.value`]} onClick={() => setShowConversionPicker({ nodeId: activeNode.id, field: `_payload.${i}.value` })} />
                                                          <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: `_payload.${i}.value`, type: 'config' })} />
                                                       </div>
 
@@ -2023,6 +2080,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                                       const body = { ...(activeNode.config.body || {}), [ncf[i].key]: e.target.value };
                                                       setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, _customFields: ncf, body } } : n));
                                                    }} />
+                                                   <ConvertButton active={!!activeNode.config._conversions?.[i.toString()]} onClick={() => setShowConversionPicker({ nodeId: activeNode.id, field: i.toString() })} />
                                                    <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: i.toString(), type: 'custom_field' })} />
                                                 </div>
                                                 <button className="text-slate-300 hover:text-rose-500 transition-colors" onClick={() => {
@@ -2116,6 +2174,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                                       const newArgs = { ...(typeof activeNode.config.args === 'object' && !Array.isArray(activeNode.config.args) ? activeNode.config.args : {}), [argKey]: e.target.value };
                                                       setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, args: newArgs } } : n));
                                                    }} />
+                                                   <ConvertButton active={!!activeNode.config._conversions?.[arg.name || `arg_${i + 1}`]} onClick={() => setShowConversionPicker({ nodeId: activeNode.id, field: arg.name || `arg_${i + 1}` })} />
                                                    <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: arg.name || `arg_${i + 1}`, type: 'rpc_arg' })} />
                                                 </div>
                                              </div>
@@ -2143,21 +2202,30 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                               <div className="space-y-4">
                                  <div className="flex items-center justify-between">
                                     <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Destinatário (To)</label>
-                                    <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: 'to', type: 'config' })} />
+                                    <div className="flex gap-2">
+                                       <ConvertButton active={!!activeNode.config._conversions?.['to']} onClick={() => setShowConversionPicker({ nodeId: activeNode.id, field: 'to' })} />
+                                       <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: 'to', type: 'config' })} />
+                                    </div>
                                  </div>
                                  <input className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-6 py-4 text-xs font-bold" placeholder="ex: user@example.com ou {{trigger.payload.to}}" value={activeNode.config.to || ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, to: e.target.value } } : n))} />
                               </div>
                               <div className="space-y-4">
                                  <div className="flex items-center justify-between">
                                     <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Assunto (Opcional)</label>
-                                    <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: 'subject', type: 'config' })} />
+                                    <div className="flex gap-2">
+                                       <ConvertButton active={!!activeNode.config._conversions?.['subject']} onClick={() => setShowConversionPicker({ nodeId: activeNode.id, field: 'subject' })} />
+                                       <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: 'subject', type: 'config' })} />
+                                    </div>
                                  </div>
                                  <input className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-6 py-4 text-xs font-bold" placeholder="Deixe vazio para herdar do I18N" value={activeNode.config.subject || ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, subject: e.target.value } } : n))} />
                               </div>
                               <div className="space-y-4">
                                  <div className="flex items-center justify-between">
                                     <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Corpo HTML (Opcional)</label>
-                                    <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: 'body', type: 'config' })} />
+                                    <div className="flex gap-2">
+                                       <ConvertButton active={!!activeNode.config._conversions?.['body']} onClick={() => setShowConversionPicker({ nodeId: activeNode.id, field: 'body' })} />
+                                       <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: 'body', type: 'config' })} />
+                                    </div>
                                  </div>
                                  <textarea className="w-full h-64 bg-slate-50 border border-slate-200 rounded-[2rem] p-6 text-xs font-medium" placeholder="Suporta HTML e Variáveis. Deixe vazio para herdar do I18N." value={activeNode.config.body || ''} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, body: e.target.value } } : n))} />
                               </div>
@@ -2352,6 +2420,14 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                <VariablePicker
                   onSelect={handleVariableSelect}
                   onClose={() => setShowVariablePicker(null)}
+               />
+            )}
+
+            {showConversionPicker && (
+               <ConversionPicker
+                  nodeId={showConversionPicker.nodeId}
+                  field={showConversionPicker.field}
+                  onClose={() => setShowConversionPicker(null)}
                />
             )}
          </div>
