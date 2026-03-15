@@ -168,8 +168,22 @@ export class BranchController {
             // ----------------------------------------------
 
             if (strategy === 'merge') {
-                if (!sql || typeof sql !== 'string') {
-                    return res.status(400).json({ error: "SQL migration script is required for merge strategy." });
+                // --- SELF-SUFFICIENT SQL GENERATION ---
+                // The frontend may send the `sql` from getDiff()'s generated_sql,
+                // but if it's missing (e.g., stale state, race condition), we regenerate
+                // the migration SQL server-side instead of rejecting the request.
+                let migrationSql: string = (sql && typeof sql === 'string' && sql.trim()) ? sql : '';
+
+                if (!migrationSql) {
+                    console.log('[Deploy] No SQL provided by client. Regenerating migration server-side...');
+                    try {
+                        const freshDiff = await BranchController.generateDiffInternal(liveDb, draftDb);
+                        migrationSql = freshDiff.generated_sql || '';
+                        console.log(`[Deploy] Server-side SQL generated (${migrationSql.length} chars).`);
+                    } catch (diffErr: any) {
+                        console.error('[Deploy] Failed to generate server-side SQL:', diffErr);
+                        return res.status(500).json({ error: "Failed to generate migration SQL.", detail: diffErr.message });
+                    }
                 }
 
                 const livePool = PoolService.get(liveDb, { useDirect: true });
@@ -179,13 +193,14 @@ export class BranchController {
                     await client.query('BEGIN');
                     await client.query("SET LOCAL statement_timeout = '60s'");
                     
-                    if (sql.trim()) {
-                        const cleanSql = sql
+                    if (migrationSql && migrationSql.trim()) {
+                        const cleanSql = migrationSql
                             .replace(/BEGIN\s*;?/gi, '')
                             .replace(/COMMIT\s*;?/gi, '')
                             .replace(/ROLLBACK\s*;?/gi, '');
                             
                         await client.query(cleanSql);
+                        console.log('[Deploy] Schema SQL executed successfully.');
                     }
                     
                     if ((data_strategy && data_strategy !== 'none') || data_plan) {
@@ -265,6 +280,21 @@ export class BranchController {
                 return res.status(404).json({ error: "Draft environment not active." });
             }
 
+            const diffResult = await BranchController.generateDiffInternal(liveDb, draftDb);
+            res.json({ diff: diffResult });
+        } catch (e: any) { next(e); }
+    }
+
+    /**
+     * generateDiffInternal — Core Schema Diff Engine v4.0
+     * 
+     * Pure logic method with NO req/res dependency. Can be called:
+     * - From the GET /diff endpoint (for UI preview)
+     * - From the POST /deploy endpoint (server-side SQL regeneration fallback)
+     * 
+     * Returns the full diff object including `generated_sql`.
+     */
+    static async generateDiffInternal(liveDb: string, draftDb: string): Promise<any> {
             const livePool = PoolService.get(liveDb, { useDirect: true });
             const draftPool = PoolService.get(draftDb, { useDirect: true });
 
@@ -678,13 +708,9 @@ export class BranchController {
             sql += `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;\n`;
             sql += `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO anon, authenticated;\n`;
 
-            res.json({
-                diff: {
-                    ...changes,
-                    generated_sql: sql
-                }
-            });
-
-        } catch (e: any) { next(e); }
+            return {
+                ...changes,
+                generated_sql: sql
+            };
     }
 }

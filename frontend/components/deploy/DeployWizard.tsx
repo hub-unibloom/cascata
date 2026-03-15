@@ -65,7 +65,7 @@ const DeployWizard: React.FC<DeployWizardProps> = ({ projectId, onClose, onSucce
   const handleDeploy = async () => {
       setStep('executing');
       try {
-          await fetch(`/api/data/${projectId}/branch/deploy`, {
+          const res = await fetch(`/api/data/${projectId}/branch/deploy`, {
               method: 'POST',
               headers: { 
                   'Authorization': `Bearer ${localStorage.getItem('cascata_token')}`, 
@@ -78,9 +78,18 @@ const DeployWizard: React.FC<DeployWizardProps> = ({ projectId, onClose, onSucce
                   data_plan: tableStrategies // SEND GRANULAR PLAN
               })
           });
+          const body = await res.json().catch(() => null);
+
+          if (!res.ok) {
+              const errorMsg = body?.error || body?.detail || `Deploy failed with status ${res.status}`;
+              setError(errorMsg);
+              setStep('review');
+              return;
+          }
+
           setStep('success');
       } catch (e: any) {
-          setError(e.message || "Deploy failed.");
+          setError(e.message || "Deploy failed: Network error.");
           setStep('review');
       }
   };

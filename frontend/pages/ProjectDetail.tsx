@@ -238,7 +238,7 @@ const ProjectDetail: React.FC<{ projectId: string }> = ({ projectId }) => {
       setDeploying(true);
       setDeployStep('executing');
       try {
-          await fetch(`/api/data/${projectId}/branch/deploy`, {
+          const res = await fetch(`/api/data/${projectId}/branch/deploy`, {
               method: 'POST',
               headers: { 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}`, 'Content-Type': 'application/json' },
               body: JSON.stringify({ 
@@ -248,14 +248,23 @@ const ProjectDetail: React.FC<{ projectId: string }> = ({ projectId }) => {
                   data_strategy: dataStrategy
               })
           });
+          const body = await res.json().catch(() => null);
+
+          if (!res.ok) {
+              const errorMsg = body?.error || body?.detail || `Deploy failed with status ${res.status}`;
+              alert(`Deploy Error: ${errorMsg}`);
+              setDeployStep('diff');
+              return;
+          }
+
           setDeployStep('success');
           setTimeout(() => {
              setShowDeployModal(false);
              window.location.reload();
           }, 2000);
       } catch (e) {
-          alert("Deploy failed.");
-          setDeployStep('diff'); // Go back
+          alert("Deploy failed: Network error.");
+          setDeployStep('diff');
       } finally {
           setDeploying(false);
       }
