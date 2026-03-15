@@ -1651,18 +1651,17 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                        <div className="space-y-3">
                                           <div className="flex items-center justify-between">
                                              <label className="text-[10px] font-black text-indigo-900 uppercase tracking-widest">Token / Secret</label>
-                                             <div className="flex gap-2">
-                                                <ConvertButton active={!!activeNode.config._conversions?.['auth_token']} onClick={() => setShowConversionPicker({ nodeId: activeNode.id, field: 'auth_token' })} />
-                                                <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: 'auth_token', type: 'config' })} />
-                                             </div>
-                                          </div>
-                                                   className="bg-white border border-indigo-200 rounded-lg px-2 py-1 text-[9px] font-black uppercase text-indigo-600"
+                                             <div className="flex items-center gap-2">
+                                                <select
+                                                   className="bg-white border border-indigo-200 rounded-lg px-2 py-1 text-[9px] font-black uppercase text-indigo-600 outline-none cursor-pointer"
                                                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, auth_token: `vault://${e.target.value}` } } : n))}
                                                 >
                                                    <option value="">Vault Secrets</option>
                                                    {vaultSecrets.map((s: any) => <option key={s.id} value={s.name}>{s.name}</option>)}
                                                 </select>
-                                             </div>
+                                                 <ConvertButton active={!!activeNode.config._conversions?.['auth_token']} onClick={() => setShowConversionPicker({ nodeId: activeNode.id, field: 'auth_token' })} />
+                                                 <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: 'auth_token', type: 'config' })} />
+                                              </div>
                                           </div>
                                           <input className="w-full bg-white border border-indigo-100 rounded-xl px-4 py-3 text-xs font-mono" placeholder="Token ou {{var}}" value={activeNode.config.auth_token || ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, auth_token: e.target.value } } : n))} />
                                        </div>
