@@ -87,6 +87,8 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
    const [zoom, setZoom] = useState(1);
    const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
    const [marquee, setMarquee] = useState<{ start: { x: number, y: number }, end: { x: number, y: number } } | null>(null);
+   const [pan, setPan] = useState({ x: 0, y: 0 });
+   const [isPanning, setIsPanning] = useState(false);
    const [contextMenu, setContextMenu] = useState<{ x: number, y: number, nodeId: string } | null>(null);
    const canvasRef = useRef<HTMLDivElement>(null);
    const hasMovedRef = useRef<boolean>(false);
@@ -655,9 +657,15 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
    };
 
    const onMouseMove = (e: React.MouseEvent) => {
-      if (draggedNode) {
-         const dx = e.clientX - offset.x;
-         const dy = e.clientY - offset.y;
+      if (isPanning) {
+         setPan(prev => ({
+            x: prev.x + (e.clientX - offset.x),
+            y: prev.y + (e.clientY - offset.y)
+         }));
+         setOffset({ x: e.clientX, y: e.clientY });
+      } else if (draggedNode) {
+         const dx = (e.clientX - offset.x) / zoom;
+         const dy = (e.clientY - offset.y) / zoom;
 
          if (selectedNodeIds.includes(draggedNode)) {
             // Move all selected nodes
@@ -686,7 +694,10 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
 
          setOffset({ x: e.clientX, y: e.clientY });
       } else if (marquee) {
-         setMarquee({ ...marquee, end: { x: (e.clientX - (canvasRef.current?.getBoundingClientRect().left || 0)) / zoom, y: (e.clientY - (canvasRef.current?.getBoundingClientRect().top || 0)) / zoom } });
+         const rect = canvasRef.current?.getBoundingClientRect();
+         if (rect) {
+            setMarquee(m => ({ ...m!, end: { x: (e.clientX - rect.left - pan.x) / zoom, y: (e.clientY - rect.top - pan.y) / zoom } }));
+         }
       }
    };
 
@@ -736,8 +747,8 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
 
-      const x = (e.clientX - rect.left) / zoom;
-      const y = (e.clientY - rect.top) / zoom;
+      const x = (e.clientX - rect.left - pan.x) / zoom;
+      const y = (e.clientY - rect.top - pan.y) / zoom;
 
       const newNodeId = `node_${Date.now()}`;
       const typeLabels: Record<string, string> = { logic: 'Lógica', http: 'HTTP', rpc: 'RPC', data: 'Dados', query: 'SQL', transform: 'Transform', response: 'Resposta', convert: 'Conversão', email: 'Email' };
@@ -822,6 +833,11 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
    };
 
    const onMouseUp = (e: React.MouseEvent) => {
+      if (isPanning) {
+         setIsPanning(false);
+         return;
+      }
+
       if (marquee) {
          const x1 = Math.min(marquee.start.x, marquee.end.x);
          const y1 = Math.min(marquee.start.y, marquee.end.y);
@@ -1005,14 +1021,21 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                onDragOver={(e) => e.preventDefault()}
                onDrop={onDrop}
                onMouseDown={(e) => {
+                  if (e.button === 1) { // Middle click for panning
+                     e.preventDefault();
+                     setIsPanning(true);
+                     setOffset({ x: e.clientX, y: e.clientY });
+                     return;
+                  }
+
                   const target = e.target as HTMLElement;
                   // Start marquee ONLY if user is not clicking a node, a port, or the zoom controls
-                  if (!target.closest('.cascata-node') && !target.closest('.port') && !target.closest('.zoom-controls')) {
+                  if (!target.closest('.cascata-node') && !target.closest('.port') && !target.closest('.zoom-controls') && !target.closest('.toolbox-item')) {
                      const rect = canvasRef.current?.getBoundingClientRect();
                      if (rect) {
                         setMarquee({
-                           start: { x: (e.clientX - rect.left) / zoom, y: (e.clientY - rect.top) / zoom },
-                           end: { x: (e.clientX - rect.left) / zoom, y: (e.clientY - rect.top) / zoom }
+                           start: { x: (e.clientX - rect.left - pan.x) / zoom, y: (e.clientY - rect.top - pan.y) / zoom },
+                           end: { x: (e.clientX - rect.left - pan.x) / zoom, y: (e.clientY - rect.top - pan.y) / zoom }
                         });
                         if (!e.shiftKey) {
                            setSelectedNodeIds([]);
@@ -1031,7 +1054,10 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                   <button onClick={() => setZoom(prev => Math.max(prev - 0.1, 0.5))} className="w-10 h-10 flex items-center justify-center rounded-xl hover:bg-rose-50 text-slate-600 hover:text-rose-600 transition-all"><Minimize2 size={18} /></button>
                </div>
 
-               <div className="w-full h-full transition-transform duration-200 ease-out" style={{ transform: `scale(${zoom})`, transformOrigin: '0 0' }}>
+               <div 
+                  className={`w-full h-full ease-out ${isPanning ? 'cursor-grabbing transition-none duration-0' : 'transition-transform duration-200'}`} 
+                  style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}
+               >
                   {/* DOT GRID */}
                   <div className="absolute inset-0 opacity-[0.05] pointer-events-none" style={{ backgroundImage: 'radial-gradient(#000 1.5px, transparent 1.5px)', backgroundSize: '32px 32px' }}></div>
 
@@ -2602,7 +2628,7 @@ const ToolboxItem = ({ icon, label, onDragStart, hoverColor }: { icon: React.Rea
    <button 
       draggable
       onDragStart={onDragStart}
-      className="group flex flex-col items-center gap-2 hover:scale-110 transition-all cursor-grab active:cursor-grabbing"
+      className="toolbox-item group flex flex-col items-center gap-2 hover:scale-110 transition-all cursor-grab active:cursor-grabbing"
    >
       <div className={`w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:text-white ${hoverColor} transition-all shadow-sm group-hover:shadow-lg group-hover:-translate-y-1`}>
          {icon}

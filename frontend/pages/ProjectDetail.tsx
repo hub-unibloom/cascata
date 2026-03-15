@@ -5,7 +5,7 @@ import {
   Settings2, Globe, Lock, Workflow, ExternalLink, Power, ArrowRight, 
   BookOpen, Zap, BarChart3, AlertCircle, Brain, Cable, Network, 
   Cpu, HardDrive, Wifi, Radio, Clock, GitBranch, Copy, RefreshCw, Trash2, Rocket, 
-  GitMerge, RefreshCcw, AlertOctagon, Plus, Check, Sliders, ShieldCheck, X, AlertTriangle
+  GitMerge, RefreshCcw, AlertOctagon, Plus, Check, Sliders, ShieldCheck, X, AlertTriangle, Code2
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, 
@@ -577,7 +577,7 @@ const ProjectDetail: React.FC<{ projectId: string }> = ({ projectId }) => {
                                         <>
                                             {/* Diff Tabs */}
                                             <div className="flex gap-4 mb-4 border-b border-slate-200 pb-2">
-                                                <button onClick={() => setDiffTab('schema')} className={`text-xs font-bold uppercase pb-2 ${diffTab==='schema' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-400'}`}>Schema Changes ({diffData?.modified_tables?.length + diffData?.added_tables?.length || 0})</button>
+                                                <button onClick={() => setDiffTab('schema')} className={`text-xs font-bold uppercase pb-2 ${diffTab==='schema' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-400'}`}>Schema Changes ({(diffData?.modified_tables?.length || 0) + (diffData?.added_tables?.length || 0) + (diffData?.added_functions?.length || 0) + (diffData?.modified_functions?.length || 0) + (diffData?.added_triggers?.length || 0) + (diffData?.modified_triggers?.length || 0)})</button>
                                                 <button onClick={() => setDiffTab('security')} className={`text-xs font-bold uppercase pb-2 ${diffTab==='security' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-400'}`}>Security ({diffData?.policies?.length || 0})</button>
                                                 <button onClick={() => setDiffTab('sql')} className={`text-xs font-bold uppercase pb-2 ${diffTab==='sql' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-400'}`}>Raw SQL</button>
                                             </div>
@@ -606,7 +606,37 @@ const ProjectDetail: React.FC<{ projectId: string }> = ({ projectId }) => {
                                                                   </div>
                                                               </div>
                                                           ))}
-                                                          {(!diffData?.added_tables?.length && !diffData?.modified_tables?.length) && (
+                                                         {/* --- Functions / RPCs --- */}
+                                                         {diffData?.added_functions?.map((f: any) => (
+                                                             <div key={`af-${f.name}-${f.signature}`} className="bg-emerald-50 border border-emerald-100 p-3 rounded-lg flex items-center gap-3">
+                                                                 <Code2 size={16} className="text-emerald-600"/>
+                                                                 <span className="text-sm font-bold text-emerald-900">New Function: {f.name}</span>
+                                                                 {f.signature && <span className="text-[10px] text-emerald-600 font-mono">({f.signature})</span>}
+                                                             </div>
+                                                         ))}
+                                                         {diffData?.modified_functions?.map((f: any) => (
+                                                             <div key={`mf-${f.name}-${f.signature}`} className="bg-amber-50 border border-amber-100 p-3 rounded-lg flex items-center gap-3">
+                                                                 <Code2 size={16} className="text-amber-600"/>
+                                                                 <span className="text-sm font-bold text-amber-900">Modified Function: {f.name}</span>
+                                                                 {f.signature && <span className="text-[10px] text-amber-600 font-mono">({f.signature})</span>}
+                                                             </div>
+                                                         ))}
+                                                         {/* --- Triggers --- */}
+                                                         {diffData?.added_triggers?.map((t: any) => (
+                                                             <div key={`at-${t.name}-${t.table}`} className="bg-emerald-50 border border-emerald-100 p-3 rounded-lg flex items-center gap-3">
+                                                                 <Zap size={16} className="text-emerald-600"/>
+                                                                 <span className="text-sm font-bold text-emerald-900">New Trigger: {t.name}</span>
+                                                                 <span className="text-[10px] text-emerald-600 font-mono">on {t.table}</span>
+                                                             </div>
+                                                         ))}
+                                                         {diffData?.modified_triggers?.map((t: any) => (
+                                                             <div key={`mt-${t.name}-${t.table}`} className="bg-amber-50 border border-amber-100 p-3 rounded-lg flex items-center gap-3">
+                                                                 <Zap size={16} className="text-amber-600"/>
+                                                                 <span className="text-sm font-bold text-amber-900">Modified Trigger: {t.name}</span>
+                                                                 <span className="text-[10px] text-amber-600 font-mono">on {t.table}</span>
+                                                             </div>
+                                                         ))}
+                                                          {(!diffData?.added_tables?.length && !diffData?.modified_tables?.length && !diffData?.added_functions?.length && !diffData?.modified_functions?.length && !diffData?.added_triggers?.length && !diffData?.modified_triggers?.length) && (
                                                               <div className="text-center py-10 text-slate-400 text-xs italic">No schema changes detected.</div>
                                                           )}
                                                      </div>

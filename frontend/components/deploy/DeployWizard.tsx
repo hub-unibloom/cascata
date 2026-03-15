@@ -3,7 +3,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   GitMerge, RefreshCcw, Loader2, X, CheckCircle2, AlertOctagon, 
   ShieldCheck, Database, Plus, GitCompare, ChevronDown, ChevronRight,
-  AlertTriangle, ArrowRight, GripVertical, FileText, Code
+  AlertTriangle, ArrowRight, GripVertical, FileText, Code, Rocket,
+  Zap, Code2
 } from 'lucide-react';
 
 interface DeployWizardProps {
@@ -159,6 +160,7 @@ const DeployWizard: React.FC<DeployWizardProps> = ({ projectId, onClose, onSucce
                                 <div className="bg-white border border-slate-200 rounded-[2rem] p-8 min-h-[400px]">
                                     {activeTab === 'schema' && (
                                         <div className="space-y-4">
+                                            {/* --- Tables --- */}
                                             {diffData?.added_tables?.map((t: string) => (
                                                 <div key={t} className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl flex items-center gap-3">
                                                     <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center text-emerald-600"><Plus size={16}/></div>
@@ -174,11 +176,72 @@ const DeployWizard: React.FC<DeployWizardProps> = ({ projectId, onClose, onSucce
                                                     </div>
                                                 </div>
                                             ))}
-                                            {(!diffData?.added_tables?.length && !diffData?.modified_tables?.length) && (
+
+                                            {/* --- Functions / RPCs --- */}
+                                            {diffData?.added_functions?.map((f: any) => (
+                                                <div key={`af-${f.name}-${f.signature}`} className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl flex items-center gap-3">
+                                                    <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center text-emerald-600"><Code2 size={16}/></div>
+                                                    <div>
+                                                        <span className="font-bold text-emerald-900 text-sm">New Function: {f.name}</span>
+                                                        {f.signature && <span className="text-[10px] text-emerald-600 ml-2 font-mono">({f.signature})</span>}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            {diffData?.modified_functions?.map((f: any) => (
+                                                <div key={`mf-${f.name}-${f.signature}`} className="bg-amber-50 border border-amber-100 p-4 rounded-xl flex items-center gap-3">
+                                                    <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center text-amber-600"><Code2 size={16}/></div>
+                                                    <div>
+                                                        <span className="font-bold text-amber-900 text-sm">Modified Function: {f.name}</span>
+                                                        {f.signature && <span className="text-[10px] text-amber-600 ml-2 font-mono">({f.signature})</span>}
+                                                    </div>
+                                                </div>
+                                            ))}
+
+                                            {/* --- Triggers --- */}
+                                            {diffData?.added_triggers?.map((t: any) => (
+                                                <div key={`at-${t.name}-${t.table}`} className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl flex items-center gap-3">
+                                                    <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center text-emerald-600"><Zap size={16}/></div>
+                                                    <div>
+                                                        <span className="font-bold text-emerald-900 text-sm">New Trigger: {t.name}</span>
+                                                        <span className="text-[10px] text-emerald-600 ml-2 font-mono">on {t.table}</span>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            {diffData?.modified_triggers?.map((t: any) => (
+                                                <div key={`mt-${t.name}-${t.table}`} className="bg-amber-50 border border-amber-100 p-4 rounded-xl flex items-center gap-3">
+                                                    <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center text-amber-600"><Zap size={16}/></div>
+                                                    <div>
+                                                        <span className="font-bold text-amber-900 text-sm">Modified Trigger: {t.name}</span>
+                                                        <span className="text-[10px] text-amber-600 ml-2 font-mono">on {t.table}</span>
+                                                    </div>
+                                                </div>
+                                            ))}
+
+                                            {/* --- Empty State (only if truly nothing changed) --- */}
+                                            {(!diffData?.added_tables?.length && !diffData?.modified_tables?.length && !diffData?.added_functions?.length && !diffData?.modified_functions?.length && !diffData?.added_triggers?.length && !diffData?.modified_triggers?.length) && (
                                                 <p className="text-center text-slate-400 font-bold uppercase text-xs py-20">No schema changes detected.</p>
                                             )}
                                         </div>
                                     )}
+
+                                    {activeTab === 'security' && (
+                                        <div className="space-y-3">
+                                            {diffData?.policies?.length === 0 && <p className="text-center text-slate-400 font-bold uppercase text-xs py-20">No security policy changes.</p>}
+                                            {diffData?.policies?.map((p: any, i: number) => (
+                                                <div key={i} className="bg-white border border-slate-200 p-4 rounded-xl flex justify-between items-center">
+                                                    <div className="flex items-center gap-3">
+                                                        <ShieldCheck size={16} className="text-purple-500"/>
+                                                        <div>
+                                                            <div className="text-xs font-bold text-slate-800">{p.policy}</div>
+                                                            <div className="text-[10px] text-slate-500">on {p.table}</div>
+                                                        </div>
+                                                    </div>
+                                                    <span className="text-[9px] font-black bg-purple-50 text-purple-700 px-2 py-1 rounded">{p.type}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
                                     {activeTab === 'sql' && (
                                         <pre className="bg-slate-900 text-emerald-400 p-6 rounded-2xl font-mono text-xs overflow-auto max-h-[500px]">
                                             {diffData?.generated_sql || '-- No SQL generated'}
@@ -299,7 +362,5 @@ const DeployWizard: React.FC<DeployWizardProps> = ({ projectId, onClose, onSucce
   );
 };
 
-// Import Helper for the Icon (Missing in imports above)
-import { Rocket } from 'lucide-react';
 
 export default DeployWizard;
