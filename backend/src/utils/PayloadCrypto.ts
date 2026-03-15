@@ -95,13 +95,15 @@ export class PayloadCrypto {
 
         // HKDF: Deriva uma chave AES-256 a partir do segredo compartilhado
         // Garante uniformidade e separa o domínio da chave ("cascata-login-v1")
-        return crypto.hkdfSync(
+        const hkdfResult = crypto.hkdfSync(
             'sha256',
             sharedSecret,
             Buffer.alloc(0),                     // salt (vazio, segredo já é forte)
             Buffer.from('cascata-login-v1'),      // info / domain separator
             32                                    // 256 bits para AES-256
-        ) as Buffer;
+        );
+
+        return Buffer.from(hkdfResult);
     }
 
     /**

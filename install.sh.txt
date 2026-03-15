@@ -288,6 +288,15 @@ generate_qr_totp() {
     # Tenta gerar QR Code via qrencode (se disponível) ou python3
     local QR_SHOWN=false
 
+    # Instala silenciosamente qrencode se faltar para garantir o QR no terminal
+    if ! command -v qrencode &>/dev/null; then
+        case "$PKG_MANAGER" in
+            apt) sudo DEBIAN_FRONTEND=noninteractive apt-get -qq install -y qrencode 2>/dev/null || true ;;
+            dnf|yum) sudo yum -q install -y qrencode 2>/dev/null || true ;;
+            pacman) sudo pacman -S --noconfirm qrencode 2>/dev/null || true ;;
+        esac
+    fi
+
     if command -v qrencode &>/dev/null; then
         echo -e "${BOLD}${YELLOW}"
         qrencode -t ANSIUTF8 -m 2 "$OTP_URI" 2>/dev/null || true
@@ -351,11 +360,11 @@ verify_otp_setup() {
 
     while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
         read -rp "  Código OTP: " OTP_CODE
+        ATTEMPTS=$((ATTEMPTS + 1))
 
         # Validar formato
         if ! [[ "$OTP_CODE" =~ ^[0-9]{6}$ ]]; then
-            warn "Código deve ter exatamente 6 dígitos."
-            ATTEMPTS=$((ATTEMPTS + 1))
+            warn "Código deve ter exatamente 6 dígitos. (${ATTEMPTS}/${MAX_ATTEMPTS})"
             continue
         fi
 
@@ -393,17 +402,15 @@ print('OK' if entered in valid else 'FAIL')
             ok "OTP verificado com sucesso! Autenticação de dois fatores ativa."
             return 0
         elif [ "$RESULT" = "ERROR" ]; then
-            warn "Erro ao verificar OTP. Pulando verificação automática."
+            warn "Erro interno ao verificar OTP. Pulando verificação automática."
             return 0
         else
-            ATTEMPTS=$((ATTEMPTS + 1))
-            if [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; then
-                warn "Código incorreto. Tente novamente (${ATTEMPTS}/${MAX_ATTEMPTS})..."
-            else
-                err "Número máximo de tentativas atingido. Configure o OTP novamente e reinstale."
-            fi
+            warn "Código incorreto. (${ATTEMPTS}/${MAX_ATTEMPTS})"
         fi
     done
+
+    # Se saiu do loop, o maximo de tentativas foi atingido
+    err "Verificação falhou. Você deve escanear o QR Code corretamente. Rode o instalador novamente."
 }
 
 # ---------------------------------------------------------------------------
