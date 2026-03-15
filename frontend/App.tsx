@@ -433,7 +433,7 @@ const App: React.FC = () => {
           <div className="bg-white rounded-[2.5rem] w-full max-w-lg p-10 shadow-2xl border border-slate-200 flex flex-col">
             <div className="mb-6 text-center">
               <div className="w-16 h-16 bg-amber-50 rounded-2xl flex items-center justify-center mx-auto mb-4 text-amber-600"><GitBranch size={32} /></div>
-              <h3 className="text-2xl font-black text-slate-900 tracking-tight">Create Draft Environment</h3>
+              <h3 className="text-2xl font-black text-slate-900 tracking-tight flex items-center justify-center gap-3">Create Draft Environment <span className="bg-indigo-600 text-white text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg shadow-sm">Alpha</span></h3>
               <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-2">Configure Data Snapshot</p>
             </div>
 
