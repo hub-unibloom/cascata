@@ -615,6 +615,137 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
       }
    };
 
+   // SENIOR MATH: Cubic Bezier Proximity Detection for Drag-to-Insert
+   const getPointOnBezier = (t: number, p0: {x: number, y: number}, p1: {x: number, y: number}, p2: {x: number, y: number}, p3: {x: number, y: number}) => {
+      const cx = 3 * (p1.x - p0.x);
+      const bx = 3 * (p2.x - p1.x) - cx;
+      const ax = p3.x - p0.x - cx - bx;
+
+      const cy = 3 * (p1.y - p0.y);
+      const by = 3 * (p2.y - p1.y) - cy;
+      const ay = p3.y - p0.y - cy - by;
+
+      const x = (ax * Math.pow(t, 3)) + (bx * Math.pow(t, 2)) + (cx * t) + p0.x;
+      const y = (ay * Math.pow(t, 3)) + (by * Math.pow(t, 2)) + (cy * t) + p0.y;
+
+      return { x, y };
+   };
+
+   const getClosestPointOnPath = (point: { x: number, y: number }, p0: any, p1: any, p2: any, p3: any) => {
+      let minDistance = Infinity;
+      let closestT = 0;
+      const steps = 20;
+
+      for (let i = 0; i <= steps; i++) {
+         const t = i / steps;
+         const pos = getPointOnBezier(t, p0, p1, p2, p3);
+         const dist = Math.sqrt(Math.pow(point.x - pos.x, 2) + Math.pow(point.y - pos.y, 2));
+         if (dist < minDistance) {
+            minDistance = dist;
+            closestT = t;
+         }
+      }
+      return { distance: minDistance, t: closestT };
+   };
+
+   const handleToolboxDragStart = (e: React.DragEvent, type: any) => {
+      e.dataTransfer.setData('nodeType', type);
+      e.dataTransfer.effectAllowed = 'copy';
+   };
+
+   const onDrop = (e: React.DragEvent) => {
+      e.preventDefault();
+      const type = e.dataTransfer.getData('nodeType') as Node['type'];
+      if (!type) return;
+
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      const x = (e.clientX - rect.left) / zoom;
+      const y = (e.clientY - rect.top) / zoom;
+
+      const newNodeId = `node_${Date.now()}`;
+      const typeLabels: Record<string, string> = { logic: 'Lógica', http: 'HTTP', rpc: 'RPC', data: 'Dados', query: 'SQL', transform: 'Transform', response: 'Resposta', convert: 'Conversão', email: 'Email' };
+      
+      const newNode: Node = {
+         id: newNodeId,
+         type,
+         x: x - 144, // 18rem / 2
+         y: y - 50,
+         label: typeLabels[type] || type.toUpperCase(),
+         config: type === 'http' ? { url: '', method: 'POST', auth: 'none', retries: 0, headers: {}, body: {}, timeout: 15000 } :
+                type === 'logic' ? { conditions: [{ left: '', op: 'eq', right: '' }], match: 'all' } :
+                type === 'query' ? { sql: '-- SELECT * FROM users WHERE id = $1', params: [], readonly: true } :
+                type === 'data' ? { operation: 'select', table: '', filters: [], body: {} } :
+                type === 'rpc' ? { function: '', args: [] } :
+                type === 'transform' ? { body: {} } :
+                type === 'convert' ? { value: '', toType: 'string' } :
+                type === 'email' ? { to: '', subject: '', body: '' } :
+                type === 'response' ? { status_code: 200, body: { success: true } } : {},
+         next: (type === 'logic') ? { true: undefined, false: undefined } : (type === 'http') ? { out: undefined, error: undefined } : []
+      };
+
+      // Proximity Calculation for Line Insertion
+      let splitTarget: { fromId: string, toId: string, port: string } | null = null;
+      let minLineDist = 40;
+
+      nodes.forEach(node => {
+         const connections: { toId: string, port: string }[] = [];
+         if (node.type === 'logic') {
+            const nextObj = node.next as any;
+            if (nextObj?.true) connections.push({ toId: nextObj.true, port: 'true' });
+            if (nextObj?.false) connections.push({ toId: nextObj.false, port: 'false' });
+         } else if (node.type === 'http') {
+            const nextObj = node.next as any;
+            if (nextObj?.out) connections.push({ toId: nextObj.out, port: 'out' });
+            if (nextObj?.error) connections.push({ toId: nextObj.error, port: 'error' });
+         } else if (Array.isArray(node.next)) {
+            node.next.forEach(toId => connections.push({ toId, port: 'out' }));
+         }
+
+         connections.forEach(conn => {
+            const target = nodes.find(n => n.id === conn.toId);
+            if (!target) return;
+
+            const p0 = { x: node.x + (18 * 16), y: node.y + (conn.port === 'true' || (conn.port === 'out' && node.type === 'http') ? 70 : (conn.port === 'false' || conn.port === 'error') ? 110 : 100) };
+            const p3 = { x: target.x, y: target.y + 50 };
+            const cp1 = { x: p0.x + (p3.x - p0.x) * 0.5, y: p0.y };
+            const cp2 = { x: p0.x + (p3.x - p0.x) * 0.5, y: p3.y };
+
+            const { distance } = getClosestPointOnPath({ x, y }, p0, cp1, cp2, p3);
+            if (distance < minLineDist) {
+               minLineDist = distance;
+               splitTarget = { fromId: node.id, toId: conn.toId, port: conn.port };
+            }
+         });
+      });
+
+      if (splitTarget) {
+         setNodes(prev => {
+            const updated = prev.map(n => {
+               if (n.id === splitTarget!.fromId) {
+                  if (Array.isArray(n.next)) {
+                     return { ...n, next: n.next.map(id => id === splitTarget!.toId ? newNodeId : id) };
+                  } else {
+                     const nextObj = { ...(n.next as any) };
+                     Object.keys(nextObj).forEach(k => {
+                        if (nextObj[k] === splitTarget!.toId) nextObj[k] = newNodeId;
+                     });
+                     return { ...n, next: nextObj };
+                  }
+               }
+               return n;
+            });
+
+            const linkToChild = (newNode.type === 'logic') ? { true: splitTarget!.toId, false: undefined } : (newNode.type === 'http') ? { out: splitTarget!.toId, error: undefined } : [splitTarget!.toId];
+            const finalNode = { ...newNode, next: linkToChild as any };
+            return [...updated, finalNode];
+         });
+      } else {
+         setNodes([...nodes, newNode]);
+      }
+   };
+
    const onMouseUp = (e: React.MouseEvent) => {
       if (marquee) {
          const x1 = Math.min(marquee.start.x, marquee.end.x);
@@ -622,9 +753,20 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
          const x2 = Math.max(marquee.start.x, marquee.end.x);
          const y2 = Math.max(marquee.start.y, marquee.end.y);
 
-         const newlySelected = nodes.filter(n =>
-            n.x >= x1 && n.x <= x2 && n.y >= y1 && n.y <= y2
-         ).map(n => n.id);
+         // SENIOR UX: Robust Marquee using AABB (Axis-Aligned Bounding Box) intersection
+         // Instead of just checking node top-left, we check the full node rectangle
+         const NODE_WIDTH = 288; // 18rem * 16px
+         const NODE_HEIGHT = 150; // Approximate height
+
+         const newlySelected = nodes.filter(n => {
+            const nodeX1 = n.x;
+            const nodeY1 = n.y;
+            const nodeX2 = n.x + NODE_WIDTH;
+            const nodeY2 = n.y + NODE_HEIGHT;
+
+            // Check if user's box and node box overlap
+            return !(x2 < nodeX1 || x1 > nodeX2 || y2 < nodeY1 || y1 > nodeY2);
+         }).map(n => n.id);
 
          setSelectedNodeIds(newlySelected);
       }
@@ -643,7 +785,11 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
       hasMovedRef.current = false;
    };
 
-   const handlePortClick = (nodeId: string, port: 'out' | 'true' | 'false' | 'error') => {
+   const handlePortClick = (nodeId: string, port: 'out' | 'true' | 'false' | 'error', e?: React.MouseEvent) => {
+      if (e) {
+         e.stopPropagation();
+         e.preventDefault();
+      }
       if (connectingFrom) {
          // Cannot connect to itself or to a trigger node
          const targetNode = nodes.find(n => n.id === nodeId);
@@ -780,6 +926,8 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                className="relative flex-1 bg-slate-50 overflow-hidden cursor-crosshair select-none"
                onMouseMove={onMouseMove}
                onMouseUp={onMouseUp}
+               onDragOver={(e) => e.preventDefault()}
+               onDrop={onDrop}
                onMouseDown={(e) => {
                   if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('bg-slate-50')) {
                      const rect = canvasRef.current?.getBoundingClientRect();
@@ -920,35 +1068,59 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
 
                            {/* PORTS */}
                            {node.type !== 'trigger' && (
-                              <div className="port absolute -left-2.5 top-1/2 -translate-y-1/2 w-5 h-5 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center cursor-pointer hover:border-indigo-400 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'out')}>
+                              <div 
+                                 className="port absolute -left-2.5 top-1/2 -translate-y-1/2 w-5 h-5 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center cursor-pointer hover:border-indigo-400 z-30 transition-all shadow-md group/port" 
+                                 onClick={(e) => handlePortClick(node.id, 'out', e)}
+                                 onMouseDown={(e) => e.stopPropagation()}
+                              >
                                  <div className="w-1.5 h-1.5 rounded-full bg-slate-200 group-hover/port:bg-indigo-400"></div>
                               </div>
                            )}
 
                            {node.type === 'logic' ? (
                               <>
-                                 <div className="port absolute -right-2.5 top-[70px] w-5 h-5 bg-white border-2 border-emerald-100 rounded-full flex items-center justify-center cursor-pointer hover:border-emerald-500 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'true')}>
+                                 <div 
+                                    className="port absolute -right-2.5 top-[70px] w-5 h-5 bg-white border-2 border-emerald-100 rounded-full flex items-center justify-center cursor-pointer hover:border-emerald-500 z-30 transition-all shadow-md group/port" 
+                                    onClick={(e) => handlePortClick(node.id, 'true', e)}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                 >
                                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-200 group-hover/port:bg-emerald-500"></div>
                                     <span className="absolute left-6 text-[7px] font-black text-emerald-500 uppercase tracking-widest opacity-0 group-hover/port:opacity-100 transition-opacity">True</span>
                                  </div>
-                                 <div className="port absolute -right-2.5 top-[110px] w-5 h-5 bg-white border-2 border-rose-100 rounded-full flex items-center justify-center cursor-pointer hover:border-rose-500 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'false')}>
+                                 <div 
+                                    className="port absolute -right-2.5 top-[110px] w-5 h-5 bg-white border-2 border-rose-100 rounded-full flex items-center justify-center cursor-pointer hover:border-rose-500 z-30 transition-all shadow-md group/port" 
+                                    onClick={(e) => handlePortClick(node.id, 'false', e)}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                 >
                                     <div className="w-1.5 h-1.5 rounded-full bg-rose-200 group-hover/port:bg-rose-500"></div>
                                     <span className="absolute left-6 text-[7px] font-black text-rose-500 uppercase tracking-widest opacity-0 group-hover/port:opacity-100 transition-opacity">False</span>
                                  </div>
                               </>
                            ) : (node.type === 'http') ? (
                               <>
-                                 <div className="port absolute -right-2.5 top-[70px] w-5 h-5 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center cursor-pointer hover:border-indigo-400 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'out')}>
+                                 <div 
+                                    className="port absolute -right-2.5 top-[70px] w-5 h-5 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center cursor-pointer hover:border-indigo-400 z-30 transition-all shadow-md group/port" 
+                                    onClick={(e) => handlePortClick(node.id, 'out', e)}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                 >
                                     <div className={`w-1.5 h-1.5 rounded-full ${connectingFrom?.id === node.id && connectingFrom?.port === 'out' ? 'bg-indigo-600 animate-pulse' : 'bg-slate-200 group-hover/port:bg-indigo-400'}`}></div>
                                     <span className="absolute left-6 text-[7px] font-black text-slate-400 uppercase tracking-widest opacity-0 group-hover/port:opacity-100 transition-opacity">Out</span>
                                  </div>
-                                 <div className="port absolute -right-2.5 top-[110px] w-5 h-5 bg-white border-2 border-rose-100 rounded-full flex items-center justify-center cursor-pointer hover:border-rose-500 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'error')}>
+                                 <div 
+                                    className="port absolute -right-2.5 top-[110px] w-5 h-5 bg-white border-2 border-rose-100 rounded-full flex items-center justify-center cursor-pointer hover:border-rose-500 z-30 transition-all shadow-md group/port" 
+                                    onClick={(e) => handlePortClick(node.id, 'error', e)}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                 >
                                     <div className={`w-1.5 h-1.5 rounded-full ${connectingFrom?.id === node.id && connectingFrom?.port === 'error' ? 'bg-rose-600 animate-pulse' : 'bg-rose-200 group-hover/port:bg-rose-500'}`}></div>
                                     <span className="absolute left-6 text-[7px] font-black text-rose-500 uppercase tracking-widest opacity-0 group-hover/port:opacity-100 transition-opacity">Error</span>
                                  </div>
                               </>
                            ) : (
-                              <div className="port absolute -right-2.5 top-1/2 -translate-y-1/2 w-5 h-5 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center cursor-pointer hover:border-indigo-400 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'out')}>
+                              <div 
+                                 className="port absolute -right-2.5 top-1/2 -translate-y-1/2 w-5 h-5 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center cursor-pointer hover:border-indigo-400 z-30 transition-all shadow-md group/port" 
+                                 onClick={(e) => handlePortClick(node.id, 'out', e)}
+                                 onMouseDown={(e) => e.stopPropagation()}
+                              >
                                  <div className={`w-1.5 h-1.5 rounded-full ${connectingFrom?.id === node.id ? 'bg-indigo-600 animate-pulse' : 'bg-slate-200 group-hover/port:bg-indigo-400'}`}></div>
                               </div>
                            )}
@@ -997,12 +1169,30 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                        </div>
                                        <span>Deletar</span>
                                     </button>
-                                    <button onClick={() => deleteNode(contextMenu.nodeId, true)} className="w-full flex items-center gap-3 px-5 py-4 hover:bg-amber-500 hover:text-white rounded-[1.5rem] text-slate-600 transition-all font-black text-[10px] uppercase tracking-widest group/item mt-1">
-                                       <div className="w-8 h-8 rounded-xl bg-slate-50 flex items-center justify-center group-hover/item:bg-amber-400 transition-colors">
-                                          <Unlink size={14} />
-                                       </div>
-                                       <span className="text-left leading-tight">Eliminar com Linhagem</span>
-                                    </button>
+                                    {(() => {
+                                       // SENIOR UX: Only show lineage deletion if it actually has lineage to preserve
+                                       const hasParents = nodes.some(n => {
+                                          if (Array.isArray(n.next)) return (n.next as string[]).includes(contextMenu.nodeId);
+                                          if (typeof n.next === 'object' && n.next !== null) return Object.values(n.next).includes(contextMenu.nodeId);
+                                          return false;
+                                       });
+                                       const hasChildren = targetNode && (
+                                          (Array.isArray(targetNode.next) && targetNode.next.length > 0) ||
+                                          (typeof targetNode.next === 'object' && targetNode.next !== null && Object.values(targetNode.next).some(v => !!v))
+                                       );
+
+                                       if (hasParents && hasChildren) {
+                                          return (
+                                             <button onClick={() => deleteNode(contextMenu.nodeId, true)} className="w-full flex items-center gap-3 px-5 py-4 hover:bg-amber-500 hover:text-white rounded-[1.5rem] text-slate-600 transition-all font-black text-[10px] uppercase tracking-widest group/item mt-1">
+                                                <div className="w-8 h-8 rounded-xl bg-slate-50 flex items-center justify-center group-hover/item:bg-amber-400 transition-colors">
+                                                   <Unlink size={14} />
+                                                </div>
+                                                <span className="text-left leading-tight">Eliminar com Linhagem</span>
+                                             </button>
+                                          );
+                                       }
+                                       return null;
+                                    })()}
                                  </>
                               )}
                            </>
@@ -1013,17 +1203,17 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
 
 
                {/* TOOLBOX */}
-               <div className="absolute bottom-10 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur-2xl border border-slate-200 rounded-[2.5rem] px-10 py-5 shadow-2xl flex items-center gap-8 z-40 transition-all hover:border-indigo-100">
-                  <ToolboxItem icon={<GitBranch size={20} />} label="Logic" onClick={() => addNode('logic')} hoverColor="group-hover:bg-slate-900" />
-                  <ToolboxItem icon={<Globe size={20} />} label="HTTP" onClick={() => addNode('http')} hoverColor="group-hover:bg-amber-500" />
-                  <ToolboxItem icon={<Terminal size={20} />} label="SQL" onClick={() => addNode('query')} hoverColor="group-hover:bg-rose-600" />
-                  <ToolboxItem icon={<Database size={20} />} label="Data" onClick={() => addNode('data')} hoverColor="group-hover:bg-cyan-600" />
-                  <ToolboxItem icon={<Code size={20} />} label="RPC" onClick={() => addNode('rpc')} hoverColor="group-hover:bg-violet-600" />
-                  <ToolboxItem icon={<RefreshCcw size={20} />} label="Convert" onClick={() => addNode('convert')} hoverColor="group-hover:bg-pink-600" />
-                  <ToolboxItem icon={<Layers size={20} />} label="Transform" onClick={() => addNode('transform')} hoverColor="group-hover:bg-indigo-600" />
-                  <ToolboxItem icon={<Mail size={20} />} label="Email" onClick={() => addNode('email')} hoverColor="group-hover:bg-sky-500" />
+               <div className="absolute bottom-10 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur-2xl border border-slate-200 rounded-[2.5rem] px-10 py-5 shadow-2xl flex items-center gap-8 z-40 transition-all hover:border-indigo-100 group/toolbox">
+                  <ToolboxItem icon={<GitBranch size={20} />} label="Logic" onDragStart={(e) => handleToolboxDragStart(e, 'logic')} hoverColor="group-hover:bg-slate-900" />
+                  <ToolboxItem icon={<Globe size={20} />} label="HTTP" onDragStart={(e) => handleToolboxDragStart(e, 'http')} hoverColor="group-hover:bg-amber-500" />
+                  <ToolboxItem icon={<Terminal size={20} />} label="SQL" onDragStart={(e) => handleToolboxDragStart(e, 'query')} hoverColor="group-hover:bg-rose-600" />
+                  <ToolboxItem icon={<Database size={20} />} label="Data" onDragStart={(e) => handleToolboxDragStart(e, 'data')} hoverColor="group-hover:bg-cyan-600" />
+                  <ToolboxItem icon={<Code size={20} />} label="RPC" onDragStart={(e) => handleToolboxDragStart(e, 'rpc')} hoverColor="group-hover:bg-violet-600" />
+                  <ToolboxItem icon={<RefreshCcw size={20} />} label="Convert" onDragStart={(e) => handleToolboxDragStart(e, 'convert')} hoverColor="group-hover:bg-pink-600" />
+                  <ToolboxItem icon={<Layers size={20} />} label="Transform" onDragStart={(e) => handleToolboxDragStart(e, 'transform')} hoverColor="group-hover:bg-indigo-600" />
+                  <ToolboxItem icon={<Mail size={20} />} label="Email" onDragStart={(e) => handleToolboxDragStart(e, 'email')} hoverColor="group-hover:bg-sky-500" />
                   <div className="w-[1px] h-10 bg-slate-100 mx-1"></div>
-                  <ToolboxItem icon={<ArrowRight size={20} />} label="Output" onClick={() => addNode('response')} hoverColor="group-hover:bg-emerald-600" />
+                  <ToolboxItem icon={<ArrowRight size={20} />} label="Output" onDragStart={(e) => handleToolboxDragStart(e, 'response')} hoverColor="group-hover:bg-emerald-600" />
                </div>
             </div>
 
@@ -2333,12 +2523,16 @@ const AutomationTestPanel: React.FC<{
    </div>
 );
 
-const ToolboxItem = ({ icon, label, onClick, hoverColor }: { icon: React.ReactNode, label: string, onClick: () => void, hoverColor: string }) => (
-   <button onClick={onClick} className="flex flex-col items-center gap-2 group transition-all hover:-translate-y-2">
-      <div className={`w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-300 ${hoverColor} group-hover:text-white transition-all shadow-inner border border-transparent group-hover:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.1)]`}>
+const ToolboxItem = ({ icon, label, onDragStart, hoverColor }: { icon: React.ReactNode, label: string, onDragStart: (e: React.DragEvent) => void, hoverColor: string }) => (
+   <button 
+      draggable
+      onDragStart={onDragStart}
+      className="group flex flex-col items-center gap-2 hover:scale-110 transition-all cursor-grab active:cursor-grabbing"
+   >
+      <div className={`w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 group-hover:text-white ${hoverColor} transition-all shadow-sm group-hover:shadow-lg group-hover:-translate-y-1`}>
          {icon}
       </div>
-      <span className="text-[8px] font-black uppercase text-slate-400 group-hover:text-slate-900 tracking-widest transition-colors">{label}</span>
+      <span className="text-[9px] font-black uppercase text-slate-400 group-hover:text-slate-900 tracking-widest transition-colors leading-none">{label}</span>
    </button>
 );
 
