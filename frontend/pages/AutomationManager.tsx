@@ -5,15 +5,15 @@ import {
    CheckCircle2, AlertCircle, Loader2,
    Settings, X, Filter, GitBranch, Terminal,
    History, ToggleLeft as Toggle, Layout, Workflow,
-   ChevronRight, Save, Database, Globe, MousePointer2,
-   ArrowRight, Maximize2, Minimize2, Code, ChevronDown,
-   Link as LinkIcon, Unlink, Key, Shield, RefreshCcw,
-   Layers, Copy, ArrowDownRight, Check, Search
+   ChevronRight, Save, Search, Database, Globe, Cpu,
+   Mail, MessageSquare, Code, Layers, RefreshCw, Key, ShieldCheck,
+   Shield, Minimize2, Maximize2, Unlink, ArrowRight, RefreshCcw, Check,
+   ChevronDown, Link as LinkIcon, Copy, ArrowDownRight, MousePointer2
 } from 'lucide-react';
 
 interface Node {
    id: string;
-   type: 'trigger' | 'query' | 'http' | 'logic' | 'response' | 'transform' | 'data' | 'rpc' | 'convert';
+   type: 'trigger' | 'query' | 'http' | 'logic' | 'response' | 'transform' | 'data' | 'rpc' | 'convert' | 'email' | 'auth_otp';
    x: number;
    y: number;
    label: string;
@@ -79,7 +79,13 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
    const [offset, setOffset] = useState({ x: 0, y: 0 });
    const [connectingFrom, setConnectingFrom] = useState<{ id: string, port: 'out' | 'true' | 'false' } | null>(null);
    const [configNodeId, setConfigNodeId] = useState<string | null>(null);
+   const [zoom, setZoom] = useState(1);
+   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+   const [marquee, setMarquee] = useState<{ start: { x: number, y: number }, end: { x: number, y: number } } | null>(null);
+   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, nodeId: string } | null>(null);
    const canvasRef = useRef<HTMLDivElement>(null);
+   const hasMovedRef = useRef<boolean>(false);
+   const initialMousePosRef = useRef<{ x: number, y: number }>({ x: 0, y: 0 });
 
    const [submitting, setSubmitting] = useState(false);
    const [testingNodeId, setTestingNodeId] = useState<string | null>(null);
@@ -146,6 +152,9 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
       } catch (e) { console.error("Runs fetch error"); }
    };
 
+   const sortedNodesForJump = [...nodes].sort((a, b) => (a.y - b.y) || (a.x - b.x));
+   const getNodeNumber = (id: string) => sortedNodesForJump.findIndex(n => n.id === id) + 1;
+
    const fetchStats = async () => {
       try {
          const res = await fetch(`/api/data/${projectId}/automations/stats`, {
@@ -166,28 +175,29 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
       } catch (e) { console.error("Vault fetch error"); }
    };
 
-   const fetchTables = async () => {
+   const fetchTables = async (schema: string = 'public') => {
       try {
-         const res = await fetch(`/api/data/${projectId}/tables`, {
+         const res = await fetch(`/api/data/${projectId}/tables?schema=${schema}`, {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` }
          });
          const data = await res.json();
          setTables(Array.isArray(data) ? data : []);
          if (Array.isArray(data) && data.length > 0) {
-            handleFetchColumns(typeof data[0] === 'string' ? data[0] : data[0].name);
+            handleFetchColumns(typeof data[0] === 'string' ? data[0] : data[0].name, schema);
          }
       } catch (e) { console.error("Tables fetch error"); }
    };
 
-   const handleFetchColumns = async (tableName: string) => {
-      if (columns[tableName]) return;
+   const handleFetchColumns = async (tableName: string, schema: string = 'public') => {
+      const cacheKey = `${schema}.${tableName}`;
+      if (columns[cacheKey]) return;
       try {
-         const res = await fetch(`/api/data/${projectId}/tables/${tableName}/columns`, {
+         const res = await fetch(`/api/data/${projectId}/tables/${tableName}/columns?schema=${schema}`, {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` }
          });
          const data = await res.json();
          if (Array.isArray(data)) {
-            setColumns((prev: Record<string, string[]>) => ({ ...prev, [tableName]: data.map((c: { name: string }) => c.name) }));
+            setColumns((prev: Record<string, string[]>) => ({ ...prev, [cacheKey]: data.map((c: { name: string }) => c.name) }));
          }
       } catch (e) { console.error("Columns fetch error"); }
    };
@@ -226,6 +236,20 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
          if (e.key === 'Escape') {
             setConfigNodeId(null);
             setShowVariablePicker(null);
+            setContextMenu(null);
+         }
+
+         // Jump to node by number (1-9)
+         if (/^[1-9]$/.test(e.key) && view === 'composer' && !configNodeId && !showVariablePicker) {
+            const num = parseInt(e.key);
+            const target = sortedNodesForJump[num - 1];
+            if (target && canvasRef.current) {
+               // Center node in view (simplified)
+               // In a real app we might want to scroll or transform the canvas
+               // For now, let's just select it
+               setSelectedNodeIds([target.id]);
+               // If we want to open it: setConfigNodeId(target.id);
+            }
          }
       };
       window.addEventListener('keydown', handleKeyDown);
@@ -281,6 +305,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
    // --- VARIABLE PICKER COMPONENT ---
    const VariablePicker = ({ onSelect, onClose }: { onSelect: (path: string) => void, onClose: () => void }) => {
       const [searchTerm, setSearchTerm] = useState('');
+      const activeNode = nodes.find(n => n.id === configNodeId); // Define activeNode here
       const availableNodes = nodes.filter(n => {
          // Find position of activeNode and show only previous nodes
          const index = nodes.indexOf(activeNode as Node);
@@ -367,6 +392,34 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
          <Zap size={14} fill="currentColor" />
       </button>
    );
+
+   useEffect(() => {
+      const handleKeyDown = (e: KeyboardEvent) => {
+         if (view !== 'composer' || configNodeId || showVariablePicker) return;
+
+         const key = e.key;
+         if (/^[1-9]$/.test(key)) {
+            const num = parseInt(key);
+            const sorted = [...nodes].sort((a, b) => (a.y - b.y) || (a.x - b.x));
+            const target = sorted[num - 1];
+            if (target) {
+               setSelectedNodeIds([target.id]);
+               // Scroll to node logic
+               const canvas = canvasRef.current;
+               if (canvas) {
+                  const rect = canvas.getBoundingClientRect();
+                  // We want to center the node in the canvas
+                  // Node is at target.x, target.y in scaled coords
+                  // Placeholder for scroll logic if needed, but usually just selection is enough for now
+                  // Unless we want to implement pan/scroll.
+               }
+            }
+         }
+      };
+
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+   }, [view, nodes, configNodeId, showVariablePicker]);
 
    const handleVariableSelect = (path: string) => {
       if (!showVariablePicker) return;
@@ -466,6 +519,41 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
       finally { setSubmitting(false); setTimeout(() => { setSuccess(null); setError(null); }, 5000); }
    };
 
+   const applyAuthBlueprint = (event: string) => {
+      let newNodes: Node[] = [
+         { id: 'node_1', type: 'trigger', x: 100, y: 300, label: 'Trigger Event', config: {}, next: [] }
+      ];
+
+      if (event === 'auth.otp_challenge') {
+         newNodes.push(
+            { id: 'node_2', type: 'auth_otp', x: 450, y: 300, label: 'Gerar Hash OTP', config: { length: 6, expires_in: 300, charset: '0123456789' }, next: { out: 'node_3', error: undefined } },
+            { id: 'node_3', type: 'email', x: 800, y: 300, label: 'Enviar Código', config: { to: '{{trigger.data.email}}', subject: 'Seu Código de Acesso', body: 'Seu código é: {{node_2.data.code}}' }, next: ['node_4'] },
+            { id: 'node_4', type: 'response', x: 1150, y: 300, label: 'Sucesso', config: { status_code: 200, body: { success: true, message: 'OTP Enviado' } }, next: [] }
+         );
+         newNodes[0].next = ['node_2'];
+      } else if (event === 'auth.recovery') {
+         newNodes.push(
+            { id: 'node_2', type: 'rpc', x: 450, y: 300, label: 'Gerar Hash de Recuperação', config: { function: 'auth.create_recovery', args: { email: '{{trigger.data.email}}' } }, next: ['node_3'] },
+            { id: 'node_3', type: 'email', x: 800, y: 300, label: 'Enviar Link', config: { to: '{{trigger.data.email}}', subject: '', body: '' }, next: ['node_4'] },
+            { id: 'node_4', type: 'response', x: 1150, y: 300, label: 'OK', config: { status_code: 200, body: { success: true } }, next: [] }
+         );
+         newNodes[0].next = ['node_2'];
+      } else if (event === 'auth.signup_confirmation') {
+         newNodes.push(
+            { id: 'node_2', type: 'email', x: 450, y: 300, label: 'Confirmar Cadastro', config: { to: '{{trigger.data.email}}', subject: '', body: '' }, next: ['node_3'] },
+            { id: 'node_3', type: 'response', x: 800, y: 300, label: 'OK', config: { status_code: 200, body: { success: true } }, next: [] }
+         );
+         newNodes[0].next = ['node_2'];
+      } else {
+         newNodes.push(
+            { id: 'node_2', type: 'response', x: 800, y: 300, label: 'Resposta Final', config: { body: { success: true } }, next: [] }
+         );
+         newNodes[0].next = ['node_2'];
+      }
+
+      setNodes(newNodes);
+   };
+
    const addNode = (type: Node['type']) => {
       const id = `node_${Date.now()}`;
       const newNode: Node = {
@@ -477,8 +565,10 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                      type === 'rpc' ? { function: '', args: [] } :
                         type === 'transform' ? { body: {} } :
                            type === 'convert' ? { value: '', toType: 'string' } :
-                              type === 'response' ? { status_code: 200, body: { success: true } } : {},
-         next: (type === 'logic') ? { true: undefined, false: undefined } : (type === 'http') ? { out: undefined, error: undefined } : []
+                              type === 'email' ? { to: '', subject: '', body: '' } :
+                                 type === 'auth_otp' ? { length: 6, expires_in: 300, charset: '0123456789' } :
+                                    type === 'response' ? { status_code: 200, body: { success: true } } : {},
+         next: (type === 'logic') ? { true: undefined, false: undefined } : (type === 'http' || type === 'auth_otp') ? { out: undefined, error: undefined } : []
       };
       setNodes([...nodes, newNode] as Node[]);
       setConfigNodeId(id);
@@ -487,15 +577,100 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
    // DRAG & DROP
    const onMouseDown = (id: string, e: React.MouseEvent) => {
       if ((e.target as HTMLElement).closest('.port')) return;
+
+      const isShift = e.shiftKey;
+      const isCtrl = e.ctrlKey || e.metaKey;
+
+      // HORIZONTAL ALIGNMENT (Shift + Ctrl + Click)
+      if (isShift && isCtrl && selectedNodeIds.length > 0) {
+         const targetNode = nodes.find(n => n.id === id);
+         if (targetNode) {
+            setNodes(nodes.map(n => selectedNodeIds.includes(n.id) ? { ...n, y: targetNode.y } : n));
+            return;
+         }
+      }
+
+      // MULTI-SELECTION (Shift + Click)
+      if (isShift) {
+         setSelectedNodeIds(prev =>
+            prev.includes(id) ? prev.filter(nodeId => nodeId !== id) : [...prev, id]
+         );
+      } else {
+         if (!selectedNodeIds.includes(id)) {
+            setSelectedNodeIds([id]);
+         }
+      }
+
       setDraggedNode(id);
       const node = nodes.find((n: Node) => n.id === id);
-      if (node) setOffset({ x: e.clientX - node.x, y: e.clientY - node.y });
+      if (node) {
+         setOffset({ x: e.clientX, y: e.clientY });
+         initialMousePosRef.current = { x: e.clientX, y: e.clientY };
+         hasMovedRef.current = false;
+      }
+
+      // Auto-open drawer removed from onMouseDown to prevent conflict with drag
+      // It will be triggered on onMouseUp if no movement occurred
    };
 
    const onMouseMove = (e: React.MouseEvent) => {
       if (draggedNode) {
-         setNodes(nodes.map((n: Node) => n.id === draggedNode ? { ...n, x: e.clientX - offset.x, y: e.clientY - offset.y } : n));
+         const dx = e.clientX - offset.x;
+         const dy = e.clientY - offset.y;
+
+         if (selectedNodeIds.includes(draggedNode)) {
+            // Move all selected nodes
+            setNodes(nodes.map((n: Node) =>
+               selectedNodeIds.includes(n.id)
+                  ? { ...n, x: n.x + dx, y: n.y + dy }
+                  : n
+            ));
+         } else {
+            // Move only the dragged node
+            setNodes(nodes.map((n: Node) =>
+               n.id === draggedNode
+                  ? { ...n, x: n.x + dx, y: n.y + dy }
+                  : n
+            ));
+         }
+
+         // Movement Threshold Logic
+         const dist = Math.sqrt(
+            Math.pow(e.clientX - initialMousePosRef.current.x, 2) +
+            Math.pow(e.clientY - initialMousePosRef.current.y, 2)
+         );
+         if (dist > 5) {
+            hasMovedRef.current = true;
+         }
+
+         setOffset({ x: e.clientX, y: e.clientY });
+      } else if (marquee) {
+         setMarquee({ ...marquee, end: { x: (e.clientX - (canvasRef.current?.getBoundingClientRect().left || 0)) / zoom, y: (e.clientY - (canvasRef.current?.getBoundingClientRect().top || 0)) / zoom } });
       }
+   };
+
+   const onMouseUp = () => {
+      if (marquee) {
+         const x1 = Math.min(marquee.start.x, marquee.end.x);
+         const y1 = Math.min(marquee.start.y, marquee.end.y);
+         const x2 = Math.max(marquee.start.x, marquee.end.x);
+         const y2 = Math.max(marquee.start.y, marquee.end.y);
+
+         const newlySelected = nodes.filter(n =>
+            n.x >= x1 && n.x <= x2 && n.y >= y1 && n.y <= y2
+         ).map(n => n.id);
+
+         setSelectedNodeIds(newlySelected);
+      }
+
+      if (draggedNode && !hasMovedRef.current) {
+         // It was a clean click, not a significant drag
+         setConfigNodeId(draggedNode);
+      }
+
+      setDraggedNode(null);
+      setMarquee(null);
+      hasMovedRef.current = false;
    };
 
    const handlePortClick = (nodeId: string, port: 'out' | 'true' | 'false' | 'error') => {
@@ -510,7 +685,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
          // Success connection
          setNodes(nodes.map((n: Node) => {
             if (n.id === connectingFrom.id) {
-               if (n.type === 'logic' || n.type === 'http') {
+               if (n.type === 'logic' || n.type === 'http' || n.type === 'auth_otp') {
                   const nextObj = { ...(n.next as any), [connectingFrom.port]: nodeId };
                   return { ...n, next: nextObj };
                } else {
@@ -546,6 +721,53 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
       }));
    };
 
+   const deleteNode = (id: string, preserveLineage: boolean = false) => {
+      let finalNodes = [...nodes];
+      if (preserveLineage) {
+         // Find what points to this node
+         const parents = finalNodes.filter(n => {
+            if (Array.isArray(n.next)) return n.next.includes(id);
+            if (typeof n.next === 'object' && n.next !== null) return Object.values(n.next).includes(id);
+            return false;
+         });
+
+         // Find what this node points to (children)
+         const targetNode = finalNodes.find(n => n.id === id);
+         const childrenIds: string[] = [];
+         if (targetNode) {
+            if (Array.isArray(targetNode.next)) {
+               childrenIds.push(...targetNode.next);
+            } else if (typeof targetNode.next === 'object' && targetNode.next !== null) {
+               childrenIds.push(...Object.values(targetNode.next).filter(v => !!v) as string[]);
+            }
+         }
+
+         const nextChildId = childrenIds[0]; // Simple logic: reconnect parents to the first child
+
+         finalNodes = finalNodes.map(n => {
+            if (parents.some(p => p.id === n.id)) {
+               if (Array.isArray(n.next)) {
+                  const filtered = n.next.filter(cid => cid !== id);
+                  if (nextChildId && !filtered.includes(nextChildId)) filtered.push(nextChildId);
+                  return { ...n, next: filtered };
+               } else {
+                  const nextObj = { ...(n.next as any) };
+                  Object.keys(nextObj).forEach(k => {
+                     if (nextObj[k] === id) nextObj[k] = nextChildId;
+                  });
+                  return { ...n, next: nextObj };
+               }
+            }
+            return n;
+         });
+      }
+
+      setNodes(finalNodes.filter(n => n.id !== id));
+      setSelectedNodeIds(prev => prev.filter(nid => nid !== id));
+      if (configNodeId === id) setConfigNodeId(null);
+      setContextMenu(null);
+   };
+
    // MODAL CONFIG
    const activeNode = nodes.find((n: Node) => n.id === configNodeId);
 
@@ -579,157 +801,248 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
             </header>
 
             {/* CANVAS */}
+            {/* MAIN CANVAS */}
             <div
-               className="flex-1 relative bg-[#FAFAFA] overflow-hidden"
-               onMouseMove={onMouseMove}
-               onMouseUp={() => setDraggedNode(null)}
                ref={canvasRef}
-            >
-               {/* DOT GRID */}
-               <div className="absolute inset-0 opacity-[0.05] pointer-events-none" style={{ backgroundImage: 'radial-gradient(#000 1.5px, transparent 1.5px)', backgroundSize: '32px 32px' }}></div>
-
-               {/* SVG CONNECTIONS */}
-               <svg className="absolute inset-0 pointer-events-none w-full h-full z-0">
-                  {nodes.map(node => {
-                     const connections: { toId: string, port: string }[] = [];
-                     if (node.type === 'logic') {
-                        const nextObj = node.next as any;
-                        if (nextObj?.true) connections.push({ toId: nextObj.true, port: 'true' });
-                        if (nextObj?.false) connections.push({ toId: nextObj.false, port: 'false' });
-                     } else if (node.type === 'http') {
-                        const nextObj = node.next as any;
-                        if (nextObj?.out) connections.push({ toId: nextObj.out, port: 'out' });
-                        if (nextObj?.error) connections.push({ toId: nextObj.error, port: 'error' });
-                     } else if (Array.isArray(node.next)) {
-                        node.next.forEach(toId => connections.push({ toId, port: 'out' }));
+               className="relative flex-1 bg-slate-50 overflow-hidden cursor-crosshair select-none"
+               onMouseMove={onMouseMove}
+               onMouseUp={onMouseUp}
+               onMouseDown={(e) => {
+                  if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('bg-slate-50')) {
+                     const rect = canvasRef.current?.getBoundingClientRect();
+                     if (rect) {
+                        setMarquee({
+                           start: { x: (e.clientX - rect.left) / zoom, y: (e.clientY - rect.top) / zoom },
+                           end: { x: (e.clientX - rect.left) / zoom, y: (e.clientY - rect.top) / zoom }
+                        });
+                        setSelectedNodeIds([]);
                      }
+                  }
+                  setContextMenu(null);
+               }}
+            >
+               {/* ZOOM CONTROLS */}
+               <div className="absolute top-10 left-10 flex flex-col bg-white/90 backdrop-blur-xl border border-slate-200 rounded-3xl p-2 shadow-xl z-30 transition-all hover:border-indigo-100">
+                  <button onClick={() => setZoom(prev => Math.min(prev + 0.1, 2))} className="w-10 h-10 flex items-center justify-center rounded-xl hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 transition-all"><Plus size={18} /></button>
+                  <div className="h-[1px] bg-slate-100 mx-2"></div>
+                  <button onClick={() => setZoom(1)} className="text-[9px] font-black h-10 flex items-center justify-center text-slate-400 hover:text-indigo-600 transition-all">{Math.round(zoom * 100)}%</button>
+                  <div className="h-[1px] bg-slate-100 mx-2"></div>
+                  <button onClick={() => setZoom(prev => Math.max(prev - 0.1, 0.5))} className="w-10 h-10 flex items-center justify-center rounded-xl hover:bg-rose-50 text-slate-600 hover:text-rose-600 transition-all"><Minimize2 size={18} /></button>
+               </div>
 
-                     return connections.map(conn => {
-                        const target = nodes.find(n => n.id === conn.toId);
-                        if (!target) return null;
+               <div className="w-full h-full transition-transform duration-200 ease-out" style={{ transform: `scale(${zoom})`, transformOrigin: '0 0' }}>
+                  {/* DOT GRID */}
+                  <div className="absolute inset-0 opacity-[0.05] pointer-events-none" style={{ backgroundImage: 'radial-gradient(#000 1.5px, transparent 1.5px)', backgroundSize: '32px 32px' }}></div>
 
-                        const startX = node.x + (18 * 16); // Node width (w-[18rem])
-                        const startY = node.y + (
-                           (conn.port === 'true' || (conn.port === 'out' && node.type === 'http')) ? 70 :
-                              (conn.port === 'false' || conn.port === 'error') ? 110 : 100
-                        );
-                        const endX = target.x;
-                        const endY = target.y + 50;
+                  {/* SVG CONNECTIONS */}
+                  <svg className="absolute inset-0 pointer-events-none w-full h-full z-0">
+                     {nodes.map(node => {
+                        const connections: { toId: string, port: string }[] = [];
+                        if (node.type === 'logic') {
+                           const nextObj = node.next as any;
+                           if (nextObj?.true) connections.push({ toId: nextObj.true, port: 'true' });
+                           if (nextObj?.false) connections.push({ toId: nextObj.false, port: 'false' });
+                        } else if (node.type === 'http') {
+                           const nextObj = node.next as any;
+                           if (nextObj?.out) connections.push({ toId: nextObj.out, port: 'out' });
+                           if (nextObj?.error) connections.push({ toId: nextObj.error, port: 'error' });
+                        } else if (Array.isArray(node.next)) {
+                           node.next.forEach(toId => connections.push({ toId, port: 'out' }));
+                        }
 
-                        const cp1X = startX + (endX - startX) * 0.5;
-                        const cp2X = startX + (endX - startX) * 0.5;
+                        return connections.map(conn => {
+                           const target = nodes.find(n => n.id === conn.toId);
+                           if (!target) return null;
 
-                        return (
-                           <g key={`${node.id}-${conn.toId}-${conn.port}`}>
-                              <path
-                                 d={`M ${startX} ${startY} C ${cp1X} ${startY} ${cp2X} ${endY} ${endX} ${endY}`}
-                                 stroke={conn.port === 'true' ? '#10B981' : conn.port === 'false' ? '#F43F5E' : '#6366F1'}
-                                 strokeWidth="3" fill="none" className="opacity-40 animate-dash"
-                                 strokeDasharray="8 8"
-                              />
-                              <foreignObject x={(startX + endX) / 2 - 12} y={(startY + endY) / 2 - 12} width="24" height="24" className="pointer-events-auto z-50">
-                                 <button onClick={(e) => { e.stopPropagation(); disconnect(node.id, conn.toId, conn.port); }} className="w-6 h-6 bg-white border border-slate-200 rounded-full flex items-center justify-center text-slate-300 hover:text-rose-600 hover:border-rose-100 shadow-sm transition-all"><Unlink size={10} /></button>
-                              </foreignObject>
-                           </g>
-                        );
-                     });
-                  })}
-               </svg>
+                           const startX = node.x + (18 * 16); // Node width (w-[18rem])
+                           const startY = node.y + (
+                              (conn.port === 'true' || (conn.port === 'out' && node.type === 'http')) ? 70 :
+                                 (conn.port === 'false' || conn.port === 'error') ? 110 : 100
+                           );
+                           const endX = target.x;
+                           const endY = target.y + 50;
 
-               {/* NODES */}
-               <div className="absolute inset-0 z-10 p-12 overflow-visible pointer-events-none">
-                  {nodes.map(node => (
-                     <div
-                        key={node.id}
-                        className={`absolute bg-white border ${draggedNode === node.id ? 'border-indigo-500 shadow-2xl scale-[1.02]' : 'border-slate-100 shadow-xl'} rounded-[2rem] p-6 w-[18rem] group cursor-grab active:cursor-grabbing transition-all hover:border-indigo-200 z-20 pointer-events-auto`}
-                        style={{ left: node.x, top: node.y }}
-                        onMouseDown={(e) => onMouseDown(node.id, e)}
-                     >
-                        <div className="flex items-center justify-between mb-4">
-                           <div className="flex items-center gap-3">
-                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-lg ${node.type === 'trigger' ? 'bg-indigo-600' :
+                           const cp1X = startX + (endX - startX) * 0.5;
+                           const cp2X = startX + (endX - startX) * 0.5;
+
+                           return (
+                              <g key={`${node.id}-${conn.toId}-${conn.port}`}>
+                                 <path
+                                    d={`M ${startX} ${startY} C ${cp1X} ${startY} ${cp2X} ${endY} ${endX} ${endY}`}
+                                    stroke={conn.port === 'true' ? '#10B981' : conn.port === 'false' ? '#F43F5E' : '#6366F1'}
+                                    strokeWidth="3" fill="none" className="opacity-40 animate-dash"
+                                    strokeDasharray="8 8"
+                                 />
+                                 <foreignObject x={(startX + endX) / 2 - 12} y={(startY + endY) / 2 - 12} width="24" height="24" className="pointer-events-auto z-50">
+                                    <button onClick={(e) => { e.stopPropagation(); disconnect(node.id, conn.toId, conn.port); }} className="w-6 h-6 bg-white border border-slate-200 rounded-full flex items-center justify-center text-slate-300 hover:text-rose-600 hover:border-rose-100 shadow-sm transition-all"><Unlink size={10} /></button>
+                                 </foreignObject>
+                              </g>
+                           );
+                        });
+                     })}
+                  </svg>
+
+                  {/* NODES */}
+                  <div className="absolute inset-0 z-10 p-12 overflow-visible pointer-events-none">
+                     {nodes.map(node => (
+                        <div
+                           key={node.id}
+                           className={`absolute bg-white border ${selectedNodeIds.includes(node.id) ? 'border-indigo-500 ring-4 ring-indigo-50 shadow-2xl scale-[1.02]' : 'border-slate-100 shadow-xl'} rounded-[2rem] p-6 w-[18rem] group cursor-grab active:cursor-grabbing transition-all z-20 pointer-events-auto
+                            ${node.type === 'transform' ? 'hover:border-indigo-500 hover:shadow-indigo-100/50' :
+                                 node.type === 'auth_otp' ? 'hover:border-orange-500 hover:shadow-orange-100/50' :
+                                    node.type === 'response' ? 'hover:border-emerald-500 hover:shadow-emerald-100/50' :
+                                       node.type === 'http' ? 'hover:border-amber-500 hover:shadow-amber-100/50' :
+                                          node.type === 'query' ? 'hover:border-rose-500 hover:shadow-rose-100/50' :
+                                             node.type === 'data' ? 'hover:border-cyan-500 hover:shadow-cyan-100/50' :
+                                                node.type === 'email' ? 'hover:border-sky-500 hover:shadow-sky-100/50' :
+                                                   'hover:border-slate-300'}`}
+                           style={{ left: node.x, top: node.y }}
+                           onMouseDown={(e) => onMouseDown(node.id, e)}
+                           onClick={(e) => { e.stopPropagation(); setConfigNodeId(node.id); }}
+                           onContextMenu={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setContextMenu({ x: e.clientX, y: e.clientY, nodeId: node.id });
+                           }}
+                        >
+                           <div className="flex items-center justify-between mb-4">
+                              <div className="flex items-center gap-3">
+                                 <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-lg ${node.type === 'trigger' ? 'bg-indigo-600' :
                                     node.type === 'logic' ? 'bg-slate-900' :
                                        node.type === 'response' ? 'bg-emerald-600' :
                                           node.type === 'http' ? 'bg-amber-500' :
                                              node.type === 'query' ? 'bg-rose-600' :
                                                 node.type === 'data' ? 'bg-cyan-600' :
-                                                   node.type === 'transform' ? 'bg-indigo-600' : 'bg-indigo-500'
-                                 }`}>
-                                 {node.type === 'trigger' ? <Zap size={18} /> :
-                                    node.type === 'logic' ? <GitBranch size={18} /> :
-                                       node.type === 'response' ? <ArrowRight size={18} /> :
-                                          node.type === 'query' ? <Terminal size={18} /> :
-                                             node.type === 'data' ? <Database size={18} /> :
-                                                node.type === 'rpc' ? <Code size={18} /> :
-                                                   node.type === 'convert' ? <RefreshCcw size={18} /> : <Layers size={18} />}
+                                                   node.type === 'transform' ? 'bg-indigo-600' :
+                                                      node.type === 'auth_otp' ? 'bg-orange-500 shadow-orange-100' :
+                                                         node.type === 'email' ? 'bg-sky-500' : 'bg-indigo-500'
+                                    }`}>
+                                    {node.type === 'trigger' ? <Zap size={18} /> :
+                                       node.type === 'logic' ? <GitBranch size={18} /> :
+                                          node.type === 'response' ? <ArrowRight size={18} /> :
+                                             node.type === 'query' ? <Terminal size={18} /> :
+                                                node.type === 'data' ? <Database size={18} /> :
+                                                   node.type === 'rpc' ? <Code size={18} /> :
+                                                      node.type === 'email' ? <Mail size={18} /> :
+                                                         node.type === 'auth_otp' ? <Key size={18} /> :
+                                                            node.type === 'convert' ? <RefreshCcw size={18} /> : <Layers size={18} />}
+                                 </div>
+                                 <div>
+                                    <div className="flex items-center gap-1.5 mb-0.5">
+                                       <span className="text-[7px] font-black uppercase tracking-widest text-white bg-slate-900 px-1.5 py-0.5 rounded-md shadow-sm">#{getNodeNumber(node.id)}</span>
+                                       <span className="text-[7px] font-black uppercase tracking-widest text-slate-400 block">{node.id.split('_').pop()}</span>
+                                    </div>
+                                    <span className="text-[10px] font-black text-slate-900 uppercase tracking-tight block truncate max-w-[10rem]">{node.label}</span>
+                                 </div>
                               </div>
-                              <div>
-                                 <span className="text-[7px] font-black uppercase tracking-widest text-slate-400 block mb-0.5">#{node.id.split('_').pop()}</span>
-                                 <span className="text-[10px] font-black text-slate-900 uppercase tracking-tighter">{node.label}</span>
+                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                 <button onClick={() => setConfigNodeId(node.id)} className="p-1.5 hover:bg-slate-50 rounded-lg text-slate-300 hover:text-indigo-600 transition-all"><Settings size={14} /></button>
+                                 {node.type !== 'trigger' && (
+                                    <button onClick={() => setNodes(nodes.filter(n => n.id !== node.id))} className="p-1.5 hover:bg-slate-50 rounded-lg text-slate-300 hover:text-rose-600 transition-all"><Trash2 size={14} /></button>
+                                 )}
                               </div>
                            </div>
-                           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button onClick={() => setConfigNodeId(node.id)} className="p-1.5 hover:bg-slate-50 rounded-lg text-slate-300 hover:text-indigo-600 transition-all"><Settings size={14} /></button>
-                              {node.type !== 'trigger' && (
-                                 <button onClick={() => setNodes(nodes.filter(n => n.id !== node.id))} className="p-1.5 hover:bg-slate-50 rounded-lg text-slate-300 hover:text-rose-600 transition-all"><Trash2 size={14} /></button>
-                              )}
-                           </div>
+
+                           <p className="text-[9px] text-slate-500 font-medium truncate mb-2 opacity-60">
+                              {node.type === 'trigger' ? `${editingAutomation?.trigger_config?.table || '*'} • ${editingAutomation?.trigger_config?.event || '*'}` :
+                                 node.type === 'logic' ? 'Processamento Condicional' : 'Configuração Enterprise'}
+                           </p>
+
+                           {/* PORTS */}
+                           {node.type !== 'trigger' && (
+                              <div className="port absolute -left-2.5 top-1/2 -translate-y-1/2 w-5 h-5 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center cursor-pointer hover:border-indigo-400 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'out')}>
+                                 <div className="w-1.5 h-1.5 rounded-full bg-slate-200 group-hover/port:bg-indigo-400"></div>
+                              </div>
+                           )}
+
+                           {node.type === 'logic' ? (
+                              <>
+                                 <div className="port absolute -right-2.5 top-[70px] w-5 h-5 bg-white border-2 border-emerald-100 rounded-full flex items-center justify-center cursor-pointer hover:border-emerald-500 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'true')}>
+                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-200 group-hover/port:bg-emerald-500"></div>
+                                    <span className="absolute left-6 text-[7px] font-black text-emerald-500 uppercase tracking-widest opacity-0 group-hover/port:opacity-100 transition-opacity">True</span>
+                                 </div>
+                                 <div className="port absolute -right-2.5 top-[110px] w-5 h-5 bg-white border-2 border-rose-100 rounded-full flex items-center justify-center cursor-pointer hover:border-rose-500 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'false')}>
+                                    <div className="w-1.5 h-1.5 rounded-full bg-rose-200 group-hover/port:bg-rose-500"></div>
+                                    <span className="absolute left-6 text-[7px] font-black text-rose-500 uppercase tracking-widest opacity-0 group-hover/port:opacity-100 transition-opacity">False</span>
+                                 </div>
+                              </>
+                           ) : (node.type === 'http' || node.type === 'auth_otp') ? (
+                              <>
+                                 <div className="port absolute -right-2.5 top-[70px] w-5 h-5 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center cursor-pointer hover:border-indigo-400 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'out')}>
+                                    <div className={`w-1.5 h-1.5 rounded-full ${connectingFrom?.id === node.id && connectingFrom?.port === 'out' ? 'bg-indigo-600 animate-pulse' : 'bg-slate-200 group-hover/port:bg-indigo-400'}`}></div>
+                                    <span className="absolute left-6 text-[7px] font-black text-slate-400 uppercase tracking-widest opacity-0 group-hover/port:opacity-100 transition-opacity">Out</span>
+                                 </div>
+                                 <div className="port absolute -right-2.5 top-[110px] w-5 h-5 bg-white border-2 border-rose-100 rounded-full flex items-center justify-center cursor-pointer hover:border-rose-500 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'error')}>
+                                    <div className={`w-1.5 h-1.5 rounded-full ${connectingFrom?.id === node.id && connectingFrom?.port === 'error' ? 'bg-rose-600 animate-pulse' : 'bg-rose-200 group-hover/port:bg-rose-500'}`}></div>
+                                    <span className="absolute left-6 text-[7px] font-black text-rose-500 uppercase tracking-widest opacity-0 group-hover/port:opacity-100 transition-opacity">Error</span>
+                                 </div>
+                              </>
+                           ) : (
+                              <div className="port absolute -right-2.5 top-1/2 -translate-y-1/2 w-5 h-5 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center cursor-pointer hover:border-indigo-400 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'out')}>
+                                 <div className={`w-1.5 h-1.5 rounded-full ${connectingFrom?.id === node.id ? 'bg-indigo-600 animate-pulse' : 'bg-slate-200 group-hover/port:bg-indigo-400'}`}></div>
+                              </div>
+                           )}
                         </div>
-
-                        <p className="text-[9px] text-slate-500 font-medium truncate mb-2 opacity-60">
-                           {node.type === 'trigger' ? `${editingAutomation?.trigger_config?.table || '*'} • ${editingAutomation?.trigger_config?.event || '*'}` :
-                              node.type === 'logic' ? 'Processamento Condicional' : 'Configuração Enterprise'}
-                        </p>
-
-                        {/* PORTS */}
-                        {node.type !== 'trigger' && (
-                           <div className="port absolute -left-2.5 top-1/2 -translate-y-1/2 w-5 h-5 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center cursor-pointer hover:border-indigo-400 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'out')}>
-                              <div className="w-1.5 h-1.5 rounded-full bg-slate-200 group-hover/port:bg-indigo-400"></div>
-                           </div>
-                        )}
-
-                        {node.type === 'logic' ? (
-                           <>
-                              <div className="port absolute -right-2.5 top-[70px] w-5 h-5 bg-white border-2 border-emerald-100 rounded-full flex items-center justify-center cursor-pointer hover:border-emerald-500 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'true')}>
-                                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-200 group-hover/port:bg-emerald-500"></div>
-                                 <span className="absolute left-6 text-[7px] font-black text-emerald-500 uppercase tracking-widest opacity-0 group-hover/port:opacity-100 transition-opacity">True</span>
-                              </div>
-                              <div className="port absolute -right-2.5 top-[110px] w-5 h-5 bg-white border-2 border-rose-100 rounded-full flex items-center justify-center cursor-pointer hover:border-rose-500 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'false')}>
-                                 <div className="w-1.5 h-1.5 rounded-full bg-rose-200 group-hover/port:bg-rose-500"></div>
-                                 <span className="absolute left-6 text-[7px] font-black text-rose-500 uppercase tracking-widest opacity-0 group-hover/port:opacity-100 transition-opacity">False</span>
-                              </div>
-                           </>
-                        ) : node.type === 'http' ? (
-                           <>
-                              <div className="port absolute -right-2.5 top-[70px] w-5 h-5 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center cursor-pointer hover:border-indigo-400 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'out')}>
-                                 <div className={`w-1.5 h-1.5 rounded-full ${connectingFrom?.id === node.id && connectingFrom?.port === 'out' ? 'bg-indigo-600 animate-pulse' : 'bg-slate-200 group-hover/port:bg-indigo-400'}`}></div>
-                                 <span className="absolute left-6 text-[7px] font-black text-slate-400 uppercase tracking-widest opacity-0 group-hover/port:opacity-100 transition-opacity">Out</span>
-                              </div>
-                              <div className="port absolute -right-2.5 top-[110px] w-5 h-5 bg-white border-2 border-rose-100 rounded-full flex items-center justify-center cursor-pointer hover:border-rose-500 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'error')}>
-                                 <div className={`w-1.5 h-1.5 rounded-full ${connectingFrom?.id === node.id && connectingFrom?.port === 'error' ? 'bg-rose-600 animate-pulse' : 'bg-rose-200 group-hover/port:bg-rose-500'}`}></div>
-                                 <span className="absolute left-6 text-[7px] font-black text-rose-500 uppercase tracking-widest opacity-0 group-hover/port:opacity-100 transition-opacity">Error</span>
-                              </div>
-                           </>
-                        ) : (
-                           <div className="port absolute -right-2.5 top-1/2 -translate-y-1/2 w-5 h-5 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center cursor-pointer hover:border-indigo-400 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'out')}>
-                              <div className={`w-1.5 h-1.5 rounded-full ${connectingFrom?.id === node.id ? 'bg-indigo-600 animate-pulse' : 'bg-slate-200 group-hover/port:bg-indigo-400'}`}></div>
-                           </div>
-                        )}
-                     </div>
-                  ))}
+                     ))}
+                  </div>
+                  {/* MARQUEE VISUAL */}
+                  {marquee && (
+                     <div
+                        className="absolute border-2 border-indigo-400 bg-indigo-50/30 rounded-xl z-50 pointer-events-none"
+                        style={{
+                           left: Math.min(marquee.start.x, marquee.end.x) * zoom,
+                           top: Math.min(marquee.start.y, marquee.end.y) * zoom,
+                           width: Math.abs(marquee.end.x - marquee.start.x) * zoom,
+                           height: Math.abs(marquee.end.y - marquee.start.y) * zoom
+                        }}
+                     />
+                  )}
                </div>
+
+               {/* CUSTOM CONTEXT MENU */}
+               {contextMenu && (
+                  <div
+                     className="fixed bg-white/80 backdrop-blur-3xl border border-white/20 rounded-[2.5rem] p-3 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.3)] z-[999] w-64 animate-in fade-in zoom-in-95 duration-300 ring-1 ring-black/5"
+                     style={{ left: contextMenu.x, top: contextMenu.y }}
+                  >
+                     <div className="px-4 py-2 mb-2 border-b border-slate-100/50">
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">Ações do Nó</p>
+                     </div>
+                     <button onClick={() => { setConfigNodeId(contextMenu.nodeId); setContextMenu(null); }} className="w-full flex items-center gap-3 px-5 py-4 hover:bg-indigo-600 hover:text-white rounded-[1.5rem] text-slate-600 transition-all font-black text-[10px] uppercase tracking-widest group/item">
+                        <div className="w-8 h-8 rounded-xl bg-slate-50 flex items-center justify-center group-hover/item:bg-indigo-500 transition-colors">
+                           <Settings size={14} />
+                        </div>
+                        <span>Editar Nó</span>
+                     </button>
+                     <button onClick={() => deleteNode(contextMenu.nodeId, false)} className="w-full flex items-center gap-3 px-5 py-4 hover:bg-rose-600 hover:text-white rounded-[1.5rem] text-slate-600 transition-all font-black text-[10px] uppercase tracking-widest group/item mt-1">
+                        <div className="w-8 h-8 rounded-xl bg-slate-50 flex items-center justify-center group-hover/item:bg-rose-500 transition-colors">
+                           <Trash2 size={14} />
+                        </div>
+                        <span>Deletar</span>
+                     </button>
+                     <button onClick={() => deleteNode(contextMenu.nodeId, true)} className="w-full flex items-center gap-3 px-5 py-4 hover:bg-amber-500 hover:text-white rounded-[1.5rem] text-slate-600 transition-all font-black text-[10px] uppercase tracking-widest group/item mt-1">
+                        <div className="w-8 h-8 rounded-xl bg-slate-50 flex items-center justify-center group-hover/item:bg-amber-400 transition-colors">
+                           <Unlink size={14} />
+                        </div>
+                        <span className="text-left leading-tight">Eliminar com Linhagem</span>
+                     </button>
+                  </div>
+               )}
+
 
                {/* TOOLBOX */}
                <div className="absolute bottom-10 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur-2xl border border-slate-200 rounded-[2.5rem] px-10 py-5 shadow-2xl flex items-center gap-8 z-40 transition-all hover:border-indigo-100">
-                  <ToolboxItem icon={<GitBranch size={20} />} label="Logic" onClick={() => addNode('logic')} color="bg-slate-900" />
-                  <ToolboxItem icon={<Globe size={20} />} label="HTTP" onClick={() => addNode('http')} color="bg-amber-500" />
-                  <ToolboxItem icon={<Terminal size={20} />} label="SQL" onClick={() => addNode('query')} color="bg-rose-600" />
-                  <ToolboxItem icon={<Database size={20} />} label="Data" onClick={() => addNode('data')} color="bg-cyan-600" />
-                  <ToolboxItem icon={<Code size={20} />} label="RPC" onClick={() => addNode('rpc')} color="bg-violet-600" />
-                  <ToolboxItem icon={<RefreshCcw size={20} />} label="Convert" onClick={() => addNode('convert')} color="bg-pink-600" />
-                  <ToolboxItem icon={<Layers size={20} />} label="Transform" onClick={() => addNode('transform')} color="bg-indigo-600" />
+                  <ToolboxItem icon={<GitBranch size={20} />} label="Logic" onClick={() => addNode('logic')} hoverColor="group-hover:bg-slate-900" />
+                  <ToolboxItem icon={<Globe size={20} />} label="HTTP" onClick={() => addNode('http')} hoverColor="group-hover:bg-amber-500" />
+                  <ToolboxItem icon={<Terminal size={20} />} label="SQL" onClick={() => addNode('query')} hoverColor="group-hover:bg-rose-600" />
+                  <ToolboxItem icon={<Database size={20} />} label="Data" onClick={() => addNode('data')} hoverColor="group-hover:bg-cyan-600" />
+                  <ToolboxItem icon={<Code size={20} />} label="RPC" onClick={() => addNode('rpc')} hoverColor="group-hover:bg-violet-600" />
+                  <ToolboxItem icon={<RefreshCcw size={20} />} label="Convert" onClick={() => addNode('convert')} hoverColor="group-hover:bg-pink-600" />
+                  <ToolboxItem icon={<Layers size={20} />} label="Transform" onClick={() => addNode('transform')} hoverColor="group-hover:bg-indigo-600" />
+                  <ToolboxItem icon={<Key size={20} />} label="OTP" onClick={() => addNode('auth_otp')} hoverColor="group-hover:bg-orange-500" />
+                  <ToolboxItem icon={<Mail size={20} />} label="Email" onClick={() => addNode('email')} hoverColor="group-hover:bg-sky-500" />
                   <div className="w-[1px] h-10 bg-slate-100 mx-1"></div>
-                  <ToolboxItem icon={<ArrowRight size={20} />} label="Output" onClick={() => addNode('response')} color="bg-emerald-600" />
+                  <ToolboxItem icon={<ArrowRight size={20} />} label="Output" onClick={() => addNode('response')} hoverColor="group-hover:bg-emerald-600" />
                </div>
             </div>
 
@@ -757,10 +1070,10 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                               {/* SYNERGY: Trigger Type Selector (Enterprise Agnostic) */}
                               <div className="space-y-4">
                                  <label className="text-xs font-black text-indigo-600 uppercase tracking-widest">Origem do Gatilho</label>
-                                 <div className="grid grid-cols-2 gap-4">
+                                 <div className="grid grid-cols-3 gap-4">
                                     <button
                                        onClick={() => setEditingAutomation(editingAutomation ? { ...editingAutomation, trigger_type: 'API_INTERCEPT' } : null)}
-                                       className={`py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${editingAutomation?.trigger_type !== 'WEBHOOK_IN' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+                                       className={`py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${editingAutomation?.trigger_type === 'API_INTERCEPT' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
                                     >
                                        <Database size={14} /> Evento de Banco
                                     </button>
@@ -769,6 +1082,12 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                        className={`py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${editingAutomation?.trigger_type === 'WEBHOOK_IN' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
                                     >
                                        <Globe size={14} /> Webhook Externo
+                                    </button>
+                                    <button
+                                       onClick={() => setEditingAutomation(editingAutomation ? { ...editingAutomation, trigger_type: 'INTERNAL_AUTH' } : null)}
+                                       className={`py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${editingAutomation?.trigger_type === 'INTERNAL_AUTH' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+                                    >
+                                       <Shield size={14} /> Autenticação (Sistema)
                                     </button>
                                  </div>
                               </div>
@@ -839,22 +1158,75 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                        </p>
                                     </div>
                                  </div>
+                              ) : editingAutomation?.trigger_type === 'INTERNAL_AUTH' ? (
+                                 <div className="space-y-6">
+                                    <div className="space-y-4">
+                                       <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Eventos de Autenticação</label>
+                                       <div className="grid grid-cols-2 gap-2">
+                                          {[
+                                             { id: 'auth.signup_confirmation', name: 'Confirmação de Cadastro' },
+                                             { id: 'auth.otp_challenge', name: 'Desafio OTP/Login' },
+                                             { id: 'auth.welcome', name: 'Boas-vindas' },
+                                             { id: 'auth.recovery', name: 'Recuperação de Senha' },
+                                             { id: 'auth.magiclink', name: 'Link Mágico' },
+                                             { id: 'auth.login_alert', name: 'Alerta de Login' },
+                                             { id: '*', name: 'Todos os Eventos' }
+                                          ].map((ev) => (
+                                             <button key={ev.id} onClick={() => {
+                                                if (editingAutomation) {
+                                                   setEditingAutomation({ ...editingAutomation, trigger_config: { ...(editingAutomation.trigger_config || {}), event: ev.id } });
+                                                   applyAuthBlueprint(ev.id);
+                                                }
+                                             }} className={`py-4 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${editingAutomation?.trigger_config?.event === ev.id ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>{ev.name}</button>
+                                          ))}
+                                       </div>
+                                    </div>
+                                    <div className="bg-sky-50 rounded-[2rem] p-6 border border-sky-100 flex items-start gap-3">
+                                       <Shield size={18} className="text-sky-600 mt-1" />
+                                       <div>
+                                          <h4 className="text-[10px] font-black text-slate-900 uppercase tracking-widest">Sinergia I18N</h4>
+                                          <p className="text-[9px] text-slate-400 font-bold uppercase leading-relaxed mt-1">Este acionador resolve os templates de idioma automaticamente. Use o nó de Email com campos vazios para herdar o conteúdo padrão.</p>
+                                       </div>
+                                    </div>
+                                 </div>
                               ) : (
                                  <>
-                                    <div className="space-y-4">
-                                       <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Tabela de Interceptação</label>
-                                       <select
-                                          value={editingAutomation?.trigger_config?.table || ''}
-                                          onChange={(e) => {
-                                             const val = e.target.value;
-                                             if (editingAutomation) {
-                                                setEditingAutomation({ ...editingAutomation, trigger_config: { ...(editingAutomation.trigger_config || {}), table: val } });
-                                                handleFetchColumns(val);
-                                             }
-                                          }}
-                                          className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
-                                          {tables.map((t: any) => <option key={typeof t === 'string' ? t : (t as any).name} value={typeof t === 'string' ? t : (t as any).name}>{typeof t === 'string' ? t : (t as any).name}</option>)}
-                                       </select>
+                                    <div className="grid grid-cols-2 gap-4">
+                                       <div className="space-y-4">
+                                          <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Schema</label>
+                                          <select
+                                             value={editingAutomation?.trigger_config?.schema || 'public'}
+                                             onChange={(e) => {
+                                                const val = e.target.value;
+                                                if (editingAutomation) {
+                                                   setEditingAutomation({ ...editingAutomation, trigger_config: { ...(editingAutomation.trigger_config || {}), schema: val, table: '*' } });
+                                                   fetchTables(val);
+                                                }
+                                             }}
+                                             className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                                             <option value="public">public (Dados)</option>
+                                             <option value="auth">auth (Identidade)</option>
+                                             <option value="system">system (Logs/Config)</option>
+                                             <option value="extensions">extensions</option>
+                                          </select>
+                                       </div>
+                                       <div className="space-y-4">
+                                          <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Tabela</label>
+                                          <select
+                                             value={editingAutomation?.trigger_config?.table || ''}
+                                             onChange={(e) => {
+                                                const val = e.target.value;
+                                                const sch = editingAutomation?.trigger_config?.schema || 'public';
+                                                if (editingAutomation) {
+                                                   setEditingAutomation({ ...editingAutomation, trigger_config: { ...(editingAutomation.trigger_config || {}), table: val } });
+                                                   handleFetchColumns(val, sch);
+                                                }
+                                             }}
+                                             className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10">
+                                             <option value="*">Todas as Tabelas (*)</option>
+                                             {tables.map((t: any) => <option key={typeof t === 'string' ? t : (t as any).name} value={typeof t === 'string' ? t : (t as any).name}>{typeof t === 'string' ? t : (t as any).name}</option>)}
+                                          </select>
+                                       </div>
                                     </div>
                                     <div className="space-y-4">
                                        <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Eventos</label>
@@ -888,7 +1260,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                           <select
                                              className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold"
                                              value={c.left}
-                                             onChange={(e) => {
+                                             onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
                                                 const nc = [...activeNode.config.conditions];
                                                 nc[i].left = e.target.value;
                                                 setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, conditions: nc } } : n));
@@ -900,7 +1272,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                           <select
                                              className="w-32 bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs font-black"
                                              value={c.op}
-                                             onChange={(e) => {
+                                             onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
                                                 const nc = [...activeNode.config.conditions];
                                                 nc[i].op = e.target.value;
                                                 setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, conditions: nc } } : n));
@@ -920,7 +1292,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                              className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold"
                                              placeholder="Valor"
                                              value={c.right}
-                                             onChange={(e) => {
+                                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                                                 const nc = [...activeNode.config.conditions];
                                                 nc[i].right = e.target.value;
                                                 setNodes(nodes.map(n => n.id === activeNode.id ? { ...n, config: { ...n.config, conditions: nc } } : n));
@@ -961,7 +1333,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                        <select
                                           className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold"
                                           value={c.left}
-                                          onChange={(e) => {
+                                          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
                                              const nc = [...activeNode.config.conditions];
                                              nc[i].left = e.target.value;
                                              setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, conditions: nc } } : n));
@@ -973,7 +1345,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                        <select
                                           className="w-32 bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs font-black"
                                           value={c.op}
-                                          onChange={(e) => {
+                                          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
                                              const nc = [...activeNode.config.conditions];
                                              nc[i].op = e.target.value;
                                              setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, conditions: nc } } : n));
@@ -996,13 +1368,16 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                           className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold"
                                           placeholder="Valor"
                                           value={c.right}
-                                          onChange={(e) => {
+                                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                                              const nc = [...activeNode.config.conditions];
                                              nc[i].right = e.target.value;
                                              setNodes(nodes.map(n => n.id === activeNode.id ? { ...n, config: { ...n.config, conditions: nc } } : n));
                                           }}
                                        />
-                                       <button className="text-slate-200 hover:text-rose-500 transition-colors"><Trash2 size={16} /></button>
+                                       <button className="text-slate-200 hover:text-rose-500 transition-colors" onClick={() => {
+                                          const nc = activeNode.config.conditions.filter((_: any, idx: number) => idx !== i);
+                                          setNodes(nodes.map(n => n.id === activeNode.id ? { ...n, config: { ...n.config, conditions: nc } } : n));
+                                       }}><Trash2 size={16} /></button>
                                     </div>
                                  ))}
                                  <button
@@ -1029,14 +1404,14 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                     className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-6 py-4 text-xs font-bold text-indigo-600"
                                     placeholder="https://api.exemplo.com/v1/resource"
                                     value={activeNode.config.url || ''}
-                                    onChange={(e) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? { ...n, config: { ...n.config, url: e.target.value } } : n))}
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, url: e.target.value } } : n))}
                                  />
                               </div>
 
                               <div className="grid grid-cols-2 gap-6">
                                  <div className="space-y-4">
                                     <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Método</label>
-                                    <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" value={activeNode.config.method || 'POST'} onChange={(e) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? { ...n, config: { ...n.config, method: e.target.value } } : n))}>
+                                    <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" value={activeNode.config.method || 'POST'} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, method: e.target.value } } : n))}>
                                        <option value="GET">GET</option>
                                        <option value="POST">POST</option>
                                        <option value="PUT">PUT</option>
@@ -1046,7 +1421,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                  </div>
                                  <div className="space-y-4">
                                     <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Autenticação</label>
-                                    <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" value={activeNode.config.auth || 'none'} onChange={(e) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? { ...n, config: { ...n.config, auth: e.target.value } } : n))}>
+                                    <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" value={activeNode.config.auth || 'none'} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, auth: e.target.value } } : n))}>
                                        <option value="none">Sem Autenticação</option>
                                        <option value="bearer">Bearer Token</option>
                                        <option value="apikey">Basic Auth (User/Pass)</option>
@@ -1064,29 +1439,29 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                                 <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: 'auth_token', type: 'config' })} />
                                                 <select
                                                    className="bg-white border border-indigo-200 rounded-lg px-2 py-1 text-[9px] font-black uppercase text-indigo-600"
-                                                   onChange={(e) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? { ...n, config: { ...n.config, auth_token: `vault://${e.target.value}` } } : n))}
+                                                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, auth_token: `vault://${e.target.value}` } } : n))}
                                                 >
                                                    <option value="">Vault Secrets</option>
                                                    {vaultSecrets.map((s: any) => <option key={s.id} value={s.name}>{s.name}</option>)}
                                                 </select>
                                              </div>
                                           </div>
-                                          <input className="w-full bg-white border border-indigo-100 rounded-xl px-4 py-3 text-xs font-mono" placeholder="Token ou {{var}}" value={activeNode.config.auth_token || ''} onChange={(e) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? { ...n, config: { ...n.config, auth_token: e.target.value } } : n))} />
+                                          <input className="w-full bg-white border border-indigo-100 rounded-xl px-4 py-3 text-xs font-mono" placeholder="Token ou {{var}}" value={activeNode.config.auth_token || ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, auth_token: e.target.value } } : n))} />
                                        </div>
                                     )}
                                     {activeNode.config.auth === 'apikey' && (
                                        <div className="grid grid-cols-1 gap-4">
                                           <div className="space-y-2">
                                              <label className="text-[10px] font-black text-indigo-900 uppercase tracking-widest">Username</label>
-                                             <input className="w-full bg-white border border-indigo-100 rounded-xl px-4 py-3 text-xs" value={activeNode.config.auth_user || ''} onChange={(e) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? { ...n, config: { ...n.config, auth_user: e.target.value } } : n))} />
+                                             <input className="w-full bg-white border border-indigo-100 rounded-xl px-4 py-3 text-xs" value={activeNode.config.auth_user || ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, auth_user: e.target.value } } : n))} />
                                           </div>
                                           <div className="space-y-2">
                                              <label className="text-[10px] font-black text-indigo-900 uppercase tracking-widest">Password / Secret</label>
                                              <div className="flex gap-2">
-                                                <input className="flex-1 bg-white border border-indigo-100 rounded-xl px-4 py-3 text-xs" type="password" value={activeNode.config.auth_pass || ''} onChange={(e) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? { ...n, config: { ...n.config, auth_pass: e.target.value } } : n))} />
+                                                <input className="flex-1 bg-white border border-indigo-100 rounded-xl px-4 py-3 text-xs" type="password" value={activeNode.config.auth_pass || ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, auth_pass: e.target.value } } : n))} />
                                                 <select
                                                    className="bg-white border border-indigo-200 rounded-lg px-2 py-1 text-[9px] font-black uppercase text-indigo-600"
-                                                   onChange={(e) => setNodes(nodes.map((n: any) => n.id === activeNode.id ? { ...n, config: { ...n.config, auth_pass: `vault://${e.target.value}` } } : n))}
+                                                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, auth_pass: `vault://${e.target.value}` } } : n))}
                                                 >
                                                    <option value="">Vault</option>
                                                    {vaultSecrets.map((s: any) => <option key={s.id} value={s.name}>{s.name}</option>)}
@@ -1111,12 +1486,12 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                  <div className="space-y-2">
                                     {Object.entries(activeNode.config.headers || {}).map(([hk, hv]: [string, any], i) => (
                                        <div key={i} className="flex gap-2 items-center bg-slate-50 p-3 rounded-2xl border border-slate-100 group">
-                                          <input className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-bold" placeholder="Key" value={hk} onChange={(e) => {
+                                          <input className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-bold" placeholder="Key" value={hk} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                                              const next = { ...activeNode.config.headers }; delete next[hk]; next[e.target.value] = hv;
                                              setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, headers: next } } : n));
                                           }} />
                                           <div className="flex-1 flex gap-2 items-center">
-                                             <input className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-medium" placeholder="Value" value={hv} onChange={(e) => {
+                                             <input className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-medium" placeholder="Value" value={hv} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                                                 const next = { ...activeNode.config.headers }; next[hk] = e.target.value;
                                                 setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, headers: next } } : n));
                                              }} />
@@ -1144,12 +1519,12 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                  <div className="space-y-2">
                                     {Object.entries(activeNode.config.body || {}).map(([bk, bv]: [string, any], i) => (
                                        <div key={i} className="flex gap-2 items-center bg-slate-50 p-3 rounded-2xl border border-slate-100 group">
-                                          <input className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-bold" placeholder="Chave" value={bk} onChange={(e) => {
+                                          <input className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-bold" placeholder="Chave" value={bk} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                                              const next = { ...activeNode.config.body }; delete next[bk]; next[e.target.value] = bv;
                                              setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, body: next } } : n));
                                           }} />
                                           <div className="flex-1 flex gap-2 items-center">
-                                             <input className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-medium" placeholder="Valor" value={bv} onChange={(e) => {
+                                             <input className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-medium" placeholder="Valor" value={bv} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                                                 const next = { ...activeNode.config.body }; next[bk] = e.target.value;
                                                 setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, body: next } } : n));
                                              }} />
@@ -1209,7 +1584,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                     className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-6 py-4 text-sm font-bold text-pink-600"
                                     placeholder="{{node.data.campo}} ou valor fixo"
                                     value={activeNode.config.value || ''}
-                                    onChange={(e) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, value: e.target.value } } : n))}
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, value: e.target.value } } : n))}
                                  />
                               </div>
                               <div className="space-y-4">
@@ -1217,7 +1592,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                  <select
                                     className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold"
                                     value={activeNode.config.toType || 'string'}
-                                    onChange={(e) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, toType: e.target.value } } : n))}
+                                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, toType: e.target.value } } : n))}
                                  >
                                     <option value="string">String (Texto)</option>
                                     <option value="int">Integer (Número Inteiro)</option>
@@ -1233,7 +1608,11 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                            <div className="space-y-8">
                               <div className="space-y-4">
                                  <label className="text-xs font-black text-slate-900 uppercase tracking-widest">SQL Statement (Restricted RLS)</label>
-                                 <textarea className="w-full h-80 bg-slate-900 text-amber-400 font-mono text-xs p-8 rounded-[2.5rem] border border-slate-800 outline-none shadow-2xl" value={activeNode.config.sql} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, sql: e.target.value } } : n))} />
+                                 <textarea
+                                    className="w-full h-48 bg-slate-900 text-emerald-400 font-mono text-[10px] p-6 rounded-[2rem] border border-slate-800 focus:border-emerald-500/30 transition-all outline-none"
+                                    value={activeNode.config.sql || ''}
+                                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, sql: e.target.value } } : n))}
+                                 />
                               </div>
                               <div className="bg-amber-50 rounded-2xl p-6 border border-amber-100">
                                  <h4 className="flex items-center gap-2 text-amber-800 font-black text-[10px] uppercase tracking-widest mb-2"><Shield size={12} /> Security Note</h4>
@@ -1257,11 +1636,15 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                  </div>
                                  <div className="space-y-4">
                                     <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Tabela</label>
-                                    <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" value={activeNode.config.table} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
-                                       const tableName = e.target.value;
-                                       if (tableName) handleFetchColumns(tableName);
-                                       setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, table: tableName } } : n));
-                                    }}>
+                                    <select
+                                       className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-6 py-4 text-xs font-black uppercase tracking-widest text-indigo-600 appearance-none transition-all hover:bg-white focus:ring-4 focus:ring-indigo-50"
+                                       value={activeNode.config.table || ''}
+                                       onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
+                                          const tableName = e.target.value;
+                                          setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, table: tableName } } : n));
+                                          handleFetchColumns(tableName);
+                                       }}
+                                    >
                                        <option value="">Selecione...</option>
                                        {tables.map((t: string | { name: string }) => <option key={typeof t === 'string' ? t : t.name} value={typeof t === 'string' ? t : t.name}>{typeof t === 'string' ? t : t.name}</option>)}
                                     </select>
@@ -1348,7 +1731,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                                       <select
                                                          className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-bold"
                                                          value={p.column}
-                                                         onChange={(e) => {
+                                                         onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
                                                             const np = [...(activeNode.config._payload || [])];
                                                             np[i].column = e.target.value;
                                                             const body = Object.fromEntries(np.filter(x => x.column).map(x => [x.column, x.value]));
@@ -1458,13 +1841,13 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                              {nodes.filter((n: Node) => n.id !== activeNode.id && n.type !== 'trigger').map((n: Node) => <option key={n.id} value={n.id}>{n.label} (#{n.id.split('_').pop()})</option>)}
                                           </select>
                                        </div>
-                                       <div className="bg-white border border-slate-200 rounded-2xl divide-y divide-slate-100">
+                                       <div className="bg-white border border-slate-200 rounded-2xl divide-y divide-slate-100 overflow-hidden">
                                           {(activeNode.config._dataSource === 'trigger' || !activeNode.config._dataSource) && editingAutomation?.trigger_config?.table && (columns[editingAutomation.trigger_config.table] || []).map((col: string) => {
                                              const fields = activeNode.config._fields || {};
                                              const isChecked = fields[col] !== undefined;
                                              return (
                                                 <div key={col} className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50/50 transition-colors">
-                                                   <input type="checkbox" checked={isChecked} onChange={() => {
+                                                   <input type="checkbox" checked={isChecked} onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                                                       const nf = { ...fields };
                                                       if (isChecked) delete nf[col]; else nf[col] = `{{trigger.data.${col}}}`;
                                                       const body = Object.fromEntries(Object.entries(nf).map(([k, v]) => [k, v]));
@@ -1528,8 +1911,8 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                     <div className="flex items-center gap-2 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
                                        <Search size={10} className="text-slate-400" />
                                        <input
-                                          className="bg-transparent border-none outline-none text-[8px] font-bold w-24 placeholder:text-slate-400"
-                                          placeholder="FILTRAR..."
+                                          className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-6 py-4 text-xs font-bold"
+                                          placeholder="Pesquisar função (ex: auth.hash_password)"
                                           value={rpcSearch}
                                           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRpcSearch(e.target.value)}
                                        />
@@ -1602,6 +1985,92 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
 
                               <div className="bg-violet-50 rounded-2xl p-4 border border-violet-100">
                                  <p className="text-[9px] text-violet-700 font-bold uppercase leading-relaxed"><Shield size={10} className="inline mr-1" /> Funções executam com a ROLE do usuário que acionou o gatilho. RLS é respeitado.</p>
+                              </div>
+                           </div>
+                        )}
+
+                        {activeNode.type === 'email' && (
+                           <div className="space-y-6">
+                              <div className="space-y-4">
+                                 <div className="flex items-center justify-between">
+                                    <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Destinatário (To)</label>
+                                    <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: 'to', type: 'config' })} />
+                                 </div>
+                                 <input className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-6 py-4 text-xs font-bold" placeholder="ex: user@example.com ou {{trigger.payload.to}}" value={activeNode.config.to || ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, to: e.target.value } } : n))} />
+                              </div>
+                              <div className="space-y-4">
+                                 <div className="flex items-center justify-between">
+                                    <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Assunto (Opcional)</label>
+                                    <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: 'subject', type: 'config' })} />
+                                 </div>
+                                 <input className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-6 py-4 text-xs font-bold" placeholder="Deixe vazio para herdar do I18N" value={activeNode.config.subject || ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, subject: e.target.value } } : n))} />
+                              </div>
+                              <div className="space-y-4">
+                                 <div className="flex items-center justify-between">
+                                    <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Corpo HTML (Opcional)</label>
+                                    <PickerButton onClick={() => setShowVariablePicker({ nodeId: activeNode.id, field: 'body', type: 'config' })} />
+                                 </div>
+                                 <textarea className="w-full h-64 bg-slate-50 border border-slate-200 rounded-[2rem] p-6 text-xs font-medium" placeholder="Suporta HTML e Variáveis. Deixe vazio para herdar do I18N." value={activeNode.config.body || ''} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, body: e.target.value } } : n))} />
+                              </div>
+                              <div className="bg-amber-50 rounded-2xl p-6 border border-amber-100">
+                                 <p className="text-[9px] text-amber-700 font-bold uppercase leading-relaxed text-center">
+                                    Atenção! Se você preencher o Assunto ou Corpo, o motor de Automação usará o que está aqui em vez do template do I18N.
+                                 </p>
+                              </div>
+                           </div>
+                        )}
+
+                        {activeNode.type === 'auth_otp' && (
+                           <div className="space-y-8">
+                              <div className="space-y-4">
+                                 <label className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                                    <Key size={12} className="text-orange-500" /> Configurações de OTP
+                                 </label>
+                                 <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                       <label className="text-[10px] font-bold text-slate-500 uppercase">Tamanho do Código</label>
+                                       <input
+                                          type="number"
+                                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm font-bold"
+                                          value={activeNode.config.length || 6}
+                                          onChange={(e) => setNodes(nodes.map(n => n.id === activeNode.id ? { ...n, config: { ...n.config, length: parseInt(e.target.value) } } : n))}
+                                       />
+                                    </div>
+                                    <div className="space-y-2">
+                                       <label className="text-[10px] font-bold text-slate-500 uppercase">Expiração (segundos)</label>
+                                       <input
+                                          type="number"
+                                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm font-bold"
+                                          value={activeNode.config.expires_in || 300}
+                                          onChange={(e) => setNodes(nodes.map(n => n.id === activeNode.id ? { ...n, config: { ...n.config, expires_in: parseInt(e.target.value) } } : n))}
+                                       />
+                                    </div>
+                                 </div>
+                              </div>
+
+                              <div className="space-y-4">
+                                 <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Conjunto de Caracteres (Charset)</label>
+                                 <input
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-6 py-4 text-xs font-mono"
+                                    value={activeNode.config.charset || '0123456789'}
+                                    onChange={(e) => setNodes(nodes.map(n => n.id === activeNode.id ? { ...n, config: { ...n.config, charset: e.target.value } } : n))}
+                                 />
+                                 <p className="text-[9px] text-slate-400 font-bold uppercase">Ex: 0123456789 para numérico puro.</p>
+                              </div>
+
+                              <div className="p-6 bg-orange-50 rounded-[2rem] border border-orange-100 flex flex-col gap-4">
+                                 <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center text-orange-600">
+                                       <ShieldCheck size={20} />
+                                    </div>
+                                    <div>
+                                       <h4 className="text-[10px] font-black text-orange-900 uppercase">Security Hardening</h4>
+                                       <p className="text-[9px] text-orange-700/70 font-bold uppercase">Validação Baseada em Sessão</p>
+                                    </div>
+                                 </div>
+                                 <p className="text-[9px] text-orange-800/80 font-medium leading-relaxed">
+                                    Este nó gera um hash seguro que deve ser enviado ao usuário. A validação ocorre automaticamente quando o usuário retorna o código para o endpoint de confirmação orquestrado.
+                                 </p>
                               </div>
                            </div>
                         )}
@@ -1744,8 +2213,8 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                                 <code className="text-emerald-400 block">{"{{"}node_id.data.*{"}}"}</code>
                                              </div>
                                           </div>
-                                       </div
-                                       ><textarea
+                                       </div>
+                                       <textarea
                                           className="w-full h-80 bg-slate-900 text-emerald-400 font-mono text-xs p-8 rounded-[2.5rem] border border-slate-800 outline-none shadow-2xl custom-scrollbar"
                                           value={typeof activeNode.config.body === 'string' ? activeNode.config.body : JSON.stringify(activeNode.config.body, null, 2)}
                                           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -1763,6 +2232,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                            </div>
                         )}
                      </div>
+
 
                      <footer className="p-8 border-t border-slate-50 flex justify-end">
                         <button onClick={() => setConfigNodeId(null)} className="btn-premium">
@@ -1850,7 +2320,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                     {totalRuns} {totalRuns === 1 ? 'execução' : 'execuções'}
                                  </span>
                                  <span className={`text-[8px] font-black px-3 py-1.5 rounded-lg uppercase tracking-widest flex items-center gap-2 ${avgMs === 0 ? 'bg-slate-50 text-slate-400' :
-                                       hasFailures ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'
+                                    hasFailures ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'
                                     }`} title={s?.last_run_at ? `Último: ${new Date(s.last_run_at).toLocaleString()}` : 'Sem execuções ainda'}>
                                     <Zap size={10} />{avgMs > 0 ? `${avgMs}ms avg` : '-- ms'}
                                  </span>
@@ -1922,13 +2392,14 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
             </div>
          )}
       </div>
+
    );
 };
 
 const AutomationTestPanel: React.FC<{
-   onTest: () => void,
-   loading: boolean,
-   lastResult?: any
+   onTest: () => void;
+   loading: boolean;
+   lastResult?: any;
 }> = ({ onTest, loading, lastResult }) => (
    <div className="space-y-3">
       <button
@@ -1955,9 +2426,9 @@ const AutomationTestPanel: React.FC<{
    </div>
 );
 
-const ToolboxItem = ({ icon, label, onClick, color }: { icon: React.ReactNode, label: string, onClick: () => void, color: string }) => (
+const ToolboxItem = ({ icon, label, onClick, hoverColor }: { icon: React.ReactNode, label: string, onClick: () => void, hoverColor: string }) => (
    <button onClick={onClick} className="flex flex-col items-center gap-2 group transition-all hover:-translate-y-2">
-      <div className={`w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-300 group-hover:${color} group-hover:text-white transition-all shadow-inner border border-transparent group-hover:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.1)]`}>
+      <div className={`w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-300 ${hoverColor} group-hover:text-white transition-all shadow-inner border border-transparent group-hover:shadow-[0_15px_30px_-5px_rgba(0,0,0,0.1)]`}>
          {icon}
       </div>
       <span className="text-[8px] font-black uppercase text-slate-400 group-hover:text-slate-900 tracking-widest transition-colors">{label}</span>
