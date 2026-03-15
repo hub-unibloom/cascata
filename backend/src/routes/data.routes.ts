@@ -66,6 +66,7 @@ router.post('/rpc/:name', DataController.executeRpc as any);
 router.get('/functions', DataController.listFunctions as any);
 router.get('/triggers', DataController.listTriggers as any);
 router.get('/rpc/:name/definition', DataController.getFunctionDefinition as any);
+router.get('/trigger/:name/definition', DataController.getTriggerDefinition as any);
 
 // EXTENSIONS (Phantom Injection Architecture)
 router.get('/extensions', requireManagementRole as any, DataController.listExtensions as any);

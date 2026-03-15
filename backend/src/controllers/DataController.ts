@@ -8,6 +8,7 @@ import { OpenApiService } from '../../services/OpenApiService.js';
 import { ExtensionService } from '../../services/ExtensionService.js';
 import { RateLimitService } from '../../services/RateLimitService.js';
 import { AutomationService } from '../../services/AutomationService.js';
+import { CronService } from '../../services/CronService.js';
 import { systemPool } from '../config/main.js';
 
 export class DataController {
@@ -33,7 +34,8 @@ export class DataController {
                 projectSlug: req.project.slug,
                 projectPool: req.projectPool!,
                 userRole: req.user.role || 'authenticated',
-                jwtClaims: req.user
+                jwtClaims: req.user,
+                dryRun: true
             };
 
             const result = await AutomationService.processNode(node, context);
@@ -444,7 +446,13 @@ export class DataController {
         }
         try {
             const schema = req.query.schema || 'public';
-            const result = await req.projectPool!.query(`SELECT routine_name as name FROM information_schema.routines WHERE routine_schema = $1 AND routine_name NOT LIKE 'uuid_%' AND routine_name NOT LIKE 'pgp_%'`, [schema]);
+            const result = await req.projectPool!.query(`
+                SELECT DISTINCT routine_name as name 
+                FROM information_schema.routines 
+                WHERE routine_schema = $1 
+                  AND routine_name NOT LIKE 'uuid_%' 
+                  AND routine_name NOT LIKE 'pgp_%'
+            `, [schema]);
             res.json(result.rows);
         } catch (e: any) { next(e); }
     }
@@ -454,7 +462,12 @@ export class DataController {
             return res.status(403).json({ error: 'Schema access disabled.' });
         }
         try {
-            const result = await req.projectPool!.query("SELECT trigger_name as name FROM information_schema.triggers");
+            const schema = req.query.schema || 'public';
+            const result = await req.projectPool!.query(`
+                SELECT DISTINCT trigger_name as name 
+                FROM information_schema.triggers 
+                WHERE trigger_schema = $1
+            `, [schema]);
             res.json(result.rows);
         } catch (e: any) { next(e); }
     }
@@ -469,6 +482,28 @@ export class DataController {
             const argsResult = await req.projectPool!.query(`SELECT parameter_name as name, data_type as type, parameter_mode as mode FROM information_schema.parameters WHERE specific_name = (SELECT specific_name FROM information_schema.routines WHERE routine_name = $1 AND routine_schema = $2 LIMIT 1) ORDER BY ordinal_position ASC`, [req.params.name, schema]);
             if (defResult.rows.length === 0) return res.status(404).json({ error: 'Function not found' });
             res.json({ definition: defResult.rows[0].def, args: argsResult.rows });
+        } catch (e: any) { next(e); }
+    }
+
+    static async getTriggerDefinition(req: CascataRequest, res: any, next: any) {
+        if (!DataController.checkSchemaAccess(req)) {
+            return res.status(403).json({ error: 'Schema access disabled.' });
+        }
+        try {
+            const schema = req.query.schema || 'public';
+            // Trigger definitions are per-table, but here we look by name in the schema.
+            // Using pg_trigger joined with pg_class and pg_namespace for schema awareness.
+            const result = await req.projectPool!.query(`
+                SELECT pg_get_triggerdef(t.oid) as def 
+                FROM pg_trigger t
+                JOIN pg_class c ON t.tgrelid = c.oid
+                JOIN pg_namespace n ON c.relnamespace = n.oid
+                WHERE t.tgname = $1 AND n.nspname = $2
+                LIMIT 1
+            `, [req.params.name, schema]);
+            
+            if (result.rows.length === 0) return res.status(404).json({ error: 'Trigger not found' });
+            res.json({ definition: result.rows[0].def });
         } catch (e: any) { next(e); }
     }
 
@@ -861,6 +896,13 @@ export class DataController {
                 );
                 if (result.rowCount === 0) return res.status(404).json({ error: 'Automation not found.' });
                 AutomationService.invalidateCache(req.project.slug);
+
+                // CRON SYNC: Ensure repeatable jobs are updated
+                await CronService.unregisterAutomation(id);
+                if ((is_active ?? true) && trigger_type === 'SCHEDULED') {
+                    await CronService.registerAutomation(result.rows[0]);
+                }
+
                 res.json(result.rows[0]);
             } else {
                 // Insert
@@ -871,6 +913,12 @@ export class DataController {
                     [req.project.slug, name, description, trigger_type, trigger_config, nodes, is_active ?? true]
                 );
                 AutomationService.invalidateCache(req.project.slug);
+
+                // CRON SYNC: Register if scheduled
+                if ((is_active ?? true) && trigger_type === 'SCHEDULED') {
+                    await CronService.registerAutomation(result.rows[0]);
+                }
+
                 res.json(result.rows[0]);
             }
         } catch (e: any) { next(e); }
@@ -879,6 +927,7 @@ export class DataController {
     static async deleteAutomation(req: CascataRequest, res: any, next: any) {
         if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         try {
+            await CronService.unregisterAutomation(req.params.id);
             const result = await systemPool.query(
                 'DELETE FROM system.automations WHERE id = $1 AND project_slug = $2',
                 [req.params.id, req.project.slug]

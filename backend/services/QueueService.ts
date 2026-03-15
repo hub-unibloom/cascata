@@ -27,6 +27,7 @@ export class QueueService {
     private static restoreQueue: Queue;
 
     private static pushWorker: Worker;
+    private static webhookWorker: Worker;
     private static backupWorker: Worker;
     private static maintenanceWorker: Worker;
     private static restoreWorker: Worker;
@@ -94,6 +95,32 @@ export class QueueService {
             }
         }, { ...DRAGONFLY_CONFIG, concurrency: 50 });
 
+        // Webhook Worker (Outbound Delivery)
+        this.webhookWorker = new Worker('cascata-webhooks', async (job: Job) => {
+            const { targetUrl, payload, secret, fallbackUrl } = job.data;
+            try {
+                await this.validateTarget(targetUrl);
+                await axios.post(targetUrl, payload, {
+                    headers: { 'X-Cascata-Signature': secret, 'Content-Type': 'application/json' },
+                    timeout: 10000
+                });
+            } catch (error: any) {
+                console.error(`[Queue:Webhook] Primary delivery failed:`, error.message);
+                if (fallbackUrl) {
+                    try {
+                        await axios.post(fallbackUrl, payload, {
+                            headers: { 'X-Cascata-Signature': secret, 'Content-Type': 'application/json' },
+                            timeout: 10000
+                        });
+                        return;
+                    } catch (fbErr: any) {
+                        console.error(`[Queue:Webhook] Fallback failed:`, fbErr.message);
+                    }
+                }
+                throw error; 
+            }
+        }, { ...DRAGONFLY_CONFIG, concurrency: 20 });
+
         // Backup Worker
         this.backupWorker = new Worker('cascata-backups', async (job: Job) => {
             const { policyId } = job.data;
@@ -121,6 +148,29 @@ export class QueueService {
                     console.log(`[Queue:Maintenance] Purged/Archived ${totalPurged} old logs.`);
                 } catch (e: any) {
                     console.error('[Queue:Maintenance] Log purge failed:', e.message);
+                }
+            } else if (job.name.startsWith('auto-')) {
+                const { automationId, projectSlug, nodes } = job.data;
+                console.log(`[Queue:Maintenance] Triggering scheduled automation ${automationId}...`);
+                try {
+                    const { AutomationService } = await import('./AutomationService.js');
+                    const { PoolService } = await import('./PoolService.js');
+                    const pool = PoolService.get(projectSlug);
+                    await AutomationService.dispatchAsyncTrigger(
+                        automationId,
+                        projectSlug,
+                        nodes,
+                        { ts: new Date().toISOString(), source: 'cron' },
+                        { 
+                            projectSlug, 
+                            projectPool: pool, 
+                            vars: {}, 
+                            payload: {}, 
+                            jwtSecret: process.env.JWT_SECRET || 'secret' 
+                        }
+                    );
+                } catch (e: any) {
+                    console.error(`[Queue:Maintenance] Scheduled automation ${automationId} failed:`, e.message);
                 }
             }
         }, { ...DRAGONFLY_CONFIG });
@@ -192,6 +242,25 @@ export class QueueService {
         if (existing) {
             await this.backupQueue.removeRepeatableByKey(existing.key);
             console.log(`[Queue] Removed schedule for ${policyId}`);
+        }
+    }
+
+    public static async scheduleAutomation(automationId: string, cron: string, projectSlug: string, nodes: any) {
+        if (!this.maintenanceQueue) this.init();
+        await this.maintenanceQueue.add(`auto-${automationId}`, { automationId, projectSlug, nodes }, {
+            jobId: `auto-${automationId}`,
+            repeat: { pattern: cron }
+        });
+        console.log(`[Queue] Scheduled automation ${automationId} with cron: ${cron}`);
+    }
+
+    public static async removeAutomationSchedule(automationId: string) {
+        if (!this.maintenanceQueue) this.init();
+        const repeatableJobs = await this.maintenanceQueue.getRepeatableJobs();
+        const existing = repeatableJobs.find((j: any) => j.id === `auto-${automationId}`);
+        if (existing) {
+            await this.maintenanceQueue.removeRepeatableByKey(existing.key);
+            console.log(`[Queue] Removed schedule for automation ${automationId}`);
         }
     }
 

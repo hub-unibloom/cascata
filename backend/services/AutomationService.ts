@@ -41,6 +41,7 @@ export interface AutomationContext {
         identifier?: string;
         provider?: string;
     };
+    dryRun?: boolean;
 }
 
 // SQL statements that cannot be run inside a restricted session.
@@ -486,7 +487,11 @@ export class AutomationService {
                         result = await client.query(`DELETE FROM ${table} ${whereStr} RETURNING *`, params);
                     }
 
-                    await client.query('ROLLBACK');
+                    if (context.dryRun) {
+                        await client.query('ROLLBACK');
+                    } else {
+                        await client.query('COMMIT');
+                    }
                     return result?.rows || null;
                 } catch (e) {
                     await client.query('ROLLBACK').catch(() => { });
@@ -523,7 +528,11 @@ export class AutomationService {
                     const placeholders = resolvedArgs.map((_: any, i: number) => `$${i + 1}`).join(', ');
                     const result = await client.query(`SELECT * FROM ${fnName}(${placeholders})`, resolvedArgs);
 
-                    await client.query('ROLLBACK');
+                    if (context.dryRun) {
+                        await client.query('ROLLBACK');
+                    } else {
+                        await client.query('COMMIT');
+                    }
                     return result.rows;
                 } catch (e) {
                     await client.query('ROLLBACK').catch(() => { });
@@ -614,9 +623,11 @@ export class AutomationService {
 
             const res = await client.query(sql, resolvedParams);
 
-            // Always rollback, never commit DDL from an automation node.
-            // ROLLBACK after SELECT is a no-op — safe for read queries too.
-            await client.query('ROLLBACK');
+            if (context.dryRun) {
+                await client.query('ROLLBACK');
+            } else {
+                await client.query('COMMIT');
+            }
 
             return res.rows;
         } catch (e: any) {

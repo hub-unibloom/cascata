@@ -302,6 +302,20 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
         nerf: { enabled: false, delay: 300, stop_after: 3600, mode: 'speed', speed_pct: 10 }
     });
 
+    // --- MODAL UX: ESC KEY SUPPORT ---
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                setShowSmartModal(false);
+                setShowCreateGroupModal(false);
+                setShowCreateKeyModal(false);
+                setMigrationModal((m: any) => ({ ...m, active: false }));
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
+
     const getDynamicTooltip = (param: 'rate' | 'burst' | 'window') => {
         const target = targetType === 'global' ? 'the entire API' 
                      : targetType === 'auth' ? (targetEntity ? `auth:${targetEntity} actions` : 'all auth routes')
@@ -901,8 +915,8 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
 
             {/* SMART MODAL */}
             {showSmartModal && (
-                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 animate-in zoom-in-95">
-                    <div className="bg-white rounded-[3rem] w-full max-w-6xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[500] flex items-center justify-center p-8 transition-all duration-300 animate-in fade-in">
+                    <div className="bg-white rounded-[3rem] w-full max-w-6xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-300 ease-out">
                         <header className="p-8 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
                             <div className="flex items-center gap-4">
                                 <div className="w-12 h-12 bg-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-lg"><ShieldAlert size={24} /></div>
@@ -1159,8 +1173,8 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
 
             {/* CREATE GROUP MODAL - UPGRADED */}
             {showCreateGroupModal && (
-                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[600] flex items-center justify-center p-8 animate-in zoom-in-95">
-                    <div className="bg-white rounded-[2rem] w-full max-w-lg p-10 shadow-2xl flex flex-col max-h-[90vh]">
+                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[600] flex items-center justify-center p-8 transition-all duration-300 animate-in fade-in">
+                    <div className="bg-white rounded-[2rem] w-full max-w-lg p-10 shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-300 ease-out">
                         <h3 className="font-black text-xl text-slate-900 mb-6">{editingGroupId ? 'Edit Key Group' : 'Create Key Group (Plan)'}</h3>
 
                         <div className="flex-1 overflow-y-auto pr-2 space-y-6">
@@ -1288,8 +1302,8 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
 
             {/* CREATE API KEY MODAL */}
             {showCreateKeyModal && (
-                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[600] flex items-center justify-center p-8 animate-in zoom-in-95">
-                    <div className="bg-white rounded-[2rem] w-full max-w-md p-8 shadow-2xl">
+                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[600] flex items-center justify-center p-8 transition-all duration-300 animate-in fade-in">
+                    <div className="bg-white rounded-[2rem] w-full max-w-md p-8 shadow-2xl animate-in zoom-in-95 duration-300 ease-out">
                         {!createdKeySecret ? (
                             <>
                                 <h3 className="font-black text-lg text-slate-900 mb-6 flex items-center gap-2"><Key size={18} /> Generate Access Key</h3>
@@ -1335,8 +1349,8 @@ const HardSecurityTab: React.FC<{ projectId: string }> = ({ projectId }) => {
 
             {/* MIGRATION MODAL */}
             {migrationModal.active && (
-                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[800] flex items-center justify-center p-8 animate-in zoom-in-95">
-                    <div className="bg-white rounded-[2rem] w-full max-w-sm p-8 shadow-2xl text-center border border-indigo-100">
+                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[800] flex items-center justify-center p-8 transition-all duration-300 animate-in fade-in">
+                    <div className="bg-white rounded-[2rem] w-full max-w-sm p-8 shadow-2xl text-center border border-indigo-100 animate-in zoom-in-95 duration-300 ease-out">
                         <LockedIcon size={40} className="mx-auto text-indigo-600 mb-4" />
                         <h3 className="text-xl font-black text-slate-900 mb-2">Migrate Key</h3>
                         <p className="text-xs text-slate-500 font-bold mb-6">Move this key to another plan/group.</p>

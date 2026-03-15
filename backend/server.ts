@@ -21,7 +21,8 @@ import { RateLimitService } from './services/RateLimitService.js';
 import { PoolService } from './services/PoolService.js';
 import { SystemLogService } from './services/SystemLogService.js';
 import { RealtimeService } from './services/RealtimeService.js';
-import { EdgeService } from './services/EdgeService.js'; // Importado para uso no modo ENGINE
+import { EdgeService } from './services/EdgeService.js'; 
+import { CronService } from './services/CronService.js';
 
 // --- ROUTES ---
 import mainRouter from './src/routes/index.js';
@@ -59,6 +60,7 @@ if (process.env.SERVICE_MODE === 'WORKER') {
             await waitForDatabase(30, 2000);
             RateLimitService.init();
             QueueService.init();
+            CronService.init();
             console.log('[System] Worker Ready. Processing background jobs.');
 
             process.on('SIGTERM', async () => {
@@ -223,6 +225,7 @@ else {
         if (process.env.SERVICE_MODE === 'CONTROL_PLANE') {
             console.log('[System] Control Plane: Initializing internal queues.');
             QueueService.init();
+            CronService.init();
             PoolService.initReaper(); // Control plane solitário precisa do Reaper
             RealtimeService.init();   // Control plane solitário
             

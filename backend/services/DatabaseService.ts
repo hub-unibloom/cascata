@@ -690,7 +690,7 @@ export class DatabaseService {
     }
 
     public static async smartDataSync(sourceDb: string, targetDb: string, specificTable?: string) {
-        return this.mergeData(sourceDb, targetDb, undefined, 'overwrite');
+        return this.mergeData(sourceDb, targetDb, specificTable, 'upsert');
     }
 
     public static async generateDataDiff(sourceDb: string, targetDb: string): Promise<DataDiffSummary[]> {
