@@ -14,7 +14,8 @@ const router = Router();
 router.use(express.json({ limit: '10mb' }) as any);
 router.use(express.urlencoded({ extended: true, limit: '10mb' }) as any);
 
-// Public / Auth
+// Public / Auth — Handshake inicia o protocolo ECDH X25519 de criptografia de payload
+router.get('/auth/handshake', AdminController.handshake as any);
 router.post('/auth/login', AdminController.login as any);
 router.post('/auth/verify', AdminController.verify as any);
 router.post('/system/ssl-check', AdminController.checkSsl as any);

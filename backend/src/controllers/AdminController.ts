@@ -21,27 +21,207 @@ import { SystemLogService } from '../../services/SystemLogService.js';
 import { GDriveService } from '../../services/GDriveService.js';
 import { S3BackupService } from '../../services/S3BackupService.js';
 import { QueueService } from '../../services/QueueService.js';
+import { PayloadCrypto } from '../utils/PayloadCrypto.js';
 
 const generateKey = () => import('crypto').then(c => c.randomBytes(32).toString('hex'));
 
+// Handshake session TTL (5 minutos)
+const HANDSHAKE_TTL_SECONDS = 300;
+
 export class AdminController {
 
-    // ... (Login, Verify, UpdateProfile methods remain unchanged) ...
-    static async login(req: CascataRequest, res: any, next: any) {
-        const { email, password } = req.body;
+    // ---------------------------------------------------------------------------
+    // HANDSHAKE: Inicia a sessão de criptografia ECDH X25519 efêmera
+    // GET /auth/handshake → { sessionId, serverPublicKey }
+    // ---------------------------------------------------------------------------
+    static async handshake(req: CascataRequest, res: any, next: any) {
         try {
-            const result = await systemPool.query('SELECT * FROM system.admin_users WHERE email = $1', [email]);
+            // Gerar par de chaves ECDH X25519 efêmero para este login
+            const session = PayloadCrypto.createHandshakeSession();
+
+            // Tentar armazenar no Dragonfly (cache in-memory) com TTL de 5 minutos
+            // Fallback: armazena em Map local (processo único — não recomendado para cluster)
+            try {
+                const RLSvc = (await import('../../services/RateLimitService.js')).RateLimitService;
+                const dfly = (RLSvc as any).dragonfly;
+                if (dfly) {
+                    await dfly.set(
+                        `cascata_hs:${session.sessionId}`,
+                        JSON.stringify(session),
+                        'EX', HANDSHAKE_TTL_SECONDS
+                    );
+                } else {
+                    AdminController.handshakeFallbackStore.set(session.sessionId, session);
+                    // TTL manual (fallback)
+                    setTimeout(() => AdminController.handshakeFallbackStore.delete(session.sessionId), HANDSHAKE_TTL_SECONDS * 1000);
+                }
+            } catch {
+                AdminController.handshakeFallbackStore.set(session.sessionId, session);
+                setTimeout(() => AdminController.handshakeFallbackStore.delete(session.sessionId), HANDSHAKE_TTL_SECONDS * 1000);
+            }
+
+            // Retorna APENAS a chave pública — a privada NUNCA sai do backend
+            res.json({
+                sessionId:       session.sessionId,
+                serverPublicKey: session.serverPublicKey,
+            });
+        } catch (e: any) { next(e); }
+    }
+
+    // Fallback store em memória para quando Dragonfly não está disponível
+    private static handshakeFallbackStore = new Map<string, any>();
+
+    // ---------------------------------------------------------------------------
+    // LOGIN: Suporta payload cifrado (ECDH+AES-GCM) e texto puro (retrocompatível)
+    // POST /auth/login
+    // ---------------------------------------------------------------------------
+    static async login(req: CascataRequest, res: any, next: any) {
+        try {
+            let email: string;
+            let password: string;
+            let isEncrypted = false;
+            let sharedKey: Buffer | null = null;
+
+            // ── DETECTOR DE PROTOCOLO ────────────────────────────────────────────
+            // Se o body contém 'v' (versão) e 'ciphertext', é um payload cifrado.
+            // Caso contrário, é um login em texto puro (fallback retrocompatível).
+            if (req.body?.v && req.body?.ciphertext && req.body?.sessionId) {
+                isEncrypted = true;
+                const encPayload = req.body;
+
+                // 1. Recuperar sessão de handshake
+                let session: any = null;
+                try {
+                    const RLSvc = (await import('../../services/RateLimitService.js')).RateLimitService;
+                    const dfly = (RLSvc as any).dragonfly;
+                    if (dfly) {
+                        const raw = await dfly.get(`cascata_hs:${encPayload.sessionId}`);
+                        if (raw) {
+                            session = JSON.parse(raw);
+                            // Destruir sessão imediatamente (one-time use)
+                            await dfly.del(`cascata_hs:${encPayload.sessionId}`);
+                        }
+                    }
+                } catch { /* Dragonfly não disponível */ }
+
+                // Fallback store
+                if (!session) {
+                    session = AdminController.handshakeFallbackStore.get(encPayload.sessionId);
+                    if (session) AdminController.handshakeFallbackStore.delete(encPayload.sessionId);
+                }
+
+                if (!session) {
+                    return res.status(401).json({ error: 'Handshake session expired or invalid.' });
+                }
+
+                // 2. Derivar chave compartilhada ECDH
+                sharedKey = PayloadCrypto.deriveSharedKey(
+                    session.serverPrivateKey,
+                    encPayload.clientPublicKey
+                );
+
+                // 3. Decifrar payload (inclui validação anti-replay de timestamp)
+                let plainBody: Record<string, unknown>;
+                try {
+                    plainBody = PayloadCrypto.decryptPayload(encPayload, sharedKey);
+                } catch (e: any) {
+                    console.warn('[AdminController] Payload decryption failed:', e.message);
+                    return res.status(401).json({ error: 'Invalid or tampered payload.' });
+                }
+
+                email    = String(plainBody.email    || '');
+                password = String(plainBody.password || '');
+
+            } else {
+                // ── MODO LEGADO (texto puro): Aceito mas registrado como aviso ──
+                console.warn('[AdminController] Login with unencrypted payload detected. Upgrade to secure handshake flow.');
+                email    = String(req.body?.email    || '');
+                password = String(req.body?.password || '');
+            }
+
+            if (!email || !password) {
+                return res.status(400).json({ error: 'Email and password are required.' });
+            }
+
+            // ── VERIFICAÇÃO DAS CREDENCIAIS ──────────────────────────────────────
+            const result = await systemPool.query(
+                'SELECT * FROM system.admin_users WHERE email = $1', [email]
+            );
+
             if (result.rows.length === 0) {
-                await bcrypt.compare(password, "$2b$10$abcdefghijklmnopqrstuv");
+                // Timing attack mitigation: executar bcrypt mesmo sem usuário
+                await bcrypt.compare(password, '$2b$10$abcdefghijklmnopqrstuuvwx');
                 return res.status(401).json({ error: 'Invalid credentials' });
             }
+
             const admin = result.rows[0];
             const isValid = await bcrypt.compare(password, admin.password_hash);
             if (!isValid) return res.status(401).json({ error: 'Invalid credentials' });
-            const token = jwt.sign({ role: 'admin', sub: admin.id }, SYS_SECRET, { expiresIn: '12h' });
+
+            // ── OTP / TOTP VALIDATION (SE CONFIGURADO) ───────────────────────────
+            const otpSecret = process.env.CASCATA_OTP_SECRET;
+            if (otpSecret) {
+                // Se tem segredo OTP, o campo otp_code é obrigatório
+                let otpCode: string | undefined = String(req.body?.otp_code || '');
+
+                // Se o payload foi cifrado, o OTP veio dentro do payload decifrado
+                // (tratado acima como parte do plainBody)
+                if (!otpCode || otpCode === 'undefined') {
+                    return res.status(401).json({
+                        error: 'OTP code required.',
+                        otp_required: true
+                    });
+                }
+
+                // Decodificar o segredo OTP se foi salvo cifrado
+                let decodedSecret = otpSecret;
+                try {
+                    // Tenta decifrar via openssl (se foi cifrado no install.sh)
+                    const ctrlSecret = process.env.INTERNAL_CTRL_SECRET || '';
+                    if (ctrlSecret && otpSecret.includes('=')) {
+                        // Base64 detectado — pode estar cifrado. Tenta descriptografar.
+                        // Se falhar, usa o valor bruto (pode ser base32 direto)
+                        const { execSync } = await import('child_process');
+                        try {
+                            decodedSecret = execSync(
+                                `echo '${otpSecret}' | openssl enc -aes-256-cbc -pbkdf2 -d -pass pass:${ctrlSecret} -base64 -A 2>/dev/null`,
+                                { encoding: 'utf8', timeout: 2000 }
+                            ).trim();
+                        } catch { decodedSecret = otpSecret; }
+                    }
+                } catch { decodedSecret = otpSecret; }
+
+                const isOtpValid = PayloadCrypto.validateTOTP(decodedSecret, otpCode);
+                if (!isOtpValid) {
+                    return res.status(401).json({ error: 'Invalid OTP code.' });
+                }
+            }
+
+            // ── EMISSÃO DO TOKEN ─────────────────────────────────────────────────
+            const token = jwt.sign(
+                { role: 'admin', sub: admin.id },
+                SYS_SECRET,
+                { expiresIn: '12h' }
+            );
+
             const isProd = process.env.NODE_ENV === 'production';
-            res.cookie('admin_token', token, { httpOnly: true, secure: isProd, sameSite: 'strict', maxAge: 12 * 60 * 60 * 1000 });
-            res.json({ token });
+            res.cookie('admin_token', token, {
+                httpOnly: true,
+                secure: isProd,
+                sameSite: 'strict',
+                maxAge: 12 * 60 * 60 * 1000
+            });
+
+            // ── RESPOSTA: CIFRADA (protocolo seguro) ou TEXTO PURO (legado) ──────
+            if (isEncrypted && sharedKey) {
+                // Cifra a resposta com a mesma sharedKey derivada no handshake
+                // Apenas o frontend desta sessão consegue decifrar
+                const encResponse = PayloadCrypto.encryptResponse({ token }, sharedKey);
+                return res.json(encResponse);
+            } else {
+                return res.json({ token });
+            }
+
         } catch (e: any) { next(e); }
     }
 

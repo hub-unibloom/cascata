@@ -21,47 +21,10 @@ for i in backend/migrations/*.txt; do mv "$i" "${i%.txt}"; done
 
 
 
-					em vsp nova:
+#em vsp nova!:
 
-# Clonar repositório
-git clone https://github.com/hub-unibloom/cascata.git
-
-# Entrar na pasta
-cd ~/cascata
-
-# Ajustar arquivos .txt
-mv .env.txt .env
-mv .dockerignore.txt .dockerignore
-mv nginx/nginx.conf.txt nginx/nginx.conf
-mv backend/Dockerfile.txt backend/Dockerfile
-mv database/init.sql.txt database/init.sql
-
-# Migrations
-for i in backend/migrations/*.txt; do mv "$i" "${i%.txt}"; done
-
-# Outros Dockerfiles e configs
-mv database/Dockerfile.txt database/Dockerfile
-mv database/phantom_linker.sh.txt database/phantom_linker.sh
-mv database/docker-entrypoint-cascata.sh.txt database/docker-entrypoint-cascata.sh
-mv frontend/Dockerfile.txt frontend/Dockerfile
-mv frontend/nginx.conf.txt frontend/nginx.conf
-mv nginx-controller/Dockerfile.txt nginx-controller/Dockerfile
-mv scripts/firewall-sync.sh.txt scripts/firewall-sync.sh
-
-# Editar variáveis de ambiente
-nano .env
-
-# Criar diretórios de dados (modo produção correto)
-sudo mkdir -p /cascata-data/{pg,qdrant,dragonfly,storage,certs,acme_challenge,nginx_dynamic}
-
-# Dar permissão ao usuário atual
-sudo chown -R $USER:$USER /cascata-data
-sudo chmod -R 755 /cascata-data
-
-# Subir containers
-docker compose up -d --build
-
-
+Descobrir se tem docker e qual a verssão dele apra ter compatibilidadde total:
+docker --version
 
 -	---------
 #1-instalaro docker
@@ -105,8 +68,72 @@ sudo apt upgrade -y
 # 10. Aplicar o grupo imediatamente (sem reboot)
 newgrp docker
 
+
+#aqui se pergunta se vai querer:
+
 # 11. Edge Defense (Opcional - Firewall do Sistema)
 # Este script bloqueia IPs abusadores diretamente no Kernel (ipset/iptables).
 # Deve ser rodado NO HOST da VPS (não dentro do Docker).
 # sudo apt install -y ipset redis-tools
 # nohup scripts/firewall-sync.sh > scripts/firewall.log 2>&1 &
+
+
+aqui se reinia o servidor:
+sudo reooot
+
+
+
+(Usuario tera de se conectar novamente na vps e então roar os cript install,sh 
+novamente que ira ver se possuia parte 1 se tiver ele vai pular e vai para a parte 2)
+
+# Clonar repositório
+git clone https://github.com/hub-unibloom/cascata.git
+
+# Entrar na pasta
+cd ~/cascata
+
+# Ajustar arquivos .txt
+mv .env.txt .env
+mv .dockerignore.txt .dockerignore
+mv nginx/nginx.conf.txt nginx/nginx.conf
+mv backend/Dockerfile.txt backend/Dockerfile
+mv database/init.sql.txt database/init.sql
+
+# Migrations
+for i in backend/migrations/*.txt; do mv "$i" "${i%.txt}"; done
+
+# Outros Dockerfiles e configs
+mv database/Dockerfile.txt database/Dockerfile
+mv database/phantom_linker.sh.txt database/phantom_linker.sh
+mv database/docker-entrypoint-cascata.sh.txt database/docker-entrypoint-cascata.sh
+mv frontend/Dockerfile.txt frontend/Dockerfile
+mv frontend/nginx.conf.txt frontend/nginx.conf
+mv nginx-controller/Dockerfile.txt nginx-controller/Dockerfile
+mv scripts/firewall-sync.sh.txt scripts/firewall-sync.sh
+
+# Editar variáveis de ambiente
+nano .env
+
+# Criar diretórios de dados (modo produção correto)
+sudo mkdir -p /cascata-data/{pg,qdrant,dragonfly,storage,certs,acme_challenge,nginx_dynamic}
+
+# Dar permissão ao usuário atual
+sudo chown -R $USER:$USER /cascata-data
+sudo chmod -R 755 /cascata-data
+
+Aqui eu pergunta se ele quer configurar o email e senha que devem ser injetados no códdigo SQL do banco de dados sibitituino o padrão
+
+ai depois pergunta se deseja conectar OTP magico
+se sim gera o otp magico nosso e aorecer no CMD/terminal dele apra leitura pelo celualar
+
+depois pergunta se eseja que oa cesso seja apenas aapartir de de um ip padrão/fixo (se o susuario tiver um então ele da o okay e escrevendo o ip se nãoe le apenas aperta enter)
+
+# Subir containers
+docker compose up -d --build
+
+
+Pronto usuaario tem o ambiente dele okay apra acessar ele pelo navegador.
+
+
+
+
