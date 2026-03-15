@@ -6,14 +6,14 @@ import {
    Settings, X, Filter, GitBranch, Terminal,
    History, ToggleLeft as Toggle, Layout, Workflow,
    ChevronRight, Save, Search, Database, Globe, Cpu,
-   Mail, MessageSquare, Code, Layers, RefreshCw, Key, ShieldCheck,
+   Mail, MessageSquare, Code, Layers, RefreshCw,
    Shield, Minimize2, Maximize2, Unlink, ArrowRight, RefreshCcw, Check,
    ChevronDown, Link as LinkIcon, Copy, ArrowDownRight, MousePointer2
 } from 'lucide-react';
 
 interface Node {
    id: string;
-   type: 'trigger' | 'query' | 'http' | 'logic' | 'response' | 'transform' | 'data' | 'rpc' | 'convert' | 'email' | 'auth_otp';
+   type: 'trigger' | 'query' | 'http' | 'logic' | 'response' | 'transform' | 'data' | 'rpc' | 'convert' | 'email';
    x: number;
    y: number;
    label: string;
@@ -519,40 +519,6 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
       finally { setSubmitting(false); setTimeout(() => { setSuccess(null); setError(null); }, 5000); }
    };
 
-   const applyAuthBlueprint = (event: string) => {
-      let newNodes: Node[] = [
-         { id: 'node_1', type: 'trigger', x: 100, y: 300, label: 'Trigger Event', config: {}, next: [] }
-      ];
-
-      if (event === 'auth.otp_challenge') {
-         newNodes.push(
-            { id: 'node_2', type: 'auth_otp', x: 450, y: 300, label: 'Gerar Hash OTP', config: { length: 6, expires_in: 300, charset: '0123456789' }, next: { out: 'node_3', error: undefined } },
-            { id: 'node_3', type: 'email', x: 800, y: 300, label: 'Enviar Código', config: { to: '{{trigger.data.email}}', subject: 'Seu Código de Acesso', body: 'Seu código é: {{node_2.data.code}}' }, next: ['node_4'] },
-            { id: 'node_4', type: 'response', x: 1150, y: 300, label: 'Sucesso', config: { status_code: 200, body: { success: true, message: 'OTP Enviado' } }, next: [] }
-         );
-         newNodes[0].next = ['node_2'];
-      } else if (event === 'auth.recovery') {
-         newNodes.push(
-            { id: 'node_2', type: 'rpc', x: 450, y: 300, label: 'Gerar Hash de Recuperação', config: { function: 'auth.create_recovery', args: { email: '{{trigger.data.email}}' } }, next: ['node_3'] },
-            { id: 'node_3', type: 'email', x: 800, y: 300, label: 'Enviar Link', config: { to: '{{trigger.data.email}}', subject: '', body: '' }, next: ['node_4'] },
-            { id: 'node_4', type: 'response', x: 1150, y: 300, label: 'OK', config: { status_code: 200, body: { success: true } }, next: [] }
-         );
-         newNodes[0].next = ['node_2'];
-      } else if (event === 'auth.signup_confirmation') {
-         newNodes.push(
-            { id: 'node_2', type: 'email', x: 450, y: 300, label: 'Confirmar Cadastro', config: { to: '{{trigger.data.email}}', subject: '', body: '' }, next: ['node_3'] },
-            { id: 'node_3', type: 'response', x: 800, y: 300, label: 'OK', config: { status_code: 200, body: { success: true } }, next: [] }
-         );
-         newNodes[0].next = ['node_2'];
-      } else {
-         newNodes.push(
-            { id: 'node_2', type: 'response', x: 800, y: 300, label: 'Resposta Final', config: { body: { success: true } }, next: [] }
-         );
-         newNodes[0].next = ['node_2'];
-      }
-
-      setNodes(newNodes);
-   };
 
    const addNode = (type: Node['type']) => {
       const id = `node_${Date.now()}`;
@@ -566,9 +532,8 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                         type === 'transform' ? { body: {} } :
                            type === 'convert' ? { value: '', toType: 'string' } :
                               type === 'email' ? { to: '', subject: '', body: '' } :
-                                 type === 'auth_otp' ? { length: 6, expires_in: 300, charset: '0123456789' } :
-                                    type === 'response' ? { status_code: 200, body: { success: true } } : {},
-         next: (type === 'logic') ? { true: undefined, false: undefined } : (type === 'http' || type === 'auth_otp') ? { out: undefined, error: undefined } : []
+                                 type === 'response' ? { status_code: 200, body: { success: true } } : {},
+         next: (type === 'logic') ? { true: undefined, false: undefined } : (type === 'http') ? { out: undefined, error: undefined } : []
       };
       setNodes([...nodes, newNode] as Node[]);
       setConfigNodeId(id);
@@ -685,7 +650,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
          // Success connection
          setNodes(nodes.map((n: Node) => {
             if (n.id === connectingFrom.id) {
-               if (n.type === 'logic' || n.type === 'http' || n.type === 'auth_otp') {
+               if (n.type === 'logic' || n.type === 'http') {
                   const nextObj = { ...(n.next as any), [connectingFrom.port]: nodeId };
                   return { ...n, next: nextObj };
                } else {
@@ -889,7 +854,6 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                            key={node.id}
                            className={`absolute bg-white border ${selectedNodeIds.includes(node.id) ? 'border-indigo-500 ring-4 ring-indigo-50 shadow-2xl scale-[1.02]' : 'border-slate-100 shadow-xl'} rounded-[2rem] p-6 w-[18rem] group cursor-grab active:cursor-grabbing transition-all z-20 pointer-events-auto
                             ${node.type === 'transform' ? 'hover:border-indigo-500 hover:shadow-indigo-100/50' :
-                                 node.type === 'auth_otp' ? 'hover:border-orange-500 hover:shadow-orange-100/50' :
                                     node.type === 'response' ? 'hover:border-emerald-500 hover:shadow-emerald-100/50' :
                                        node.type === 'http' ? 'hover:border-amber-500 hover:shadow-amber-100/50' :
                                           node.type === 'query' ? 'hover:border-rose-500 hover:shadow-rose-100/50' :
@@ -914,8 +878,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                              node.type === 'query' ? 'bg-rose-600' :
                                                 node.type === 'data' ? 'bg-cyan-600' :
                                                    node.type === 'transform' ? 'bg-indigo-600' :
-                                                      node.type === 'auth_otp' ? 'bg-orange-500 shadow-orange-100' :
-                                                         node.type === 'email' ? 'bg-sky-500' : 'bg-indigo-500'
+                                                      node.type === 'email' ? 'bg-sky-500' : 'bg-indigo-500'
                                     }`}>
                                     {node.type === 'trigger' ? <Zap size={18} /> :
                                        node.type === 'logic' ? <GitBranch size={18} /> :
@@ -924,8 +887,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                                 node.type === 'data' ? <Database size={18} /> :
                                                    node.type === 'rpc' ? <Code size={18} /> :
                                                       node.type === 'email' ? <Mail size={18} /> :
-                                                         node.type === 'auth_otp' ? <Key size={18} /> :
-                                                            node.type === 'convert' ? <RefreshCcw size={18} /> : <Layers size={18} />}
+                                                         node.type === 'convert' ? <RefreshCcw size={18} /> : <Layers size={18} />}
                                  </div>
                                  <div>
                                     <div className="flex items-center gap-1.5 mb-0.5">
@@ -966,7 +928,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                     <span className="absolute left-6 text-[7px] font-black text-rose-500 uppercase tracking-widest opacity-0 group-hover/port:opacity-100 transition-opacity">False</span>
                                  </div>
                               </>
-                           ) : (node.type === 'http' || node.type === 'auth_otp') ? (
+                           ) : (node.type === 'http') ? (
                               <>
                                  <div className="port absolute -right-2.5 top-[70px] w-5 h-5 bg-white border-2 border-slate-100 rounded-full flex items-center justify-center cursor-pointer hover:border-indigo-400 z-30 transition-all shadow-md group/port" onClick={() => handlePortClick(node.id, 'out')}>
                                     <div className={`w-1.5 h-1.5 rounded-full ${connectingFrom?.id === node.id && connectingFrom?.port === 'out' ? 'bg-indigo-600 animate-pulse' : 'bg-slate-200 group-hover/port:bg-indigo-400'}`}></div>
@@ -1039,7 +1001,6 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                   <ToolboxItem icon={<Code size={20} />} label="RPC" onClick={() => addNode('rpc')} hoverColor="group-hover:bg-violet-600" />
                   <ToolboxItem icon={<RefreshCcw size={20} />} label="Convert" onClick={() => addNode('convert')} hoverColor="group-hover:bg-pink-600" />
                   <ToolboxItem icon={<Layers size={20} />} label="Transform" onClick={() => addNode('transform')} hoverColor="group-hover:bg-indigo-600" />
-                  <ToolboxItem icon={<Key size={20} />} label="OTP" onClick={() => addNode('auth_otp')} hoverColor="group-hover:bg-orange-500" />
                   <ToolboxItem icon={<Mail size={20} />} label="Email" onClick={() => addNode('email')} hoverColor="group-hover:bg-sky-500" />
                   <div className="w-[1px] h-10 bg-slate-100 mx-1"></div>
                   <ToolboxItem icon={<ArrowRight size={20} />} label="Output" onClick={() => addNode('response')} hoverColor="group-hover:bg-emerald-600" />
@@ -1082,12 +1043,6 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                        className={`py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${editingAutomation?.trigger_type === 'WEBHOOK_IN' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
                                     >
                                        <Globe size={14} /> Webhook Externo
-                                    </button>
-                                    <button
-                                       onClick={() => setEditingAutomation(editingAutomation ? { ...editingAutomation, trigger_type: 'INTERNAL_AUTH' } : null)}
-                                       className={`py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${editingAutomation?.trigger_type === 'INTERNAL_AUTH' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
-                                    >
-                                       <Shield size={14} /> Autenticação (Sistema)
                                     </button>
                                  </div>
                               </div>
@@ -1156,37 +1111,6 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tight text-center">
                                           Envie POST JSON para esta URL. O payload estará disponível em <span className="text-indigo-600">{"{{trigger.data}}"}</span>
                                        </p>
-                                    </div>
-                                 </div>
-                              ) : editingAutomation?.trigger_type === 'INTERNAL_AUTH' ? (
-                                 <div className="space-y-6">
-                                    <div className="space-y-4">
-                                       <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Eventos de Autenticação</label>
-                                       <div className="grid grid-cols-2 gap-2">
-                                          {[
-                                             { id: 'auth.signup_confirmation', name: 'Confirmação de Cadastro' },
-                                             { id: 'auth.otp_challenge', name: 'Desafio OTP/Login' },
-                                             { id: 'auth.welcome', name: 'Boas-vindas' },
-                                             { id: 'auth.recovery', name: 'Recuperação de Senha' },
-                                             { id: 'auth.magiclink', name: 'Link Mágico' },
-                                             { id: 'auth.login_alert', name: 'Alerta de Login' },
-                                             { id: '*', name: 'Todos os Eventos' }
-                                          ].map((ev) => (
-                                             <button key={ev.id} onClick={() => {
-                                                if (editingAutomation) {
-                                                   setEditingAutomation({ ...editingAutomation, trigger_config: { ...(editingAutomation.trigger_config || {}), event: ev.id } });
-                                                   applyAuthBlueprint(ev.id);
-                                                }
-                                             }} className={`py-4 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${editingAutomation?.trigger_config?.event === ev.id ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}>{ev.name}</button>
-                                          ))}
-                                       </div>
-                                    </div>
-                                    <div className="bg-sky-50 rounded-[2rem] p-6 border border-sky-100 flex items-start gap-3">
-                                       <Shield size={18} className="text-sky-600 mt-1" />
-                                       <div>
-                                          <h4 className="text-[10px] font-black text-slate-900 uppercase tracking-widest">Sinergia I18N</h4>
-                                          <p className="text-[9px] text-slate-400 font-bold uppercase leading-relaxed mt-1">Este acionador resolve os templates de idioma automaticamente. Use o nó de Email com campos vazios para herdar o conteúdo padrão.</p>
-                                       </div>
                                     </div>
                                  </div>
                               ) : (
@@ -2020,60 +1944,6 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                            </div>
                         )}
 
-                        {activeNode.type === 'auth_otp' && (
-                           <div className="space-y-8">
-                              <div className="space-y-4">
-                                 <label className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
-                                    <Key size={12} className="text-orange-500" /> Configurações de OTP
-                                 </label>
-                                 <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                       <label className="text-[10px] font-bold text-slate-500 uppercase">Tamanho do Código</label>
-                                       <input
-                                          type="number"
-                                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm font-bold"
-                                          value={activeNode.config.length || 6}
-                                          onChange={(e) => setNodes(nodes.map(n => n.id === activeNode.id ? { ...n, config: { ...n.config, length: parseInt(e.target.value) } } : n))}
-                                       />
-                                    </div>
-                                    <div className="space-y-2">
-                                       <label className="text-[10px] font-bold text-slate-500 uppercase">Expiração (segundos)</label>
-                                       <input
-                                          type="number"
-                                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm font-bold"
-                                          value={activeNode.config.expires_in || 300}
-                                          onChange={(e) => setNodes(nodes.map(n => n.id === activeNode.id ? { ...n, config: { ...n.config, expires_in: parseInt(e.target.value) } } : n))}
-                                       />
-                                    </div>
-                                 </div>
-                              </div>
-
-                              <div className="space-y-4">
-                                 <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Conjunto de Caracteres (Charset)</label>
-                                 <input
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-6 py-4 text-xs font-mono"
-                                    value={activeNode.config.charset || '0123456789'}
-                                    onChange={(e) => setNodes(nodes.map(n => n.id === activeNode.id ? { ...n, config: { ...n.config, charset: e.target.value } } : n))}
-                                 />
-                                 <p className="text-[9px] text-slate-400 font-bold uppercase">Ex: 0123456789 para numérico puro.</p>
-                              </div>
-
-                              <div className="p-6 bg-orange-50 rounded-[2rem] border border-orange-100 flex flex-col gap-4">
-                                 <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center text-orange-600">
-                                       <ShieldCheck size={20} />
-                                    </div>
-                                    <div>
-                                       <h4 className="text-[10px] font-black text-orange-900 uppercase">Security Hardening</h4>
-                                       <p className="text-[9px] text-orange-700/70 font-bold uppercase">Validação Baseada em Sessão</p>
-                                    </div>
-                                 </div>
-                                 <p className="text-[9px] text-orange-800/80 font-medium leading-relaxed">
-                                    Este nó gera um hash seguro que deve ser enviado ao usuário. A validação ocorre automaticamente quando o usuário retorna o código para o endpoint de confirmação orquestrado.
-                                 </p>
-                              </div>
-                           </div>
-                        )}
 
                         {activeNode.type === 'response' && (
                            <div className="space-y-6">
