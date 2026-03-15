@@ -892,14 +892,23 @@ export class DataController {
                      SET name = $1, description = $2, trigger_type = $3, trigger_config = $4, nodes = $5, is_active = $6, updated_at = NOW()
                      WHERE id = $7 AND project_slug = $8
                      RETURNING *`,
-                    [name, description, trigger_type, trigger_config, nodes, is_active ?? true, id, req.project.slug]
+                    [
+                        name, 
+                        description, 
+                        trigger_type, 
+                        typeof trigger_config === 'string' ? trigger_config : JSON.stringify(trigger_config || {}), 
+                        typeof nodes === 'string' ? nodes : JSON.stringify(nodes || []), 
+                        is_active ?? true, 
+                        id, 
+                        req.project.slug
+                    ]
                 );
                 if (result.rowCount === 0) return res.status(404).json({ error: 'Automation not found.' });
                 AutomationService.invalidateCache(req.project.slug);
 
                 // CRON SYNC: Ensure repeatable jobs are updated
                 await CronService.unregisterAutomation(id);
-                if ((is_active ?? true) && trigger_type === 'SCHEDULED') {
+                if ((is_active ?? true) && trigger_type === 'CRON') {
                     await CronService.registerAutomation(result.rows[0]);
                 }
 
@@ -910,12 +919,20 @@ export class DataController {
                     `INSERT INTO system.automations (project_slug, name, description, trigger_type, trigger_config, nodes, is_active)
                      VALUES ($1, $2, $3, $4, $5, $6, $7)
                      RETURNING *`,
-                    [req.project.slug, name, description, trigger_type, trigger_config, nodes, is_active ?? true]
+                    [
+                        req.project.slug, 
+                        name, 
+                        description, 
+                        trigger_type, 
+                        typeof trigger_config === 'string' ? trigger_config : JSON.stringify(trigger_config || {}), 
+                        typeof nodes === 'string' ? nodes : JSON.stringify(nodes || []), 
+                        is_active ?? true
+                    ]
                 );
                 AutomationService.invalidateCache(req.project.slug);
 
                 // CRON SYNC: Register if scheduled
-                if ((is_active ?? true) && trigger_type === 'SCHEDULED') {
+                if ((is_active ?? true) && trigger_type === 'CRON') {
                     await CronService.registerAutomation(result.rows[0]);
                 }
 

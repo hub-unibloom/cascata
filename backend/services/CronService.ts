@@ -25,7 +25,7 @@ export class CronService {
                 `SELECT id, project_slug, nodes, trigger_config 
                  FROM system.automations 
                  WHERE is_active = true 
-                 AND trigger_type = 'SCHEDULED'`
+                 AND trigger_type = 'CRON'`
             );
 
             for (const auto of res.rows) {

@@ -541,6 +541,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
 
    // DRAG & DROP
    const onMouseDown = (id: string, e: React.MouseEvent) => {
+      if (e.button === 2) return; // Ignore right-clicks to prevent opening drawer
       if ((e.target as HTMLElement).closest('.port')) return;
 
       const isShift = e.shiftKey;
@@ -599,12 +600,12 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
             ));
          }
 
-         // Movement Threshold Logic
+         // Movement Threshold Logic: 8px for professional feel
          const dist = Math.sqrt(
             Math.pow(e.clientX - initialMousePosRef.current.x, 2) +
             Math.pow(e.clientY - initialMousePosRef.current.y, 2)
          );
-         if (dist > 5) {
+         if (dist > 8) {
             hasMovedRef.current = true;
          }
 
@@ -614,7 +615,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
       }
    };
 
-   const onMouseUp = () => {
+   const onMouseUp = (e: React.MouseEvent) => {
       if (marquee) {
          const x1 = Math.min(marquee.start.x, marquee.end.x);
          const y1 = Math.min(marquee.start.y, marquee.end.y);
@@ -628,7 +629,11 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
          setSelectedNodeIds(newlySelected);
       }
 
-      if (draggedNode && !hasMovedRef.current) {
+      // SENIOR UX: Only open drawer if it was a clean click AND no modifier keys were held
+      // This prevents conflict with multi-selection (Shift) and alignment (Ctrl)
+      const isModifierHeld = e.shiftKey || e.ctrlKey || e.metaKey;
+
+      if (draggedNode && !hasMovedRef.current && !isModifierHeld) {
          // It was a clean click, not a significant drag
          setConfigNodeId(draggedNode);
       }
@@ -687,6 +692,9 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
    };
 
    const deleteNode = (id: string, preserveLineage: boolean = false) => {
+      const targetNode = nodes.find(n => n.id === id);
+      if (targetNode?.type === 'trigger') return; // Protective layer: triggers are immutable in structure
+
       let finalNodes = [...nodes];
       if (preserveLineage) {
          // Find what points to this node
@@ -967,27 +975,39 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                      className="fixed bg-white/80 backdrop-blur-3xl border border-white/20 rounded-[2.5rem] p-3 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.3)] z-[999] w-64 animate-in fade-in zoom-in-95 duration-300 ring-1 ring-black/5"
                      style={{ left: contextMenu.x, top: contextMenu.y }}
                   >
-                     <div className="px-4 py-2 mb-2 border-b border-slate-100/50">
-                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">Ações do Nó</p>
-                     </div>
-                     <button onClick={() => { setConfigNodeId(contextMenu.nodeId); setContextMenu(null); }} className="w-full flex items-center gap-3 px-5 py-4 hover:bg-indigo-600 hover:text-white rounded-[1.5rem] text-slate-600 transition-all font-black text-[10px] uppercase tracking-widest group/item">
-                        <div className="w-8 h-8 rounded-xl bg-slate-50 flex items-center justify-center group-hover/item:bg-indigo-500 transition-colors">
-                           <Settings size={14} />
-                        </div>
-                        <span>Editar Nó</span>
-                     </button>
-                     <button onClick={() => deleteNode(contextMenu.nodeId, false)} className="w-full flex items-center gap-3 px-5 py-4 hover:bg-rose-600 hover:text-white rounded-[1.5rem] text-slate-600 transition-all font-black text-[10px] uppercase tracking-widest group/item mt-1">
-                        <div className="w-8 h-8 rounded-xl bg-slate-50 flex items-center justify-center group-hover/item:bg-rose-500 transition-colors">
-                           <Trash2 size={14} />
-                        </div>
-                        <span>Deletar</span>
-                     </button>
-                     <button onClick={() => deleteNode(contextMenu.nodeId, true)} className="w-full flex items-center gap-3 px-5 py-4 hover:bg-amber-500 hover:text-white rounded-[1.5rem] text-slate-600 transition-all font-black text-[10px] uppercase tracking-widest group/item mt-1">
-                        <div className="w-8 h-8 rounded-xl bg-slate-50 flex items-center justify-center group-hover/item:bg-amber-400 transition-colors">
-                           <Unlink size={14} />
-                        </div>
-                        <span className="text-left leading-tight">Eliminar com Linhagem</span>
-                     </button>
+                     {(() => {
+                        const targetNode = nodes.find(n => n.id === contextMenu.nodeId);
+                        const isTrigger = targetNode?.type === 'trigger';
+                        return (
+                           <>
+                              <div className="px-4 py-2 mb-2 border-b border-slate-100/50">
+                                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">Ações do Nó</p>
+                              </div>
+                              <button onClick={() => { setConfigNodeId(contextMenu.nodeId); setContextMenu(null); }} className="w-full flex items-center gap-3 px-5 py-4 hover:bg-indigo-600 hover:text-white rounded-[1.5rem] text-slate-600 transition-all font-black text-[10px] uppercase tracking-widest group/item">
+                                 <div className="w-8 h-8 rounded-xl bg-slate-50 flex items-center justify-center group-hover/item:bg-indigo-500 transition-colors">
+                                    <Settings size={14} />
+                                 </div>
+                                 <span>Editar Nó</span>
+                              </button>
+                              {!isTrigger && (
+                                 <>
+                                    <button onClick={() => deleteNode(contextMenu.nodeId, false)} className="w-full flex items-center gap-3 px-5 py-4 hover:bg-rose-600 hover:text-white rounded-[1.5rem] text-slate-600 transition-all font-black text-[10px] uppercase tracking-widest group/item mt-1">
+                                       <div className="w-8 h-8 rounded-xl bg-slate-50 flex items-center justify-center group-hover/item:bg-rose-500 transition-colors">
+                                          <Trash2 size={14} />
+                                       </div>
+                                       <span>Deletar</span>
+                                    </button>
+                                    <button onClick={() => deleteNode(contextMenu.nodeId, true)} className="w-full flex items-center gap-3 px-5 py-4 hover:bg-amber-500 hover:text-white rounded-[1.5rem] text-slate-600 transition-all font-black text-[10px] uppercase tracking-widest group/item mt-1">
+                                       <div className="w-8 h-8 rounded-xl bg-slate-50 flex items-center justify-center group-hover/item:bg-amber-400 transition-colors">
+                                          <Unlink size={14} />
+                                       </div>
+                                       <span className="text-left leading-tight">Eliminar com Linhagem</span>
+                                    </button>
+                                 </>
+                              )}
+                           </>
+                        );
+                     })()}
                   </div>
                )}
 
@@ -1547,7 +1567,26 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
 
                         {activeNode.type === 'data' && (
                            <div className="space-y-8">
-                              <div className="grid grid-cols-2 gap-6">
+                              <div className="grid grid-cols-3 gap-6">
+                                 <div className="space-y-4">
+                                    <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Schema</label>
+                                    <select
+                                       className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold"
+                                       value={activeNode.config.schema || 'public'}
+                                       onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
+                                          const newSchema = e.target.value;
+                                          setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, schema: newSchema, table: '' } } : n));
+                                          fetchTables(newSchema);
+                                       }}
+                                    >
+                                       <option value="public">public</option>
+                                       <option value="auth">auth</option>
+                                       <option value="storage">storage</option>
+                                       <option value="system">system</option>
+                                       <option value="cron">cron</option>
+                                       <option value="vault">vault</option>
+                                    </select>
+                                 </div>
                                  <div className="space-y-4">
                                     <label className="text-xs font-black text-slate-900 uppercase tracking-widest">Operação</label>
                                     <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-xs font-bold" value={activeNode.config.operation} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, operation: e.target.value } } : n))}>
@@ -1566,7 +1605,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
                                           const tableName = e.target.value;
                                           setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, table: tableName } } : n));
-                                          handleFetchColumns(tableName);
+                                          handleFetchColumns(tableName, activeNode.config.schema || 'public');
                                        }}
                                     >
                                        <option value="">Selecione...</option>
@@ -1594,11 +1633,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                              setNodes(nodes.map((n: Node) => n.id === activeNode.id ? { ...n, config: { ...n.config, filters: nf } } : n));
                                           }}>
                                              <option value="">Coluna...</option>
-                                             {(activeNode.config.table && columns[activeNode.config.table] || []).map((col: string) => {
-                                                const isUsed = activeNode.config.filters.some((fltr: any, idx: number) => fltr.column === col && idx !== i);
-                                                if (isUsed) return null;
-                                                return <option key={col} value={col}>{col}</option>;
-                                             })}
+                                             {(activeNode.config.table && columns[`${activeNode.config.schema || 'public'}.${activeNode.config.table}`] || []).map((col: string) => <option key={col} value={col}>{col}</option>)}
                                           </select>
                                           <select className="w-16 bg-white border border-slate-200 rounded-xl px-2 py-2 text-[10px] font-bold" value={f.op} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
                                              const nf = [...activeNode.config.filters]; nf[i].op = e.target.value;
@@ -1663,7 +1698,7 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                                          }}
                                                       >
                                                          <option value="">Coluna...</option>
-                                                         {(activeNode.config.table && columns[activeNode.config.table] || []).map(col => {
+                                                         {(activeNode.config.table && columns[`${activeNode.config.schema || 'public'}.${activeNode.config.table}`] || []).map(col => {
                                                             const isUsed = (activeNode.config._payload || []).some((pl: any, idx: number) => pl.column === col && idx !== i);
                                                             if (isUsed) return null;
                                                             return <option key={col} value={col}>{col}</option>;
@@ -1710,11 +1745,11 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                                                    <Plus size={14} /> Adicionar Campo
                                                 </button>
 
-                                                {activeNode.config.table && columns[activeNode.config.table]?.some((c: string) => !activeNode.config._payload?.some((p: any) => p.column === c)) && (
+                                                {activeNode.config.table && columns[`${activeNode.config.schema || 'public'}.${activeNode.config.table}`]?.some((c: string) => !activeNode.config._payload?.some((p: any) => p.column === c)) && (
                                                    <button
                                                       className="px-4 py-3 border border-dashed border-emerald-100 rounded-2xl text-[10px] font-black uppercase text-emerald-500 hover:text-emerald-700 hover:bg-emerald-50/30 transition-all flex items-center justify-center gap-2"
                                                       onClick={() => {
-                                                         const allCols = columns[activeNode.config.table] || [];
+                                                         const allCols = columns[`${activeNode.config.schema || 'public'}.${activeNode.config.table}`] || [];
                                                          const existingCols = activeNode.config._payload?.map((p: any) => p.column) || [];
                                                          const remainingCols = allCols.filter(c => !existingCols.includes(c));
                                                          const newPayload = [...(activeNode.config._payload || []), ...remainingCols.map(c => ({ column: c, value: '' }))];
@@ -2213,7 +2248,9 @@ const AutomationManager: React.FC<{ projectId: string }> = ({ projectId }: { pro
                            <button onClick={() => { setRunsFilter(auto.id); fetchRuns(auto.id); setActiveTab('runs'); }} className="text-[8px] font-black text-slate-400 uppercase tracking-widest hover:bg-slate-50 px-3 py-2 rounded-lg transition-all border border-slate-100 flex items-center gap-1">
                               <History size={10} /> Logs
                            </button>
-                           <button onClick={() => handleToggle(auto)} className="text-[8px] font-black text-slate-900 uppercase tracking-widest hover:bg-slate-50 px-4 py-2 rounded-lg transition-all border border-slate-100">Toggle</button>
+                           <button onClick={() => handleToggle(auto)} className={`text-[8px] font-black uppercase tracking-widest px-4 py-2 rounded-lg transition-all border ${auto.is_active ? 'bg-slate-50 text-slate-500 border-slate-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-100'}`}>
+                              {auto.is_active ? 'Pause' : 'Resume'}
+                           </button>
                         </div>
                      </div>
                   </div>
