@@ -1,0 +1,874 @@
+ubuntu@ip-172-26-3-143:~$ docker ps
+CONTAINER ID   IMAGE                                         COMMAND                  CREATED          STATUS                    PORTS                                                                          NAMES
+e365df751239   nginx:alpine                                  "/docker-entrypoint.…"   52 minutes ago   Up 46 minutes             0.0.0.0:80->80/tcp, [::]:80->80/tcp, 0.0.0.0:443->443/tcp, [::]:443->443/tcp   cascata-nginx
+074693a83621   cascata-backend_data                          "docker-entrypoint.s…"   52 minutes ago   Up 46 minutes             3000/tcp                                                                       cascata-backend-data
+7380690c346e   cascata-backend_control                       "docker-entrypoint.s…"   52 minutes ago   Up 46 minutes             3000/tcp                                                                       cascata-backend-control
+7eebb3d18477   cascata-backend_engine                        "docker-entrypoint.s…"   52 minutes ago   Up 46 minutes             3000/tcp                                                                       cascata-backend-engine
+2d34958b293e   edoburu/pgbouncer:latest                      "/entrypoint.sh /usr…"   52 minutes ago   Up 46 minutes             5432/tcp                                                                       cascata-pgbouncer
+e110e516b3e5   cascata-db                                    "docker-entrypoint-c…"   52 minutes ago   Up 46 minutes (healthy)   5432/tcp                                                                       cascata-db
+c5d8f1263737   qdrant/qdrant:latest                          "./entrypoint.sh"        52 minutes ago   Up 46 minutes (healthy)   6333-6334/tcp                                                                  cascata-qdrant
+ad31204455e1   cascata-frontend                              "/docker-entrypoint.…"   52 minutes ago   Up 46 minutes             80/tcp                                                                         cascata-frontend
+349eb185b4f0   cascata-nginx_controller                      "docker-entrypoint.s…"   52 minutes ago   Up 46 minutes             3001/tcp                                                                       cascata-nginx-controller
+934311e84d48   docker.dragonflydb.io/dragonflydb/dragonfly   "/usr/bin/tini -- en…"   52 minutes ago   Up 46 minutes (healthy)   6379/tcp                                                                       cascata-dragonfly
+ubuntu@ip-172-26-3-143:~$ docker logs cascata-backend-control
+[SystemLogService] Decoupled Logging Engine Initialized (Dragonfly Buffer Mode).
+[RateLimit] Failed to refresh global settings, using defaults.
+[System] Control Plane: Initializing internal queues.
+[QueueService] Initializing Queues with Dragonfly...
+[QueueService] Starting Workers (Mode: CONTROL_PLANE)...
+[CronService] Initializing Scheduled Automations...
+[CronService] Sync failed: Invalid URL
+[PoolService] Smart Reaper initialized (Aggressive Mode).
+[Realtime] ✅ Service initialized with Hydration Batcher V2 (Env Aware)
+[System] Database not ready, retrying in 2000ms... (1/30)
+[System] Booting up...
+[System] Database not ready, retrying in 2000ms... (1/30)
+[CASCATA SECURE SERVER] Listening on port 3000 [PID: 1]
+[RateLimit] Dragonfly Connected & Healthy.
+Failed to schedule log purge ReplyError: ERR Error running script (call to e5761020314ba017695d330c53534440ea2459c0): @user_script:206: -ERR script tried accessing undeclared key, key: {cascata}bull:cascata-maintenance:repeat:87ed24ddaa3af0665239693fac0bedf9
+    at parseError (/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/app/node_modules/redis-parser/lib/parser.js:302:14) {
+  command: {
+    name: 'eval',
+    args: [
+      '--[[\n' +
+        '  Adds a repeatable job\n' +
+        '    Input:\n' +
+        "      KEYS[1] 'repeat' key\n" +
+        "      KEYS[2] 'delayed' key\n" +
+        '      ARGV[1] next milliseconds\n' +
+        '      ARGV[2] msgpacked options\n' +
+        '            [1]  name\n' +
+        '            [2]  tz?\n' +
+        '            [3]  pattern?\n' +
+        '            [4]  endDate?\n' +
+        '            [5]  every?\n' +
+        '      ARGV[3] legacy custom key TODO: remove this logic in next breaking change\n' +
+        '      ARGV[4] custom key\n' +
+        '      ARGV[5] prefix key\n' +
+        '      Output:\n' +
+        '        repeatableKey  - OK\n' +
+        ']]\n' +
+        'local rcall = redis.call\n' +
+        'local repeatKey = KEYS[1]\n' +
+        'local delayedKey = KEYS[2]\n' +
+        'local nextMillis = ARGV[1]\n' +
+        'local legacyCustomKey = ARGV[3]\n' +
+        'local customKey = ARGV[4]\n' +
+        'local prefixKey = ARGV[5]\n' +
+        '-- Includes\n' +
+        '--[[\n' +
+        '  Function to remove job.\n' +
+        ']]\n' +
+        '-- Includes\n' +
+        '--[[\n' +
+        '  Function to remove deduplication key if needed\n' +
+        '  when a job is being removed.\n' +
+        ']]\n' +
+        'local function removeDeduplicationKeyIfNeededOnRemoval(prefixKey,\n' +
+        '  jobId, deduplicationId)\n' +
+        '  if deduplicationId then\n' +
+        '    local deduplicationKey = prefixKey .. "de:" .. deduplicationId\n' +
+        "    local currentJobId = rcall('GET', deduplicationKey)\n" +
+        '    if currentJobId and currentJobId == jobId then\n' +
+        '      return rcall("DEL", deduplicationKey)\n' +
+        '    end\n' +
+        '  end\n' +
+        'end\n' +
+        '--[[\n' +
+        '  Function to remove job keys.\n' +
+        ']]\n' +
+        'local function removeJobKeys(jobKey)\n' +
+        `  return rcall("DEL", jobKey, jobKey .. ':logs', jobKey .. ':dependencies',\n` +
+        "    jobKey .. ':processed', jobKey .. ':failed', jobKey .. ':unsuccessful')\n" +
+        'end\n' +
+        '--[[\n' +
+        '  Check if this job has a parent. If so we will just remove it from\n' +
+        '  the parent child list, but if it is the last child we should move the parent to "wait/paused"\n' +
+        '  which requires code from "moveToFinished"\n' +
+        ']]\n' +
+        '-- Includes\n' +
+        '--[[\n' +
+        '  Function to add job in target list and add marker if needed.\n' +
+        ']]\n' +
+        '-- Includes\n' +
+        '--[[\n' +
+        '  Add marker if needed when a job is available.\n' +
+        ']]\n' +
+        'local function addBaseMarkerIfNeeded(markerKey, isPausedOrMaxed)\n' +
+        '  if not isPausedOrMaxed then\n' +
+        '    rcall("ZADD", markerKey, 0, "0")\n' +
+        '  end  \n' +
+        'end\n' +
+        'local function addJobInTargetList(targetKey, markerKey, pushCmd, isPausedOrMaxed, jobId)\n' +
+        '  rcall(pushCmd, targetKey, jobId)\n' +
+        '  addBaseMarkerIfNeeded(markerKey, isPausedOrMaxed)\n' +
+        'end\n' +
+        '--[[\n' +
+        '  Functions to destructure job key.\n' +
+        '  Just a bit of warning, these functions may be a bit slow and affect performance significantly.\n' +
+        ']]\n' +
+        'local getJobIdFromKey = function (jobKey)\n' +
+        '  return string.match(jobKey, ".*:(.*)")\n' +
+        'end\n' +
+        'local getJobKeyPrefix = function (jobKey, jobId)\n' +
+        '  return string.sub(jobKey, 0, #jobKey - #jobId)\n' +
+        'end\n' +
+        '--[[\n' +
+        '  Function to check for the meta.paused key to decide if we are paused or not\n' +
+        '  (since an empty list and !EXISTS are not really the same).\n' +
+        ']]\n' +
+        'local function getTargetQueueList(queueMetaKey, activeKey, waitKey, pausedKey)\n' +
+        '  local queueAttributes = rcall("HMGET", queueMetaKey, "paused", "concurrency", "max", "duration")\n' +
+        '  if queueAttributes[1] then\n' +
+        '    return pausedKey, true, queueAttributes[3], queueAttributes[4]\n' +
+        '  else\n' +
+        '    if queueAttributes[2] then\n' +
+        '      local activeCount = rcall("LLEN", activeKey)\n' +
+        '      if activeCount >= tonumber(queueAttributes[2]) then\n' +
+        '        return waitKey, true, queueAttributes[3], queueAttributes[4]\n' +
+        '      else\n' +
+        '        return waitKey, false, queueAttributes[3], queueAttributes[4]\n' +
+        '      end\n' +
+        '    end\n' +
+        '  end\n' +
+        '  return waitKey, false, queueAttributes[3], queueAttributes[4]\n' +
+        'end\n' +
+        'local function _moveParentToWait(parentPrefix, parentId, emitEvent)\n' +
+        '  local parentTarget, isPausedOrMaxed = getTargetQueueList(parentPrefix .. "meta", parentPrefix .. "active",\n' +
+        '    parentPrefix .. "wait", parentPrefix .. "paused")\n' +
+        '  addJobInTargetList(parentTarget, parentPrefix .. "marker", "RPUSH", isPausedOrMaxed, parentId)\n' +
+        '  if emitEvent then\n' +
+        '    local parentEventStream = parentPrefix .. "events"\n' +
+        '    rcall("XADD", parentEventStream, "*", "event", "waiting", "jobId", parentId, "prev", "waiting-children")\n' +
+        '  end\n' +
+        'end\n' +
+        'local function removeParentDependencyKey(jobKey, hard, parentKey, baseKey, debounceId)\n' +
+        '  if parentKey then\n' +
+        '    local parentDependenciesKey = parentKey .. ":dependencies"\n' +
+        '    local result = rcall("SREM", parentDependenciesKey, jobKey)\n' +
+        '    if result > 0 then\n' +
+        '      local pendingDependencies = rcall("SCARD", parentDependenciesKey)\n' +
+        '      if pendingDependencies == 0 then\n' +
+        '        local parentId = getJobIdFromKey(parentKey)\n' +
+        '        local parentPrefix = getJobKeyPrefix(parentKey, parentId)\n' +
+        '        local numRemovedElements = rcall("ZREM", parentPrefix .. "waiting-children", parentId)\n' +
+        '        if numRemovedElements == 1 then\n' +
+        '          if hard then -- remove parent in same queue\n' +
+        '            if parentPrefix == baseKey then\n' +
+        '              removeParentDependencyKey(parentKey, hard, nil, baseKey, nil)\n' +
+        '              removeJobKeys(parentKey)\n' +
+        '              if debounceId then\n' +
+        '                rcall("DEL", parentPrefix .. "de:" .. debounceId)\n' +
+        '              end\n' +
+        '            else\n' +
+        '              _moveParentToWait(parentPrefix, parentId)\n' +
+        '            end\n' +
+        '          else\n' +
+        '            _moveParentToWait(parentPrefix, parentId, true)\n' +
+        '          end\n' +
+        '        end\n' +
+        '      end\n' +
+        '      return true\n' +
+        '    end\n' +
+        '  else\n' +
+        '    local parentAttributes = rcall("HMGET", jobKey, "parentKey", "deid")\n' +
+        '    local missedParentKey = parentAttributes[1]\n' +
+        '    if( (type(missedParentKey) == "string") and missedParentKey ~= ""\n' +
+        '      and (rcall("EXISTS", missedParentKey) == 1)) then\n' +
+        '      local parentDependenciesKey = missedParentKey .. ":dependencies"\n' +
+        '      local result = rcall("SREM", parentDependenciesKey, jobKey)\n' +
+        '      if result > 0 then\n' +
+        '        local pendingDependencies = rcall("SCARD", parentDependenciesKey)\n' +
+        '        if pendingDependencies == 0 then\n' +
+        '          local parentId = getJobIdFromKey(missedParentKey)\n' +
+        '          local parentPrefix = getJobKeyPrefix(missedParentKey, parentId)\n' +
+        '          local numRemovedElements = rcall("ZREM", parentPrefix .. "waiting-children", parentId)\n' +
+        '          if numRemovedElements == 1 then\n' +
+        '            if hard then\n' +
+        '              if parentPrefix == baseKey then\n' +
+        '                removeParentDependencyKey(missedParentKey, hard, nil, baseKey, nil)\n' +
+        '                removeJobKeys(missedParentKey)\n' +
+        '                if parentAttributes[2] then\n' +
+        '                  rcall("DEL", parentPrefix .. "de:" .. parentAttributes[2])\n' +
+        '                end\n' +
+        '              else\n' +
+        '                _moveParentToWait(parentPrefix, parentId)\n' +
+        '              end\n' +
+        '            else\n' +
+        '              _moveParentToWait(parentPrefix, parentId, true)\n' +
+        '            end\n' +
+        '          end\n' +
+        '        end\n' +
+        '        return true\n' +
+        '      end\n' +
+        '    end\n' +
+        '  end\n' +
+        '  return false\n' +
+        'end\n' +
+        'local function removeJob(jobId, hard, baseKey, shouldRemoveDeduplicationKey)\n' +
+        '  local jobKey = baseKey .. jobId\n' +
+        '  removeParentDependencyKey(jobKey, hard, nil, baseKey)\n' +
+        '  if shouldRemoveDeduplicationKey then\n' +
+        '    local deduplicationId = rcall("HGET", jobKey, "deid")\n' +
+        '    removeDeduplicationKeyIfNeededOnRemoval(baseKey, jobId, deduplicationId)\n' +
+        '  end\n' +
+        '  removeJobKeys(jobKey)\n' +
+        'end\n' +
+        'local function storeRepeatableJob(repeatKey, customKey, nextMillis, rawOpts)\n' +
+        '  rcall("ZADD", repeatKey, nextMillis, customKey)\n' +
+        '  local opts = cmsgpack.unpack(rawOpts)\n' +
+        '  local optionalValues = {}\n' +
+        "  if opts['tz'] then\n" +
+        '    table.insert(optionalValues, "tz")\n' +
+        "    table.insert(optionalValues, opts['tz'])\n" +
+        '  end\n' +
+        "  if opts['pattern'] then\n" +
+        '    table.insert(optionalValues, "pattern")\n' +
+        "    table.insert(optionalValues, opts['pattern'])\n" +
+        '  end\n' +
+        "  if opts['endDate'] then\n" +
+        '    table.insert(optionalValues, "endDate")\n' +
+        "    table.insert(optionalValues, opts['endDate'])\n" +
+        '  end\n' +
+        "  if opts['every'] then\n" +
+        '    table.insert(optionalValues, "every")\n' +
+        "    table.insert(optionalValues, opts['every'])\n" +
+        '  end\n' +
+        `  rcall("HMSET", repeatKey .. ":" .. customKey, "name", opts['name'],\n` +
+        '    unpack(optionalValues))\n' +
+        '  return customKey\n' +
+        'end\n' +
+        '-- If we are overriding a repeatable job we must delete the delayed job for\n' +
+        '-- the next iteration.\n' +
+        'local prevMillis = rcall("ZSCORE", repeatKey, customKey)\n' +
+        'if prevMillis then\n' +
+        '  local delayedJobId =  "repeat:" .. customKey .. ":" .. prevMillis\n' +
+        '  local nextDelayedJobId =  repeatKey .. ":" .. customKey .. ":" .. nextMillis\n' +
+        '  if rcall("ZSCORE", delayedKey, delayedJobId)\n' +
+        '   and rcall("EXISTS", nextDelayedJobId) ~= 1 then\n' +
+        '    removeJob(delayedJobId, true, prefixKey, true --[[remove debounce key]])\n' +
+        '    rcall("ZREM", delayedKey, delayedJobId)\n' +
+        '  end\n' +
+        'end\n' +
+        '-- Keep backwards compatibility with old repeatable jobs (<= 3.0.0)\n' +
+        'if rcall("ZSCORE", repeatKey, legacyCustomKey) ~= false then\n' +
+        '  return storeRepeatableJob(repeatKey, legacyCustomKey, nextMillis, ARGV[2])\n' +
+        'end\n' +
+        'return storeRepeatableJob(repeatKey, customKey, nextMillis, ARGV[2])\n',
+      '2',
+      '{cascata}bull:cascata-maintenance:repeat',
+      '{cascata}bull:cascata-maintenance:delayed',
+      '1773720000000',
+      <Buffer de 00 05 a4 6e 61 6d 65 aa 70 75 72 67 65 2d 6c 6f 67 73 a7 65 6e 64 44 61 74 65 c0 a2 74 7a c0 a7 70 61 74 74 65 72 6e a9 30 20 34 20 2a 20 2a 20 2a ... 7 more bytes>,
+      'purge-logs:system-log-purge:::0 4 * * *',
+      '87ed24ddaa3af0665239693fac0bedf9',
+      '{cascata}bull:cascata-maintenance:'
+    ]
+  }
+}
+[System] Database not ready, retrying in 2000ms... (2/30)
+[System] Database not ready, retrying in 2000ms... (2/30)
+[System] Database not ready, retrying in 2000ms... (3/30)
+[System] Database not ready, retrying in 2000ms... (3/30)
+[System] Database not ready, retrying in 2000ms... (4/30)
+[System] Database not ready, retrying in 2000ms... (4/30)
+[System] Database not ready, retrying in 2000ms... (5/30)
+[System] Database not ready, retrying in 2000ms... (5/30)
+[System] Database not ready, retrying in 2000ms... (6/30)
+[System] Database not ready, retrying in 2000ms... (6/30)
+[System] Database not ready, retrying in 2000ms... (7/30)
+[System] Database not ready, retrying in 2000ms... (7/30)
+[System] Database not ready, retrying in 2000ms... (8/30)
+[System] Database not ready, retrying in 2000ms... (8/30)
+[System] Database not ready, retrying in 2000ms... (9/30)
+[System] Database not ready, retrying in 2000ms... (9/30)
+[System] Database not ready, retrying in 2000ms... (10/30)
+[System] Database not ready, retrying in 2000ms... (10/30)
+[PoolService] Zombie Killer Error: Invalid URL
+.....
+[System] Database not ready, retrying in 2000ms... (30/30)
+[System] Database not ready, retrying in 2000ms... (30/30)
+[PoolService] Zombie Killer Error: Invalid URL
+[System] CRITICAL: Main Database Unreachable.
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[Warmup] Falha grave ao resolver 98.92.64.229: TypeError: Invalid URL
+    at new URL (node:internal/url:806:29)
+    at parse (/app/node_modules/pg-connection-string/index.js:30:16)
+    at new ConnectionParameters (/app/node_modules/pg/lib/connection-parameters.js:60:42)
+    at new Client (/app/node_modules/pg/lib/client.js:43:33)
+    at BoundPool.newClient (/app/node_modules/pg-pool/index.js:241:20)
+    at BoundPool.connect (/app/node_modules/pg-pool/index.js:235:10)
+    at BoundPool.query (/app/node_modules/pg-pool/index.js:449:10)
+    at RateLimitService.warmupProjectContext (file:///app/dist/services/RateLimitService.js:267:42)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async file:///app/dist/server.js:249:13 {
+  code: 'ERR_INVALID_URL',
+  input: '*****REDACTED*****',
+  base: 'postgres://base'
+}
+[Resolution] Internal Error TypeError: Invalid URL
+    at new URL (node:internal/url:806:29)
+    at parse (/app/node_modules/pg-connection-string/index.js:30:16)
+    at new ConnectionParameters (/app/node_modules/pg/lib/connection-parameters.js:60:42)
+    at new Client (/app/node_modules/pg/lib/client.js:43:33)
+    at BoundPool.newClient (/app/node_modules/pg-pool/index.js:241:20)
+    at BoundPool.connect (/app/node_modules/pg-pool/index.js:235:10)
+    at BoundPool.query (/app/node_modules/pg-pool/index.js:449:10)
+    at resolveProject (file:///app/dist/src/middlewares/core.js:126:50)
+    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/app/node_modules/express/lib/router/index.js:328:13) {
+  code: 'ERR_INVALID_URL',
+  input: '*****REDACTED*****',
+  base: 'postgres://base'
+}
+[PoolService] Zombie Killer Error: Invalid URL
+[Warmup] Falha grave ao resolver 98.92.64.229: TypeError: Invalid URL
+    at new URL (node:internal/url:806:29)
+    at parse (/app/node_modules/pg-connection-string/index.js:30:16)
+    at new ConnectionParameters (/app/node_modules/pg/lib/connection-parameters.js:60:42)
+    at new Client (/app/node_modules/pg/lib/client.js:43:33)
+    at BoundPool.newClient (/app/node_modules/pg-pool/index.js:241:20)
+    at BoundPool.connect (/app/node_modules/pg-pool/index.js:235:10)
+    at BoundPool.query (/app/node_modules/pg-pool/index.js:449:10)
+    at RateLimitService.warmupProjectContext (file:///app/dist/services/RateLimitService.js:267:42)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async file:///app/dist/server.js:249:13 {
+  code: 'ERR_INVALID_URL',
+  input: '*****REDACTED*****',
+  base: 'postgres://base'
+}
+[Resolution] Internal Error TypeError: Invalid URL
+    at new URL (node:internal/url:806:29)
+    at parse (/app/node_modules/pg-connection-string/index.js:30:16)
+    at new ConnectionParameters (/app/node_modules/pg/lib/connection-parameters.js:60:42)
+    at new Client (/app/node_modules/pg/lib/client.js:43:33)
+    at BoundPool.newClient (/app/node_modules/pg-pool/index.js:241:20)
+    at BoundPool.connect (/app/node_modules/pg-pool/index.js:235:10)
+    at BoundPool.query (/app/node_modules/pg-pool/index.js:449:10)
+    at resolveProject (file:///app/dist/src/middlewares/core.js:126:50)
+    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/app/node_modules/express/lib/router/index.js:328:13) {
+  code: 'ERR_INVALID_URL',
+  input: '*****REDACTED*****',
+  base: 'postgres://base'
+}
+[PoolService] Zombie Killer Error: Invalid URL
+[Warmup] Falha grave ao resolver 98.92.64.229: TypeError: Invalid URL
+    at new URL (node:internal/url:806:29)
+    at parse (/app/node_modules/pg-connection-string/index.js:30:16)
+    at new ConnectionParameters (/app/node_modules/pg/lib/connection-parameters.js:60:42)
+    at new Client (/app/node_modules/pg/lib/client.js:43:33)
+    at BoundPool.newClient (/app/node_modules/pg-pool/index.js:241:20)
+    at BoundPool.connect (/app/node_modules/pg-pool/index.js:235:10)
+    at BoundPool.query (/app/node_modules/pg-pool/index.js:449:10)
+    at RateLimitService.warmupProjectContext (file:///app/dist/services/RateLimitService.js:267:42)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async file:///app/dist/server.js:249:13 {
+  code: 'ERR_INVALID_URL',
+  input: '*****REDACTED*****',
+  base: 'postgres://base'
+}
+[Resolution] Internal Error TypeError: Invalid URL
+    at new URL (node:internal/url:806:29)
+    at parse (/app/node_modules/pg-connection-string/index.js:30:16)
+    at new ConnectionParameters (/app/node_modules/pg/lib/connection-parameters.js:60:42)
+    at new Client (/app/node_modules/pg/lib/client.js:43:33)
+    at BoundPool.newClient (/app/node_modules/pg-pool/index.js:241:20)
+    at BoundPool.connect (/app/node_modules/pg-pool/index.js:235:10)
+    at BoundPool.query (/app/node_modules/pg-pool/index.js:449:10)
+    at resolveProject (file:///app/dist/src/middlewares/core.js:126:50)
+    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/app/node_modules/express/lib/router/index.js:328:13) {
+  code: 'ERR_INVALID_URL',
+  input: '*****REDACTED*****',
+  base: 'postgres://base'
+}
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[System] Received SIGTERM. Starting graceful shutdown sequence...
+[System] HTTP server closed.
+[Realtime] Shutting down... flushing buffers.
+[Realtime] Shutdown complete.
+[SystemLogService] Graceful shutdown...
+[PoolService] All pools closed.
+[System] Shutdown complete. Goodbye.
+[SystemLogService] Decoupled Logging Engine Initialized (Dragonfly Buffer Mode).
+[RateLimit] Failed to refresh global settings, using defaults.
+[System] Control Plane: Initializing internal queues.
+[QueueService] Initializing Queues with Dragonfly...
+[QueueService] Starting Workers (Mode: CONTROL_PLANE)...
+[CronService] Initializing Scheduled Automations...
+[CronService] Sync failed: Invalid URL
+[PoolService] Smart Reaper initialized (Aggressive Mode).
+[Realtime] ✅ Service initialized with Hydration Batcher V2 (Env Aware)
+[System] Database not ready, retrying in 2000ms... (1/30)
+[System] Booting up...
+[System] Database not ready, retrying in 2000ms... (1/30)
+[CASCATA SECURE SERVER] Listening on port 3000 [PID: 1]
+[RateLimit] Dragonfly Connected & Healthy.
+Failed to schedule log purge ReplyError: ERR Error running script (call to e5761020314ba017695d330c53534440ea2459c0): @user_script:206: -ERR script tried accessing undeclared key, key: {cascata}bull:cascata-maintenance:repeat:87ed24ddaa3af0665239693fac0bedf9
+    at parseError (/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/app/node_modules/redis-parser/lib/parser.js:302:14) {
+  command: {
+    name: 'eval',
+    args: [
+      '--[[\n' +
+        '  Adds a repeatable job\n' +
+        '    Input:\n' +
+        "      KEYS[1] 'repeat' key\n" +
+        "      KEYS[2] 'delayed' key\n" +
+        '      ARGV[1] next milliseconds\n' +
+        '      ARGV[2] msgpacked options\n' +
+        '            [1]  name\n' +
+        '            [2]  tz?\n' +
+        '            [3]  pattern?\n' +
+        '            [4]  endDate?\n' +
+        '            [5]  every?\n' +
+        '      ARGV[3] legacy custom key TODO: remove this logic in next breaking change\n' +
+        '      ARGV[4] custom key\n' +
+        '      ARGV[5] prefix key\n' +
+        '      Output:\n' +
+        '        repeatableKey  - OK\n' +
+        ']]\n' +
+        'local rcall = redis.call\n' +
+        'local repeatKey = KEYS[1]\n' +
+        'local delayedKey = KEYS[2]\n' +
+        'local nextMillis = ARGV[1]\n' +
+        'local legacyCustomKey = ARGV[3]\n' +
+        'local customKey = ARGV[4]\n' +
+        'local prefixKey = ARGV[5]\n' +
+        '-- Includes\n' +
+        '--[[\n' +
+        '  Function to remove job.\n' +
+        ']]\n' +
+        '-- Includes\n' +
+        '--[[\n' +
+        '  Function to remove deduplication key if needed\n' +
+        '  when a job is being removed.\n' +
+        ']]\n' +
+        'local function removeDeduplicationKeyIfNeededOnRemoval(prefixKey,\n' +
+        '  jobId, deduplicationId)\n' +
+        '  if deduplicationId then\n' +
+        '    local deduplicationKey = prefixKey .. "de:" .. deduplicationId\n' +
+        "    local currentJobId = rcall('GET', deduplicationKey)\n" +
+        '    if currentJobId and currentJobId == jobId then\n' +
+        '      return rcall("DEL", deduplicationKey)\n' +
+        '    end\n' +
+        '  end\n' +
+        'end\n' +
+        '--[[\n' +
+        '  Function to remove job keys.\n' +
+        ']]\n' +
+        'local function removeJobKeys(jobKey)\n' +
+        `  return rcall("DEL", jobKey, jobKey .. ':logs', jobKey .. ':dependencies',\n` +
+        "    jobKey .. ':processed', jobKey .. ':failed', jobKey .. ':unsuccessful')\n" +
+        'end\n' +
+        '--[[\n' +
+        '  Check if this job has a parent. If so we will just remove it from\n' +
+        '  the parent child list, but if it is the last child we should move the parent to "wait/paused"\n' +
+        '  which requires code from "moveToFinished"\n' +
+        ']]\n' +
+        '-- Includes\n' +
+        '--[[\n' +
+        '  Function to add job in target list and add marker if needed.\n' +
+        ']]\n' +
+        '-- Includes\n' +
+        '--[[\n' +
+        '  Add marker if needed when a job is available.\n' +
+        ']]\n' +
+        'local function addBaseMarkerIfNeeded(markerKey, isPausedOrMaxed)\n' +
+        '  if not isPausedOrMaxed then\n' +
+        '    rcall("ZADD", markerKey, 0, "0")\n' +
+        '  end  \n' +
+        'end\n' +
+        'local function addJobInTargetList(targetKey, markerKey, pushCmd, isPausedOrMaxed, jobId)\n' +
+        '  rcall(pushCmd, targetKey, jobId)\n' +
+        '  addBaseMarkerIfNeeded(markerKey, isPausedOrMaxed)\n' +
+        'end\n' +
+        '--[[\n' +
+        '  Functions to destructure job key.\n' +
+        '  Just a bit of warning, these functions may be a bit slow and affect performance significantly.\n' +
+        ']]\n' +
+        'local getJobIdFromKey = function (jobKey)\n' +
+        '  return string.match(jobKey, ".*:(.*)")\n' +
+        'end\n' +
+        'local getJobKeyPrefix = function (jobKey, jobId)\n' +
+        '  return string.sub(jobKey, 0, #jobKey - #jobId)\n' +
+        'end\n' +
+        '--[[\n' +
+        '  Function to check for the meta.paused key to decide if we are paused or not\n' +
+        '  (since an empty list and !EXISTS are not really the same).\n' +
+        ']]\n' +
+        'local function getTargetQueueList(queueMetaKey, activeKey, waitKey, pausedKey)\n' +
+        '  local queueAttributes = rcall("HMGET", queueMetaKey, "paused", "concurrency", "max", "duration")\n' +
+        '  if queueAttributes[1] then\n' +
+        '    return pausedKey, true, queueAttributes[3], queueAttributes[4]\n' +
+        '  else\n' +
+        '    if queueAttributes[2] then\n' +
+        '      local activeCount = rcall("LLEN", activeKey)\n' +
+        '      if activeCount >= tonumber(queueAttributes[2]) then\n' +
+        '        return waitKey, true, queueAttributes[3], queueAttributes[4]\n' +
+        '      else\n' +
+        '        return waitKey, false, queueAttributes[3], queueAttributes[4]\n' +
+        '      end\n' +
+        '    end\n' +
+        '  end\n' +
+        '  return waitKey, false, queueAttributes[3], queueAttributes[4]\n' +
+        'end\n' +
+        'local function _moveParentToWait(parentPrefix, parentId, emitEvent)\n' +
+        '  local parentTarget, isPausedOrMaxed = getTargetQueueList(parentPrefix .. "meta", parentPrefix .. "active",\n' +
+        '    parentPrefix .. "wait", parentPrefix .. "paused")\n' +
+        '  addJobInTargetList(parentTarget, parentPrefix .. "marker", "RPUSH", isPausedOrMaxed, parentId)\n' +
+        '  if emitEvent then\n' +
+        '    local parentEventStream = parentPrefix .. "events"\n' +
+        '    rcall("XADD", parentEventStream, "*", "event", "waiting", "jobId", parentId, "prev", "waiting-children")\n' +
+        '  end\n' +
+        'end\n' +
+        'local function removeParentDependencyKey(jobKey, hard, parentKey, baseKey, debounceId)\n' +
+        '  if parentKey then\n' +
+        '    local parentDependenciesKey = parentKey .. ":dependencies"\n' +
+        '    local result = rcall("SREM", parentDependenciesKey, jobKey)\n' +
+        '    if result > 0 then\n' +
+        '      local pendingDependencies = rcall("SCARD", parentDependenciesKey)\n' +
+        '      if pendingDependencies == 0 then\n' +
+        '        local parentId = getJobIdFromKey(parentKey)\n' +
+        '        local parentPrefix = getJobKeyPrefix(parentKey, parentId)\n' +
+        '        local numRemovedElements = rcall("ZREM", parentPrefix .. "waiting-children", parentId)\n' +
+        '        if numRemovedElements == 1 then\n' +
+        '          if hard then -- remove parent in same queue\n' +
+        '            if parentPrefix == baseKey then\n' +
+        '              removeParentDependencyKey(parentKey, hard, nil, baseKey, nil)\n' +
+        '              removeJobKeys(parentKey)\n' +
+        '              if debounceId then\n' +
+        '                rcall("DEL", parentPrefix .. "de:" .. debounceId)\n' +
+        '              end\n' +
+        '            else\n' +
+        '              _moveParentToWait(parentPrefix, parentId)\n' +
+        '            end\n' +
+        '          else\n' +
+        '            _moveParentToWait(parentPrefix, parentId, true)\n' +
+        '          end\n' +
+        '        end\n' +
+        '      end\n' +
+        '      return true\n' +
+        '    end\n' +
+        '  else\n' +
+        '    local parentAttributes = rcall("HMGET", jobKey, "parentKey", "deid")\n' +
+        '    local missedParentKey = parentAttributes[1]\n' +
+        '    if( (type(missedParentKey) == "string") and missedParentKey ~= ""\n' +
+        '      and (rcall("EXISTS", missedParentKey) == 1)) then\n' +
+        '      local parentDependenciesKey = missedParentKey .. ":dependencies"\n' +
+        '      local result = rcall("SREM", parentDependenciesKey, jobKey)\n' +
+        '      if result > 0 then\n' +
+        '        local pendingDependencies = rcall("SCARD", parentDependenciesKey)\n' +
+        '        if pendingDependencies == 0 then\n' +
+        '          local parentId = getJobIdFromKey(missedParentKey)\n' +
+        '          local parentPrefix = getJobKeyPrefix(missedParentKey, parentId)\n' +
+        '          local numRemovedElements = rcall("ZREM", parentPrefix .. "waiting-children", parentId)\n' +
+        '          if numRemovedElements == 1 then\n' +
+        '            if hard then\n' +
+        '              if parentPrefix == baseKey then\n' +
+        '                removeParentDependencyKey(missedParentKey, hard, nil, baseKey, nil)\n' +
+        '                removeJobKeys(missedParentKey)\n' +
+        '                if parentAttributes[2] then\n' +
+        '                  rcall("DEL", parentPrefix .. "de:" .. parentAttributes[2])\n' +
+        '                end\n' +
+        '              else\n' +
+        '                _moveParentToWait(parentPrefix, parentId)\n' +
+        '              end\n' +
+        '            else\n' +
+        '              _moveParentToWait(parentPrefix, parentId, true)\n' +
+        '            end\n' +
+        '          end\n' +
+        '        end\n' +
+        '        return true\n' +
+        '      end\n' +
+        '    end\n' +
+        '  end\n' +
+        '  return false\n' +
+        'end\n' +
+        'local function removeJob(jobId, hard, baseKey, shouldRemoveDeduplicationKey)\n' +
+        '  local jobKey = baseKey .. jobId\n' +
+        '  removeParentDependencyKey(jobKey, hard, nil, baseKey)\n' +
+        '  if shouldRemoveDeduplicationKey then\n' +
+        '    local deduplicationId = rcall("HGET", jobKey, "deid")\n' +
+        '    removeDeduplicationKeyIfNeededOnRemoval(baseKey, jobId, deduplicationId)\n' +
+        '  end\n' +
+        '  removeJobKeys(jobKey)\n' +
+        'end\n' +
+        'local function storeRepeatableJob(repeatKey, customKey, nextMillis, rawOpts)\n' +
+        '  rcall("ZADD", repeatKey, nextMillis, customKey)\n' +
+        '  local opts = cmsgpack.unpack(rawOpts)\n' +
+        '  local optionalValues = {}\n' +
+        "  if opts['tz'] then\n" +
+        '    table.insert(optionalValues, "tz")\n' +
+        "    table.insert(optionalValues, opts['tz'])\n" +
+        '  end\n' +
+        "  if opts['pattern'] then\n" +
+        '    table.insert(optionalValues, "pattern")\n' +
+        "    table.insert(optionalValues, opts['pattern'])\n" +
+        '  end\n' +
+        "  if opts['endDate'] then\n" +
+        '    table.insert(optionalValues, "endDate")\n' +
+        "    table.insert(optionalValues, opts['endDate'])\n" +
+        '  end\n' +
+        "  if opts['every'] then\n" +
+        '    table.insert(optionalValues, "every")\n' +
+        "    table.insert(optionalValues, opts['every'])\n" +
+        '  end\n' +
+        `  rcall("HMSET", repeatKey .. ":" .. customKey, "name", opts['name'],\n` +
+        '    unpack(optionalValues))\n' +
+        '  return customKey\n' +
+        'end\n' +
+        '-- If we are overriding a repeatable job we must delete the delayed job for\n' +
+        '-- the next iteration.\n' +
+        'local prevMillis = rcall("ZSCORE", repeatKey, customKey)\n' +
+        'if prevMillis then\n' +
+        '  local delayedJobId =  "repeat:" .. customKey .. ":" .. prevMillis\n' +
+        '  local nextDelayedJobId =  repeatKey .. ":" .. customKey .. ":" .. nextMillis\n' +
+        '  if rcall("ZSCORE", delayedKey, delayedJobId)\n' +
+        '   and rcall("EXISTS", nextDelayedJobId) ~= 1 then\n' +
+        '    removeJob(delayedJobId, true, prefixKey, true --[[remove debounce key]])\n' +
+        '    rcall("ZREM", delayedKey, delayedJobId)\n' +
+        '  end\n' +
+        'end\n' +
+        '-- Keep backwards compatibility with old repeatable jobs (<= 3.0.0)\n' +
+        'if rcall("ZSCORE", repeatKey, legacyCustomKey) ~= false then\n' +
+        '  return storeRepeatableJob(repeatKey, legacyCustomKey, nextMillis, ARGV[2])\n' +
+        'end\n' +
+        'return storeRepeatableJob(repeatKey, customKey, nextMillis, ARGV[2])\n',
+      '2',
+      '{cascata}bull:cascata-maintenance:repeat',
+      '{cascata}bull:cascata-maintenance:delayed',
+      '1773720000000',
+      <Buffer de 00 05 a4 6e 61 6d 65 aa 70 75 72 67 65 2d 6c 6f 67 73 a7 65 6e 64 44 61 74 65 c0 a2 74 7a c0 a7 70 61 74 74 65 72 6e a9 30 20 34 20 2a 20 2a 20 2a ... 7 more bytes>,
+      'purge-logs:system-log-purge:::0 4 * * *',
+      '87ed24ddaa3af0665239693fac0bedf9',
+      '{cascata}bull:cascata-maintenance:'
+    ]
+  }
+}
+[System] Database not ready, retrying in 2000ms... (2/30)
+[System] Database not ready, retrying in 2000ms... (2/30)
+[System] Database not ready, retrying in 2000ms... (3/30)
+...
+[System] Database not ready, retrying in 2000ms... (30/30)
+[PoolService] Zombie Killer Error: Invalid URL
+[System] CRITICAL: Main Database Unreachable.
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[Warmup] Falha grave ao resolver 98.92.64.229: TypeError: Invalid URL
+    at new URL (node:internal/url:806:29)
+    at parse (/app/node_modules/pg-connection-string/index.js:30:16)
+    at new ConnectionParameters (/app/node_modules/pg/lib/connection-parameters.js:60:42)
+    at new Client (/app/node_modules/pg/lib/client.js:43:33)
+    at BoundPool.newClient (/app/node_modules/pg-pool/index.js:241:20)
+    at BoundPool.connect (/app/node_modules/pg-pool/index.js:235:10)
+    at BoundPool.query (/app/node_modules/pg-pool/index.js:449:10)
+    at RateLimitService.warmupProjectContext (file:///app/dist/services/RateLimitService.js:267:42)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async file:///app/dist/server.js:249:13 {
+  code: 'ERR_INVALID_URL',
+  input: '*****REDACTED*****',
+  base: 'postgres://base'
+}
+[Resolution] Internal Error TypeError: Invalid URL
+    at new URL (node:internal/url:806:29)
+    at parse (/app/node_modules/pg-connection-string/index.js:30:16)
+    at new ConnectionParameters (/app/node_modules/pg/lib/connection-parameters.js:60:42)
+    at new Client (/app/node_modules/pg/lib/client.js:43:33)
+    at BoundPool.newClient (/app/node_modules/pg-pool/index.js:241:20)
+    at BoundPool.connect (/app/node_modules/pg-pool/index.js:235:10)
+    at BoundPool.query (/app/node_modules/pg-pool/index.js:449:10)
+    at resolveProject (file:///app/dist/src/middlewares/core.js:126:50)
+    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/app/node_modules/express/lib/router/index.js:328:13) {
+  code: 'ERR_INVALID_URL',
+  input: '*****REDACTED*****',
+  base: 'postgres://base'
+}
+[Warmup] Falha grave ao resolver 98.92.64.229: TypeError: Invalid URL
+    at new URL (node:internal/url:806:29)
+    at parse (/app/node_modules/pg-connection-string/index.js:30:16)
+    at new ConnectionParameters (/app/node_modules/pg/lib/connection-parameters.js:60:42)
+    at new Client (/app/node_modules/pg/lib/client.js:43:33)
+    at BoundPool.newClient (/app/node_modules/pg-pool/index.js:241:20)
+    at BoundPool.connect (/app/node_modules/pg-pool/index.js:235:10)
+    at BoundPool.query (/app/node_modules/pg-pool/index.js:449:10)
+    at RateLimitService.warmupProjectContext (file:///app/dist/services/RateLimitService.js:267:42)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async file:///app/dist/server.js:249:13 {
+  code: 'ERR_INVALID_URL',
+  input: '*****REDACTED*****',
+  base: 'postgres://base'
+}
+[Resolution] Internal Error TypeError: Invalid URL
+    at new URL (node:internal/url:806:29)
+    at parse (/app/node_modules/pg-connection-string/index.js:30:16)
+    at new ConnectionParameters (/app/node_modules/pg/lib/connection-parameters.js:60:42)
+    at new Client (/app/node_modules/pg/lib/client.js:43:33)
+    at BoundPool.newClient (/app/node_modules/pg-pool/index.js:241:20)
+    at BoundPool.connect (/app/node_modules/pg-pool/index.js:235:10)
+    at BoundPool.query (/app/node_modules/pg-pool/index.js:449:10)
+    at resolveProject (file:///app/dist/src/middlewares/core.js:126:50)
+    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/app/node_modules/express/lib/router/index.js:328:13) {
+  code: 'ERR_INVALID_URL',
+  input: '*****REDACTED*****',
+  base: 'postgres://base'
+}
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[Warmup] Falha grave ao resolver 98.92.64.229: TypeError: Invalid URL
+    at new URL (node:internal/url:806:29)
+    at parse (/app/node_modules/pg-connection-string/index.js:30:16)
+    at new ConnectionParameters (/app/node_modules/pg/lib/connection-parameters.js:60:42)
+    at new Client (/app/node_modules/pg/lib/client.js:43:33)
+    at BoundPool.newClient (/app/node_modules/pg-pool/index.js:241:20)
+    at BoundPool.connect (/app/node_modules/pg-pool/index.js:235:10)
+    at BoundPool.query (/app/node_modules/pg-pool/index.js:449:10)
+    at RateLimitService.warmupProjectContext (file:///app/dist/services/RateLimitService.js:267:42)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async file:///app/dist/server.js:249:13 {
+  code: 'ERR_INVALID_URL',
+  input: '*****REDACTED*****',
+  base: 'postgres://base'
+}
+[Resolution] Internal Error TypeError: Invalid URL
+    at new URL (node:internal/url:806:29)
+    at parse (/app/node_modules/pg-connection-string/index.js:30:16)
+    at new ConnectionParameters (/app/node_modules/pg/lib/connection-parameters.js:60:42)
+    at new Client (/app/node_modules/pg/lib/client.js:43:33)
+    at BoundPool.newClient (/app/node_modules/pg-pool/index.js:241:20)
+    at BoundPool.connect (/app/node_modules/pg-pool/index.js:235:10)
+    at BoundPool.query (/app/node_modules/pg-pool/index.js:449:10)
+    at resolveProject (file:///app/dist/src/middlewares/core.js:126:50)
+    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/app/node_modules/express/lib/router/index.js:328:13) {
+  code: 'ERR_INVALID_URL',
+  input: '*****REDACTED*****',
+  base: 'postgres://base'
+}
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+...
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[Warmup] Falha grave ao resolver 98.92.64.229: TypeError: Invalid URL
+    at new URL (node:internal/url:806:29)
+    at parse (/app/node_modules/pg-connection-string/index.js:30:16)
+    at new ConnectionParameters (/app/node_modules/pg/lib/connection-parameters.js:60:42)
+    at new Client (/app/node_modules/pg/lib/client.js:43:33)
+    at BoundPool.newClient (/app/node_modules/pg-pool/index.js:241:20)
+    at BoundPool.connect (/app/node_modules/pg-pool/index.js:235:10)
+    at BoundPool.query (/app/node_modules/pg-pool/index.js:449:10)
+    at RateLimitService.warmupProjectContext (file:///app/dist/services/RateLimitService.js:267:42)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async file:///app/dist/server.js:249:13 {
+  code: 'ERR_INVALID_URL',
+  input: '*****REDACTED*****',
+  base: 'postgres://base'
+}
+[Resolution] Internal Error TypeError: Invalid URL
+    at new URL (node:internal/url:806:29)
+    at parse (/app/node_modules/pg-connection-string/index.js:30:16)
+    at new ConnectionParameters (/app/node_modules/pg/lib/connection-parameters.js:60:42)
+    at new Client (/app/node_modules/pg/lib/client.js:43:33)
+    at BoundPool.newClient (/app/node_modules/pg-pool/index.js:241:20)
+    at BoundPool.connect (/app/node_modules/pg-pool/index.js:235:10)
+    at BoundPool.query (/app/node_modules/pg-pool/index.js:449:10)
+    at resolveProject (file:///app/dist/src/middlewares/core.js:126:50)
+    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/app/node_modules/express/lib/router/index.js:328:13) {
+  code: 'ERR_INVALID_URL',
+  input: '*****REDACTED*****',
+  base: 'postgres://base'
+}
+[PoolService] Zombie Killer Error: Invalid URL
+[Warmup] Falha grave ao resolver 98.92.64.229: TypeError: Invalid URL
+    at new URL (node:internal/url:806:29)
+    at parse (/app/node_modules/pg-connection-string/index.js:30:16)
+    at new ConnectionParameters (/app/node_modules/pg/lib/connection-parameters.js:60:42)
+    at new Client (/app/node_modules/pg/lib/client.js:43:33)
+    at BoundPool.newClient (/app/node_modules/pg-pool/index.js:241:20)
+    at BoundPool.connect (/app/node_modules/pg-pool/index.js:235:10)
+    at BoundPool.query (/app/node_modules/pg-pool/index.js:449:10)
+    at RateLimitService.warmupProjectContext (file:///app/dist/services/RateLimitService.js:267:42)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async file:///app/dist/server.js:249:13 {
+  code: 'ERR_INVALID_URL',
+  input: '*****REDACTED*****',
+  base: 'postgres://base'
+}
+[Resolution] Internal Error TypeError: Invalid URL
+    at new URL (node:internal/url:806:29)
+    at parse (/app/node_modules/pg-connection-string/index.js:30:16)
+    at new ConnectionParameters (/app/node_modules/pg/lib/connection-parameters.js:60:42)
+    at new Client (/app/node_modules/pg/lib/client.js:43:33)
+    at BoundPool.newClient (/app/node_modules/pg-pool/index.js:241:20)
+    at BoundPool.connect (/app/node_modules/pg-pool/index.js:235:10)
+    at BoundPool.query (/app/node_modules/pg-pool/index.js:449:10)
+    at resolveProject (file:///app/dist/src/middlewares/core.js:126:50)
+    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/app/node_modules/express/lib/router/index.js:328:13) {
+  code: 'ERR_INVALID_URL',
+  input: '*****REDACTED*****',
+  base: 'postgres://base'
+}
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[Warmup] Falha grave ao resolver 98.92.64.229: TypeError: Invalid URL
+    at new URL (node:internal/url:806:29)
+    at parse (/app/node_modules/pg-connection-string/index.js:30:16)
+    at new ConnectionParameters (/app/node_modules/pg/lib/connection-parameters.js:60:42)
+    at new Client (/app/node_modules/pg/lib/client.js:43:33)
+    at BoundPool.newClient (/app/node_modules/pg-pool/index.js:241:20)
+    at BoundPool.connect (/app/node_modules/pg-pool/index.js:235:10)
+    at BoundPool.query (/app/node_modules/pg-pool/index.js:449:10)
+    at RateLimitService.warmupProjectContext (file:///app/dist/services/RateLimitService.js:267:42)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async file:///app/dist/server.js:249:13 {
+  code: 'ERR_INVALID_URL',
+  input: '*****REDACTED*****',
+  base: 'postgres://base'
+}
+[Resolution] Internal Error TypeError: Invalid URL
+    at new URL (node:internal/url:806:29)
+    at parse (/app/node_modules/pg-connection-string/index.js:30:16)
+    at new ConnectionParameters (/app/node_modules/pg/lib/connection-parameters.js:60:42)
+    at new Client (/app/node_modules/pg/lib/client.js:43:33)
+    at BoundPool.newClient (/app/node_modules/pg-pool/index.js:241:20)
+    at BoundPool.connect (/app/node_modules/pg-pool/index.js:235:10)
+    at BoundPool.query (/app/node_modules/pg-pool/index.js:449:10)
+    at resolveProject (file:///app/dist/src/middlewares/core.js:126:50)
+    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/app/node_modules/express/lib/router/index.js:328:13) {
+  code: 'ERR_INVALID_URL',
+  input: '*****REDACTED*****',
+  base: 'postgres://base'
+}
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL
+[PoolService] Zombie Killer Error: Invalid URL

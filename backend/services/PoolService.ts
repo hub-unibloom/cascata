@@ -171,7 +171,11 @@ export class PoolService {
         const port = usePooler ? (process.env.DB_POOL_PORT || '6432') : (process.env.DB_DIRECT_PORT || '5432');
         const user = process.env.DB_USER || 'cascata_admin';
         const pass = process.env.DB_PASS || 'secure_pass';
-        dbUrl = `postgresql://${user}:${pass}@${host}:${port}/${dbIdentifier}`;
+        
+        // CASCATA ENTERPRISE SECURITY & RELIABILITY PATCH:
+        // By strictly encoding the credentials here via `encodeURIComponent`, any DB pass containing "@", "#" or "%"
+        // will safely parse avoiding the fatal ERR_INVALID_URL exception breaking all resolution pipelines. 
+        dbUrl = `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${host}:${port}/${dbIdentifier}`;
     }
 
     const requestedMax = config?.max || 10;

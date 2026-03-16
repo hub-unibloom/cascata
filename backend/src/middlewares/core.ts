@@ -256,6 +256,26 @@ export const resolveProject: RequestHandler = async (req: any, res: any, next: a
             }
 
             // Initialize or Retrieve Pool
+            
+            // CASCATA ENTERPRISE SECURITY & RELIABILITY PATCH:
+            // Defesa em profundidade blindando o resolver para que projetos com URLs inválidas 
+            // não quebrem massivamente o pipeline de middlewares causando 500 no core da engine.
+            if (!targetDbName) {
+                console.error(`[ProjectResolution] Project ${project.slug} has empty db_name.`);
+                res.status(502).json({ error: 'Database Configuration Error' });
+                return;
+            }
+
+            if (targetConnectionString) {
+                try {
+                    new URL(targetConnectionString);
+                } catch (urlErr) {
+                    console.error(`[ProjectResolution] Project ${project.slug} has invalid external_db_url.`);
+                    res.status(502).json({ error: 'Database Connection Configuration Invalid', details: 'ERR_INVALID_URL' });
+                    return;
+                }
+            }
+
             r.projectPool = PoolService.get(targetDbName, {
                 max: dbConfig.max_connections,
                 idleTimeoutMillis: dbConfig.idle_timeout_seconds ? dbConfig.idle_timeout_seconds * 1000 : undefined,

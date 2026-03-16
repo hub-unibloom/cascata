@@ -21,7 +21,26 @@ for i in backend/migrations/*.txt; do mv "$i" "${i%.txt}"; done
 
 
 
-#em vsp nova!:
+
+em VPSSS NOVA SEGURA:
+PASSOS BASE, CRIE SUA VPS, ssem porta nenhuma aberta, epois addicionne a porta 22 exclusiva para seu acesso, e então rode os comandos abaixo:
+
+
+**Passo 1** — copia e roda isso (antes do reboot):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hub-unibloom/cascata/refs/heads/main/install.sh.txt -o install.sh.txt && mv install.sh.txt install.sh && chmod +x install.sh && ./install.sh
+```
+
+**Passo 2** — após reiniciar, roda:
+
+```bash
+./install.sh
+```
+
+
+
+#em vsp nova manual!:
 
 Descobrir se tem docker e qual a verssão dele apra ter compatibilidadde total:
 docker --version

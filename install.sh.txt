@@ -598,6 +598,34 @@ gen_password() {
     echo "$RESULT"
 }
 
+# ---------------------------------------------------------------------------
+# GERADOR DE SENHAS SEGURAS PARA URLS (Bancos de Dados PostgreSQL)
+# ---------------------------------------------------------------------------
+# O parser do pg-connection-string e novas versões do URL API
+# falham ("ERR_INVALID_URL") caso a senha contenha caracteres 
+# reservados da RFC 3986, como @, #, ?, :, etc, se não encodados.
+# Para evitar cascata de erros no boot e quebra do container DB,
+# DB_PASS DEVE OBRIGATORIAMENTE usar um charset [A-Za-z0-9] (alphanumeric).
+gen_url_safe_password() {
+    local LENGTH="${1:-32}"
+    local RESULT=""
+    # Tentativa 1: /dev/urandom (alphanumeric apenas)
+    RESULT=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c "${LENGTH}" 2>/dev/null) || true
+    # Tentativa 2: openssl
+    if [ -z "$RESULT" ] || [ ${#RESULT} -lt "$LENGTH" ]; then
+        RESULT=$(openssl rand -base64 $((LENGTH * 2)) 2>/dev/null | tr -dc 'A-Za-z0-9' | head -c "${LENGTH}") || true
+    fi
+    # Tentativa 3: python3
+    if [ -z "$RESULT" ] || [ ${#RESULT} -lt "$LENGTH" ]; then
+        RESULT=$(python3 -c "import secrets; cs='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'; print(''.join(secrets.choice(cs) for _ in range(${LENGTH})))" 2>/dev/null) || true
+    fi
+    # VALIDAÇÃO FATAL:
+    if [ -z "$RESULT" ] || [ ${#RESULT} -lt 8 ]; then
+        err "FALHA CRÍTICA: Impossível gerar URL-safe password. Verifique dependências."
+    fi
+    echo "$RESULT"
+}
+
 gen_hex_secret() {
     local LENGTH="${1:-64}"
     local RESULT=""
@@ -737,7 +765,9 @@ phase2_setup_and_start() {
 
     DB_USER="cascata_admin"
     DB_NAME="cascata_system"
-    DB_PASS=$(gen_password 28)
+    # CRÍTICO: Utiliza gerador alfanumérico estrito para evitar o ERR_INVALID_URL
+    # que quebra o parse da SYSTEM_DATABASE_URL no docker-compose / pg-connection-string.
+    DB_PASS=$(gen_url_safe_password 32)
     JWT_SECRET=$(gen_hex_secret 64)
     CTRL_SECRET=$(gen_hex_secret 64)
 
