@@ -1455,8 +1455,8 @@ BEOF
         
         info "Configurando Integração UFW + Docker (DOCKER-USER chain)..."
         local UFW_AFTER_RULES="/etc/ufw/after.rules"
-        if [ -f "$UFW_AFTER_RULES" ]; then
-            if ! grep -q "DOCKER-USER" "$UFW_AFTER_RULES"; then
+        if sudo test -f "$UFW_AFTER_RULES"; then
+            if ! sudo grep -q "DOCKER-USER" "$UFW_AFTER_RULES" 2>/dev/null; then
                 # BUG 5 V4 FIX: Não fazer tee appended de um segundo *filter. Inserir ANTES do primeiro COMMIT no bloco *filter!
                 sudo awk '
                 /^\*filter/ { in_filter=1; print; next }
@@ -1494,7 +1494,7 @@ BEOF
 
         # Garante que /etc/docker/daemon.json não contenha a configuração destrutiva
         local DAEMON_JSON="/etc/docker/daemon.json"
-        if [ -f "$DAEMON_JSON" ] && grep -q '"iptables": false' "$DAEMON_JSON" 2>/dev/null; then
+        if sudo test -f "$DAEMON_JSON" && sudo grep -q '"iptables": false' "$DAEMON_JSON" 2>/dev/null; then
             sudo python3 -c "
 import json
 try:

@@ -32,7 +32,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
     // Pré-verificar se o backend suporta handshake seguro (não bloqueante)
     fetch('/api/control/auth/handshake', { method: 'GET' })
-      .then(r => setSecureMode(r.ok))
+      .then(r => setSecureMode(r.ok && typeof window.crypto?.subtle !== 'undefined'))
       .catch(() => setSecureMode(false));
 
     return () => window.removeEventListener('mousemove', handleMouseMove);

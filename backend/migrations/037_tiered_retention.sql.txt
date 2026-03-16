@@ -28,6 +28,9 @@ CREATE INDEX IF NOT EXISTS idx_archived_logs_created ON system.archived_logs(cre
 
 -- 2. Função de Purge Atualizada com Suporte a Arquivamento
 -- Agora aceita um terceiro parâmetro opcional p_archive.
+-- Drop the old signature to avoid overload ambiguity
+DROP FUNCTION IF EXISTS system.purge_old_logs(TEXT, INTEGER);
+
 CREATE OR REPLACE FUNCTION system.purge_old_logs(p_slug TEXT, p_days INTEGER, p_archive BOOLEAN DEFAULT FALSE)
 RETURNS INTEGER AS $$
 DECLARE
@@ -60,4 +63,4 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Comentários
 COMMENT ON TABLE system.archived_logs IS 'Armazena logs de API arquivados para retenção de longo prazo.';
-COMMENT ON FUNCTION system.purge_old_logs IS 'Deleta ou arquiva logs antigos baseando-se na política de retenção.';
+COMMENT ON FUNCTION system.purge_old_logs(TEXT, INTEGER, BOOLEAN) IS 'Deleta ou arquiva logs antigos baseando-se na política de retenção.';
