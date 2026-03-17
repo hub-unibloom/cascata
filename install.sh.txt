@@ -1291,13 +1291,21 @@ GAEOF
         # Verificar configuração do OTP SSH
         verify_otp_setup "$SSH_OTP_SECRET"
 
-        # Configurar PAM para SSH usar TOTP
+        # Configurar PAM para SSH usar TOTP (SEM pedir senha do sistema)
+        # Fluxo de autenticação desejado:
+        #   Fator 1: Chave SSH (validada pelo provedor/sshd via PubkeyAuthentication)
+        #   Fator 2: Código OTP de 6 dígitos (validado pelo pam_google_authenticator)
+        #   NÃO pede senha do Linux — muitos provedores (AWS, Lightsail, DO) nem
+        #   configuram senha para o usuário padrão, tornando impossível passar essa etapa.
         if [ -f /etc/pam.d/sshd ]; then
-            # Adicionar autenticação TOTP (não-nula — exige mesmo com chave)
             if ! grep -q "pam_google_authenticator" /etc/pam.d/sshd; then
-                # Inserir ANTES de @include common-auth
+                # 1. Comentar @include common-auth para não pedir senha do SO
+                sudo sed -i 's/^@include common-auth/# @include common-auth  # Cascata: desabilitado — chave SSH + OTP é suficiente/' /etc/pam.d/sshd
+
+                # 2. Inserir o módulo TOTP como único requisito interativo
                 sudo sed -i '1s|^|auth required pam_google_authenticator.so\n|' /etc/pam.d/sshd
-                ok "PAM TOTP configurado para SSH (sem nullok — OTP obrigatório)"
+
+                ok "PAM configurado: Chave SSH (provedor) + OTP (6 dígitos) — sem senha extra"
             else
                 ok "PAM TOTP já configurado"
             fi
@@ -1764,9 +1772,9 @@ SYSCTLEOF
     echo -e "${NC}"
     echo -e "  ${BOLD}O que foi ativado:${NC}"
     echo -e "  ${GREEN}✓${NC} OTP obrigatório no SSH (TOTP RFC 6238)"
-    echo -e "  ${GREEN}✓${NC} SSH: root desabilitado, apenas chave EC + TOTP"
+    echo -e "  ${GREEN}✓${NC} SSH: root desabilitado, Chave SSH + OTP (sem senha extra do SO)"
     echo -e "  ${GREEN}✓${NC} SSH porta: ${SSH_PORT}"
-    echo -e "  ${GREEN}✓${NC} Firewall UFW: entrada apenas 22/80/443, saída allowlist"
+    echo -e "  ${GREEN}✓${NC} Firewall UFW: entrada apenas ${SSH_PORT}/80/443, saída allowlist"
     echo -e "  ${GREEN}✓${NC} Fail2Ban: ban 24h após 3 falhas, 7 dias após 6"
     echo -e "  ${GREEN}✓${NC} auditd: log imutável de toda ação privilegiada"
     echo -e "  ${GREEN}✓${NC} AppArmor/SELinux: sandboxing de processos"
@@ -1776,7 +1784,7 @@ SYSCTLEOF
     echo ""
     echo -e "  ${BOLD}${YELLOW}⚡ COMO SE CONECTAR AGORA:${NC}"
     echo -e "  ${YELLOW}  ssh -p ${SSH_PORT} $(whoami)@SEU_IP${NC}"
-    echo -e "  ${YELLOW}  → Será solicitada: Chave SSH + Código OTP (6 dígitos)${NC}"
+    echo -e "  ${YELLOW}  → Será solicitado: Chave SSH (do provedor) + Código OTP (6 dígitos)${NC}"
     echo ""
     echo -e "  ${BOLD}${RED}IMPORTANTE — GUARDE ISSO EM LOCAL SEGURO OFFLINE:${NC}"
     echo -e "  ${RED}  • Os 5 códigos de recuperação SSH mostrados acima${NC}"
