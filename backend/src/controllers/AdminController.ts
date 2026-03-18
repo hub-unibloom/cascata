@@ -163,10 +163,9 @@ export class AdminController {
             const otpSecret = process.env.CASCATA_OTP_SECRET;
             if (otpSecret) {
                 // Se tem segredo OTP, o campo otp_code é obrigatório
-                let otpCode: string | undefined = String(req.body?.otp_code || '');
+                // Se o payload foi cifrado, extrair do plainBody, caso contrário (fallback) usar o body normal
+                let otpCode: string | undefined = String((isEncrypted ? plainBody.otp_code : req.body?.otp_code) || '');
 
-                // Se o payload foi cifrado, o OTP veio dentro do payload decifrado
-                // (tratado acima como parte do plainBody)
                 if (!otpCode || otpCode === 'undefined') {
                     return res.status(401).json({
                         error: 'OTP code required.',

@@ -7,3 +7,8 @@ Padrão exigido: cada correção deve ser a solução real e correta — nunca u
 Esse é O Cascata, um Baas multi tenancy, que estamos desenvolvendo, onde temos o cascatata que p orchestrador como e fossse um preio inteligente e ultima geração e segurança e ponta e temo os aprtamentos que são os demais bancos de daddos isolados fisicamente e com funcionamento desde a entraa ao armazenamento totalmente seguro e confiavel e totalmente ditindos um dos Outros.
 
 nunca solicite acesso ao terminal, o projeto é instalado em outra maquina, nunca nessa.
+
+
+apiteste.unibloom.com.br
+d.unibloom.com.br
+lets.unibloom.com.br

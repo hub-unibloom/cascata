@@ -29,7 +29,7 @@ PASSOS BASE, CRIE SUA VPS, ssem porta nenhuma aberta, epois addicionne a porta 2
 **Passo 1** — copia e roda isso (antes do reboot):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hub-unibloom/cascata/refs/heads/main/install.sh.txt -o install.sh.txt && mv install.sh.txt install.sh && chmod +x install.sh && ./install.sh
+	curl -fsSL https://raw.githubusercontent.com/hub-unibloom/cascata/refs/heads/main/install.sh.txt -o install.sh.txt && mv install.sh.txt install.sh && chmod +x install.sh && ./install.sh
 ```
 
 **Passo 2** — após reiniciar, roda:
