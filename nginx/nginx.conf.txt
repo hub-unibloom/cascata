@@ -76,9 +76,9 @@ server {
 
     # API Data Plane (Hyper-Cluster Via Unix Sockets)
     location ~ ^/(api/data/|rpc/|auth/|storage/|edge/|tables/|rest/|vector/) {
-        if ($host !~* ^(localhost|127\.0\.0\.1|172\.|10\.|[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)$ ) {
-            return 444;
-        }
+        # O Pulo do Gato: Não podemos bloquear $host diferente de IP aqui,
+        # pois tenants usam custom domains (ex: Cloudflare). O bloqueio de
+        # segurança Zero-Trust fica no Control Plane e Painel de Admin.
         
         limit_req zone=api_limit burst=50 nodelay;
         limit_conn conn_limit 50;

@@ -18,7 +18,8 @@ const REPLAY_WINDOW_MS = 90 * 1000;
 
 export interface HandshakeResponse {
     sessionId: string;
-    serverPublicKey: string;  // Base64 DER — chave pública X25519 do backend
+    serverPublicKey: string;  // Base64 DER — chave pública do backend
+    serverFingerprint: string; // Assinatura única do servidor (anti-reversa)
 }
 
 export interface EncryptedLoginPayload {
@@ -76,11 +77,11 @@ export async function fetchHandshake(apiBase: string, token?: string): Promise<S
     const res = await fetch(`${apiBase}/auth/handshake`, { headers });
     if (!res.ok) throw new Error('Handshake failed: ' + res.status);
 
-    const { sessionId, serverPublicKey }: HandshakeResponse = await res.json();
+    const { sessionId, serverPublicKey, serverFingerprint }: HandshakeResponse = await res.json();
 
-    // 1. Gerar par ECDH X25519 efêmero no frontend
+    // 1. Gerar par ECDH P-256 efêmero no frontend
     const clientKeyPair = await crypto.subtle.generateKey(
-        { name: 'ECDH', namedCurve: 'X25519' } as any,  // X25519 via SubtleCrypto
+        { name: 'ECDH', namedCurve: 'P-256' } as any,  // P-256 via SubtleCrypto (Alta compatibilidade)
         false,  // não exportável (nunca vira texto)
         ['deriveKey', 'deriveBits']
     );
@@ -89,7 +90,7 @@ export async function fetchHandshake(apiBase: string, token?: string): Promise<S
     const serverPubKey = await crypto.subtle.importKey(
         'spki',
         fromBase64(serverPublicKey),
-        { name: 'ECDH', namedCurve: 'X25519' } as any,
+        { name: 'ECDH', namedCurve: 'P-256' } as any,
         false,
         []  // chave pública: sem usos de derivação
     );
@@ -101,7 +102,7 @@ export async function fetchHandshake(apiBase: string, token?: string): Promise<S
         256  // 32 bytes = 256 bits
     );
 
-    // 4. HKDF: Deriva a chave AES final (domain separation: 'cascata-login-v1')
+    // 4. HKDF: Deriva a chave AES final (Fórmula Única com Fingerprint do Servidor)
     const hkdfKey = await crypto.subtle.importKey(
         'raw', rawShared, { name: 'HKDF' }, false, ['deriveKey']
     );
@@ -110,7 +111,7 @@ export async function fetchHandshake(apiBase: string, token?: string): Promise<S
             name: 'HKDF',
             hash: 'SHA-256',
             salt: new Uint8Array(0),
-            info: new TextEncoder().encode('cascata-login-v1'),
+            info: new TextEncoder().encode(`cascata-v2-${serverFingerprint}`),
         },
         hkdfKey,
         { name: 'AES-GCM', length: 256 },
@@ -131,7 +132,7 @@ export async function fetchHandshake(apiBase: string, token?: string): Promise<S
  * vê apenas base64 sem semântica.
  */
 export async function encryptLoginPayload(
-    credentials: { email: string; password: string },
+    credentials: { email: string; password: string; otp_code?: string },
     session: SessionKeys
 ): Promise<EncryptedLoginPayload> {
     // Incluir timestamp para anti-replay
@@ -210,13 +211,14 @@ export async function decryptLoginResponse(
 export async function secureLogin(
     apiBase: string,
     email: string,
-    password: string
+    password: string,
+    otpCode?: string
 ): Promise<{ token: string; [key: string]: unknown }> {
     // Passo 1: Handshake — obter chaves efêmeras
     const session = await fetchHandshake(apiBase);
 
-    // Passo 2: Cifrar credenciais
-    const encryptedPayload = await encryptLoginPayload({ email, password }, session);
+    // Passo 2: Cifrar credenciais (incluindo OTP se fornecido)
+    const encryptedPayload = await encryptLoginPayload({ email, password, otp_code: otpCode }, session);
 
     // Passo 3: Enviar payload cifrado
     const res = await fetch(`${apiBase}/auth/login`, {

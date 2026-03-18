@@ -47,13 +47,24 @@ export interface EncryptedPayload {
 export class PayloadCrypto {
 
     /**
+     * Retorna a "Digital Fingerprint" única deste servidor
+     * baseada no INTERNAL_CTRL_SECRET. Isso garante que a fórmula
+     * HKDF seja matematicamente única para cada instalação.
+     */
+    static getServerFingerprint(): string {
+        const secret = process.env.INTERNAL_CTRL_SECRET || 'fallback-cascata-secret-fingerprint';
+        return crypto.createHash('sha256').update(secret).digest('hex').substring(0, 16);
+    }
+
+    /**
      * Cria uma sessão de handshake:
-     * Gera par de chaves ECDH X25519 efêmero para este login.
+     * Gera par de chaves ECDH (P-256) efêmero para este login.
      * A sessão deve ser armazenada no Dragonfly com TTL de 5 minutos.
      */
     static createHandshakeSession(): HandshakeSession {
-        // X25519 — curva de alta segurança, chaves de 256 bits
-        const { publicKey, privateKey } = crypto.generateKeyPairSync('x25519', {
+        // P-256 (prime256v1) — Extrema compatibilidade mobile/desktop
+        const { publicKey, privateKey } = crypto.generateKeyPairSync('ec', {
+            namedCurve: 'prime256v1',
             publicKeyEncoding:  { type: 'spki',  format: 'der' },
             privateKeyEncoding: { type: 'pkcs8', format: 'der' },
         });
@@ -67,9 +78,8 @@ export class PayloadCrypto {
     }
 
     /**
-     * Deriva a chave AES-256 compartilhada usando ECDH X25519.
-     * A chave resultante é idêntica tanto no backend quanto no frontend,
-     * sem que nenhum dos dois precise transmitir seu segredo.
+     * Deriva a chave AES-256 compartilhada usando ECDH P-256.
+     * A chave resultante é idêntica tanto no backend quanto no frontend.
      */
     static deriveSharedKey(
         serverPrivateKeyB64: string,
@@ -87,20 +97,22 @@ export class PayloadCrypto {
             type: 'spki',
         });
 
-        // ECDH: Gera o segredo compartilhado (32 bytes para X25519)
+        // ECDH: Gera o segredo compartilhado (P-256)
         const sharedSecret = crypto.diffieHellman({
             privateKey: serverPrivKey,
             publicKey: clientPubKey,
         });
 
+        const fingerprint = PayloadCrypto.getServerFingerprint();
+
         // HKDF: Deriva uma chave AES-256 a partir do segredo compartilhado
-        // Garante uniformidade e separa o domínio da chave ("cascata-login-v1")
+        // Usa o fingerprint do servidor como domínio (info)
         const hkdfResult = crypto.hkdfSync(
             'sha256',
             sharedSecret,
-            Buffer.alloc(0),                     // salt (vazio, segredo já é forte)
-            Buffer.from('cascata-login-v1'),      // info / domain separator
-            32                                    // 256 bits para AES-256
+            Buffer.alloc(0),                                // salt (vazio, segredo já é forte)
+            Buffer.from(`cascata-v2-${fingerprint}`),       // info / domain separator ÚNICO
+            32                                              // 256 bits para AES-256
         );
 
         return Buffer.from(hkdfResult);

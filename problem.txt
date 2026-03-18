@@ -1,344 +1,116 @@
-ubuntu@ip-172-26-13-164:~/cascata$ 
-ubuntu@ip-172-26-13-164:~/cascata$ docker logs cascata-backend-control
-[SystemLogService] Decoupled Logging Engine Initialized (Dragonfly Buffer Mode).
-[System] Control Plane: Initializing internal queues.
-[QueueService] Initializing Queues with Dragonfly...
-[QueueService] Starting Workers (Mode: CONTROL_PLANE)...
-[CronService] Initializing Scheduled Automations...
-[PoolService] Smart Reaper initialized (Aggressive Mode).
-[Realtime] ✅ Service initialized with Hydration Batcher V2 (Env Aware)
-[System] Booting up...
-[CASCATA SECURE SERVER] Listening on port 3000 [PID: 1]
-[RateLimit] Dragonfly Connected & Healthy.
-Failed to schedule log purge ReplyError: ERR Error running script (call to e5761020314ba017695d330c53534440ea2459c0): @user_script:206: -ERR script tried accessing undeclared key, key: {cascata}bull:cascata-maintenance:repeat:87ed24ddaa3af0665239693fac0bedf9
-    at parseError (/app/node_modules/redis-parser/lib/parser.js:179:12)
-    at parseType (/app/node_modules/redis-parser/lib/parser.js:302:14) {
-  command: {
-    name: 'eval',
-    args: [
-      '--[[\n' +
-        '  Adds a repeatable job\n' +
-        '    Input:\n' +
-        "      KEYS[1] 'repeat' key\n" +
-        "      KEYS[2] 'delayed' key\n" +
-        '      ARGV[1] next milliseconds\n' +
-        '      ARGV[2] msgpacked options\n' +
-        '            [1]  name\n' +
-        '            [2]  tz?\n' +
-        '            [3]  pattern?\n' +
-        '            [4]  endDate?\n' +
-        '            [5]  every?\n' +
-        '      ARGV[3] legacy custom key TODO: remove this logic in next breaking change\n' +
-        '      ARGV[4] custom key\n' +
-        '      ARGV[5] prefix key\n' +
-        '      Output:\n' +
-        '        repeatableKey  - OK\n' +
-        ']]\n' +
-        'local rcall = redis.call\n' +
-        'local repeatKey = KEYS[1]\n' +
-        'local delayedKey = KEYS[2]\n' +
-        'local nextMillis = ARGV[1]\n' +
-        'local legacyCustomKey = ARGV[3]\n' +
-        'local customKey = ARGV[4]\n' +
-        'local prefixKey = ARGV[5]\n' +
-        '-- Includes\n' +
-        '--[[\n' +
-        '  Function to remove job.\n' +
-        ']]\n' +
-        '-- Includes\n' +
-        '--[[\n' +
-        '  Function to remove deduplication key if needed\n' +
-        '  when a job is being removed.\n' +
-        ']]\n' +
-        'local function removeDeduplicationKeyIfNeededOnRemoval(prefixKey,\n' +
-        '  jobId, deduplicationId)\n' +
-        '  if deduplicationId then\n' +
-        '    local deduplicationKey = prefixKey .. "de:" .. deduplicationId\n' +
-        "    local currentJobId = rcall('GET', deduplicationKey)\n" +
-        '    if currentJobId and currentJobId == jobId then\n' +
-        '      return rcall("DEL", deduplicationKey)\n' +
-        '    end\n' +
-        '  end\n' +
-        'end\n' +
-        '--[[\n' +
-        '  Function to remove job keys.\n' +
-        ']]\n' +
-        'local function removeJobKeys(jobKey)\n' +
-        `  return rcall("DEL", jobKey, jobKey .. ':logs', jobKey .. ':dependencies',\n` +
-        "    jobKey .. ':processed', jobKey .. ':failed', jobKey .. ':unsuccessful')\n" +
-        'end\n' +
-        '--[[\n' +
-        '  Check if this job has a parent. If so we will just remove it from\n' +
-        '  the parent child list, but if it is the last child we should move the parent to "wait/paused"\n' +
-        '  which requires code from "moveToFinished"\n' +
-        ']]\n' +
-        '-- Includes\n' +
-        '--[[\n' +
-        '  Function to add job in target list and add marker if needed.\n' +
-        ']]\n' +
-        '-- Includes\n' +
-        '--[[\n' +
-        '  Add marker if needed when a job is available.\n' +
-        ']]\n' +
-        'local function addBaseMarkerIfNeeded(markerKey, isPausedOrMaxed)\n' +
-        '  if not isPausedOrMaxed then\n' +
-        '    rcall("ZADD", markerKey, 0, "0")\n' +
-        '  end  \n' +
-        'end\n' +
-        'local function addJobInTargetList(targetKey, markerKey, pushCmd, isPausedOrMaxed, jobId)\n' +
-        '  rcall(pushCmd, targetKey, jobId)\n' +
-        '  addBaseMarkerIfNeeded(markerKey, isPausedOrMaxed)\n' +
-        'end\n' +
-        '--[[\n' +
-        '  Functions to destructure job key.\n' +
-        '  Just a bit of warning, these functions may be a bit slow and affect performance significantly.\n' +
-        ']]\n' +
-        'local getJobIdFromKey = function (jobKey)\n' +
-        '  return string.match(jobKey, ".*:(.*)")\n' +
-        'end\n' +
-        'local getJobKeyPrefix = function (jobKey, jobId)\n' +
-        '  return string.sub(jobKey, 0, #jobKey - #jobId)\n' +
-        'end\n' +
-        '--[[\n' +
-        '  Function to check for the meta.paused key to decide if we are paused or not\n' +
-        '  (since an empty list and !EXISTS are not really the same).\n' +
-        ']]\n' +
-        'local function getTargetQueueList(queueMetaKey, activeKey, waitKey, pausedKey)\n' +
-        '  local queueAttributes = rcall("HMGET", queueMetaKey, "paused", "concurrency", "max", "duration")\n' +
-        '  if queueAttributes[1] then\n' +
-        '    return pausedKey, true, queueAttributes[3], queueAttributes[4]\n' +
-        '  else\n' +
-        '    if queueAttributes[2] then\n' +
-        '      local activeCount = rcall("LLEN", activeKey)\n' +
-        '      if activeCount >= tonumber(queueAttributes[2]) then\n' +
-        '        return waitKey, true, queueAttributes[3], queueAttributes[4]\n' +
-        '      else\n' +
-        '        return waitKey, false, queueAttributes[3], queueAttributes[4]\n' +
-        '      end\n' +
-        '    end\n' +
-        '  end\n' +
-        '  return waitKey, false, queueAttributes[3], queueAttributes[4]\n' +
-        'end\n' +
-        'local function _moveParentToWait(parentPrefix, parentId, emitEvent)\n' +
-        '  local parentTarget, isPausedOrMaxed = getTargetQueueList(parentPrefix .. "meta", parentPrefix .. "active",\n' +
-        '    parentPrefix .. "wait", parentPrefix .. "paused")\n' +
-        '  addJobInTargetList(parentTarget, parentPrefix .. "marker", "RPUSH", isPausedOrMaxed, parentId)\n' +
-        '  if emitEvent then\n' +
-        '    local parentEventStream = parentPrefix .. "events"\n' +
-        '    rcall("XADD", parentEventStream, "*", "event", "waiting", "jobId", parentId, "prev", "waiting-children")\n' +
-        '  end\n' +
-        'end\n' +
-        'local function removeParentDependencyKey(jobKey, hard, parentKey, baseKey, debounceId)\n' +
-        '  if parentKey then\n' +
-        '    local parentDependenciesKey = parentKey .. ":dependencies"\n' +
-        '    local result = rcall("SREM", parentDependenciesKey, jobKey)\n' +
-        '    if result > 0 then\n' +
-        '      local pendingDependencies = rcall("SCARD", parentDependenciesKey)\n' +
-        '      if pendingDependencies == 0 then\n' +
-        '        local parentId = getJobIdFromKey(parentKey)\n' +
-        '        local parentPrefix = getJobKeyPrefix(parentKey, parentId)\n' +
-        '        local numRemovedElements = rcall("ZREM", parentPrefix .. "waiting-children", parentId)\n' +
-        '        if numRemovedElements == 1 then\n' +
-        '          if hard then -- remove parent in same queue\n' +
-        '            if parentPrefix == baseKey then\n' +
-        '              removeParentDependencyKey(parentKey, hard, nil, baseKey, nil)\n' +
-        '              removeJobKeys(parentKey)\n' +
-        '              if debounceId then\n' +
-        '                rcall("DEL", parentPrefix .. "de:" .. debounceId)\n' +
-        '              end\n' +
-        '            else\n' +
-        '              _moveParentToWait(parentPrefix, parentId)\n' +
-        '            end\n' +
-        '          else\n' +
-        '            _moveParentToWait(parentPrefix, parentId, true)\n' +
-        '          end\n' +
-        '        end\n' +
-        '      end\n' +
-        '      return true\n' +
-        '    end\n' +
-        '  else\n' +
-        '    local parentAttributes = rcall("HMGET", jobKey, "parentKey", "deid")\n' +
-        '    local missedParentKey = parentAttributes[1]\n' +
-        '    if( (type(missedParentKey) == "string") and missedParentKey ~= ""\n' +
-        '      and (rcall("EXISTS", missedParentKey) == 1)) then\n' +
-        '      local parentDependenciesKey = missedParentKey .. ":dependencies"\n' +
-        '      local result = rcall("SREM", parentDependenciesKey, jobKey)\n' +
-        '      if result > 0 then\n' +
-        '        local pendingDependencies = rcall("SCARD", parentDependenciesKey)\n' +
-        '        if pendingDependencies == 0 then\n' +
-        '          local parentId = getJobIdFromKey(missedParentKey)\n' +
-        '          local parentPrefix = getJobKeyPrefix(missedParentKey, parentId)\n' +
-        '          local numRemovedElements = rcall("ZREM", parentPrefix .. "waiting-children", parentId)\n' +
-        '          if numRemovedElements == 1 then\n' +
-        '            if hard then\n' +
-        '              if parentPrefix == baseKey then\n' +
-        '                removeParentDependencyKey(missedParentKey, hard, nil, baseKey, nil)\n' +
-        '                removeJobKeys(missedParentKey)\n' +
-        '                if parentAttributes[2] then\n' +
-        '                  rcall("DEL", parentPrefix .. "de:" .. parentAttributes[2])\n' +
-        '                end\n' +
-        '              else\n' +
-        '                _moveParentToWait(parentPrefix, parentId)\n' +
-        '              end\n' +
-        '            else\n' +
-        '              _moveParentToWait(parentPrefix, parentId, true)\n' +
-        '            end\n' +
-        '          end\n' +
-        '        end\n' +
-        '        return true\n' +
-        '      end\n' +
-        '    end\n' +
-        '  end\n' +
-        '  return false\n' +
-        'end\n' +
-        'local function removeJob(jobId, hard, baseKey, shouldRemoveDeduplicationKey)\n' +
-        '  local jobKey = baseKey .. jobId\n' +
-        '  removeParentDependencyKey(jobKey, hard, nil, baseKey)\n' +
-        '  if shouldRemoveDeduplicationKey then\n' +
-        '    local deduplicationId = rcall("HGET", jobKey, "deid")\n' +
-        '    removeDeduplicationKeyIfNeededOnRemoval(baseKey, jobId, deduplicationId)\n' +
-        '  end\n' +
-        '  removeJobKeys(jobKey)\n' +
-        'end\n' +
-        'local function storeRepeatableJob(repeatKey, customKey, nextMillis, rawOpts)\n' +
-        '  rcall("ZADD", repeatKey, nextMillis, customKey)\n' +
-        '  local opts = cmsgpack.unpack(rawOpts)\n' +
-        '  local optionalValues = {}\n' +
-        "  if opts['tz'] then\n" +
-        '    table.insert(optionalValues, "tz")\n' +
-        "    table.insert(optionalValues, opts['tz'])\n" +
-        '  end\n' +
-        "  if opts['pattern'] then\n" +
-        '    table.insert(optionalValues, "pattern")\n' +
-        "    table.insert(optionalValues, opts['pattern'])\n" +
-        '  end\n' +
-        "  if opts['endDate'] then\n" +
-        '    table.insert(optionalValues, "endDate")\n' +
-        "    table.insert(optionalValues, opts['endDate'])\n" +
-        '  end\n' +
-        "  if opts['every'] then\n" +
-        '    table.insert(optionalValues, "every")\n' +
-        "    table.insert(optionalValues, opts['every'])\n" +
-        '  end\n' +
-        `  rcall("HMSET", repeatKey .. ":" .. customKey, "name", opts['name'],\n` +
-        '    unpack(optionalValues))\n' +
-        '  return customKey\n' +
-        'end\n' +
-        '-- If we are overriding a repeatable job we must delete the delayed job for\n' +
-        '-- the next iteration.\n' +
-        'local prevMillis = rcall("ZSCORE", repeatKey, customKey)\n' +
-        'if prevMillis then\n' +
-        '  local delayedJobId =  "repeat:" .. customKey .. ":" .. prevMillis\n' +
-        '  local nextDelayedJobId =  repeatKey .. ":" .. customKey .. ":" .. nextMillis\n' +
-        '  if rcall("ZSCORE", delayedKey, delayedJobId)\n' +
-        '   and rcall("EXISTS", nextDelayedJobId) ~= 1 then\n' +
-        '    removeJob(delayedJobId, true, prefixKey, true --[[remove debounce key]])\n' +
-        '    rcall("ZREM", delayedKey, delayedJobId)\n' +
-        '  end\n' +
-        'end\n' +
-        '-- Keep backwards compatibility with old repeatable jobs (<= 3.0.0)\n' +
-        'if rcall("ZSCORE", repeatKey, legacyCustomKey) ~= false then\n' +
-        '  return storeRepeatableJob(repeatKey, legacyCustomKey, nextMillis, ARGV[2])\n' +
-        'end\n' +
-        'return storeRepeatableJob(repeatKey, customKey, nextMillis, ARGV[2])\n',
-      '2',
-      '{cascata}bull:cascata-maintenance:repeat',
-      '{cascata}bull:cascata-maintenance:delayed',
-      '1773720000000',
-      <Buffer de 00 05 a4 6e 61 6d 65 aa 70 75 72 67 65 2d 6c 6f 67 73 a7 65 6e 64 44 61 74 65 c0 a2 74 7a c0 a7 70 61 74 74 65 72 6e a9 30 20 34 20 2a 20 2a 20 2a ... 7 more bytes>,
-      'purge-logs:system-log-purge:::0 4 * * *',
-      '87ed24ddaa3af0665239693fac0bedf9',
-      '{cascata}bull:cascata-maintenance:'
-    ]
-  }
+
+ou seja, oq eu e fato temos é algum bug, pois apó reiniciar eu zerei o cache ddo anvegaor, forncei recarga, e entrei, mas como você foi basico em sua nalsie eu fui no outro navegaor, que nunca viua  a VPS, no caso pelo celualr. coloquei email e  senha e entrei normalemnte, sem colcoar OTP...e como você vicu na ultima menssagem, eu li o qr coe dde otp 1 e dei o código e ok....segundo ponto é que o acesso https ou seja porta 443 não ta fluindo bem, o painel ta carregando, mas, os projetos não ta fluinddo bem como queriamos e o acesso tambem nã da dando pelo painel da um erro no login:
+Failed to execute 'generateKey' on 'SubtleCrypto': EcKeyGenParams: Unrecognized namedCurve
+
+Request URL
+https://dash.unibloom.com.br/api/control/auth/handshake
+Request Method
+GET
+Status Code
+200 OK
+Remote Address
+[2606:4700:3035::ac43:dfe9]:443
+Referrer Policy
+strict-origin-when-cross-origin
+
+response:
+{
+    "sessionId": "4b857b800704e5eb360c648b8c27b14238ac9db46b245a48fa8cb348f38f43d8",
+    "serverPublicKey": "MCowBQYDK2VuAyEArfndUwprPcTe89ZaPw0wKlj0uRtkDKttrfHKX86YqwU="
 }
-[MigrationService] Initializing...
-[MigrationService] Lock acquired. Starting checks...
-[MigrationService] Initializing...
-[MigrationService] Another instance holds the lock. Skipping migrations check to allow fast boot.
-[RateLimit] Failed to refresh global settings, using defaults.
-[CronService] Sync failed: relation "system.automations" does not exist
-[System] Failed to load global config, using defaults.
-[System] Platform Ready & Healthy.
-[MigrationService] Applying: 001_init.sql
-[MigrationService] Success: 001_init.sql
-[MigrationService] Applying: 002_rate_limits.sql
-[MigrationService] Success: 002_rate_limits.sql
-[MigrationService] Applying: 003_n8n_support.sql
-[MigrationService] Success: 003_n8n_support.sql
-[MigrationService] Applying: 004_rate_limit_v2.sql
-[MigrationService] Success: 004_rate_limit_v2.sql
-[MigrationService] Applying: 005_ai_memory.sql
-[MigrationService] Success: 005_ai_memory.sql
-[MigrationService] Applying: 006_asset_history.sql
-[MigrationService] Success: 006_asset_history.sql
-[MigrationService] Applying: 007_ai_sessions.sql
-[MigrationService] Success: 007_ai_sessions.sql
-[MigrationService] Applying: 008_auth_hardening.sql
-[MigrationService] Success: 008_auth_hardening.sql
-[MigrationService] Applying: 009_immutable_logs.sql
-[MigrationService] Success: 009_immutable_logs.sql
-[MigrationService] Applying: 010_auth_confirmation.sql
-[MigrationService] Success: 010_auth_confirmation.sql
-[MigrationService] Applying: 011_webhook_filters.sql
-[MigrationService] Success: 011_webhook_filters.sql
-[MigrationService] Applying: 012_webhook_reliability.sql
-[MigrationService] Success: 012_webhook_reliability.sql
-[MigrationService] Applying: 013_auth_helpers.sql
-[MigrationService] Success: 013_auth_helpers.sql
-[MigrationService] Applying: 014_push_engine.sql
-[MigrationService] Success: 014_push_engine.sql
-[MigrationService] Applying: 015_storage_tracking.sql
-[MigrationService] Success: 015_storage_tracking.sql
-[MigrationService] Applying: 016_fix_notify_payload.sql
-[MigrationService] Success: 016_fix_notify_payload.sql
-[MigrationService] Applying: 017_harden_default_privileges.sql
-[MigrationService] Success: 017_harden_default_privileges.sql
-[MigrationService] Applying: 018_backup_system.sql
-[MigrationService] Success: 018_backup_system.sql
-[MigrationService] Applying: 019_granular_security.sql
-[MigrationService] Success: 019_granular_security.sql
-[MigrationService] Applying: 020_crud_rate_limits.sql
-[MigrationService] Success: 020_crud_rate_limits.sql
-[MigrationService] Applying: 021_nerf_logic.sql
-[MigrationService] Success: 021_nerf_logic.sql
-[MigrationService] Applying: 022_secure_hashing.sql
-[MigrationService] Success: 022_secure_hashing.sql
-[MigrationService] Applying: 023_fix_schema_integrity.sql
-[MigrationService] Success: 023_fix_schema_integrity.sql
-[MigrationService] Applying: 024_secure_vault.sql
-[MigrationService] Success: 024_secure_vault.sql
-[MigrationService] Applying: 025_perf_optimization.sql
-[MigrationService] Success: 025_perf_optimization.sql
-[MigrationService] Applying: 026_log_telemetry.sql
-[MigrationService] Success: 026_log_telemetry.sql
-[MigrationService] Applying: 027_auth_fingerprint.sql
-[MigrationService] Success: 027_auth_fingerprint.sql
-[MigrationService] Applying: 028_async_ops.sql
-[MigrationService] Success: 028_async_ops.sql
-[MigrationService] Applying: 029_extension_registry.sql
-[MigrationService] Success: 029_extension_registry.sql
-[MigrationService] Applying: 030_identity_verification.sql
-[MigrationService] Success: 030_identity_verification.sql
-[MigrationService] Applying: 031_assets_updated_at.sql
-[MigrationService] Success: 031_assets_updated_at.sql
-[MigrationService] Applying: 032_rls_atomic_blindagem.sql
-[MigrationService] Success: 032_rls_atomic_blindagem.sql
-[MigrationService] Applying: 033_identity_first_auth.sql
-[MigrationService] Success: 033_identity_first_auth.sql
-[MigrationService] Applying: 034_cascata_automations.sql
-[MigrationService] Success: 034_cascata_automations.sql
-[MigrationService] Applying: 035_automation_ops.sql
-[MigrationService] Success: 035_automation_ops.sql
-[MigrationService] Applying: 036_advanced_quotas.sql
-[MigrationService] Success: 036_advanced_quotas.sql
-[MigrationService] Applying: 037_tiered_retention.sql
-[MigrationService] Success: 037_tiered_retention.sql
-[MigrationService] Applying: 038_webhooks_updated_at.sql
-[MigrationService] Success: 038_webhooks_updated_at.sql
-[MigrationService] Applying: 039_webhook_receivers.sql
-[MigrationService] Success: 039_webhook_receivers.sql
-[MigrationService] Lock released.
-[System] Failed to inject SQL Procedures: schema "auth" does not exist
-[AdminController] Login with unencrypted payload detected. Upgrade to secure handshake flow.
-ubuntu@ip-172-26-13-164:~/cascata$ 
+
+
+na clouddflare tenho isso aqui:
+Pesquisar registros de DNS
+Sua pesquisa gerou 29 resultados
+
+Tipo
+
+Nome
+
+Conteúdo
+
+Status do proxy
+
+TTL
+
+Ações
+
+A
+l
+100.53.222.90
+
+Com proxy
+
+Auto
+EditarQuando aberta, uma linha de tabela adicional será adicionada abaixo dessa linha para permitir a edição de registros de DNS.
+
+A
+api
+100.53.222.90
+
+Com proxy
+
+Auto
+EditarQuando aberta, uma linha de tabela adicional será adicionada abaixo dessa linha para permitir a edição de registros de DNS.
+
+A
+dash
+100.53.222.90
+
+Com proxy
+
+Auto
+EditarQuando aberta, uma linha de tabela adicional será adicionada abaixo dessa linha para permitir a edição de registros de DNS.
+
+no firewal daa AWS lightsail tenho issoa qui:
+
+Application	Protocol	Port or range / Code	Restricted to	
+HTTP	TCP	
+80
+Any IPv4 address
+
+HTTPS	TCP	
+443
+Any IPv4 address
+
+Custom	TCP	
+55272
+187.89.239.173
+
+
+ANALISE PROFUNDDAMENTE, FIQUE LONGE DDDO TERMINAL APENAS ESTUDE! SE PRECISAR QUEUE EXECUTE UM COMANDO, VC ME PEDE EM UM OCUEMNTO PLANEJAO QUE EU COLCO AS RESPOSTAS NELES MANUALMENTE , POIS SOMENTE EU TENHOA CESOS AO TERMINAL  QUE TEMAA CESSO A VPS  VC NÃO TEM
+
+
+
+AGORA REALIZE AA PESQUISA E O PQ OS PROJETOSS NÃO TEM MAIS ACESSO dando erro qunado é clouflare badgatway pelo navegaddor e qunado é por api a o erro code 502 
+
+já na questão de ar um dominio via letscript  ocmo fornecemos temos o problemaa:
+Request URL
+http://100.53.222.90/api/control/system/certificates
+Request Method
+POST
+Status Code
+500 Internal Server Error
+Remote Address
+
+repsosta:
+{"error":"Falha no Certbot code 1"}
+
+
+Ou seja, parece que o script não ta tão bom assim, ta estrgano nossa infraestrtur em coiaaas que funcionavam sem ele como configuração e dominios externos com cloudflare ou com letscript, mesmo ass portas 80 e 443 estando abertas any ...então realmente o install eve ser analsiado rigorosamente, profunamente! eme dição e códigoss e sem solcitar acesso ao terminal, estude nossa infra para ter noção mais abragente e profunda
+
+
+
+
+
+
+
+
+Essa questão a porta 80 vai ter e ser melhor, pois as vezes a pessoa peo colocar em localhost, no proprio PC, aqui não fazemos isso, ams ela podde...segundo ponto é que e se a porta 80 para entradda e saida apenas no momento do letsccript? É uma coisa que EVEMOS ESTUAAR A FUNO TOAS AS QUETẼO ENVOLVIDAS E ARQUIVOS CORRELAACIONADOS pois o sistema é sinergico uma coisa fala com a outra, e  é muito seguro, temos de manter o auto padrão e seguraça, da poddder aao usuario mas nunca ao infiltrado, pensie em retringer o acesso por IP AO PAINEL no momento da autenticaçãao do OTP é perguntado se deseja autalizar o IP ded acesso e banir os restantess, então toos os outros ambientes que tem acesos ao painel, oq eu vc aaacha disso? elabore um estuo e crie um novoa rquivo como o implemention plan, ams não toque enste implamation plan atual, apenas aanalsie sirugicamente e metodidamente a viabildaidde de ccolcaor com segurança todas aesstaas atualziações, mas não toque not erminaal nem no implametion plan atual.
+
+
+
+
+Deixa a iddeia do IP como está memo, meche nusso não, vamos resolver o primeiro probema que é "Failed to execute 'generateKey' on 'SubtleCrypto': EcKeyGenParams: Unrecognized namedCurve" no painel seguindo nosso padrão de nossa "/home/cocorico/Documentos/proejetos/cascata/qualiade esperada.txt".
+É apenas para editarmos a quetão a criptgrafia, omente isso, vamos reolvendo um detalhe e caa vez, com calma, primeiroq ue o itema opera(ou deveria operar om duas criptografia "iferentes, uam do Banco dde ados com o front end e outra do fronten com o banco e dados, apra meioq ue se tornar realmente uma informa~ao que sirule em rede e ainda sim seja segura e inviolavél, cada projeto tem sua prropria maneira e ter um código unico que não é repetiido, ou seja, pensa comigo o projeto é open source, ou seja, temo e fazer comque não haja como e algum jeito impossicel realizar engennahria reversa por aalguem externo, ou então sur o mesmo que que hackeou um cascata e uma VPS hacker outra, precisa ser realmente uma formula e pense comigo como fazer isso, mas essa criptgrafia tem de ser aceita pelos anvegadores, primeiro mi disseram que esse criptgrafia não atual não iria funcioanr por causa que só iria rodar em htttps, ddepois me disseram que ele não ia roaar em certos navegadddores e enem rodou no cchrome, enetãoa choq ue nem o problema que vc disse é verdade, euac ho que é que vc tem que se edicar a estuar, explocaarar melhro suas conehcimentos para ai sim termos parametros base de conversa")

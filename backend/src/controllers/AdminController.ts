@@ -60,10 +60,11 @@ export class AdminController {
                 setTimeout(() => AdminController.handshakeFallbackStore.delete(session.sessionId), HANDSHAKE_TTL_SECONDS * 1000);
             }
 
-            // Retorna APENAS a chave pública — a privada NUNCA sai do backend
+            // Retorna a chave pública e a assinatura do servidor
             res.json({
-                sessionId:       session.sessionId,
-                serverPublicKey: session.serverPublicKey,
+                sessionId:         session.sessionId,
+                serverPublicKey:   session.serverPublicKey,
+                serverFingerprint: PayloadCrypto.getServerFingerprint(),
             });
         } catch (e: any) { next(e); }
     }

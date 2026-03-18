@@ -8,7 +8,7 @@ import {
     Layers, ArrowRight, ShieldCheck, Play, Key, AlertCircle, RefreshCw,
     ListFilter, MousePointer2, CheckSquare, Users, Lock, Fingerprint,
     HardDrive, Upload as UploadIcon, Trash2, Cloud, Radio, Share2, GripVertical,
-    Table as TableIcon
+    Table as TableIcon, Mail
 } from 'lucide-react';
 
 interface APIDocsProps {
@@ -129,20 +129,34 @@ const VECTOR_ENDPOINTS = [
     }
 ];
 
+// --- FORMAT PRESETS (Synced with Backend & DB Explorer) ---
+const FORMAT_PRESETS: Record<string, { label: string; regex: string; example: string; icon: any }> = {
+    email: { label: 'Email', regex: '^[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}$', example: 'user@example.com', icon: Mail },
+    cpf: { label: 'CPF', regex: '^\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2}$', example: '123.456.789-00', icon: Fingerprint },
+    cnpj: { label: 'CNPJ', regex: '^\\d{2}\\.\\d{3}\\.\\d{3}\\/\\d{4}-\\d{2}$', example: '12.345.678/0001-99', icon: ShieldCheck },
+    phone_br: { label: 'Phone (BR)', regex: '^\\+?55\\s?\\(?\\d{2}\\)?\\s?\\d{4,5}-?\\d{4}$', example: '+55 (11) 99999-1234', icon: Radio },
+    phone_us: { label: 'Phone (US)', regex: '^\\+?1\\s?\\(?\\d{3}\\)?\\s?\\d{3}-?\\d{4}$', example: '+1 (555) 000-1234', icon: Radio },
+    phone: { label: 'Phone', regex: '^\\+?[1-9]\\d{1,14}$', example: '+15559998877', icon: Radio },
+    cep: { label: 'CEP', regex: '^\\d{5}-?\\d{3}$', example: '01310-100', icon: Globe },
+    zip_us: { label: 'Zip Code (US)', regex: '^\\d{5}(-\\d{4})?$', example: '90210', icon: Globe },
+    url: { label: 'URL', regex: '^https?:\\/\\/[a-zA-Z0-9\\-]+(\\.[a-zA-Z0-9\\-]+)+(\\/.*)?$', example: 'https://example.com', icon: LinkIcon },
+    uuid_format: { label: 'UUID', regex: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', icon: Key },
+};
+
 // --- AUTH DEFINITIONS (Static Documentation) ---
 const AUTH_ENDPOINTS = [
     {
         id: 'auth_signup',
-        name: 'Sign Up (Email)',
+        name: 'Sign Up',
         method: 'POST',
         path: '/auth/v1/signup',
-        description: 'Register a new user with email and password.',
+        description: 'Register a new user with chosen identity strategy.',
         body: { email: "user@example.com", password: "secure_password_123", data: { full_name: "John Doe" } },
         auth_required: false
     },
     {
         id: 'auth_login',
-        name: 'Sign In (Password)',
+        name: 'Sign In',
         method: 'POST',
         path: '/auth/v1/token',
         description: 'Log in an existing user to obtain an Access Token.',
@@ -306,6 +320,64 @@ const APIDocs: React.FC<APIDocsProps> = ({ projectId }) => {
     const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
 
     const [activeKeyId, setActiveKeyId] = useState<string>('default');
+
+    // --- DYNAMIC AUTH STRATEGIES ---
+    const dynamicStrategies = useMemo(() => {
+        if (!projectData?.metadata?.auth_strategies) {
+            return [{ id: 'email', name: 'Email', provider: 'email', identifierLabel: 'Email', identifierValue: 'user@example.com', icon: Mail }];
+        }
+
+        const strategies = projectData.metadata.auth_strategies;
+        return Object.entries(strategies)
+            .filter(([_, config]: [string, any]) => config.enabled !== false)
+            .map(([key, config]: [string, any]) => {
+                const lowerKey = key.toLowerCase();
+                const regex = config.otp_config?.regex_validation;
+                
+                // 1. Exact Regex Match
+                let preset = Object.values(FORMAT_PRESETS).find((p: any) => p.regex === regex);
+                
+                // 2. Exact Key Match
+                if (!preset) preset = FORMAT_PRESETS[key];
+                
+                // 3. Heuristic: Key Name Analysis
+                if (!preset) {
+                    if (lowerKey.includes('phone') || lowerKey.includes('tel')) preset = FORMAT_PRESETS.phone;
+                    else if (lowerKey.includes('mail')) preset = FORMAT_PRESETS.email;
+                    else if (lowerKey.includes('cpf')) preset = FORMAT_PRESETS.cpf;
+                    else if (lowerKey.includes('cnpj')) preset = FORMAT_PRESETS.cnpj;
+                    else if (lowerKey.includes('zip') || lowerKey.includes('cep')) preset = FORMAT_PRESETS.cep;
+                }
+
+                // 4. Heuristic: Regex Pattern Analysis (Prefix matching)
+                if (!preset && regex) {
+                    if (regex.startsWith('^\\+?1')) preset = FORMAT_PRESETS.phone_us;
+                    else if (regex.startsWith('^\\+?55')) preset = FORMAT_PRESETS.phone_br;
+                }
+
+                const finalLabel = preset?.label || key.charAt(0).toUpperCase() + key.slice(1);
+                const finalExample = preset?.example || 'your-identifier';
+                const finalIcon = preset?.icon || Key;
+                
+                return {
+                    id: key,
+                    name: finalLabel,
+                    provider: key,
+                    identifierLabel: finalLabel,
+                    identifierValue: finalExample,
+                    icon: finalIcon
+                };
+            });
+    }, [projectData]);
+
+    const [selectedStrategy, setSelectedStrategy] = useState('email');
+
+    // Ensure selectedStrategy is valid when dynamicStrategies change
+    useEffect(() => {
+        if (dynamicStrategies.length > 0 && !dynamicStrategies.find((s: any) => s.id === selectedStrategy)) {
+            setSelectedStrategy(dynamicStrategies[0].id);
+        }
+    }, [dynamicStrategies]);
 
     const getActiveAnonKey = () => {
         if (!projectData) return '<YOUR_ANON_KEY>';
@@ -691,7 +763,30 @@ const APIDocs: React.FC<APIDocsProps> = ({ projectId }) => {
 
             if (type === 'auth' || type === 'storage' || type === 'vector') {
                 if (endpointDef?.body && Object.keys(endpointDef.body).length > 0) {
-                    bodyPayload = JSON.stringify(endpointDef.body, null, 2);
+                    let finalBody = { ...endpointDef.body };
+                    
+                    // Dynamic Auth Strategy Injection
+                    if (type === 'auth') {
+                        const strategy = dynamicStrategies.find((s: any) => s.id === selectedStrategy) || dynamicStrategies[0];
+                        
+                        // Handle generic identifier replacement
+                        if (strategy && (finalBody.email || finalBody.identifier || finalBody.provider)) {
+                            delete finalBody.email;
+                            delete finalBody.cpf;
+                            delete finalBody.phone;
+                            delete finalBody.identifier;
+                            delete finalBody.provider;
+
+                            if (strategy.id === 'email') {
+                                finalBody.email = strategy.identifierValue;
+                            } else {
+                                finalBody.provider = strategy.provider;
+                                finalBody.identifier = strategy.identifierValue;
+                            }
+                        }
+                    }
+
+                    bodyPayload = JSON.stringify(finalBody, null, 2);
                 }
             } else if (type === 'edge') {
                 bodyPayload = JSON.stringify({ foo: "bar" }, null, 2);
@@ -1113,6 +1208,28 @@ export const supabase = createClient(supabaseUrl, supabaseKey)
                                                         </div>
                                                         {isExpanded && (
                                                             <div className="border-t border-slate-100 p-6 bg-slate-50/50">
+                                                                <div className="flex items-center justify-between mb-4 bg-white p-3 rounded-2xl border border-slate-100 shadow-sm">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <Layers size={14} className="text-indigo-600" />
+                                                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Login Strategy</span>
+                                                                    </div>
+                                                                    <div className="flex gap-1.5 p-1 bg-slate-50 rounded-xl border border-slate-100">
+                                                                        {dynamicStrategies.map((s: any) => {
+                                                                            const Icon = s.icon;
+                                                                            return (
+                                                                                <button
+                                                                                    key={s.id}
+                                                                                    onClick={() => setSelectedStrategy(s.id)}
+                                                                                    className={`px-3 py-2 rounded-lg text-[10px] font-black transition-all flex items-center gap-2 ${selectedStrategy === s.id ? 'bg-white text-indigo-600 shadow-md ring-1 ring-slate-200' : 'text-slate-400 hover:text-slate-600 hover:bg-white/50'}`}
+                                                                                >
+                                                                                    <Icon size={12} />
+                                                                                    {s.name}
+                                                                                </button>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                </div>
+
                                                                 <CodeBlock
                                                                     label="Execute Request"
                                                                     code={generateCurl(endpoint.method, endpoint.path, 'auth', endpoint)}

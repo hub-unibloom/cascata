@@ -140,6 +140,14 @@ server {
 server {
     listen 80;
     server_name ${domain};
+    
+    # Fundamental para renovações/emissões HTTP-01 do Let's Encrypt
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+        allow all;
+    }
+
+    # Restante vai para HTTPS
     location / { return 301 https://$host$request_uri; }
 }
 `;
