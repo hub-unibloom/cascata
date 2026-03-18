@@ -112,7 +112,7 @@ export class CertificateService {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
     location ~ ^/(api/data/|rpc/|auth/|storage/|edge/|tables/|rest/|vector/) {
-        proxy_pass http://backend_data_cluster;
+        proxy_pass http://backend_data_sockets;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -120,7 +120,7 @@ export class CertificateService {
         proxy_buffering off;
     }` : `
     location / {
-        proxy_pass http://backend_data_cluster;
+        proxy_pass http://backend_data_sockets;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -185,21 +185,16 @@ server {
     }
     if (provider === 'certbot' || provider === 'letsencrypt') {
         if (!email.includes('@')) throw new Error("Email inválido.");
-        
-        // Assegurar permissoes para o Nginx conseguir ler o desafio do Certbot gerado pelo backend
-        if (!fs.existsSync(this.webrootPath)) {
-            fs.mkdirSync(this.webrootPath, { recursive: true, mode: 0o777 });
-        } else {
-            fs.chmodSync(this.webrootPath, 0o777); 
-            const challengeDir = path.join(this.webrootPath, '.well-known', 'acme-challenge');
-            if (fs.existsSync(challengeDir)) {
-               // Dá recursivamente full permissions na pasta, para que nginx consiga ler
-               const { execSync } = await import('child_process');
-               try { execSync(`chmod -R 777 ${this.webrootPath}`); } catch(e){}
-            }
-        }
-
         return new Promise((resolve, reject) => {
+            // Garantir que a pasta acme-challenge tem as permissões corretas para o Nginx poder acessá-la
+            try {
+                const acmeDir = path.join(this.webrootPath, '.well-known', 'acme-challenge');
+                if (!fs.existsSync(acmeDir)) fs.mkdirSync(acmeDir, { recursive: true });
+                execSync(`chmod -R 755 ${this.webrootPath} 2>/dev/null || true`);
+            } catch (e) {
+                console.error("[CertService] Failed saving directory permissions:", e);
+            }
+
             const certbot = spawn('certbot', ['certonly', '--webroot', '-w', this.webrootPath, '-d', domain, '--email', email, '--agree-tos', '--non-interactive']);
             certbot.on('close', async (code) => {
                 if (code === 0) { await this.rebuildNginxConfigs(systemPool); resolve({ success: true, message: "Certificado emitido." }); }

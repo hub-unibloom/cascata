@@ -19,7 +19,7 @@ for i in backend/migrations/*.txt; do mv "$i" "${i%.txt}"; done
 					mkdir -p /cascata-data/pg /cascata-data/qdrant /cascata-data/dragonfly /cascata-data/storage /cascata-data/certs /cascata-data/acme_challenge /cascata-data/nginx_dynamic
 					docker compose up -d --build
 
-
+ueAnS33VAplrXGfr
 
 
 em VPSSS NOVA SEGURA:
@@ -36,6 +36,7 @@ PASSOS BASE, CRIE SUA VPS, ssem porta nenhuma aberta, epois addicionne a porta 2
 
 ```bash
 ./install.sh
+
 ```
 
 

@@ -51,11 +51,19 @@ export class AdminController {
                         'EX', HANDSHAKE_TTL_SECONDS
                     );
                 } else {
+                    if (AdminController.handshakeFallbackStore.size > 2000) {
+                        const firstKey = AdminController.handshakeFallbackStore.keys().next().value;
+                        if (firstKey) AdminController.handshakeFallbackStore.delete(firstKey);
+                    }
                     AdminController.handshakeFallbackStore.set(session.sessionId, session);
                     // TTL manual (fallback)
                     setTimeout(() => AdminController.handshakeFallbackStore.delete(session.sessionId), HANDSHAKE_TTL_SECONDS * 1000);
                 }
             } catch {
+                if (AdminController.handshakeFallbackStore.size > 2000) {
+                    const firstKey = AdminController.handshakeFallbackStore.keys().next().value;
+                    if (firstKey) AdminController.handshakeFallbackStore.delete(firstKey);
+                }
                 AdminController.handshakeFallbackStore.set(session.sessionId, session);
                 setTimeout(() => AdminController.handshakeFallbackStore.delete(session.sessionId), HANDSHAKE_TTL_SECONDS * 1000);
             }
@@ -80,6 +88,7 @@ export class AdminController {
         try {
             let email: string;
             let password: string;
+            let parsedOtpCode: string = '';
             let isEncrypted = false;
             let sharedKey: Buffer | null = null;
 
@@ -130,14 +139,16 @@ export class AdminController {
                     return res.status(401).json({ error: 'Invalid or tampered payload.' });
                 }
 
-                email    = String(plainBody.email    || '');
-                password = String(plainBody.password || '');
+                email         = String(plainBody.email    || '');
+                password      = String(plainBody.password || '');
+                parsedOtpCode = String(plainBody.otp_code || '');
 
             } else {
                 // ── MODO LEGADO (texto puro): Aceito mas registrado como aviso ──
                 console.warn('[AdminController] Login with unencrypted payload detected. Upgrade to secure handshake flow.');
-                email    = String(req.body?.email    || '');
-                password = String(req.body?.password || '');
+                email         = String(req.body?.email    || '');
+                password      = String(req.body?.password || '');
+                parsedOtpCode = String(req.body?.otp_code || '');
             }
 
             if (!email || !password) {
@@ -163,9 +174,10 @@ export class AdminController {
             const otpSecret = process.env.CASCATA_OTP_SECRET;
             if (otpSecret) {
                 // Se tem segredo OTP, o campo otp_code é obrigatório
-                // Se o payload foi cifrado, extrair do plainBody, caso contrário (fallback) usar o body normal
-                let otpCode: string | undefined = String((isEncrypted ? plainBody.otp_code : req.body?.otp_code) || '');
+                let otpCode: string | undefined = parsedOtpCode;
 
+                // Se o payload foi cifrado, o OTP veio dentro do payload decifrado
+                // (tratado acima como parte do plainBody)
                 if (!otpCode || otpCode === 'undefined') {
                     return res.status(401).json({
                         error: 'OTP code required.',

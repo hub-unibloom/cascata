@@ -119,13 +119,16 @@ else if (process.env.SERVICE_MODE === 'ENGINE') {
 // 3. API MODE (Master/Worker Cluster & Single Node Fallback)
 else {
     // =========================================================================
-    const numCPUs = Math.min(os.cpus().length, 4); // Max 4 workers for now to fit docker 
-    
-    // Configura a V8 Threadpool para bater de frente com a quantidade de núcleos físicos
-    process.env.UV_THREADPOOL_SIZE = Math.max(4, numCPUs).toString();
-
     const isDataPlane = process.env.SERVICE_MODE === 'DATA_PLANE';
     const SOCKETS_DIR = '/tmp/cascata_sockets';
+    
+    // BUGFIX FORENSE: O bloco Nginx possui 'worker_1.sock' a 'worker_4.sock' hardcoded em upstream (nginx.conf.txt).
+    // Se 'Math.min(os.cpus().length, 4)' retornar < 4, o Nginx joga 502 Bad Gateway tentando conectar nos sockets faltantes a cada 5s (fail_timeout).
+    // Synergy Fix: Forçamos 4 workers no Data Plane independentemente do número de CPUs para casar exato com o Proxy Layer.
+    const numCPUs = isDataPlane ? 4 : Math.min(os.cpus().length, 4); 
+    
+    // Configura a V8 Threadpool para bater de frente com a quantidade de núcleos físicos
+    process.env.UV_THREADPOOL_SIZE = Math.max(4, os.cpus().length).toString();
 
     if (isDataPlane && cluster.isPrimary) {
         console.log(`[Hyper-Cluster] Primary Master PID: ${process.pid} is running.`);
