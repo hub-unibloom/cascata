@@ -710,27 +710,52 @@ phase2_setup_and_start() {
     chmod +x install.sh 2>/dev/null || true
 
     # -----------------------------------------------------------------------
-    # C: GERAR CREDENCIAIS ADMIN AUTOMÁTICAS
+    # C: CONFIGURAR CREDENCIAIS ADMIN
     # -----------------------------------------------------------------------
-    section "FASE 2.1 — Configuração de Credenciais Híbridas (Auto-geradas)"
+    section "FASE 2.1 — Configuração de Credenciais do Administrador"
 
-    echo -e "  ${BOLD}Gerando e-mail e senha de acesso inicial randômicos...${NC}"
-    echo -e "  ${DIM}(Você poderá logar, configurar seu domínio HTTPS e alterá-los depois)${NC}"
+    echo -e "  ${BOLD}Configurar email e senha do administrador do Cascata?${NC}"
+    echo -e "  ${DIM}(Caso não configure, serão usados os valores padrão inseguros do .env)${NC}"
     echo ""
+    read -rp "  Deseja configurar as credenciais de admin agora? [S/n]: " CONFIG_CREDS
+    CONFIG_CREDS="${CONFIG_CREDS:-S}"
 
-    # Gera um email randômico (ex: admin-abc12@cascata.io)
-    RAND_STR=$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 5 || true)
-    ADMIN_EMAIL="admin-${RAND_STR}@cascata.io"
+    if [[ "$CONFIG_CREDS" =~ ^[Ss]$ ]]; then
+        echo ""
+        # Email
+        while true; do
+            read -rp "  Email do admin [admin@cascata.io]: " ADMIN_EMAIL
+            ADMIN_EMAIL="${ADMIN_EMAIL:-admin@cascata.io}"
+            if [[ "$ADMIN_EMAIL" =~ ^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$ ]]; then
+                break
+            else
+                warn "Email inválido. Tente novamente."
+            fi
+        done
 
-    # Gera uma senha randômica "fácil" de lembrar mas segura para o primeiro acesso
-    ADMIN_PASS=$(LC_ALL=C tr -dc 'A-Za-z0-9!@#%^&*' </dev/urandom | head -c 16 || true)
+        # Senha
+        while true; do
+            prompt_password "  Senha do admin (mín. 12 chars): " ADMIN_PASS
+            if [ ${#ADMIN_PASS} -ge 12 ]; then
+                prompt_password "  Confirme a senha: " ADMIN_PASS2
+                if [ "$ADMIN_PASS" = "$ADMIN_PASS2" ]; then
+                    break
+                else
+                    warn "As senhas não coincidem. Tente novamente."
+                fi
+            else
+                warn "Senha muito curta. Use pelo menos 12 caracteres."
+            fi
+        done
 
-    ok "Credenciais temporárias geradas com sucesso (serão exibidas no final da instalação)."
-
-    # Salva as credenciais no estado temporário para exibir no final
-    echo "GEN_ADMIN_EMAIL=\"${ADMIN_EMAIL}\"" >> "$STATE_FILE"
-    echo "GEN_ADMIN_PASS=\"${ADMIN_PASS}\"" >> "$STATE_FILE"
-
+        ok "Credenciais de admin configuradas"
+    else
+        ADMIN_EMAIL="admin@cascata.io"
+        ADMIN_PASS=$(gen_password 16)
+        warn "Credenciais automáticas geradas. Anote a senha abaixo:"
+        echo -e "  ${BOLD}${RED}SENHA GERADA: ${ADMIN_PASS}${NC}"
+        echo -e "  ${DIM}MUDE APÓS O PRIMEIRO LOGIN!${NC}"
+    fi
 
     # -----------------------------------------------------------------------
     # D: CONFIGURAR VARIÁVEIS DE AMBIENTE
@@ -1810,37 +1835,9 @@ main() {
 
     section "🏁 TUDO CONCLUÍDO!"
     PUBLIC_IP=$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}' || echo 'SEU_IP')
-    
-    # Recupera credenciais geradas do estado
-    source "$STATE_FILE" 2>/dev/null || true
-    
-    echo -e "  ${BOLD}${GREEN}O sistema foi instalado com sucesso!${NC}"
-    echo -e "  Acesse o painel utilizando as credenciais geradas abaixo:"
-    echo -e "  (Após o login em ambiente seguro (HTTPS), recomendamos fortemente a troca da senha.)"
+    echo -e "  Painel: ${CYAN}https://${PUBLIC_IP}${NC}"
+    echo -e "  SSH:    ${CYAN}ssh -p ${SSH_PORT:-22} $(whoami)@${PUBLIC_IP}${NC}  + OTP"
     echo ""
-    echo -e "  🔑 ${BOLD}Usuário (Email):${NC} ${YELLOW}${GEN_ADMIN_EMAIL}${NC}"
-    echo -e "  🔒 ${BOLD}Senha Temporária:${NC} ${YELLOW}${GEN_ADMIN_PASS}${NC}"
-    echo ""
-    echo -e "  🌐 ${BOLD}Painel de Controle:${NC} ${CYAN}http://${PUBLIC_IP}${NC}"
-    echo -e "  🛡️  ${BOLD}Acesso SSH Restrito:${NC} ${CYAN}ssh -p ${SSH_PORT:-22} $(whoami)@${PUBLIC_IP}${NC} (Exige OTP)"
-    echo ""
-    
-    # Limpa as credenciais do estado e do arquivo .cascata_install_state por segurança
-    sed -i '/GEN_ADMIN_/d' "$STATE_FILE" 2>/dev/null || true
-    
-    echo -e "  ${BOLD}${RED}Recomendamos reiniciar o servidor para aplicar todas as configurações e regras de firewall.${NC}"
-    echo ""
-    read -rp "  Deseja reiniciar o servidor agora? [S/n]: " REBOOT_CONFIRM
-    REBOOT_CONFIRM="${REBOOT_CONFIRM:-S}"
-
-    if [[ "$REBOOT_CONFIRM" =~ ^[Ss]$ ]]; then
-        echo -e "  ${BOLD}${RED}Reiniciando servidor...${NC}"
-        sleep 2
-        sudo reboot
-    else
-        echo -e "  ${CYAN}Lembre-se de rodar 'sudo reboot' manualmente mais tarde.${NC}"
-        echo ""
-    fi
 }
 
 main "$@"
