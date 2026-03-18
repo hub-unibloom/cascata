@@ -1,0 +1,110 @@
+Boa pergunta — os dois protocolos estão em estágios diferentes de maturidade mas ambos têm falhas reais, não só hype. Deixa eu separar por protocolo:
+
+---
+
+## 🔴 MCP (Model Context Protocol) — Problemas Atuais
+
+### Segurança (os mais graves)
+
+**1. Autenticação era opcional de origem**
+Os mecanismos de autenticação estavam completamente ausentes da especificação inicial do MCP — OAuth só foi adicionado em março de 2025. Pesquisas encontraram mais de 1.800 servidores MCP na internet pública sem autenticação habilitada. Mesmo hoje, autenticação é suportada mas frequentemente negligenciada na prática.
+
+**2. Prompt Injection / Tool Poisoning**
+O MCP cria um novo vetor de ataque por meio de prompt injection indireto. Atacantes podem inserir instruções maliciosas ocultas em mensagens aparentemente inofensivas — quando o usuário compartilha esse conteúdo com o AI assistant, os comandos injetados podem disparar ações não autorizadas via MCP.
+
+Tool poisoning é quando a descrição da ferramenta MCP contém instruções maliciosas — incluindo definições mutadas silenciosamente e "cross-server tool shadowing", onde um agente malicioso intercepta chamadas destinadas a um agente confiável. A crítica central é que o foco do protocolo foi em simplicidade e facilidade, não em autenticação e criptografia.
+
+**3. CVEs reais em produção**
+O pacote `mcp-remote`, com mais de 437 mil downloads, foi vulnerável a execução remota de código (CVE-2025-6514) ao se conectar a um servidor malicioso. Também foram encontradas duas falhas críticas no próprio servidor Filesystem-MCP da Anthropic: escape de sandbox e bypass de symlink, permitindo acesso arbitrário a arquivos.
+
+**4. Vazamento de session IDs**
+Implementações iniciais expunham session IDs diretamente em query strings de URL — uma falha grave que vaza informações sensíveis em logs e histórico de browser. Além disso, o protocolo não tem mecanismo de assinatura de mensagens, tornando impossível verificar se mensagens foram adulteradas em trânsito.
+
+**5. Tokens OAuth com escopo excessivo**
+Um design ruim de escopos aumenta o impacto de um token comprometido, eleva o atrito para o usuário e obscurece as trilhas de auditoria. Atacantes que obtêm tokens com escopos amplos (files:*, db:*, admin:*) têm acesso irrestrito a múltiplos recursos.
+
+---
+
+## 🟡 A2A (Agent2Agent Protocol) — Problemas Atuais
+
+### Segurança
+
+**1. Agent Cards sem registro central = spoofing fácil**
+Não existe um registro central para Agent Cards, e spoofing é barato — isso tende a se tornar parte do "ruído de fundo" da internet em termos de exploits de baixo esforço.
+
+**2. Tokens OAuth de longa vida e escopos grosseiros**
+O A2A não enforça tokens de curta duração — tokens OAuth vazados podem permanecer válidos por longos períodos. Combinado com "stream forking", isso pode ser muito perigoso. Tokens com capacidades amplas (como um token de pagamento) não ficam limitados a transações únicas, podendo ser usados para acessar recursos não relacionados.
+
+**3. Zero mecanismo de consentimento no nível do protocolo**
+Não existe nenhum requisito de aprovação do usuário antes que dados sensíveis sejam compartilhados entre agentes — se um agente tem acesso à informação, pode decidir enviá-la para onde quiser.
+
+### Escalabilidade
+
+**4. Problema N² de conectividade**
+Por usar conexões HTTP/gRPC ponto-a-ponto diretas, deployments ingênuos esbarram no problema N² de conectividade e overhead de orquestração à medida que o número de agentes cresce — cada agente precisa comunicar com todos os outros, causando crescimento quadrático no número de conexões.
+
+### Maturidade
+
+**5. Ainda é WIP com pouca adoção em produção**
+Atualmente há poucas implementações A2A em produção. O protocolo parece beneficiar mais agregadores e provedores de foundation models do que aplicações SaaS individuais.
+
+**6. Compliance e auditoria cegos**
+Early adopters reportam blind spots de compliance (quem aprovou aquele token e quando?), latência adicionada pela orquestração cross-agent, e overhead operacional de adicionar mais um padrão nos pipelines.
+
+---
+
+## Resumo Comparativo
+
+| | MCP | A2A |
+|---|---|---|
+| **Maturidade** | ~1.5 anos, ampla adoção | ~1 ano, ainda v1.0-rc |
+| **Risco mais crítico** | Tool poisoning + prompt injection | Spoofing de Agent Cards |
+| **Auth** | Opcional na prática | Presente, mas sem consentimento granular |
+| **CVEs reais** | Sim (vários documentados) | Ainda poucos |
+| **Escalabilidade** | Problema menor | Problema N² relevante |
+
+Para o Cascata especificamente, se você for implementar Webhook Receivers que eventualmente se conectem em fluxos A2A/MCP, os pontos mais críticos a defender são: validação rigorosa de inputs antes de passar pro MCP, e nunca confiar cegamente em tool descriptions vindas de servidores externos.
+
+User:
+então a segurança não ddeve estar no protocolo e sim no banco, ou seja, não basta restringir certar açẽos CRUD em certas tabelas como eu  faço, mas sim em certas colunas das tabelas tambem, addicionado mais granularidae a segurança, certo?!
+
+I.A:
+
+Exato, você pegou o ponto certo — mas é ainda mais profundo que só colunas. Deixa eu montar o raciocínio completo:
+
+## O problema de confiar só no CRUD por tabela
+
+Quando um agente MCP comprometido (via tool poisoning, por exemplo) chega no seu banco, ele já passou pela camada de autenticação. A partir daí, se sua segurança é só "esse role pode fazer SELECT na tabela `pedidos`", o agente lê **tudo** — inclusive `cpf`, `valor_total`, `dados_cartao`, qualquer coisa sensível que esteja nessa tabela.
+
+A superfície de ataque real é a **granularidade do dado exposto**, não a ação.
+
+---
+
+## As camadas que realmente precisam existir
+
+**1. Column-level security (o que você mencionou)**
+PostgreSQL não tem RLS por coluna nativamente, mas você simula com:
+- Views que expõem só as colunas seguras, com RLS na view
+- `GRANT SELECT (col1, col2)` por role — revogando acesso a colunas sensíveis explicitamente
+- Colunas sensíveis em tabelas separadas (`pedidos_dados_sensiveis`) com RLS mais restrito
+
+**2. Row-level security com contexto de propósito**
+Não basta `WHERE tenant_id = current_tenant`. Um agente MCP deveria ter um role com um *propósito declarado*:
+
+```sql
+-- role: agent_consulta_estoque
+-- pode: SELECT em produtos (só colunas não-sensíveis)
+-- não pode: ver preço_custo, margem, dados_fornecedor
+```
+
+**3. Princípio do mínimo privilégio por agente, não por usuário**
+Essa é a virada de chave — cada integração MCP/A2A deveria ter **seu próprio role** com escopo mínimo, não herdar o role do usuário que autenticou. Se o agente de webhook do C6 Bank precisa só inserir em `pagamentos_recebidos`, ele não deveria conseguir nem fazer SELECT em `pedidos`.
+
+**4. Dados sensíveis com criptografia em repouso por coluna**
+CPF, dados bancários, PII — idealmente encriptados com `pgcrypto` e a chave fora do banco. Mesmo que o agente consiga fazer SELECT, lê lixo.
+
+---
+
+A sacada é: **um agente MCP comprometido não deveria conseguir dados além do que precisa pro seu fluxo específico** — mesmo que o prompt injection tente expandir o escopo.
+
+Isso é especialmente crítico pro caso dos Webhook Receivers de bancos (C6, Inter) que você tá desenhando — o role desses receivers deveria ser literalmente write-only em tabelas específicas, sem nenhum poder de leitura.

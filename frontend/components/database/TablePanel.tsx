@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import {
     Loader2, Plus, Key, ChevronLeft, ChevronRight, ChevronUp, ChevronDown,
     Download, Upload, Save, GripVertical, X, Trash2,
-    Code, FileJson, FileSpreadsheet, FileType, Rows3, Lock
+    Code, FileJson, FileSpreadsheet, FileType, Rows3, Lock, EyeOff
 } from 'lucide-react';
 
 // --- Helpers ---
@@ -37,7 +37,7 @@ export interface TablePanelProps {
     schema: string;
     isCompareMode: boolean;
     onClose?: () => void;
-    onColumnContextMenu?: (x: number, y: number, col: string, table: string, lockLevel?: string) => void;
+    onColumnContextMenu?: (x: number, y: number, col: string, table: string, lockLevel?: string, maskLevel?: string) => void;
     onAddColumn?: (table: string) => void;
     onError: (msg: string) => void;
     onSuccess: (msg: string) => void;
@@ -692,7 +692,7 @@ const TablePanel = forwardRef<TablePanelHandle, TablePanelProps>(({
                                     }}
                                     onContextMenu={(e: any) => {
                                         e.preventDefault(); e.stopPropagation();
-                                        if (onColumnContextMenu) onColumnContextMenu(e.clientX, e.clientY, col.name, tableName, col.lockLevel);
+                                        if (onColumnContextMenu) onColumnContextMenu(e.clientX, e.clientY, col.name, tableName, col.lockLevel, col.maskLevel);
                                     }}
                                 >
                                     <div className="flex items-center gap-1.5">
@@ -700,6 +700,9 @@ const TablePanel = forwardRef<TablePanelHandle, TablePanelProps>(({
                                         {col.isPrimaryKey && <Key size={10} className="text-amber-500 shrink-0" />}
                                         {col.lockLevel && col.lockLevel !== 'unlocked' && (
                                             <Lock size={10} className={col.lockLevel === 'immutable' ? 'text-rose-500' : col.lockLevel === 'insert_only' ? 'text-amber-500' : 'text-purple-500'} title={`Locked: ${col.lockLevel}`} shrink-0 />
+                                        )}
+                                        {col.maskLevel && col.maskLevel !== 'unmasked' && (
+                                            <EyeOff size={10} className="text-indigo-500 shrink-0" title={`Masked: ${col.maskLevel}`} />
                                         )}
                                         <span className="text-[10px] font-black text-slate-700 uppercase tracking-tight truncate flex-1">{col.name}</span>
                                         {sortConfig?.column === col.name && (

@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Plus, Loader2, Link as LinkIcon, Shield, ShieldOff, Regex, Cpu, Lock } from 'lucide-react';
+import { X, Plus, Loader2, Link as LinkIcon, Shield, ShieldOff, Regex, Cpu, Lock, EyeOff } from 'lucide-react';
 
 // ============================================================
 // TableCreatorDrawer — Enterprise Schema Designer
@@ -25,6 +25,7 @@ interface ColumnDef {
     formatPreset?: string;
     formatPattern?: string;
     lockLevel?: 'unlocked' | 'immutable' | 'insert_only' | 'service_role_only' | 'otp_protected';
+    maskLevel?: 'unmasked' | 'hide' | 'blur' | 'mask' | 'encrypt';
 }
 
 // Types that support GENERATED AS IDENTITY (only pure integer types — NOT serial/bigserial)
@@ -53,7 +54,7 @@ interface TableCreatorDrawerProps {
     activeSchema: string;
     projectId: string;
     fetchWithAuth: (url: string, options?: any) => Promise<any>;
-    onSqlGenerated: (sql: string, metaConfig: { tableName: string, mcpEnabled: boolean, mcpPerms: { r: boolean, c: boolean, u: boolean, d: boolean }, lockedColumns?: Record<string, string> }) => void;
+    onSqlGenerated: (sql: string, metaConfig: { tableName: string, mcpEnabled: boolean, mcpPerms: { r: boolean, c: boolean, u: boolean, d: boolean }, lockedColumns?: Record<string, string>, maskedColumns?: Record<string, string> }) => void;
     onSqlSaveToEditor?: (sql: string) => void;
     initialTableName?: string;
     initialColumns?: ColumnDef[];
@@ -124,8 +125,8 @@ const formatDefaultValue = (type: string, raw: string): string => {
 };
 
 const DEFAULT_COLUMNS: ColumnDef[] = [
-    { id: '1', name: 'id', type: 'uuid', defaultValue: 'gen_random_uuid()', isPrimaryKey: true, isNullable: false, isUnique: true, isArray: false, lockLevel: 'immutable' },
-    { id: '2', name: 'created_at', type: 'timestamptz', defaultValue: 'now()', isPrimaryKey: false, isNullable: false, isUnique: false, isArray: false, lockLevel: 'insert_only' },
+    { id: '1', name: 'id', type: 'uuid', defaultValue: 'gen_random_uuid()', isPrimaryKey: true, isNullable: false, isUnique: true, isArray: false, lockLevel: 'immutable', maskLevel: 'unmasked' },
+    { id: '2', name: 'created_at', type: 'timestamptz', defaultValue: 'now()', isPrimaryKey: false, isNullable: false, isUnique: false, isArray: false, lockLevel: 'insert_only', maskLevel: 'unmasked' },
 ];
 
 const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
@@ -393,15 +394,19 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
             }
         }
 
-        // TIER-3 PADLOCK
+        // TIER-3 PADLOCK + MASKING
         const lockedColumns: Record<string, string> = {};
+        const maskedColumns: Record<string, string> = {};
         columns.forEach(c => {
             if (c.lockLevel && c.lockLevel !== 'unlocked') {
                 lockedColumns[sanitizeName(c.name || 'unnamed')] = c.lockLevel;
             }
+            if (c.maskLevel && c.maskLevel !== 'unmasked') {
+                maskedColumns[sanitizeName(c.name || 'unnamed')] = c.maskLevel;
+            }
         });
 
-        return { sql: lines.join('\n'), safeName, lockedColumns };
+        return { sql: lines.join('\n'), safeName, lockedColumns, maskedColumns };
     }, [tableName, tableDesc, columns, enableRLS, activeSchema, mcpEnabled, mcpPerms, canGenerate]);
 
     // --- Execute SQL (Generate + Fire callback + Close) ---
@@ -412,7 +417,8 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
             tableName: result.safeName,
             mcpEnabled,
             mcpPerms,
-            lockedColumns: result.lockedColumns
+            lockedColumns: result.lockedColumns,
+            maskedColumns: result.maskedColumns
         });
         onClose();
     }, [generateSQLText, mcpEnabled, mcpPerms, onSqlGenerated, onClose]);
@@ -660,6 +666,7 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
                                             <div title="Format Validation" onClick={() => handleColumnChange(col.id, 'formatPreset', col.formatPreset ? undefined : 'email')} className={`px-1.5 py-1 rounded cursor-pointer select-none transition-colors flex items-center gap-0.5 ${col.formatPreset || col.formatPattern ? 'bg-amber-100 text-amber-700' : 'text-slate-300 hover:bg-slate-200'}`}><Regex size={10} strokeWidth={3} /></div>
                                         )}
                                         <div title="Security Lock (Immutability)" onClick={() => handleColumnChange(col.id, 'lockLevel', col.lockLevel && col.lockLevel !== 'unlocked' ? 'unlocked' : 'immutable')} className={`px-1.5 py-1 rounded cursor-pointer select-none transition-colors flex items-center gap-0.5 ${col.lockLevel && col.lockLevel !== 'unlocked' ? 'bg-rose-100 text-rose-700 border border-rose-300' : 'text-slate-300 hover:bg-slate-200'}`}><Lock size={10} strokeWidth={3} /></div>
+                                        <div title="Data Privacy (Read Masking)" onClick={() => handleColumnChange(col.id, 'maskLevel', col.maskLevel && col.maskLevel !== 'unmasked' ? 'unmasked' : 'hide')} className={`px-1.5 py-1 rounded cursor-pointer select-none transition-colors flex items-center gap-0.5 ${col.maskLevel && col.maskLevel !== 'unmasked' ? 'bg-indigo-100 text-indigo-700 border border-indigo-300' : 'text-slate-300 hover:bg-slate-200'}`}><EyeOff size={10} strokeWidth={3} /></div>
                                     </div>
                                 </div>
 
@@ -700,7 +707,7 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
                                     </div>
                                 )}
 
-                                {/* Security Lock Editor (inline) */}
+                                // Security Lock Editor (inline)
                                 {col.lockLevel && col.lockLevel !== 'unlocked' && (
                                     <div className="mt-2 bg-rose-50/50 border border-rose-200 rounded-lg p-2 animate-in slide-in-from-top-1">
                                         <div className="flex items-center gap-2 mb-2">
@@ -716,6 +723,26 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
                                             <option value="insert_only">INSERT ONLY (API Blocks UPDATE)</option>
                                             <option value="service_role_only">SERVICE ROLE ONLY (API Blocks Anon & Authenticated users)</option>
                                             <option value="otp_protected">OTP PROTECTED (API Blocks UPDATE unless step-up challenge is provided)</option>
+                                        </select>
+                                    </div>
+                                )}
+                                
+                                {/* Privacy Mask Editor (inline) */}
+                                {col.maskLevel && col.maskLevel !== 'unmasked' && (
+                                    <div className="mt-2 bg-indigo-50/50 border border-indigo-200 rounded-lg p-2 animate-in slide-in-from-top-1">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <EyeOff size={12} className="text-indigo-500" />
+                                            <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Data Privacy (Read/Write Masking)</span>
+                                        </div>
+                                        <select
+                                            value={col.maskLevel}
+                                            onChange={(e) => handleColumnChange(col.id, 'maskLevel', e.target.value)}
+                                            className="w-full bg-white border border-indigo-200 rounded py-1.5 px-2 text-[10px] font-bold text-slate-700 outline-none cursor-pointer"
+                                        >
+                                            <option value="hide">HIDE (Removed entirely from API outputs)</option>
+                                            <option value="blur">BLUR (Shows only first and last characters)</option>
+                                            <option value="mask">MASK (Replaced completley with '*' placeholder)</option>
+                                            <option value="encrypt">ENCRYPT (Node.js AES-256 written ciphered to db)</option>
                                         </select>
                                     </div>
                                 )}

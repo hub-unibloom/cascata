@@ -9,6 +9,7 @@ import { ExtensionService } from '../../services/ExtensionService.js';
 import { RateLimitService } from '../../services/RateLimitService.js';
 import { AutomationService } from '../../services/AutomationService.js';
 import { CronService } from '../../services/CronService.js';
+import { SecurityUtils } from '../utils/SecurityUtils.js';
 import { systemPool } from '../config/main.js';
 
 export class DataController {
@@ -219,7 +220,33 @@ export class DataController {
                 // because column count changes frequently during development.
                 return await client.query(query, [limit, offset]);
             });
-            res.json(result.rows);
+            
+            // --- READ DATA MASKING ---
+            let rows = result.rows;
+            const masks = req.project?.metadata?.masked_columns?.[req.params.tableName] || {};
+            if (Object.keys(masks).length > 0) {
+                rows = rows.map((row: any) => {
+                    const newRow = { ...row };
+                    for (const col of Object.keys(newRow)) {
+                        const maskType = masks[col];
+                        if (maskType === 'hide') {
+                            delete newRow[col];
+                        } else if (maskType === 'mask' && newRow[col]) {
+                            newRow[col] = '********';
+                        } else if (maskType === 'blur' && newRow[col]) {
+                            const str = String(newRow[col]);
+                            if (str.length > 5) {
+                                newRow[col] = `${str.substring(0, 3)}...${str.substring(str.length - 2)}`;
+                            } else {
+                                newRow[col] = '***';
+                            }
+                        }
+                    }
+                    return newRow;
+                });
+            }
+            
+            res.json(rows);
         } catch (e: any) { next(e); }
     }
 
@@ -276,11 +303,14 @@ export class DataController {
             // Reintroduzido: O motor DDL protege os dados no banco, mas limpar as chaves localmente previne que APIs
             // que enviam dados "cegamente" quebrem. Na inserção, apenas removemos propriedades 'immutable'.
             const locks = req.project?.metadata?.locked_columns?.[req.params.tableName] || {};
+            const masks = req.project?.metadata?.masked_columns?.[req.params.tableName] || {};
             rows.forEach((row: any) => {
                 for (const col of Object.keys(row)) {
                     // Impede a inserção de colunas estritamente imutáveis para usarem o DEFAULT do DB
                     if (locks[col] === 'immutable') {
                         delete row[col];
+                    } else if (masks[col] === 'encrypt' && row[col]) {
+                        row[col] = SecurityUtils.encrypt(String(row[col]));
                     }
                 }
             });
@@ -359,9 +389,12 @@ export class DataController {
             // Para não quebrar o ecossistema (onde clientes muitas vezes enviam o payload inteiro via PUT/PATCH),
             // limpamos silenciosamente as chaves protegidas caso o cliente as envie.
             const locks = req.project?.metadata?.locked_columns?.[req.params.tableName] || {};
+            const masks = req.project?.metadata?.masked_columns?.[req.params.tableName] || {};
             for (const col of Object.keys(data)) {
                 if (locks[col] === 'insert_only' || locks[col] === 'immutable') {
                     delete data[col];
+                } else if (masks[col] === 'encrypt' && data[col]) {
+                    data[col] = SecurityUtils.encrypt(String(data[col]));
                 }
             }
 
@@ -538,6 +571,9 @@ export class DataController {
             // TIER-3 UNIVERSAL PADLOCK (Frontend Propagation)
             const globalLocks = req.project.metadata?.locked_columns || {};
             const tableLocks = globalLocks[req.params.tableName] || {};
+            
+            const globalMasks = req.project.metadata?.masked_columns || {};
+            const tableMasks = globalMasks[req.params.tableName] || {};
 
             // Parse format patterns from comments
             const enriched = result.rows.map((row: any) => {
@@ -547,6 +583,7 @@ export class DataController {
                     description: parsed.description || '',
                     formatPattern: parsed.formatPattern || null,
                     lockLevel: tableLocks[row.name] || 'unlocked', // Expose the padlock tier statically
+                    maskLevel: tableMasks[row.name] || 'unmasked', // Expose masking tier
                     rawComment: undefined // Don't expose raw comment to client
                 };
             });
@@ -1080,6 +1117,10 @@ export class DataController {
                 req.headers['x-cascata-project-id'] = req.project.id;
                 req.headers['x-cascata-jwt-secret'] = req.project.jwt_secret;
             }
+            const maskedColumns = req.project.metadata?.masked_columns;
+            if (maskedColumns) {
+                req.headers['x-cascata-masked-columns'] = JSON.stringify(maskedColumns);
+            }
 
             const buildResult = PostgrestService.buildQuery(
                 req.params.tableName,
@@ -1153,7 +1194,42 @@ export class DataController {
                     }
                 );
             }
+            
+            // --- DATA MASKING APPLIER (Fase 1.5) ---
+            if (req.method === 'GET' && req.project.metadata?.masked_columns) {
+                const masks = req.project.metadata.masked_columns[req.params.tableName] || {};
+                if (Object.keys(masks).length > 0) {
+                    const applyMask = (row: any) => {
+                        if (!row) return row;
+                        const newRow = { ...row };
+                        for (const col of Object.keys(newRow)) {
+                            const maskType = masks[col];
+                            if (maskType === 'hide') {
+                                delete newRow[col];
+                            } else if (maskType === 'mask' && newRow[col]) {
+                                newRow[col] = '********';
+                            } else if (maskType === 'blur' && newRow[col]) {
+                                const str = String(newRow[col]);
+                                if (str.length > 5) {
+                                    newRow[col] = `${str.substring(0, 3)}...${str.substring(str.length - 2)}`;
+                                } else {
+                                    newRow[col] = '***';
+                                }
+                            }
+                        }
+                        return newRow;
+                    };
 
+                    if (Array.isArray(responseData)) {
+                        responseData = responseData.map(applyMask);
+                    } else if (responseData && typeof responseData === 'object') {
+                        responseData = applyMask(responseData);
+                    }
+                }
+            }
+
+            // Finally, render the (potentially modified/masked) response
+            res.json(responseData);
 
             if (buildResult.cacheKey && !fromCache) {
                 res.setHeader('X-Cascata-Cache', 'MISS');

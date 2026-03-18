@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { DatabaseService } from './DatabaseService.js';
 import { RateLimitService } from './RateLimitService.js';
+import { SecurityUtils } from '../src/utils/SecurityUtils.js';
 
 export interface PostgrestQuery {
     text: string;
@@ -130,9 +131,15 @@ export class PostgrestService {
             // Para proteger o ecossistema, retiramos silenciosamente as chaves protegidas caso enviadas.
             const lockedColumnsStr = headers['x-cascata-locked-columns'];
             const locks = lockedColumnsStr ? JSON.parse(lockedColumnsStr)[tableName] || {} : {};
+            const maskedColumnsStr = headers['x-cascata-masked-columns'];
+            const masks = maskedColumnsStr ? JSON.parse(maskedColumnsStr)[tableName] || {} : {};
+            
             rows.forEach((row: any) => {
                 for (const col of Object.keys(row)) {
                     if (locks[col] === 'immutable') delete row[col];
+                    if (masks[col] === 'encrypt' && row[col]) {
+                        row[col] = SecurityUtils.encrypt(String(row[col]));
+                    }
                 }
             });
 
@@ -196,9 +203,14 @@ export class PostgrestService {
             // do PATCH, para que a request inteira enviada por um ORM não resulte num Erro 500 rejeitado pelo PG Trigger.
             const lockedColumnsStr = headers['x-cascata-locked-columns'];
             const locks = lockedColumnsStr ? JSON.parse(lockedColumnsStr)[tableName] || {} : {};
+            const maskedColumnsStr = headers['x-cascata-masked-columns'];
+            const masks = maskedColumnsStr ? JSON.parse(maskedColumnsStr)[tableName] || {} : {};
+            
             for (const col of Object.keys(body)) {
                 if (locks[col] === 'immutable' || locks[col] === 'insert_only') {
                     delete body[col];
+                } else if (masks[col] === 'encrypt' && body[col]) {
+                    body[col] = SecurityUtils.encrypt(String(body[col]));
                 }
             }
 

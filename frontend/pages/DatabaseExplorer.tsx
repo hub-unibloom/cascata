@@ -4,7 +4,7 @@ import {
   Database, Search, Table as TableIcon, Loader2, AlertCircle, Plus, X,
   Terminal, Trash2, Download, Upload, Copy, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   CheckCircle2, Save, Key, RefreshCw, Puzzle, FileType, FileSpreadsheet, FileJson,
-  RotateCcw, GripVertical, MousePointer2, Layers, AlertTriangle, Check, Link as LinkIcon, Code, Eye, Edit, Shield, Lock
+  RotateCcw, GripVertical, MousePointer2, Layers, AlertTriangle, Check, Link as LinkIcon, Code, Eye, Edit, Shield, Lock, EyeOff
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
@@ -170,8 +170,8 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [recycleBinAction, setRecycleBinAction] = useState<{ type: 'restore' | 'purge'; table: string } | null>(null);
   const [recycleBinError, setRecycleBinError] = useState('');
   const [searchFilter, setSearchFilter] = useState('');
-  const [columnContextMenu, setColumnContextMenu] = useState<{ x: number; y: number; col: string; table: string; lockLevel: string } | null>(null);
-  const [editLock, setEditLock] = useState<{ column: string; table: string; currentLevel: string } | null>(null);
+  const [columnContextMenu, setColumnContextMenu] = useState<{ x: number; y: number; col: string; table: string; lockLevel: string; maskLevel: string } | null>(null);
+  const [editLock, setEditLock] = useState<{ column: string; table: string; currentLevel: string; currentMaskLevel: string } | null>(null);
   const [dragOverTable, setDragOverTable] = useState<string | null>(null);
 
   // Protocolo Cascata — Column Impact Scan State
@@ -1195,11 +1195,18 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
       if (currentProject) {
         const currentMetadata = currentProject.metadata || {};
         const lockedCols = { ...(currentMetadata.locked_columns || {}) };
+        const maskedCols = { ...(currentMetadata.masked_columns || {}) };
 
         if (editLock.currentLevel === 'unlocked') {
           delete lockedCols[editLock.column];
         } else {
           lockedCols[editLock.column] = editLock.currentLevel;
+        }
+
+        if (editLock.currentMaskLevel === 'unmasked') {
+          delete maskedCols[editLock.column];
+        } else {
+          maskedCols[editLock.column] = editLock.currentMaskLevel;
         }
 
         await fetch(`/api/control/projects/${projectId}`, {
@@ -1208,10 +1215,10 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${localStorage.getItem('cascata_token')}`
           },
-          body: JSON.stringify({ metadata: { ...currentMetadata, locked_columns: lockedCols } })
+          body: JSON.stringify({ metadata: { ...currentMetadata, locked_columns: lockedCols, masked_columns: maskedCols } })
         });
 
-        setSuccessMsg(`Column '${editLock.column}' lock initialized. Reloading structure...`);
+        setSuccessMsg(`Column '${editLock.column}' privacy and lock settings applied. Reloading structure...`);
         setEditLock(null);
         // Refresh tables/schemas to propagate the lock UI updates across the IDE
         fetchSchemas();
@@ -1518,7 +1525,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                     });
                     setOpenTabs(prev => prev.filter(t => !(t.table === tName && t.schema === activeSchema)));
                   }}
-                  onColumnContextMenu={(x, y, col) => setColumnContextMenu({ x, y, col })}
+                  onColumnContextMenu={(x, y, col, tbl, lkL, mkL) => setColumnContextMenu({ x, y, col, table: tbl || tName, lockLevel: lkL || 'unlocked', maskLevel: mkL || 'unmasked' })}
                   onAddColumn={() => setShowAddColumn(true)}
                   onError={setError}
                   onSuccess={setSuccessMsg}
@@ -1637,10 +1644,10 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                 ) : null;
               })()}
               <button onClick={() => {
-                setEditLock({ column: columnContextMenu.col, table: columnContextMenu.table, currentLevel: columnContextMenu.lockLevel });
+                setEditLock({ column: columnContextMenu.col, table: columnContextMenu.table, currentLevel: columnContextMenu.lockLevel, currentMaskLevel: columnContextMenu.maskLevel });
                 setColumnContextMenu(null);
               }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-all">
-                <Lock size={14} /> Security Lock
+                <Lock size={14} /> Security & Privacy
               </button>
               <div className="h-[1px] bg-slate-100 my-1"></div>
               <button onClick={() => { startCascadeProtocol('delete', columnContextMenu.col); }} className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-all"><Trash2 size={14} /> Delete Column</button>
@@ -1684,10 +1691,32 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                 )}
               </div>
 
+              <div className="space-y-4 mb-8 text-left">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5"><EyeOff size={10} className="text-indigo-400"/> Data Privacy Override</label>
+                <select
+                  value={editLock.currentMaskLevel}
+                  onChange={(e) => setEditLock({ ...editLock, currentMaskLevel: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-3 px-4 text-xs font-bold text-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-indigo-500/20"
+                >
+                  <option value="unmasked">UNMASKED (Clear-text Access)</option>
+                  <option value="hide">HIDE (Removed entirely from API outputs)</option>
+                  <option value="blur">BLUR (Shows only first and last characters)</option>
+                  <option value="mask">MASK (Replaced completley with '*' placeholder)</option>
+                  <option value="encrypt">ENCRYPT (Node.js AES-256 written ciphered to db)</option>
+                </select>
+
+                {editLock.currentMaskLevel !== 'unmasked' && (
+                  <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-[10px] text-indigo-700 font-medium mt-2">
+                    <strong className="block mb-1 font-black">Privacy Layer Active</strong>
+                    Data retrieved by agents and third-party apps will be structurally modified before transport.
+                  </div>
+                )}
+              </div>
+
               <div className="flex gap-4">
                 <button onClick={() => setEditLock(null)} disabled={executing} className="flex-1 py-4 text-xs font-black text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-colors disabled:opacity-50">Cancel</button>
-                <button onClick={handleToggleLock} disabled={executing} className="flex-[2] py-4 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-rose-600/20 transition-all flex justify-center items-center gap-2 disabled:opacity-50">
-                  {executing ? <Loader2 size={16} className="animate-spin" /> : <><Shield size={16} /> Enforce Lock</>}
+                <button onClick={handleToggleLock} disabled={executing} className="flex-[2] py-4 bg-slate-900 hover:bg-black text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-slate-900/20 transition-all flex justify-center items-center gap-2 disabled:opacity-50">
+                  {executing ? <Loader2 size={16} className="animate-spin" /> : <><Shield size={16} /> Save Security</>}
                 </button>
               </div>
             </div>
