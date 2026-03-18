@@ -106,10 +106,10 @@ const RPCManager: React.FC<{ projectId: string }> = ({ projectId }) => {
 
     // --- GLOBAL SECRETS MODAL ---
     const [showSecretsModal, setShowSecretsModal] = useState(false);
-    const [globalSecrets, setGlobalSecrets] = useState<Record<string, string>>({});
+    const [globalSecrets, setGlobalSecrets] = useState<any[]>([]);
     const [newSecretKey, setNewSecretKey] = useState('');
     const [newSecretVal, setNewSecretVal] = useState('');
-    const [revealedSecrets, setRevealedSecrets] = useState<Set<string>>(new Set());
+    const [revealedSecrets, setRevealedSecrets] = useState<Record<string, string>>({});
 
     // --- REFS ---
     const editorRef = useRef<HTMLTextAreaElement>(null);
@@ -133,19 +133,20 @@ const RPCManager: React.FC<{ projectId: string }> = ({ projectId }) => {
     const fetchData = async () => {
         setLoading(true);
         try {
-            const [assetsData, functionsData, triggersData, projectData] = await Promise.all([
+            const [assetsData, functionsData, triggersData, projectData, vaultData] = await Promise.all([
                 fetchWithAuth(`/api/data/${projectId}/assets`),
                 fetchWithAuth(`/api/data/${projectId}/functions`),
                 fetchWithAuth(`/api/data/${projectId}/triggers`),
-                fetchWithAuth('/api/control/projects')
+                fetchWithAuth('/api/control/projects'),
+                fetchWithAuth(`/api/control/projects/${projectId}/vault`)
             ]);
 
             // Extract Keys & Global Secrets
             const currentProj = projectData.find((p: any) => p.slug === projectId);
             if (currentProj) {
                 setProjectKeys({ anon: currentProj.anon_key, service: currentProj.service_key });
-                setGlobalSecrets(currentProj.metadata?.secrets || {});
             }
+            setGlobalSecrets(vaultData.filter((s: any) => s.type !== 'folder'));
 
             const combinedAssets: ProjectAsset[] = [...assetsData];
             const managedNames = new Set(assetsData.map((a: any) => a.name));
@@ -516,31 +517,28 @@ export default async function(req) {
     };
 
     // --- GLOBAL SECRETS MANAGEMENT ---
-    const handleSaveSecrets = async (newSecrets: Record<string, string>) => {
-        try {
-            await fetchWithAuth(`/api/control/projects/${projectId}/secrets`, {
-                method: 'POST',
-                body: JSON.stringify({ secrets: newSecrets })
-            });
-            setSuccessMsg("Variáveis salvas.");
-            setGlobalSecrets(newSecrets);
-            setTimeout(() => setSuccessMsg(null), 2000);
-        } catch (e) { setError("Erro ao salvar variáveis."); }
-    };
-
-    const addSecret = () => {
+    const addSecret = async () => {
         if (!newSecretKey || !newSecretVal) return;
         const key = newSecretKey.toUpperCase().replace(/[^A-Z0-9_]/g, '_');
-        const updated = { ...globalSecrets, [key]: newSecretVal };
-        handleSaveSecrets(updated);
-        setNewSecretKey('');
-        setNewSecretVal('');
+        try {
+            const res = await fetchWithAuth(`/api/control/projects/${projectId}/vault`, {
+                method: 'POST',
+                body: JSON.stringify({ name: key, type: 'string', value: newSecretVal, description: 'Environment Variable' })
+            });
+            setGlobalSecrets(prev => [...prev, res]);
+            setSuccessMsg("Variável salva no Secure Vault.");
+            setTimeout(() => setSuccessMsg(null), 2000);
+            setNewSecretKey('');
+            setNewSecretVal('');
+        } catch (e: any) { setError(humanizePostgresError(e)); }
     };
 
-    const removeSecret = (key: string) => {
-        const updated = { ...globalSecrets };
-        delete updated[key];
-        handleSaveSecrets(updated);
+    const removeSecret = async (id: string, key: string) => {
+        try {
+            await fetchWithAuth(`/api/control/projects/${projectId}/vault/${id}`, { method: 'DELETE' });
+            setGlobalSecrets(prev => prev.filter(s => s.id !== id));
+            setRevealedSecrets(prev => { const next = { ...prev }; delete next[id]; return next; });
+        } catch (e: any) { setError(humanizePostgresError(e)); }
     };
 
     // --- UTILS ---
@@ -1310,7 +1308,7 @@ export default async function(req) {
                                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Environment Secrets for Edge Functions</p>
                                 </div>
                             </div>
-                            <button onClick={() => { setShowSecretsModal(false); setRevealedSecrets(new Set()); }} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition-colors"><X size={24} /></button>
+                            <button onClick={() => { setShowSecretsModal(false); setRevealedSecrets({}); }} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition-colors"><X size={24} /></button>
                         </header>
 
                         <div className="space-y-6">
@@ -1321,43 +1319,49 @@ export default async function(req) {
                             </div>
 
                             <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                                {Object.entries(globalSecrets).map(([key, val]) => (
-                                    <div key={key} className="flex items-center justify-between bg-slate-50 p-4 rounded-2xl border border-slate-100 group hover:border-amber-200 transition-colors">
+                                {globalSecrets.map((secret: any) => (
+                                    <div key={secret.id} className="flex items-center justify-between bg-slate-50 p-4 rounded-2xl border border-slate-100 group hover:border-amber-200 transition-colors">
                                         <div className="flex items-center gap-3 overflow-hidden">
-                                            <span className="text-[10px] font-black text-slate-700 font-mono bg-white px-2 py-1 rounded border border-slate-200">{key}</span>
+                                            <span className="text-[10px] font-black text-slate-700 font-mono bg-white px-2 py-1 rounded border border-slate-200">{secret.name}</span>
                                             <span className="text-xs font-mono text-slate-500 truncate max-w-[200px]">
-                                                {revealedSecrets.has(key) ? val : '••••••••••••••••'}
+                                                {revealedSecrets[secret.id] !== undefined ? revealedSecrets[secret.id] : '••••••••••••••••'}
                                             </span>
                                         </div>
                                         <div className="flex items-center gap-1">
                                             <button
-                                                onClick={() => {
-                                                    if (revealedSecrets.has(key)) {
-                                                        const next = new Set(revealedSecrets); next.delete(key); setRevealedSecrets(next);
+                                                onClick={async () => {
+                                                    if (revealedSecrets[secret.id] !== undefined) {
+                                                        const next = { ...revealedSecrets }; delete next[secret.id]; setRevealedSecrets(next);
                                                     } else {
                                                         const pwd = prompt('Enter your admin password to reveal this secret:');
                                                         if (pwd) {
-                                                            fetch('/api/control/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pwd }) })
-                                                                .then(r => { if (r.ok) { const next = new Set(revealedSecrets); next.add(key); setRevealedSecrets(next); } else { setError('Authentication failed.'); } })
-                                                                .catch(() => setError('Authentication failed.'));
+                                                            try {
+                                                                const loginRes = await fetch('/api/control/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pwd }) });
+                                                                if (loginRes.ok) {
+                                                                    const revealRes = await fetchWithAuth(`/api/control/projects/${projectId}/vault/${secret.id}/reveal`, { method: 'POST' });
+                                                                    setRevealedSecrets(prev => ({ ...prev, [secret.id]: revealRes.value }));
+                                                                } else {
+                                                                    setError('Authentication failed.');
+                                                                }
+                                                            } catch (e) { setError('Failed to reveal'); }
                                                         }
                                                     }
                                                 }}
-                                                className="text-slate-300 hover:text-indigo-600 p-2" title={revealedSecrets.has(key) ? 'Hide' : 'Reveal (requires password)'}
+                                                className="text-slate-300 hover:text-indigo-600 p-2" title={revealedSecrets[secret.id] !== undefined ? 'Hide' : 'Reveal (requires password)'}
                                             >
-                                                {revealedSecrets.has(key) ? <EyeOff size={14} /> : <Eye size={14} />}
+                                                {revealedSecrets[secret.id] !== undefined ? <EyeOff size={14} /> : <Eye size={14} />}
                                             </button>
-                                            <button onClick={() => { copyToClipboard(val); }} className="text-slate-300 hover:text-indigo-600 p-2" title="Copy Value">
+                                            <button onClick={() => { copyToClipboard(revealedSecrets[secret.id] || '••••••'); }} className="text-slate-300 hover:text-indigo-600 p-2" title="Copy Value (Must reveal first)">
                                                 <Copy size={14} />
                                             </button>
-                                            <button onClick={() => { copyToClipboard(`env.${key}`); }} className="text-slate-300 hover:text-amber-600 p-2" title="Copy Route (env.KEY)">
+                                            <button onClick={() => { copyToClipboard(`env.${secret.name}`); }} className="text-slate-300 hover:text-amber-600 p-2" title="Copy Route (env.KEY)">
                                                 <LinkIcon size={14} />
                                             </button>
-                                            <button onClick={() => removeSecret(key)} className="text-slate-300 hover:text-rose-600 p-2" title="Delete"><X size={14} /></button>
+                                            <button onClick={() => removeSecret(secret.id, secret.name)} className="text-slate-300 hover:text-rose-600 p-2" title="Delete"><X size={14} /></button>
                                         </div>
                                     </div>
                                 ))}
-                                {Object.keys(globalSecrets).length === 0 && <p className="text-center text-slate-400 text-xs py-10 font-bold uppercase tracking-widest">No variables defined</p>}
+                                {globalSecrets.length === 0 && <p className="text-center text-slate-400 text-xs py-10 font-bold uppercase tracking-widest">No variables defined</p>}
                             </div>
                         </div>
                     </div>

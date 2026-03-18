@@ -74,7 +74,7 @@ export class SecretsController {
         try {
             // 1. Busca e Decripta
             const result = await systemPool.query(`
-                SELECT name, type, metadata, pg_sym_decrypt(secret_value::bytea, $3) as decrypted_value
+                SELECT name, type, metadata, pgp_sym_decrypt(secret_value::bytea, $3) as decrypted_value
                 FROM system.project_secrets
                 WHERE id = $1 AND project_slug = $2
             `, [id, slug, SYS_SECRET]);

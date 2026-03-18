@@ -2,7 +2,7 @@
 import { NextFunction } from 'express';
 import axios from 'axios';
 import { CascataRequest } from '../types.js';
-import { systemPool } from '../config/main.js';
+import { systemPool, SYS_SECRET } from '../config/main.js';
 import { EdgeService } from '../../services/EdgeService.js';
 
 export class EdgeController {
@@ -12,7 +12,18 @@ export class EdgeController {
             if (assetRes.rows.length === 0) return res.status(404).json({ error: "Edge Function Not Found" });
             const asset = assetRes.rows[0];
             
-            const globalSecrets = req.project.metadata?.secrets || {};
+            // INTEGRAÇÃO SEGURA COM VAULT: Buscar os segredos reais descriptografando sob demanda
+            const vaultRes = await systemPool.query(`
+                SELECT name, pgp_sym_decrypt(secret_value::bytea, $2) as decrypted_value
+                FROM system.project_secrets
+                WHERE project_slug = $1 AND type != 'folder'
+            `, [req.project.slug, SYS_SECRET]);
+            
+            const globalSecrets: Record<string, string> = {};
+            for (const row of vaultRes.rows) {
+                globalSecrets[row.name] = row.decrypted_value;
+            }
+
             const localEnv = asset.metadata.env_vars || {};
             const finalEnv = { ...globalSecrets, ...localEnv };
 
