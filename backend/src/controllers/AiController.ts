@@ -111,6 +111,7 @@ export class AiController {
 
     // Fix: Use any for next parameter to resolve callable signature issues
     static async listDocPages(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try { const result = await systemPool.query('SELECT * FROM system.doc_pages WHERE project_slug = $1 ORDER BY title ASC', [r.project.slug]); res.json(result.rows); } catch (e: any) { next(e); }
     }
 

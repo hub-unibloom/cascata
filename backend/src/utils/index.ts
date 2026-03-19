@@ -336,6 +336,7 @@ export const quotePostgresLiteral = (str: string | undefined | null): string => 
 
 // HARDENED RLS WRAPPER (Fast Path + Optimized Transaction Pipeline)
 export const queryWithRLS = async (req: CascataRequest, callback: (client: { query: (sql: string, params?: any[], name?: string) => Promise<any> }) => Promise<any>) => {
+    const r = req;
     if (!r.projectPool) {
         throw { status: 500, message: 'Project context missing or database pool not initialized.' };
     }

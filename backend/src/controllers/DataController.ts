@@ -122,6 +122,7 @@ export class DataController {
 
     // --- HELPER: SCHEMA SECURITY GUARD ---
     private static checkSchemaAccess(req: CascataRequest): boolean {
+        const r = req;
         // 1. Admin/Dashboard always allowed
         if (r.isSystemRequest) return true;
 
@@ -142,6 +143,7 @@ export class DataController {
      * - Tier classification and source image info
      */
     static async listExtensions(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         try {
             const enriched = await ExtensionService.listAvailableEnriched(r.projectPool!);
@@ -155,6 +157,7 @@ export class DataController {
      * For native extensions, goes straight to CREATE EXTENSION.
      */
     static async installExtension(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         const { name, schema } = req.body;
 
@@ -179,6 +182,7 @@ export class DataController {
      * Uninstall an extension from a project.
      */
     static async uninstallExtension(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         const { name, cascade } = req.body;
 
@@ -204,6 +208,7 @@ export class DataController {
      * Used by the frontend to track Phantom Injection progress.
      */
     static async getExtensionInstallStatus(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         const { name } = req.params;
 
@@ -220,6 +225,7 @@ export class DataController {
     // --- DATA OPERATIONS ---
 
     static async getSchemas(req: CascataRequest, res: any, next: any) {
+        const r = req;
         // Direct pool query — bypasses queryWithRLS which sets cascata_api_role
         // that may lack USAGE on user-created schemas.
         // This endpoint is admin-only (dashboard always sends system token).
@@ -257,6 +263,7 @@ export class DataController {
     }
 
     static async applyMaskingTier(req: CascataRequest, responseData: any, tableName: string): Promise<any> {
+        const r = req;
         if (!responseData || !r.project.metadata?.masked_columns) return responseData;
 
         const masks = r.project.metadata.masked_columns[tableName] || {};
@@ -360,6 +367,7 @@ export class DataController {
 
             // --- FORMAT VALIDATION (Server-Side Enforcement) ---
             const schema = req.query.schema || 'public';
+            const r = req;
             const safeSchema = quoteId(schema as string);
 
             const commentRes = await r.projectPool!.query(
@@ -469,6 +477,7 @@ export class DataController {
             const safeSchema = quoteId(schema as string);
             const safeTable = quoteId(req.params.tableName);
             const { data, pkColumn, pkValue } = req.body;
+            const r = req;
             if (!data || !pkColumn || pkValue === undefined) throw new Error("Missing data or PK");
 
             // --- FORMAT VALIDATION (Server-Side Enforcement) ---
@@ -546,7 +555,7 @@ export class DataController {
                   AND tco.table_schema = $1
                   AND tco.table_name = $2
             `;
-
+            const r = req;
             const pkRes = await r.projectPool!.query(pkQuery, [schema, tableName]);
 
             if (pkRes.rows.length === 0) {
@@ -589,6 +598,7 @@ export class DataController {
     }
 
     static async listFunctions(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!DataController.checkSchemaAccess(req)) {
             return res.status(403).json({ error: 'Schema access disabled.' });
         }
@@ -606,6 +616,7 @@ export class DataController {
     }
 
     static async listTriggers(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!DataController.checkSchemaAccess(req)) {
             return res.status(403).json({ error: 'Schema access disabled.' });
         }
@@ -621,6 +632,7 @@ export class DataController {
     }
 
     static async getFunctionDefinition(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!DataController.checkSchemaAccess(req)) {
             return res.status(403).json({ error: 'Schema access disabled.' });
         }
@@ -634,6 +646,7 @@ export class DataController {
     }
 
     static async getTriggerDefinition(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!DataController.checkSchemaAccess(req)) {
             return res.status(403).json({ error: 'Schema access disabled.' });
         }
@@ -658,6 +671,7 @@ export class DataController {
     // --- SCHEMA & METADATA ---
 
     static async getColumns(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!DataController.checkSchemaAccess(req)) {
             return res.status(403).json({ error: 'Schema access disabled.' });
         }
@@ -708,6 +722,7 @@ export class DataController {
     }
 
     static async runRawQuery(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (r.userRole !== 'service_role') { res.status(403).json({ error: 'Only Service Role can execute raw SQL' }); return; }
         try {
             const start = Date.now();
@@ -799,6 +814,7 @@ export class DataController {
     }
 
     static async createTable(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!r.isSystemRequest) { res.status(403).json({ error: 'Only Dashboard can create tables.' }); return; }
         const { name, columns, description } = req.body;
         const schema = req.query.schema || 'public';
@@ -885,6 +901,7 @@ export class DataController {
     // --- RECYCLE BIN & SOFT DELETE ---
 
     static async deleteTable(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!r.isSystemRequest) { res.status(403).json({ error: 'Only Dashboard can delete tables.' }); return; }
         const { mode } = req.body;
         const schema = req.query.schema || 'public';
@@ -909,6 +926,7 @@ export class DataController {
     }
 
     static async listRecycleBin(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!r.isSystemRequest) { res.status(403).json({ error: 'Unauthorized' }); return; }
         try {
             const schema = req.query.schema || 'public';
@@ -918,6 +936,7 @@ export class DataController {
     }
 
     static async restoreTable(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!r.isSystemRequest) { res.status(403).json({ error: 'Unauthorized' }); return; }
         try {
             const schema = req.query.schema || 'public';
@@ -967,6 +986,7 @@ export class DataController {
     }
 
     static async getAssets(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             // Guarantee tenant isolation by accessing project.slug from verified JWT payload
             const result = await systemPool.query(
@@ -982,6 +1002,7 @@ export class DataController {
         }
     }
     static async upsertAsset(req: CascataRequest, res: any, next: any) {
+        const r = req;
         const { id, name, type, parent_id, metadata } = req.body;
         try {
             let assetId = id;
@@ -1009,6 +1030,7 @@ export class DataController {
         } catch (e: any) { next(e); }
     }
     static async deleteAsset(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.id)) return res.json({ success: true });
         try {
             // CRITICAL FIX: Ensure the asset being deleted belongs to the current project
@@ -1020,6 +1042,7 @@ export class DataController {
     // --- CASCATA AUTOMATIONS (MANAGEMENT) ---
 
     static async listAutomations(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         try {
             const result = await systemPool.query(
@@ -1034,6 +1057,7 @@ export class DataController {
     }
 
     static async upsertAutomation(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         const { id, name, description, trigger_type, trigger_config, nodes, is_active } = req.body;
         try {
@@ -1094,6 +1118,7 @@ export class DataController {
     }
 
     static async deleteAutomation(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         try {
             await CronService.unregisterAutomation(req.params.id);
@@ -1107,6 +1132,7 @@ export class DataController {
     }
 
     static async listAutomationRuns(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         const { automation_id } = req.query;
         try {
@@ -1128,6 +1154,7 @@ export class DataController {
     }
 
     static async getAutomationStats(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         try {
             // One aggregation query per project — joins automation_runs grouped by automation_id.
@@ -1163,6 +1190,7 @@ export class DataController {
     }
 
     static async getAssetHistory(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             // SECURITY FIX: Join to assets to enforce project_slug isolation (prevents IDOR)
             const result = await systemPool.query(
@@ -1178,6 +1206,7 @@ export class DataController {
     }
 
     static async getStats(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             const logsRes = await systemPool.query(`
                 SELECT 
@@ -1221,6 +1250,7 @@ export class DataController {
     // --- POSTGREST COMPATIBILITY ---
 
     static async handlePostgrest(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!['GET', 'POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method)) return next();
         try {
             // TIER-3 UNIVERSAL PADLOCK (Gateway Extraction & Injection)
