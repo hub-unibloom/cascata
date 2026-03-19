@@ -413,10 +413,42 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
             const client = await targetPool.connect();
             try {
 
+                // FIX Bug #7: Extract project_slug for the enforce_dynamic_locks trigger
+                const projectSlug = req.project?.slug || '';
+                const otpVerified = (req.user as any)?.otp_verified || 'false';
+
                 const execute = async (useRetry = true): Promise<any> => {
                     try {
-                        // 🚀 FAST-PATH (1-TCP RTT): Bypass the Transaction entirely for Admin Services
+                        // 🚀 FAST-PATH: Admin Services
                         if (role === 'service_role') {
+                            // FIX Bug #8: Write operations MUST set project_slug in a transaction
+                            // so the enforce_dynamic_locks trigger can read it via current_setting().
+                            // Without this, _project_slug is NULL and the trigger skips ALL checks.
+                            if (isWriteDml && projectSlug) {
+                                const safeSlug = quotePostgresLiteral(projectSlug);
+                                const safeOtp = quotePostgresLiteral(otpVerified);
+                                const safeRoleLit = quotePostgresLiteral(role);
+                                await client.query('BEGIN');
+                                await client.query(`
+                                    SET LOCAL "request.jwt.claim.project_slug" = ${safeSlug};
+                                    SET LOCAL "request.jwt.claim.role" = ${safeRoleLit};
+                                    SET LOCAL "request.jwt.claim.otp_verified" = ${safeOtp};
+                                `);
+                                const results = await client.query({
+                                    text: queryText,
+                                    values: params,
+                                    name: statementName
+                                });
+                                await client.query('COMMIT');
+
+                                if (affectedTable && dfly) {
+                                    const semaforoKey = `cascata_rw_lock:${req.project?.slug || 'unknown'}:${affectedTable}`;
+                                    try { dfly.set(semaforoKey, 'LOCKED', 'PX', 2500).catch(() => {}); } catch (e) {}
+                                }
+                                return (Array.isArray(results) && results.length > 0) ? results[results.length - 1] : results;
+                            }
+
+                            // Read-only fast-path: no transaction needed
                             const results = await client.query({
                                 text: queryText,
                                 values: params,
@@ -441,6 +473,11 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
                         const safeIdentifier = quotePostgresLiteral(identifier);
                         const safeProvider = quotePostgresLiteral(provider);
 
+                        // FIX Bug #7: Include project_slug and otp_verified so enforce_dynamic_locks
+                        // trigger can identify the project and verify OTP status for otp_protected locks.
+                        const safeProjectSlug = quotePostgresLiteral(projectSlug);
+                        const safeOtpVerified = quotePostgresLiteral(otpVerified);
+
                         const setupSql = `
                             SET LOCAL ROLE ${safeRole};
                             SET LOCAL "request.jwt.claim.sub" = ${safeSub};
@@ -448,6 +485,8 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
                             SET LOCAL "request.jwt.claim.email" = ${safeEmail};
                             SET LOCAL "request.jwt.claim.identifier" = ${safeIdentifier};
                             SET LOCAL "request.jwt.claim.provider" = ${safeProvider};
+                            SET LOCAL "request.jwt.claim.project_slug" = ${safeProjectSlug};
+                            SET LOCAL "request.jwt.claim.otp_verified" = ${safeOtpVerified};
                             SET LOCAL statement_timeout = '30000';
                         `;
                         
@@ -473,14 +512,14 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
                         // O SANTO GRAAL DA AUTO-CURA (0A000: Stale Plan Recovery)
                         if (useRetry && error.code === '0A000') {
                             console.warn(`[queryWithRLS] Stale plan detected in pool connection. Purging and retrying query...`);
-                            if (role !== 'service_role') await client.query('ROLLBACK').catch(() => {});
+                            // FIX: Always try ROLLBACK — service_role writes now also use transactions
+                            await client.query('ROLLBACK').catch(() => {});
                             await client.query('DEALLOCATE ALL'); 
                             return await execute(false); // Repeat WITHOUT name cache or with clean slate
                         }
 
-                        if (role !== 'service_role') {
-                            await client.query('ROLLBACK').catch(() => {});
-                        }
+                        // FIX: Always ROLLBACK — both service_role (writes) and other roles use transactions
+                        await client.query('ROLLBACK').catch(() => {});
                         throw error;
                     }
                 };

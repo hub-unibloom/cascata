@@ -64,6 +64,61 @@ export class DataController {
         }
     }
 
+    // --- HELPER: PostgreSQL Type → UNNEST Array Cast Mapper ---
+    // Maps information_schema data_type/udt_name to the correct PostgreSQL array cast type
+    // for use in UNNEST batch inserts. Without this, casting everything as text[] causes
+    // errors for timestamptz, integer, boolean, uuid, jsonb, and other non-text types.
+    private static mapPgTypeToCast(dataType: string, udtName: string): string {
+        // UDT name is the most precise identifier
+        const udt = (udtName || '').toLowerCase();
+        const dt = (dataType || '').toLowerCase();
+
+        // Timestamp types
+        if (udt === 'timestamptz' || dt === 'timestamp with time zone') return 'timestamptz';
+        if (udt === 'timestamp' || dt === 'timestamp without time zone') return 'timestamp';
+
+        // Date/Time
+        if (udt === 'date' || dt === 'date') return 'date';
+        if (udt === 'time' || udt === 'timetz') return udt;
+        if (udt === 'interval' || dt === 'interval') return 'interval';
+
+        // Numeric types
+        if (udt === 'int4' || dt === 'integer') return 'integer';
+        if (udt === 'int8' || dt === 'bigint') return 'bigint';
+        if (udt === 'int2' || dt === 'smallint') return 'smallint';
+        if (udt === 'float4' || dt === 'real') return 'real';
+        if (udt === 'float8' || dt === 'double precision') return 'double precision';
+        if (udt === 'numeric' || dt === 'numeric') return 'numeric';
+
+        // Boolean
+        if (udt === 'bool' || dt === 'boolean') return 'boolean';
+
+        // UUID
+        if (udt === 'uuid' || dt === 'uuid') return 'uuid';
+
+        // JSON types
+        if (udt === 'jsonb') return 'jsonb';
+        if (udt === 'json') return 'json';
+
+        // Binary
+        if (udt === 'bytea' || dt === 'bytea') return 'bytea';
+
+        // Network types
+        if (udt === 'inet' || udt === 'cidr' || udt === 'macaddr') return udt;
+
+        // Text variants (varchar, char, text, etc.) — safe default
+        if (dt.includes('character') || udt === 'varchar' || udt === 'bpchar' || udt === 'text') return 'text';
+
+        // USER-DEFINED (enums, composite types) — use the udt_name directly
+        if (dt === 'user-defined' && udt) return `"${udt}"`;
+
+        // ARRAY types — pass through as the base type with [] appended by the caller
+        if (dt === 'array' && udt.startsWith('_')) return udt.substring(1);
+
+        // Fallback: text is safe because PG can implicit-cast text→most types in INSERT context
+        return 'text';
+    }
+
     // --- HELPER: SCHEMA SECURITY GUARD ---
     private static checkSchemaAccess(req: CascataRequest): boolean {
         // 1. Admin/Dashboard always allowed
@@ -264,7 +319,7 @@ export class DataController {
             const safeSchema = quoteId(schema as string);
 
             const commentRes = await req.projectPool!.query(
-                `SELECT c.column_name, col_description(
+                `SELECT c.column_name, c.data_type, c.udt_name, col_description(
                     (SELECT oid FROM pg_class WHERE relname = $1 AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = $2)),
                     c.ordinal_position
                 ) as comment
@@ -274,11 +329,17 @@ export class DataController {
             );
 
             const formatMap = new Map<string, string>();
+            // FIX: Build a type map so UNNEST uses the correct PostgreSQL array cast per column,
+            // instead of blindly using ::text[] which breaks for timestamptz, int, bool, uuid, jsonb, etc.
+            const columnTypeMap = new Map<string, string>();
             for (const row of commentRes.rows) {
                 const parsed = parseColumnFormat(row.comment);
                 if (parsed.formatPattern) {
                     formatMap.set(row.column_name, parsed.formatPattern);
                 }
+                // Map PostgreSQL data_type/udt_name to the correct array cast type
+                const pgCast = DataController.mapPgTypeToCast(row.data_type, row.udt_name);
+                columnTypeMap.set(row.column_name, pgCast);
             }
 
             // Validate all rows against format patterns
@@ -337,9 +398,13 @@ export class DataController {
                 flatValues.push(columnData); // Push the entire column as a single Array to node-pg
             });
 
-            // O "::text[]" é o Santo Graal do Casting Dinâmico. Permite que o parser do C-Level
-            // PG inferencie os tipos finais na própria inserção em cascata (Implicit Cast).
-            const unnestArgs = keysArray.map((_, i) => `$${i + 1}::text[]`).join(', ');
+            // FIX: Use the real column types from the database for UNNEST array casting.
+            // The old hardcoded "::text[]" breaks for timestamptz, int, bool, uuid, jsonb, etc.
+            // PostgreSQL does NOT do implicit text→timestamptz cast inside UNNEST.
+            const unnestArgs = keysArray.map((key, i) => {
+                const castType = columnTypeMap.get(key) || 'text';
+                return `$${i + 1}::${castType}[]`;
+            }).join(', ');
 
             const result = await queryWithRLS(req, async (client) => {
                 return await client.query(`
