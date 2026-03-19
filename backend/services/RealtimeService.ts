@@ -7,6 +7,8 @@ import { PushService } from './PushService.js';
 import { PoolService } from './PoolService.js';
 import { RateLimitService } from './RateLimitService.js';
 import { quoteId } from '../src/utils/index.js';
+import { VaultService } from './VaultService.js';
+import process from 'process';
 
 interface ClientConnection {
     id: string;
@@ -230,9 +232,21 @@ export class RealtimeService {
             
             const host = process.env.DB_DIRECT_HOST || 'db';
             const port = process.env.DB_DIRECT_PORT || '5432';
-            const user = process.env.DB_USER || 'cascata_admin';
-            const pass = process.env.DB_PASS || 'secure_pass';
-            connectionString = `postgresql://${user}:${pass}@${host}:${port}/${dbName}`;
+            let user = process.env.DB_USER || 'cascata_admin';
+            let pass = process.env.DB_PASS || 'secure_pass';
+
+            if (process.env.VAULT_ADDR && process.env.VAULT_TOKEN) {
+                try {
+                    const vault = VaultService.getInstance();
+                    const creds = await vault.getDatabaseCredentials('cascata-admin-role');
+                    user = creds.username;
+                    pass = creds.password;
+                } catch (err) {
+                    console.warn(`[Realtime] Failed to get Vault credentials for listener:`, (err as Error).message);
+                }
+            }
+
+            connectionString = `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${host}:${port}/${dbName}`;
         }
 
         const client = new Client({ 
@@ -367,7 +381,7 @@ export class RealtimeService {
             // but for managed, we can construct standard.
             const draftConnString = `postgresql://${user}:${pass}@${host}:${port}/${draftDbName}`;
             
-            const pool = PoolService.get(draftPoolKey, { connectionString: draftConnString });
+            const pool = await PoolService.get(draftPoolKey, { connectionString: draftConnString });
             const client = await pool.connect();
 
             try {
@@ -488,7 +502,7 @@ export class RealtimeService {
             // Reutiliza connection string do listener mas usa PoolService para eficiência
             // Pool key needs to be unique per DB to avoid mixing
             const poolKey = `rt_hyd_${slug}_${env}`;
-            const pool = PoolService.get(poolKey, { connectionString: listener.connectionString });
+            const pool = await PoolService.get(poolKey, { connectionString: listener.connectionString });
             const ids = Array.from(idMap.keys());
             
             // SMART CASTING LOGIC (Security & Stability)
@@ -555,7 +569,7 @@ export class RealtimeService {
         try {
             // Fire & Forget para não bloquear o loop de eventos
             const poolKey = `pulse_${slug}_${env}`;
-            const pool = PoolService.get(poolKey, { connectionString: listener.connectionString });
+            const pool = await PoolService.get(poolKey, { connectionString: listener.connectionString });
             
             PushService.processEventTrigger(
                 slug, 

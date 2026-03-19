@@ -4,6 +4,7 @@ import { CascataRequest } from '../types.js';
 import { systemPool, SYS_SECRET } from '../config/main.js';
 import { AutomationService } from '../../services/AutomationService.js';
 import { PoolService } from '../../services/PoolService.js';
+import { VaultService } from '../../services/VaultService.js';
 import crypto from 'crypto';
 
 export class WebhookController {
@@ -73,12 +74,12 @@ export class WebhookController {
         try {
             // 1. Fetch receiver + project context
             const query = `
-                SELECT r.*, p.db_name, pg_sym_decrypt(p.jwt_secret::bytea, $3) as jwt_secret
+                SELECT r.*, p.db_name, p.jwt_secret
                 FROM system.webhook_receivers r
                 JOIN system.projects p ON r.project_slug = p.slug
                 WHERE r.project_slug = $1 AND r.path_slug = $2 AND r.is_active = true
             `;
-            const result = await systemPool.query(query, [projectSlug, pathSlug, SYS_SECRET]);
+            const result = await systemPool.query(query, [projectSlug, pathSlug]);
 
             if (result.rows.length === 0) {
                 return res.status(404).json({ error: 'Webhook receiver not found or inactive.' });
@@ -104,7 +105,18 @@ export class WebhookController {
             if (receiver.target_type === 'AUTOMATION') {
                 const autoRes = await systemPool.query(`SELECT nodes FROM system.automations WHERE id = $1`, [receiver.target_id]);
                 if (autoRes.rows.length > 0) {
-                    const projectPool = PoolService.get(receiver.db_name);
+                    const projectPool = await PoolService.get(receiver.db_name);
+                    
+                    // DESCRIPTOGRAFIA SEGURA (VAULT)
+                    let decryptedJwtSecret = receiver.jwt_secret;
+                    if (decryptedJwtSecret && decryptedJwtSecret.startsWith('vault:')) {
+                        try {
+                            const vault = VaultService.getInstance();
+                            decryptedJwtSecret = await vault.decrypt('cascata-system-keys', decryptedJwtSecret);
+                        } catch (e) {
+                            console.error(`[WebhookController] Failed to decrypt JWT secret for ${projectSlug}:`, (e as Error).message);
+                        }
+                    }
                     AutomationService.dispatchAsyncTrigger(
                         receiver.target_id,
                         projectSlug,
@@ -114,7 +126,7 @@ export class WebhookController {
                             vars: {},
                             payload, // FIXED: Added missing payload property
                             projectSlug,
-                            jwtSecret: receiver.jwt_secret,
+                            jwtSecret: decryptedJwtSecret,
                             projectPool
                         }
                     );

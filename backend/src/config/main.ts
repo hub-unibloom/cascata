@@ -31,19 +31,68 @@ ensureDir(STORAGE_ROOT);
 ensureDir(NGINX_DYNAMIC_ROOT);
 ensureDir(TEMP_UPLOAD_ROOT);
 
-if (!process.env.SYSTEM_DATABASE_URL) {
-    console.error('[Config] FATAL: SYSTEM_DATABASE_URL is not defined.');
-    process.exit(1);
-}
 
-export const systemPool = new Pool({ 
-  connectionString: process.env.SYSTEM_DATABASE_URL,
-  max: 25,
-  idleTimeoutMillis: 30000 
-});
+let _systemPool: pg.Pool | null = null;
+let _poolConfig: any = null;
 
-systemPool.on('error', (err: any) => {
-    console.error('[SystemPool] Unexpected error on idle client', err);
+/**
+ * Inicializa a configuração do sistema, buscando segredos no Vault se necessário.
+ * Este é o "Santo Graal" do boot sincronizado.
+ */
+export const bootstrapConfig = async () => {
+    if (_systemPool) return;
+
+    const vaultAddr = process.env.VAULT_ADDR;
+    const vaultToken = process.env.VAULT_TOKEN;
+
+    if (vaultAddr && vaultToken) {
+        console.log('[Config] Vault detected. Fetching system secrets...');
+        const { VaultService } = await import('../../services/VaultService.js');
+        const vault = VaultService.getInstance();
+        vault.setToken(vaultToken);
+
+        try {
+            const secrets = await vault.getSecret('cascata/system');
+            if (secrets.SYSTEM_DATABASE_URL) process.env.SYSTEM_DATABASE_URL = secrets.SYSTEM_DATABASE_URL;
+            if (secrets.SYSTEM_JWT_SECRET) process.env.SYSTEM_JWT_SECRET = secrets.SYSTEM_JWT_SECRET;
+            console.log('[Config] Secrets loaded from Vault.');
+        } catch (e) {
+            console.error('[Config] Failed to fetch secrets from Vault:', e);
+            // Fallback para o que estiver no ENV (se houver) ou morre
+        }
+    }
+
+    if (!process.env.SYSTEM_DATABASE_URL) {
+        console.error('[Config] FATAL: SYSTEM_DATABASE_URL is not defined.');
+        process.exit(1);
+    }
+
+    _poolConfig = {
+        connectionString: process.env.SYSTEM_DATABASE_URL,
+        max: 25,
+        idleTimeoutMillis: 30000 
+    };
+
+    _systemPool = new Pool(_poolConfig);
+    
+    _systemPool.on('error', (err: any) => {
+        console.error('[SystemPool] Unexpected error on idle client', err);
+    });
+};
+
+/**
+ * Proxy para o systemPool. 
+ * Permite que outros arquivos importem 'systemPool' estaticamente, 
+ * mas a conexão real só acontece após o bootstrapConfig().
+ */
+export const systemPool = new Proxy({} as pg.Pool, {
+    get(target, prop, receiver) {
+        if (!_systemPool) {
+            throw new Error('[Config] systemPool accessed before bootstrapConfig() was called.');
+        }
+        const value = Reflect.get(_systemPool, prop, receiver);
+        return typeof value === 'function' ? value.bind(_systemPool) : value;
+    }
 });
 
 export const upload = multer({ 

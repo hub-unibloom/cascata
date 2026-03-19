@@ -3,6 +3,7 @@ import pg from 'pg';
 import { Buffer } from 'buffer';
 import { URL } from 'url';
 import { systemPool } from '../src/config/main.js';
+import { VaultService } from './VaultService.js';
 import process from 'process';
 
 const { Pool } = pg;
@@ -120,7 +121,7 @@ export class PoolService {
       }
   }
 
-  public static get(dbIdentifier: string, config?: PoolConfig): pg.Pool {
+  public static async get(dbIdentifier: string, config?: PoolConfig): Promise<pg.Pool> {
     let uniqueKey = '';
     
     if (config?.connectionString) {
@@ -169,8 +170,22 @@ export class PoolService {
         const usePooler = !config?.useDirect;
         const host = usePooler ? (process.env.DB_POOL_HOST || 'pgbouncer') : (process.env.DB_DIRECT_HOST || 'db');
         const port = usePooler ? (process.env.DB_POOL_PORT || '6432') : (process.env.DB_DIRECT_PORT || '5432');
-        const user = process.env.DB_USER || 'cascata_admin';
-        const pass = process.env.DB_PASS || 'secure_pass';
+        
+        let user = process.env.DB_USER || 'cascata_admin';
+        let pass = process.env.DB_PASS || 'secure_pass';
+
+        // INTEGRAÇÃO ENTERPRISE: Busca credenciais dinâmicas no Vault
+        if (process.env.VAULT_ADDR && process.env.VAULT_TOKEN) {
+            try {
+                const vault = VaultService.getInstance();
+                const creds = await vault.getDatabaseCredentials('cascata-admin-role');
+                user = creds.username;
+                pass = creds.password;
+                console.log(`[PoolService] Using dynamic credentials from Vault for ${dbIdentifier}`);
+            } catch (vaultErr) {
+                console.warn(`[PoolService] Vault credentials fetch failed for ${dbIdentifier}, falling back to ENV.`, (vaultErr as Error).message);
+            }
+        }
         
         // CASCATA ENTERPRISE SECURITY & RELIABILITY PATCH:
         // By strictly encoding the credentials here via `encodeURIComponent`, any DB pass containing "@", "#" or "%"

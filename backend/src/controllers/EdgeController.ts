@@ -2,8 +2,9 @@
 import { NextFunction } from 'express';
 import axios from 'axios';
 import { CascataRequest } from '../types.js';
-import { systemPool, SYS_SECRET } from '../config/main.js';
+import { systemPool } from '../config/main.js';
 import { EdgeService } from '../../services/EdgeService.js';
+import { VaultService } from '../../services/VaultService.js';
 
 export class EdgeController {
     static async execute(req: CascataRequest, res: any, next: any) {
@@ -12,16 +13,29 @@ export class EdgeController {
             if (assetRes.rows.length === 0) return res.status(404).json({ error: "Edge Function Not Found" });
             const asset = assetRes.rows[0];
             
-            // INTEGRAÇÃO SEGURA COM VAULT: Buscar os segredos reais descriptografando sob demanda
-            const vaultRes = await systemPool.query(`
-                SELECT name, pgp_sym_decrypt(secret_value::bytea, $2) as decrypted_value
+            // INTEGRAÇÃO SEGURA COM VAULT: Buscar os segredos reais descriptografando via Transit Engine
+            const secretsRes = await systemPool.query(`
+                SELECT name, secret_value
                 FROM system.project_secrets
                 WHERE project_slug = $1 AND type != 'folder'
-            `, [req.project.slug, SYS_SECRET]);
+            `, [req.project.slug]);
             
+            const vault = VaultService.getInstance();
             const globalSecrets: Record<string, string> = {};
-            for (const row of vaultRes.rows) {
-                globalSecrets[row.name] = row.decrypted_value;
+            
+            for (const row of secretsRes.rows) {
+                try {
+                    // Tenta descriptografar usando o Vault. Se o valor não for um ciphertext válido, 
+                    // mantém o valor original (fallback para compatibilidade ou texto claro).
+                    if (row.secret_value && row.secret_value.startsWith('vault:')) {
+                        globalSecrets[row.name] = await vault.decrypt(`project-${req.project.slug}`, row.secret_value);
+                    } else {
+                        globalSecrets[row.name] = row.secret_value;
+                    }
+                } catch (e) {
+                    console.warn(`[EdgeController] Failed to decrypt secret ${row.name} for project ${req.project.slug}:`, e);
+                    globalSecrets[row.name] = row.secret_value; // Fallback
+                }
             }
 
             const localEnv = asset.metadata.env_vars || {};

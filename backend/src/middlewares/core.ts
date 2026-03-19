@@ -6,6 +6,7 @@ import { CascataRequest } from '../types.js';
 import { systemPool, SYS_SECRET } from '../config/main.js';
 import { PoolService } from '../../services/PoolService.js';
 import { RateLimitService } from '../../services/RateLimitService.js';
+import { VaultService } from '../../services/VaultService.js';
 
 /**
  * CORE MIDDLEWARE: Project Resolver & Context Initializer
@@ -135,21 +136,19 @@ export const resolveProject: RequestHandler = async (req: any, res: any, next: a
             const projectQuery = `
             SELECT 
                 id, name, slug, db_name, custom_domain, ssl_certificate_source, blocklist, metadata, status,
-                pgp_sym_decrypt(jwt_secret::bytea, $1::text) as jwt_secret,
-                pgp_sym_decrypt(anon_key::bytea, $1::text) as anon_key,
-                pgp_sym_decrypt(service_key::bytea, $1::text) as service_key
+                jwt_secret, anon_key, service_key
             FROM system.projects 
         `;
 
             // Strategy A: Domain Resolution (Custom Domains)
             if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
-                projectResult = await systemPool.query(`${projectQuery} WHERE custom_domain = $2`, [SYS_SECRET, host]);
+                projectResult = await systemPool.query(`${projectQuery} WHERE custom_domain = $1`, [host]);
                 if ((projectResult.rowCount ?? 0) > 0) resolutionMethod = 'domain';
             }
 
             // Strategy B: Slug Resolution (Path based)
             if ((!projectResult || (projectResult.rowCount ?? 0) === 0) && slugFromUrl) {
-                projectResult = await systemPool.query(`${projectQuery} WHERE slug = $2`, [SYS_SECRET, slugFromUrl]);
+                projectResult = await systemPool.query(`${projectQuery} WHERE slug = $1`, [slugFromUrl]);
                 if ((projectResult.rowCount ?? 0) > 0) resolutionMethod = 'slug';
             }
 
@@ -171,7 +170,22 @@ export const resolveProject: RequestHandler = async (req: any, res: any, next: a
                 // system.project_configs pode não existir ainda — fallback seguro a {}
                 console.warn('[Resolution] project_configs query failed (table may not exist), using defaults.');
             }
-            r.project = { ...projectResult.rows[0], config: projectConfig };
+            // DESCRIPTOGRAFIA SEGURA (VAULT)
+            const vault = VaultService.getInstance();
+            const projectRaw = projectResult.rows[0];
+            
+            const secretsToDecrypt = ['jwt_secret', 'anon_key', 'service_key'];
+            for (const key of secretsToDecrypt) {
+                if (projectRaw[key] && projectRaw[key].startsWith('vault:')) {
+                    try {
+                        projectRaw[key] = await vault.decrypt('cascata-system-keys', projectRaw[key]);
+                    } catch (e) {
+                        console.error(`[Resolution] Failed to decrypt ${key} for ${projectRaw.slug}:`, (e as Error).message);
+                    }
+                }
+            }
+
+            r.project = { ...projectRaw, config: projectConfig };
             await RateLimitService.cacheProject(r.project);
         } else {
             // O Cache acertou! Descobrimos o tenant na RAM sem encostar no banco ou dragonfly.
@@ -276,7 +290,7 @@ export const resolveProject: RequestHandler = async (req: any, res: any, next: a
                 }
             }
 
-            r.projectPool = PoolService.get(targetDbName, {
+            r.projectPool = await PoolService.get(targetDbName, {
                 max: dbConfig.max_connections,
                 idleTimeoutMillis: dbConfig.idle_timeout_seconds ? dbConfig.idle_timeout_seconds * 1000 : undefined,
                 connectionString: targetConnectionString
