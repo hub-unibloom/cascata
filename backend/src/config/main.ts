@@ -1,10 +1,11 @@
 
 import pg from 'pg';
 import multer from 'multer';
-import path from 'path';
-import fs from 'fs';
+import path from 'node:path';
+import fs from 'node:fs';
 import dotenv from 'dotenv';
-import process from 'process';
+import process from 'node:process';
+import { PoolConfig } from 'pg';
 
 dotenv.config();
 
@@ -33,7 +34,7 @@ ensureDir(TEMP_UPLOAD_ROOT);
 
 
 let _systemPool: pg.Pool | null = null;
-let _poolConfig: any = null;
+let _poolConfig: PoolConfig | null = null;
 
 /**
  * Inicializa a configuração do sistema, buscando segredos no Vault se necessário.
@@ -75,7 +76,7 @@ export const bootstrapConfig = async () => {
 
     _systemPool = new Pool(_poolConfig);
     
-    _systemPool.on('error', (err: any) => {
+    _systemPool.on('error', (err: Error) => {
         console.error('[SystemPool] Unexpected error on idle client', err);
     });
 

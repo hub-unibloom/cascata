@@ -1,5 +1,4 @@
-
-import express, { NextFunction } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -84,10 +83,10 @@ else if (process.env.SERVICE_MODE === 'ENGINE') {
     console.log('[System] Starting in ISOLATED RUNTIME ENGINE MODE...');
     const app = express();
     // Limite aumentado para payloads internos de código + contexto
-    app.use(express.json({ limit: '50mb' }) as any);
+    app.use(express.json({ limit: '50mb' }));
 
     // Rota Interna de Execução (Não exposta ao público)
-    app.post('/internal/run', async (req: any, res: any) => {
+    app.post('/internal/run', async (req: Request, res: Response) => {
         try {
             const { code, context, envVars, timeout, slug } = req.body;
 
@@ -105,13 +104,14 @@ else if (process.env.SERVICE_MODE === 'ENGINE') {
             );
 
             res.status(result.status).json(result.body);
-        } catch (e: any) {
-            console.error('[Engine] Execution Fail:', e.message);
-            res.status(500).json({ error: e.message || 'Engine Failure' });
+        } catch (e: unknown) {
+            const err = e as Error;
+            console.error('[Engine] Execution Fail:', err.message);
+            res.status(500).json({ error: err.message || 'Engine Failure' });
         }
     });
 
-    app.get('/health', (req: any, res: any) => res.json({ status: 'ok', role: 'engine' }));
+    app.get('/health', (_req: Request, res: Response) => res.json({ status: 'ok', role: 'engine' }));
 
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, async () => {
@@ -147,9 +147,9 @@ else {
             cluster.fork({ WORKER_ID: i + 1 });
         }
 
-        cluster.on('exit', (worker: any, code: any, signal: any) => {
+        cluster.on('exit', (worker: cluster.Worker, code: number | null, signal: string | null) => {
             console.error(`[Hyper-Cluster] Worker ${worker.process.pid} died (${signal || code}). Respawning instanly...`);
-            cluster.fork({ WORKER_ID: (worker as any).process.env.WORKER_ID || (Math.floor(Math.random() * 100)) });
+            cluster.fork({ WORKER_ID: (worker.process.env.WORKER_ID || (Math.floor(Math.random() * 100))).toString() });
         });
         
         // Master process in cluster mode only manages workers, it does not run the HTTP Server.

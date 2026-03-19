@@ -1,5 +1,5 @@
-
-import { NextFunction } from 'express';
+import { Response, NextFunction } from 'express';
+import process from 'process';
 import axios from 'axios';
 import { CascataRequest } from '../types.js';
 import { systemPool } from '../config/main.js';
@@ -7,7 +7,7 @@ import { EdgeService } from '../../services/EdgeService.js';
 import { VaultService } from '../../services/VaultService.js';
 
 export class EdgeController {
-    static async execute(req: CascataRequest, res: any, next: any) {
+    static async execute(req: CascataRequest, res: Response, next: NextFunction) {
         try {
             const assetRes = await systemPool.query("SELECT * FROM system.assets WHERE project_slug = $1 AND name = $2 AND type = 'edge_function'", [req.project.slug, req.params.name]);
             if (assetRes.rows.length === 0) return res.status(404).json({ error: "Edge Function Not Found" });
@@ -105,6 +105,6 @@ export class EdgeController {
             );
             res.status(result.status).json(result.body);
             
-        } catch (e: any) { next(e); }
+        } catch (e: unknown) { next(e); }
     }
 }

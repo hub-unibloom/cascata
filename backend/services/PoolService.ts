@@ -13,8 +13,8 @@ export interface PoolConfig {
   idleTimeoutMillis?: number;
   connectionTimeoutMillis?: number;
   statementTimeout?: number;
-  useDirect?: boolean; // Força conexão direta (bypass PgBouncer)
-  connectionString?: string; // NOVO: Permite conexão externa (RDS, VPS Dedicada)
+  useDirect?: boolean; 
+  connectionString?: string; 
 }
 
 interface PoolEntry {
@@ -36,6 +36,8 @@ export class PoolService {
   private static DEFAULT_STATEMENT_TIMEOUT = 15000; 
   private static MAX_IDLE_TX_TIME = '2 minutes'; // Tempo máximo para IDLE IN TRANSACTION
 
+  private static reaperInterval: NodeJS.Timeout | null = null;
+
   public static configure(config: { maxConnections?: number, idleTimeout?: number, statementTimeout?: number }) {
       if (config.statementTimeout) {
           this.DEFAULT_STATEMENT_TIMEOUT = config.statementTimeout;
@@ -43,11 +45,14 @@ export class PoolService {
   }
 
   public static initReaper() {
-      if ((this as any)._reaperInterval) clearInterval((this as any)._reaperInterval);
+      if (this.reaperInterval) clearInterval(this.reaperInterval);
       
-      (this as any)._reaperInterval = setInterval(() => {
+      this.reaperInterval = setInterval(() => {
           this.reapZombies();
-          this.killIdleTransactions().catch(e => console.error('[PoolService] Idle Killer Failed:', e));
+          this.killIdleTransactions().catch(e => {
+              const err = e as Error;
+              console.error('[PoolService] Idle Killer Failed:', err.message);
+          });
       }, this.REAPER_INTERVAL_MS);
       
       console.log('[PoolService] Smart Reaper initialized (Aggressive Mode).');
@@ -75,9 +80,10 @@ export class PoolService {
           if (res.rowCount && res.rowCount > 0) {
               console.warn(`[PoolService] ☢️  Killed ${res.rowCount} zombie transactions (Idle > ${this.MAX_IDLE_TX_TIME}).`);
           }
-      } catch (e: any) {
+      } catch (e: unknown) {
+          const err = e as { code?: string; message: string };
           // Ignora erros pontuais (ex: DB reiniciando)
-          if (e.code !== '57P03') console.error('[PoolService] Zombie Killer Error:', e.message);
+          if (err.code !== '57P03') console.error('[PoolService] Zombie Killer Error:', err.message);
       }
   }
 
@@ -114,10 +120,10 @@ export class PoolService {
 
   private static gracefulClose(key: string, entry: PoolEntry) {
       try {
-          entry.pool.end().catch(e => console.error(`[PoolService] Error closing ${key}:`, e.message));
+          entry.pool.end().catch(e => console.error(`[PoolService] Error closing ${key}:`, (e as Error).message));
           this.pools.delete(key);
-      } catch (e) {
-          console.error(`[PoolService] Critical error removing pool ${key}`, e);
+      } catch (e: unknown) {
+          console.error(`[PoolService] Critical error removing pool ${key}`, (e as Error).message);
       }
   }
 
@@ -262,12 +268,12 @@ export class PoolService {
               WHERE datname = $1
               AND pid <> pg_backend_pid()
           `, [dbName]);
-      } catch (e: any) {
-          console.error(`[PoolService] Failed to terminate backend connections for ${dbName}:`, e.message);
+      } catch (e: unknown) {
+          console.error(`[PoolService] Failed to terminate backend connections for ${dbName}:`, (e as Error).message);
       }
   }
 
-  public static async closeAll() {
+  public static async closeAll(): Promise<void> {
       const promises = Array.from(this.pools.values()).map(entry => entry.pool.end().catch(() => {}));
       await Promise.all(promises);
       this.pools.clear();

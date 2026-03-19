@@ -278,10 +278,6 @@ services:
     networks:
       - cascata_data
 
-  cascata_secure:
-    driver: bridge
-    internal: true
-
   vault:
     image: hashicorp/vault:1.15
     container_name: cascata-vault
