@@ -1,47 +1,11 @@
-
-#47 [backend_data 7/7] RUN npm run build
-#47 ...
-
-#51 [frontend] resolving provenance for metadata file
-#51 DONE 0.0s
-
-#47 [backend_data 7/7] RUN npm run build
-#47 18.96 src/controllers/EdgeController.ts(81,35): error TS2339: Property 'project' does not exist on type 'Request<ParamsDictionary, any, any, ParsedQs, Record<string, any>>'.
-#47 ERROR: process "/bin/sh -c npm run build" did not complete successfully: exit code: 2
-------
- > [backend_engine 7/7] RUN npm run build:
-0.743 
-0.743 > cascata-backend@1.1.0 build
-0.743 > tsc
-0.743 
-18.96 src/controllers/EdgeController.ts(81,35): error TS2339: Property 'project' does not exist on type 'Request<ParamsDictionary, any, any, ParsedQs, Record<string, any>>'.
-------
-Dockerfile:19
-
---------------------
-
-  17 |     COPY . .
-
-  18 |     
-
-  19 | >>> RUN npm run build
-
-  20 |     EXPOSE 3000
-
-  21 |     CMD ["node", "dist/server.js"]
-
---------------------
-
-target backend_data: failed to solve: process "/bin/sh -c npm run build" did not complete successfully: exit code: 2
-
-  ✗ Falha ao construir/subir containers. Verifique o log acima e /var/log/cascata/install.log.
-
-  ╔══════════════════════════════════════════════════════════════╗
-  ║  INSTALAÇÃO INTERROMPIDA                                   ║
-  ╚══════════════════════════════════════════════════════════════╝
-  Exit code: 1
-  Log completo: /var/log/cascata/install.log
-  A instalação pode ser retomada rodando ./install.sh novamente.
-
-ubuntu@ip-172-26-3-195:~$ 
-
+/home/cocorico/Documentos/proejetos/cascata/backend/services/McpService.ts
+/home/cocorico/Documentos/proejetos/cascata/backend/src/controllers/AiController.ts
+/home/cocorico/Documentos/proejetos/cascata/backend/src/controllers/BranchController.ts
+/home/cocorico/Documentos/proejetos/cascata/backend/src/controllers/DataAuthController.ts
+/home/cocorico/Documentos/proejetos/cascata/backend/src/controllers/DataController.ts
+/home/cocorico/Documentos/proejetos/cascata/backend/src/controllers/McpController.ts
+/home/cocorico/Documentos/proejetos/cascata/backend/src/controllers/PushController.ts
+/home/cocorico/Documentos/proejetos/cascata/backend/src/controllers/SecurityController.ts
+/home/cocorico/Documentos/proejetos/cascata/backend/src/controllers/VectorController.ts
+/home/cocorico/Documentos/proejetos/cascata/backend/src/middlewares/security.ts
+/home/cocorico/Documentos/proejetos/cascata/backend/src/utils/index.ts

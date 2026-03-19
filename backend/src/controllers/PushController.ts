@@ -8,6 +8,7 @@ export class PushController {
 
     // Registra o device do usuário atual (Autenticado)
     static async registerDevice(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!req.user || !r.user.sub) {
             return res.status(401).json({ error: 'User must be authenticated to register a device.' });
         }
@@ -31,6 +32,7 @@ export class PushController {
 
     // Envia Push Manual (Via API/RPC)
     static async sendPush(req: CascataRequest, res: any, next: any) {
+        const r = req;
         // Requer Service Role ou lógica customizada de segurança
         if (r.userRole !== 'service_role') {
             return res.status(403).json({ error: 'Only service_role can send arbitrary pushes.' });
@@ -68,6 +70,7 @@ export class PushController {
 
     // CRUD de Regras (Admin Dashboard)
     static async listRules(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             const result = await systemPool.query(
                 `SELECT * FROM system.notification_rules WHERE project_slug = $1 ORDER BY created_at DESC`,
@@ -78,6 +81,7 @@ export class PushController {
     }
 
     static async createRule(req: CascataRequest, res: any, next: any) {
+        const r = req;
         const { name, trigger_table, trigger_event, recipient_column, title_template, body_template, conditions } = req.body;
         try {
             const result = await systemPool.query(
@@ -91,6 +95,7 @@ export class PushController {
     }
 
     static async deleteRule(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             await systemPool.query(`DELETE FROM system.notification_rules WHERE id = $1 AND project_slug = $2`, [req.params.id, r.project.slug]);
             res.json({ success: true });
@@ -99,6 +104,7 @@ export class PushController {
 
     // LIST HISTORY (Auditoria)
     static async listHistory(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
             const result = await systemPool.query(

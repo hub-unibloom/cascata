@@ -19,6 +19,7 @@ export class DataController {
      * Used by the frontend to inspect node outputs and structure.
      */
     static async testNode(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         const { node, triggerPayload } = req.body;
 

@@ -104,6 +104,7 @@ export class BranchController {
     }
 
     static async syncFromLive(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             const liveDb = r.project.db_name;
             const draftDb = `${liveDb}_draft`;
@@ -124,6 +125,7 @@ export class BranchController {
     }
 
     static async deleteDraft(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             const draftDb = `${r.project.db_name}_draft`;
             if (!(await DatabaseService.dbExists(draftDb))) {
@@ -142,6 +144,7 @@ export class BranchController {
     }
 
     static async deployDraft(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             const { strategy, sql, dry_run, data_strategy, data_plan } = req.body;
             const liveDb = r.project.db_name;
@@ -276,6 +279,7 @@ export class BranchController {
     }
 
     static async getDiff(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             const liveDb = r.project.db_name;
             const draftDb = `${liveDb}_draft`;

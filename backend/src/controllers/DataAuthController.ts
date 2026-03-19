@@ -59,6 +59,7 @@ export class DataAuthController {
     }
 
     static async listUsers(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         try {
             const result = await r.projectPool!.query(`SELECT u.id, u.created_at, u.banned, u.last_sign_in_at, jsonb_agg(jsonb_build_object('id', i.id, 'provider', i.provider, 'identifier', i.identifier, 'verified_at', i.verified_at)) as identities FROM auth.users u LEFT JOIN auth.identities i ON u.id = i.user_id GROUP BY u.id ORDER BY u.created_at DESC`);
@@ -67,6 +68,7 @@ export class DataAuthController {
     }
 
     static async createUser(req: CascataRequest, res: any, next: any) {
+        const r = req;
         const { strategies, profileData } = req.body;
         try {
             const client = await r.projectPool!.connect();
@@ -91,6 +93,7 @@ export class DataAuthController {
      * The agnostic entry point for ANY auth strategy (CPF, Email, Biometrics, etc).
      */
     static async legacyToken(req: CascataRequest, res: any, next: any) {
+        const r = req;
         const { provider, identifier, password } = req.body;
         const deviceInfo = DataAuthController.getDeviceInfo(req);
 
@@ -153,6 +156,7 @@ export class DataAuthController {
     }
 
     static async linkIdentity(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (r.userRole !== 'service_role') {
             return res.status(403).json({ error: 'Identity linking requires administrative privileges (Service Role).' });
         }
@@ -170,6 +174,7 @@ export class DataAuthController {
     }
 
     static async unlinkIdentity(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (r.userRole !== 'service_role') {
             return res.status(403).json({ error: 'Unlinking identities requires administrative privileges (Service Role).' });
         }
@@ -182,6 +187,7 @@ export class DataAuthController {
     }
 
     static async updateUserStatus(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (r.userRole !== 'service_role') {
             return res.status(403).json({ error: 'Access Denied: Only Service Role can update user status.' });
         }
@@ -189,6 +195,7 @@ export class DataAuthController {
     }
 
     static async deleteUser(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (r.userRole !== 'service_role') {
             return res.status(403).json({ error: 'Access Denied: Only Service Role can delete users.' });
         }
@@ -196,6 +203,7 @@ export class DataAuthController {
     }
 
     static async linkConfig(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (r.userRole !== 'service_role') return res.status(403).json({ error: 'Unauthorized' });
         try {
             const metaUpdates: any = { auth_strategies: req.body.authStrategies, auth_config: req.body.authConfig, linked_tables: req.body.linked_tables };
@@ -240,6 +248,7 @@ export class DataAuthController {
     }
 
     static async challenge(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             const strategies = r.project.metadata?.auth_strategies || {};
             const config = strategies[req.body.provider];
@@ -265,6 +274,7 @@ export class DataAuthController {
     }
 
     static async verifyChallenge(req: CascataRequest, res: any, next: any) {
+        const r = req;
         const deviceInfo = DataAuthController.getDeviceInfo(req);
         const { provider, identifier, code } = req.body;
         const secConfig = DataAuthController.getSecurityConfig(req);
@@ -310,6 +320,7 @@ export class DataAuthController {
     }
 
     static async getUserSessions(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (r.userRole !== 'service_role') {
             return res.status(403).json({ error: 'Access Denied: Only Service Role can query sessions directly.' });
         }
@@ -326,6 +337,7 @@ export class DataAuthController {
     }
 
     static async revokeOtherSessions(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (r.userRole !== 'service_role') {
             return res.status(403).json({ error: 'Access Denied: Only Service Role can revoke sessions.' });
         }
@@ -342,6 +354,7 @@ export class DataAuthController {
     }
 
     static async revokeSession(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (r.userRole !== 'service_role') {
             return res.status(403).json({ error: 'Access Denied: Only Service Role can revoke sessions.' });
         }
@@ -352,6 +365,7 @@ export class DataAuthController {
     }
 
     static async goTrueSignup(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             const language = req.body.language || 'en-US';
             const payload = {
@@ -365,6 +379,7 @@ export class DataAuthController {
     }
 
     static async goTrueToken(req: CascataRequest, res: any, next: any) {
+        const r = req;
         const deviceInfo = DataAuthController.getDeviceInfo(req);
 
         // Supabase-JS e Flutterflow enviam grant_type pelo Query String (URL) e não no corpo (Body JSON)
@@ -398,11 +413,13 @@ export class DataAuthController {
     }
 
     static async goTrueUser(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!req.user?.sub) return res.status(401).json({ error: "unauthorized" });
         try { res.json(await GoTrueService.handleGetUser(r.projectPool!, r.user.sub)); } catch (e: any) { next(e); }
     }
 
     static async goTrueLogout(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             await GoTrueService.handleLogout(r.projectPool!, req.headers.authorization?.replace('Bearer ', '').trim() || '', r.project.jwt_secret);
 
@@ -415,6 +432,7 @@ export class DataAuthController {
     }
 
     static async goTrueVerify(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             const session = await GoTrueService.handleVerify(r.projectPool!, req.query.token as string, req.query.type as string, r.project.jwt_secret, r.project.metadata);
 
@@ -428,6 +446,7 @@ export class DataAuthController {
     }
 
     static async goTrueAuthorize(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             let providerName = req.query.provider as string;
             const prov = r.project.metadata?.auth_config?.providers?.[providerName];
@@ -451,6 +470,7 @@ export class DataAuthController {
     }
 
     static async goTrueCallback(req: CascataRequest, res: any, next: any) {
+        const r = req;
         const deviceInfo = DataAuthController.getDeviceInfo(req);
         try {
             let finalRedirect = '';
@@ -507,6 +527,7 @@ export class DataAuthController {
     }
 
     static async goTrueRecover(req: CascataRequest, res: any, next: any) {
+        const r = req;
         const deviceInfo = DataAuthController.getDeviceInfo(req);
         const secConfig = DataAuthController.getSecurityConfig(req);
         const identifier = req.body.identifier || req.body.email;
@@ -555,6 +576,7 @@ export class DataAuthController {
     }
 
     static async goTrueUpdateUser(req: CascataRequest, res: any, next: any) {
+        const r = req;
         if (!req.user?.sub) return res.status(401).json({ error: "unauthorized" });
         const deviceInfo = DataAuthController.getDeviceInfo(req);
         try {

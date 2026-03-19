@@ -7,6 +7,7 @@ import { parseBytes, formatBytes } from '../utils/index.js';
 import { RateLimitService } from '../../services/RateLimitService.js';
 
 export const dynamicCors: RequestHandler = (req: any, res: any, next: any) => {
+    const r = (req as unknown) as CascataRequest;
     const origin = req.headers.origin;
 
     // Headers padrão para suportar PostgREST/Supabase Clients

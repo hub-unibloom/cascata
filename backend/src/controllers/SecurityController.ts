@@ -10,6 +10,7 @@ import bcrypt from 'bcrypt';
 export class SecurityController {
 
     static async getStatus(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             const panicMode = await RateLimitService.checkPanic(r.project.slug);
             const currentRps = await RateLimitService.getCurrentRPS(r.project.slug);
@@ -18,6 +19,7 @@ export class SecurityController {
     }
 
     static async togglePanic(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             await RateLimitService.setPanic(r.project.slug, req.body.enabled);
             await systemPool.query("UPDATE system.projects SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{security,panic_mode}', $1) WHERE slug = $2", [JSON.stringify(req.body.enabled), r.project.slug]);
@@ -27,10 +29,12 @@ export class SecurityController {
 
     // --- RATE LIMITS (GLOBAL RULES) ---
     static async listRateLimits(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try { const result = await systemPool.query('SELECT * FROM system.rate_limits WHERE project_slug = $1 ORDER BY created_at DESC', [r.project.slug]); res.json(result.rows); } catch (e: any) { next(e); }
     }
 
     static async createRateLimit(req: CascataRequest, res: any, next: any) {
+        const r = req;
         const {
             route_pattern, method, window_seconds, message_anon, message_auth,
             rate_limit_anon, burst_limit_anon,
@@ -74,6 +78,7 @@ export class SecurityController {
     }
 
     static async deleteRateLimit(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             await systemPool.query('DELETE FROM system.rate_limits WHERE id = $1 AND project_slug = $2', [req.params.id, r.project.slug]);
             RateLimitService.clearRules(r.project.slug);
@@ -83,6 +88,7 @@ export class SecurityController {
 
     // --- KEY GROUPS (PLANS) ---
     static async listKeyGroups(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             const result = await systemPool.query(
                 `SELECT * FROM system.api_key_groups WHERE project_slug = $1 ORDER BY name ASC`,
@@ -93,6 +99,7 @@ export class SecurityController {
     }
 
     static async createKeyGroup(req: CascataRequest, res: any, next: any) {
+        const r = req;
         const { name, rate_limit, burst_limit, window_seconds, rejection_message, nerf_config, crud_limits, scopes } = req.body;
         try {
             const result = await systemPool.query(`
@@ -106,6 +113,7 @@ export class SecurityController {
     }
 
     static async updateKeyGroup(req: CascataRequest, res: any, next: any) {
+        const r = req;
         const { name, rate_limit, burst_limit, window_seconds, rejection_message, nerf_config } = req.body;
         const { id } = req.params;
         try {
@@ -124,6 +132,7 @@ export class SecurityController {
     }
 
     static async deleteKeyGroup(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             const check = await systemPool.query('SELECT COUNT(*) FROM system.api_keys WHERE group_id = $1', [req.params.id]);
             if (parseInt(check.rows[0].count) > 0) {
@@ -137,6 +146,7 @@ export class SecurityController {
 
     // --- CUSTOM API KEYS ---
     static async listApiKeys(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             const result = await systemPool.query(
                 `SELECT k.id, k.name, k.prefix, k.scopes, k.rate_limit, k.burst_limit, k.expires_at, k.last_used_at, k.is_active, k.created_at, k.group_id, g.name as group_name
@@ -151,6 +161,7 @@ export class SecurityController {
     }
 
     static async createApiKey(req: CascataRequest, res: any, next: any) {
+        const r = req;
         const { name, scopes, rate_limit, burst_limit, expires_in_days, group_id } = req.body;
         if (!name) return res.status(400).json({ error: "Name is required" });
 
@@ -184,6 +195,7 @@ export class SecurityController {
     }
 
     static async updateApiKey(req: CascataRequest, res: any, next: any) {
+        const r = req;
         const { expires_at, is_active } = req.body;
         try {
             let updates = [];
@@ -206,6 +218,7 @@ export class SecurityController {
     }
 
     static async migrateApiKey(req: CascataRequest, res: any, next: any) {
+        const r = req;
         const { password, group_id } = req.body;
 
         try {
@@ -225,6 +238,7 @@ export class SecurityController {
     }
 
     static async deleteApiKey(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             await systemPool.query('DELETE FROM system.api_keys WHERE id = $1 AND project_slug = $2', [req.params.id, r.project.slug]);
             res.json({ success: true });
@@ -233,10 +247,12 @@ export class SecurityController {
 
     // --- RLS POLICIES ---
     static async listPolicies(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try { const result = await r.projectPool!.query("SELECT * FROM pg_policies"); res.json(result.rows); } catch (e: any) { next(e); }
     }
 
     static async createPolicy(req: CascataRequest, res: any, next: any) {
+        const r = req;
         // SECURITY: this endpoint executes raw SQL expressions (USING / WITH CHECK).
         // Only the authenticated dashboard (isSystemRequest) is allowed to use it.
         if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized: Dashboard only.' });
@@ -262,11 +278,13 @@ export class SecurityController {
     }
 
     static async deletePolicy(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try { await r.projectPool!.query(`DROP POLICY ${quoteId(req.params.name)} ON public.${quoteId(req.params.table)}`); res.json({ success: true }); } catch (e: any) { next(e); }
     }
 
     // --- LOGS ---
     static async getLogs(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try { const result = await systemPool.query('SELECT * FROM system.api_logs WHERE project_slug = $1 ORDER BY created_at DESC LIMIT 100', [r.project.slug]); res.json(result.rows); } catch (e: any) { next(e); }
     }
 }

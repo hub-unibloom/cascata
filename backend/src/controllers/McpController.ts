@@ -9,6 +9,7 @@ export class McpController {
     // --- DATA PLANE (Project Specific) ---
 
     static async connectSSE(req: CascataRequest, res: any) {
+        const r = req;
         // ALLOW-LIST: service_role, authenticated, anon
         const allowedRoles = ['service_role', 'authenticated', 'anon'];
         if (!allowedRoles.includes(r.userRole || '')) {
@@ -70,6 +71,7 @@ export class McpController {
     }
 
     static async handleMessage(req: CascataRequest, res: any, next: any) {
+        const r = req;
         // ALLOW-LIST: service_role, authenticated, anon
         const allowedRoles = ['service_role', 'authenticated', 'anon'];
         if (!allowedRoles.includes(r.userRole || '')) {
@@ -203,6 +205,7 @@ export class McpController {
     // --- CONTROL PLANE (System Root) ---
 
     static async connectRootSSE(req: CascataRequest, res: any) {
+        const r = req;
         // GOVERNANCE: Global System Kill-Switch Check
         try {
             const sysRes = await systemPool.query("SELECT settings->>'mcp_enabled' as mcp_enabled FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'ai_config'");
@@ -225,6 +228,7 @@ export class McpController {
     }
 
     static async handleRootMessage(req: CascataRequest, res: any) {
+        const r = req;
         // GOVERNANCE CHECK
         try {
             const sysRes = await systemPool.query("SELECT settings->>'mcp_enabled' as mcp_enabled FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'ai_config'");

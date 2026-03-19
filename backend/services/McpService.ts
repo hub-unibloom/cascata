@@ -16,6 +16,7 @@ export class McpService {
      * FILTRADO pela configuração de Governança
      */
     public static async getSchemaContext(req: CascataRequest): Promise<string> {
+        const r = req;
         const pool = r.projectPool!;
         const projectSlug = r.project.slug;
         const governance = r.project.metadata?.ai_governance;
@@ -168,6 +169,7 @@ export class McpService {
         toolName: string,
         args: any
     ): Promise<any> {
+        const r = req;
         const projectSlug = r.project.slug;
         const pool = r.projectPool!;
         const jwtSecret = r.project.jwt_secret;

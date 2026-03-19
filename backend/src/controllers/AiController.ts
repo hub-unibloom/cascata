@@ -7,6 +7,7 @@ import { OpenApiService } from '../../services/OpenApiService.js';
 export class AiController {
     // Fix: Use any for next parameter to resolve callable signature issues
     static async listSessions(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             const result = await systemPool.query(
                 `SELECT * FROM system.ai_sessions WHERE project_slug = $1 ORDER BY updated_at DESC`,
@@ -18,6 +19,7 @@ export class AiController {
 
     // Fix: Use any for next parameter to resolve callable signature issues
     static async updateSession(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             await systemPool.query(
                 `UPDATE system.ai_sessions SET title = $1, updated_at = NOW() WHERE id = $2 AND project_slug = $3`,
@@ -29,6 +31,7 @@ export class AiController {
 
     // Fix: Use any for next parameter to resolve callable signature issues
     static async searchSessions(req: CascataRequest, res: any, next: any) {
+        const r = req;
         const { query } = req.body;
         if (!query) return res.json([]);
         try {
@@ -48,6 +51,7 @@ export class AiController {
 
     // Fix: Use any for next parameter to resolve callable signature issues
     static async chat(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             const settingsRes = await systemPool.query("SELECT settings FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'ai_config'");
             const { session_id, messages } = req.body;
@@ -77,6 +81,7 @@ export class AiController {
 
     // Fix: Use any for next parameter to resolve callable signature issues
     static async getHistory(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             const result = await systemPool.query("SELECT role, content, created_at FROM system.ai_history WHERE project_slug = $1 AND session_id = $2 ORDER BY created_at ASC", [r.project.slug, req.params.session_id]);
             res.json(result.rows);
@@ -86,6 +91,7 @@ export class AiController {
     // --- UTILS & DOCS ---
     // Fix: Use any for next parameter to resolve callable signature issues
     static async fixSql(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             const settingsRes = await systemPool.query("SELECT settings FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'ai_config'");
             const fixedSql = await AiService.fixSQL(r.project.slug, r.projectPool!, settingsRes.rows[0]?.settings || {}, req.body.sql, req.body.error);
@@ -95,6 +101,7 @@ export class AiController {
 
     // Fix: Use any for next parameter to resolve callable signature issues
     static async explain(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             const settingsRes = await systemPool.query("SELECT settings FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'ai_config'");
             const result = await AiService.explainCode(r.project.slug, r.projectPool!, settingsRes.rows[0]?.settings || {}, req.body.code, req.body.type || 'sql');
@@ -109,6 +116,7 @@ export class AiController {
 
     // Fix: Use any for next parameter to resolve callable signature issues
     static async draftDoc(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             const settingsRes = await systemPool.query("SELECT settings FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'ai_config'");
             const doc = await AiService.draftDoc(r.project.slug, r.projectPool!, settingsRes.rows[0]?.settings || {}, req.body.tableName);
@@ -119,6 +127,7 @@ export class AiController {
 
     // Fix: Use any for next parameter to resolve callable signature issues
     static async getOpenApiSpec(req: CascataRequest, res: any, next: any) {
+        const r = req;
         try {
             // Pass systemPool to enable reading Edge Functions from system tables
             const spec = await OpenApiService.generate(

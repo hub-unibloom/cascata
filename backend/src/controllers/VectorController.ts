@@ -9,6 +9,7 @@ import { RateLimitService } from '../../services/RateLimitService.js';
 export class VectorController {
 
     static async proxy(req: CascataRequest, res: any, next: any) {
+        const r = req;
         const { slug } = req.project;
         const subPath = req.params[0] || '';
         const qdrantUrl = `http://${process.env.QDRANT_HOST || 'qdrant'}:${process.env.QDRANT_PORT || '6333'}`;
