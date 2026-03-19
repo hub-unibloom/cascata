@@ -204,31 +204,37 @@ preflight_checks() {
     # 2. Verifica git
     if ! command -v git &>/dev/null; then
         warn "git não encontrado. Tentando instalar..."
-        sudo apt-get -qq update 2>/dev/null && sudo apt-get -qq install -y git 2>/dev/null || \
-        sudo yum -q install -y git 2>/dev/null || \
-        sudo dnf -q install -y git 2>/dev/null || \
-        { err "Não foi possível instalar git. Instale manualmente: apt install git"; FAIL=true; }
+        if sudo apt-get -qq update 2>/dev/null && sudo apt-get -qq install -y git 2>/dev/null || \
+           sudo yum -q install -y git 2>/dev/null || \
+           sudo dnf -q install -y git 2>/dev/null; then
+            ok "git instalado com sucesso"
+        else
+            warn "Não foi possível instalar git. Instale manualmente: apt install git"; FAIL=true
+        fi
+    else
+        ok "git disponível"
     fi
-    ok "git disponível"
 
     # 3. Verifica conectividade com a internet
     if ! curl -fsSL --max-time 10 https://github.com > /dev/null 2>&1; then
         if ! curl -fsSL --max-time 10 https://google.com > /dev/null 2>&1; then
-            err "Sem conectividade com a internet. Verifique sua rede."
-            FAIL=true
+            warn "Sem conectividade com a internet. Verifique sua rede."; FAIL=true
+        else
+            ok "Conectividade com internet verificada (via fallback)"
         fi
+    else
+        ok "Conectividade com internet verificada"
     fi
-    ok "Conectividade com internet verificada"
 
     # 4. Verifica espaço em disco (mínimo 5GB)
     local DISK_AVAIL_KB
     DISK_AVAIL_KB=$(df / --output=avail 2>/dev/null | tail -1 | tr -d ' ' || echo "0")
     local DISK_AVAIL_GB=$(( DISK_AVAIL_KB / 1048576 ))
     if [ "$DISK_AVAIL_GB" -lt 5 ]; then
-        err "Espaço em disco insuficiente: ${DISK_AVAIL_GB}GB disponível (mínimo: 5GB)."
-        FAIL=true
+        warn "Espaço em disco insuficiente: ${DISK_AVAIL_GB}GB disponível (mínimo: 5GB)."; FAIL=true
+    else
+        ok "Espaço em disco: ${DISK_AVAIL_GB}GB disponível"
     fi
-    ok "Espaço em disco: ${DISK_AVAIL_GB}GB disponível"
 
     # 5. Verifica RAM (mínimo 2GB)
     local RAM_TOTAL_KB
@@ -242,10 +248,10 @@ preflight_checks() {
 
     # 6. Verifica se systemd está disponível
     if ! command -v systemctl &>/dev/null; then
-        err "systemd não encontrado. Este instalador requer systemd."
-        FAIL=true
+        warn "systemd não encontrado. Este instalador requer systemd."; FAIL=true
+    else
+        ok "systemd disponível"
     fi
-    ok "systemd disponível"
 
     if [ "$FAIL" = true ]; then
         err "Pré-requisitos não atendidos. Corrija os erros acima e tente novamente."
@@ -261,7 +267,7 @@ phase1_install_docker() {
 
     # Verificar Docker existente
     if command -v docker &>/dev/null; then
-        DOCKER_VER=$(docker --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1)
+        DOCKER_VER=$(docker --version 2>/dev/null | grep -E -o '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
         ok "Docker já instalado — versão ${BOLD}$DOCKER_VER${NC}"
         # Verificar se Docker Compose V2 está disponível
         if docker compose version &>/dev/null 2>&1; then
@@ -627,6 +633,76 @@ gen_url_safe_password() {
 }
 
 # ---------------------------------------------------------------------------
+# PROVISIONAMENTO DO VAULT (ENTERPRISE BOOTSTRAP)
+# ---------------------------------------------------------------------------
+provision_vault_resources() {
+    section "FASE 2.5 — Provisionamento Enterprise do Vault"
+    
+    local TOKEN="$VAULT_ROOT_TOKEN"
+    
+    # Função auxiliar para evitar problemas com IFS e espaços em variáveis
+    vault_exec() {
+        docker exec -e VAULT_TOKEN="$TOKEN" cascata-vault vault "$@"
+    }
+
+    info "Aguardando API do Vault ficar pronta..."
+    local VRETRY=0
+    while [ $VRETRY -lt 20 ]; do
+        if vault_exec status > /dev/null 2>&1; then
+            break
+        fi
+        sleep 2
+        VRETRY=$((VRETRY + 1))
+    done
+
+    if [ $VRETRY -eq 20 ]; then
+        err "Vault não respondeu a tempo. Verifique: docker logs cascata-vault"
+    fi
+
+    info "Configurando motores e políticas de segurança..."
+
+    # 1. Ativar Motores (ignore erros se já existirem)
+    vault_exec secrets enable transit 2>/dev/null || true
+    vault_exec secrets enable -path=secret kv-v2 2>/dev/null || true
+
+    # 2. Criar Chave Transit mestre
+    vault_exec write -f transit/keys/cascata-system-keys > /dev/null 2>&1 || true
+
+    # 3. Migrar segredos de aplicação para o Vault
+    vault_exec kv put secret/cascata/system \
+        SYSTEM_DATABASE_URL="postgresql://${DB_USER}:${DB_PASS}@db:5432/${DB_NAME}" \
+        SYSTEM_JWT_SECRET="${JWT_SECRET}" \
+        INTERNAL_CTRL_SECRET="${CTRL_SECRET}" > /dev/null
+
+    # 4. Criar Política de Acesso para o Backend (Strict Read-Only)
+    cat <<EOF | docker exec -i cascata-vault vault policy write cascata-backend - 
+path "secret/data/cascata/*" {
+  capabilities = ["read"]
+}
+path "transit/encrypt/cascata-system-keys" {
+  capabilities = ["update"]
+}
+path "transit/decrypt/cascata-system-keys" {
+  capabilities = ["update"]
+}
+EOF
+
+    # 5. Gerar App Token para o Backend (Lease de 32 dias renovável)
+    BACKEND_TOKEN=$(vault_exec token create -policy=cascata-backend -orphan -period=768h -format=json | python3 -c "import sys, json; print(json.load(sys.stdin)['auth']['client_token'])" || echo "")
+    
+    if [ -z "$BACKEND_TOKEN" ]; then
+        err "Falha ao gerar token do Vault para o backend."
+    fi
+
+    # 6. Atualizar .env: injeta o App Token e limpa chaves de aplicação
+    sed -i "s|VAULT_TOKEN=.*|VAULT_TOKEN=${BACKEND_TOKEN}|" .env
+    sed -i "s|^SYSTEM_JWT_SECRET=.*|# SYSTEM_JWT_SECRET (Managed by Vault)|" .env
+    sed -i "s|^INTERNAL_CTRL_SECRET=.*|# INTERNAL_CTRL_SECRET (Managed by Vault)|" .env
+    
+    ok "Vault provisionado com sucesso: Motores ativos e App Token gerado."
+}
+
+# ---------------------------------------------------------------------------
 # CONFIGURAÇÃO DO HASHICORP VAULT
 # ---------------------------------------------------------------------------
 setup_vault() {
@@ -729,7 +805,7 @@ phase2_setup_and_start() {
     done
 
     # Migrations
-    if ls backend/migrations/*.sql.txt &>/dev/null 2>&1; then
+    if ls backend/migrations/*.sql.txt &>/dev/null; then
         for f in backend/migrations/*.sql.txt; do
             mv "$f" "${f%.txt}"
         done
@@ -1045,69 +1121,6 @@ print(f'{healthy}/{total_hc}')
         warn "Verifique com: docker compose ps && docker compose logs"
     fi
 
-    # -----------------------------------------------------------------------
-    # G: PROVISIONAMENTO DO VAULT (ENTERPRISE BOOTSTRAP)
-    # -----------------------------------------------------------------------
-    provision_vault_resources() {
-        section "FASE 2.5 — Provisionamento Enterprise do Vault"
-        
-        local TOKEN="$VAULT_ROOT_TOKEN"
-        local VX="docker exec -e VAULT_TOKEN=$TOKEN cascata-vault vault"
-
-        info "Aguardando API do Vault ficar pronta..."
-        local VRETRY=0
-        while [ $VRETRY -lt 20 ]; do
-            if docker exec cascata-vault vault status > /dev/null 2>&1; then
-                break
-            fi
-            sleep 2
-            VRETRY=$((VRETRY + 1))
-        done
-
-        if [ $VRETRY -eq 20 ]; then
-            err "Vault não respondeu a tempo. Verifique: docker logs cascata-vault"
-        fi
-
-        info "Configurando motores e políticas de segurança..."
-
-        # 1. Ativar Motores (ignore erros se já existirem)
-        $VX secrets enable transit 2>/dev/null || true
-        $VX secrets enable -path=secret kv-v2 2>/dev/null || true
-
-        # 2. Criar Chave Transit mestre
-        $VX write -f transit/keys/cascata-system-keys > /dev/null 2>&1 || true
-
-        # 3. Migrar segredos de aplicação para o Vault
-        # Nota: DB_PASS continua no .env para o container DB, mas o backend usa esta URL do Vault.
-        $VX kv put secret/cascata/system \
-            SYSTEM_DATABASE_URL="postgresql://${DB_USER}:${DB_PASS}@db:5432/${DB_NAME}" \
-            SYSTEM_JWT_SECRET="${JWT_SECRET}" \
-            INTERNAL_CTRL_SECRET="${CTRL_SECRET}" > /dev/null
-
-        # 4. Criar Política de Acesso para o Backend (Strict Read-Only)
-        cat <<EOF | docker exec -i cascata-vault vault policy write cascata-backend - 
-path "secret/data/cascata/*" {
-  capabilities = ["read"]
-}
-path "transit/encrypt/cascata-system-keys" {
-  capabilities = ["update"]
-}
-path "transit/decrypt/cascata-system-keys" {
-  capabilities = ["update"]
-}
-EOF
-
-        # 5. Gerar App Token para o Backend (Lease de 32 dias renovável)
-        BACKEND_TOKEN=$($VX token create -policy=cascata-backend -orphan -period=768h -format=json | python3 -c "import sys, json; print(json.load(sys.stdin)['auth']['client_token'])")
-
-        # 6. Atualizar .env: injeta o App Token e limpa chaves de aplicação
-        sed -i "s|VAULT_TOKEN=.*|VAULT_TOKEN=${BACKEND_TOKEN}|" .env
-        sed -i "s|^SYSTEM_JWT_SECRET=.*|# SYSTEM_JWT_SECRET (Managed by Vault)|" .env
-        sed -i "s|^INTERNAL_CTRL_SECRET=.*|# INTERNAL_CTRL_SECRET (Managed by Vault)|" .env
-        
-        ok "Vault provisionado com sucesso: Motores ativos e App Token gerado."
-    }
-
     if [[ "$VAULT_CHOICE" == "1" ]]; then
         provision_vault_resources
     fi
@@ -1265,24 +1278,34 @@ phase3_os_hardening() {
     # -----------------------------------------------------------------------
     section "FASE 3.0.1 — Geração de Identidade Oculta do Hardening"
 
-    # Token base: 8 chars hexadecimais de /dev/urandom
-    local AUTO_TOKEN
-    AUTO_TOKEN=$(od -A n -t x1 -N 4 /dev/urandom | tr -d ' \n')
-
-    echo -e "  ${BOLD}Deseja adicionar uma palavra-chave personalizada ao nome dos arquivos?${NC}"
-    echo -e "  ${DIM}Isso cria uma 'senha extra' estrutural — sem ela, ainda mais difícil de encontrar.${NC}"
-    echo -e "  ${DIM}Use letras e números apenas. Deixe vazio para usar apenas o token aleatório.${NC}"
-    echo ""
-    read -rp "  Palavra-chave personalizada (ex: 'cobalt', 'x9k', etc.): " USER_TOKEN || true
-    USER_TOKEN=$(echo "${USER_TOKEN:-}" | tr -cd 'a-z0-9A-Z' | head -c 16 | tr '[:upper:]' '[:lower:]')
-
-    if [ -n "$USER_TOKEN" ]; then
-        HARDENING_TOKEN="${USER_TOKEN}_${AUTO_TOKEN}"
-    else
-        HARDENING_TOKEN="${AUTO_TOKEN}"
+    HARDENING_TOKEN=""
+    # Tenta recuperar do manifesto se já existir (idempotência)
+    if [ -f /root/.cascata_hardening_manifest ]; then
+        HARDENING_TOKEN=$(sudo grep "SSH_CONFIG=" /root/.cascata_hardening_manifest | sed -E 's|.*/([^/.]+)\.conf|\1|')
+        if [ -n "$HARDENING_TOKEN" ]; then
+            ok "Token de hardening recuperado do manifesto: ${BOLD}${HARDENING_TOKEN}${NC}"
+        fi
     fi
 
-    ok "Token de hardening: ${BOLD}${HARDENING_TOKEN}${NC}"
+    if [ -z "$HARDENING_TOKEN" ]; then
+        # Token base: 8 chars hexadecimais de /dev/urandom
+        local AUTO_TOKEN
+        AUTO_TOKEN=$(od -A n -t x1 -N 4 /dev/urandom | tr -d ' \n')
+
+        echo -e "  ${BOLD}Deseja adicionar uma palavra-chave personalizada ao nome dos arquivos?${NC}"
+        echo -e "  ${DIM}Isso cria uma 'senha extra' estrutural — sem ela, ainda mais difícil de encontrar.${NC}"
+        echo -e "  ${DIM}Use letras e números apenas. Deixe vazio para usar apenas o token aleatório.${NC}"
+        echo ""
+        read -rp "  Palavra-chave personalizada (ex: 'cobalt', 'x9k', etc.): " USER_TOKEN || true
+        USER_TOKEN=$(echo "${USER_TOKEN:-}" | tr -cd 'a-z0-9A-Z' | head -c 16 | tr '[:upper:]' '[:lower:]')
+
+        if [ -n "$USER_TOKEN" ]; then
+            HARDENING_TOKEN="${USER_TOKEN}_${AUTO_TOKEN}"
+        else
+            HARDENING_TOKEN="${AUTO_TOKEN}"
+        fi
+        ok "Novo token de hardening gerado: ${BOLD}${HARDENING_TOKEN}${NC}"
+    fi
     echo -e "  ${YELLOW}⚡ GUARDE ESTE TOKEN — necessário se precisar modificar as configurações no futuro:${NC}"
     echo -e "  ${BOLD}  /etc/ssh/sshd_config.d/${HARDENING_TOKEN}.conf${NC}"
     echo -e "  ${BOLD}  /etc/audit/rules.d/${HARDENING_TOKEN}.rules${NC}"
@@ -1476,7 +1499,6 @@ Port ${SSH_PORT}
 PermitRootLogin no
 PasswordAuthentication $( [[ "$SSH_KEYS_ONLY" == "true" ]] && echo 'no' || echo 'yes' )
 PubkeyAuthentication yes
-ChallengeResponseAuthentication yes
 KbdInteractiveAuthentication yes
 UsePAM yes
 
@@ -1627,7 +1649,7 @@ BEOF
                 sudo chmod 640 "$UFW_AFTER_RULES"
                 sudo chown root:root "$UFW_AFTER_RULES"
                 
-                # UFW reload sozinho às vezes não atucha certas bridge chains dinâmicas, reiniciar docker força elas a recarregarem limpas sobre o ufw base
+                # UFW reload sozinho às vezes não atualiza certas bridge chains dinâmicas
                 sudo ufw reload > /dev/null 2>&1 || true
                 sudo systemctl restart docker 2>/dev/null || true
                 ok "Chain DOCKER-USER injetada antes do COMMIT do *filter. Isolamento perfeito sem quebrar redes internas."
@@ -1653,7 +1675,6 @@ except: pass" 2>/dev/null || true
         fi
 
         # P4: Garantir log rotation no daemon.json do Docker
-        local DAEMON_JSON="/etc/docker/daemon.json"
         if [ -f "$DAEMON_JSON" ]; then
             if ! grep -q 'log-driver' "$DAEMON_JSON" 2>/dev/null; then
                 sudo python3 -c "
@@ -1696,7 +1717,7 @@ except: pass" 2>/dev/null || true
 
         sudo tee "/etc/fail2ban/jail.d/${HARDENING_TOKEN}.conf" > /dev/null <<F2BEOF
 [DEFAULT]
-bandtime  = 3600
+bantime   = 3600
 findtime  = 600
 maxretry  = 3
 ignoreip  = 127.0.0.1/8 ::1
@@ -1707,7 +1728,7 @@ port      = ${SSH_PORT}
 filter    = sshd
 logpath   = %(sshd_log)s
 maxretry  = 3
-bandtime  = 86400
+bantime   = 86400
 # 24h de ban após 3 tentativas falhas
 
 [sshd-ddos]
@@ -1716,7 +1737,7 @@ port      = ${SSH_PORT}
 filter    = sshd
 logpath   = %(sshd_log)s
 maxretry  = 6
-bandtime  = 604800
+bantime   = 604800
 # 7 dias de ban após 6 tentativas
 F2BEOF
 
