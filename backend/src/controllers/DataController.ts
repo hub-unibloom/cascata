@@ -19,7 +19,7 @@ export class DataController {
      * Used by the frontend to inspect node outputs and structure.
      */
     static async testNode(req: CascataRequest, res: any, next: any) {
-        if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
+        if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         const { node, triggerPayload } = req.body;
 
         if (!node || !node.type) {
@@ -32,15 +32,15 @@ export class DataController {
                     trigger: { data: triggerPayload || {} },
                     $input: triggerPayload || {}
                 },
-                projectSlug: req.project.slug,
-                projectPool: req.projectPool!,
-                userRole: req.user.role || 'authenticated',
+                projectSlug: r.project.slug,
+                projectPool: r.projectPool!,
+                userRole: r.user.role || 'authenticated',
                 jwtClaims: req.user,
                 dryRun: true
             };
 
             const result = await AutomationService.processNode(node, context);
-            
+
             // Analyze keys if the result is an object or array of objects
             let detectedKeys: string[] = [];
             if (result && typeof result === 'object') {
@@ -56,8 +56,8 @@ export class DataController {
                 keys: detectedKeys
             });
         } catch (e: any) {
-            res.status(500).json({ 
-                success: false, 
+            res.status(500).json({
+                success: false,
                 error: e.message,
                 stack: process.env.NODE_ENV === 'development' ? e.stack : undefined
             });
@@ -122,10 +122,10 @@ export class DataController {
     // --- HELPER: SCHEMA SECURITY GUARD ---
     private static checkSchemaAccess(req: CascataRequest): boolean {
         // 1. Admin/Dashboard always allowed
-        if (req.isSystemRequest) return true;
+        if (r.isSystemRequest) return true;
 
         // 2. Explicit Opt-in for FlutterFlow/AppSmith/OpenAPI
-        if (req.project.metadata?.schema_exposure === true) return true;
+        if (r.project.metadata?.schema_exposure === true) return true;
 
         return false;
     }
@@ -141,9 +141,9 @@ export class DataController {
      * - Tier classification and source image info
      */
     static async listExtensions(req: CascataRequest, res: any, next: any) {
-        if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
+        if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         try {
-            const enriched = await ExtensionService.listAvailableEnriched(req.projectPool!);
+            const enriched = await ExtensionService.listAvailableEnriched(r.projectPool!);
             res.json(enriched);
         } catch (e: any) { next(e); }
     }
@@ -154,7 +154,7 @@ export class DataController {
      * For native extensions, goes straight to CREATE EXTENSION.
      */
     static async installExtension(req: CascataRequest, res: any, next: any) {
-        if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
+        if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         const { name, schema } = req.body;
 
         if (!name || !/^[a-zA-Z0-9_-]+$/.test(name)) {
@@ -163,8 +163,8 @@ export class DataController {
 
         try {
             const result = await ExtensionService.installExtension(
-                req.projectPool!,
-                req.project.slug,
+                r.projectPool!,
+                r.project.slug,
                 name,
                 schema || 'public'
             );
@@ -178,7 +178,7 @@ export class DataController {
      * Uninstall an extension from a project.
      */
     static async uninstallExtension(req: CascataRequest, res: any, next: any) {
-        if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
+        if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         const { name, cascade } = req.body;
 
         if (!name || !/^[a-zA-Z0-9_-]+$/.test(name)) {
@@ -187,8 +187,8 @@ export class DataController {
 
         try {
             const result = await ExtensionService.uninstallExtension(
-                req.projectPool!,
-                req.project.slug,
+                r.projectPool!,
+                r.project.slug,
                 name,
                 cascade === true
             );
@@ -203,7 +203,7 @@ export class DataController {
      * Used by the frontend to track Phantom Injection progress.
      */
     static async getExtensionInstallStatus(req: CascataRequest, res: any, next: any) {
-        if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
+        if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         const { name } = req.params;
 
         if (!name || !/^[a-zA-Z0-9_-]+$/.test(name)) {
@@ -223,7 +223,7 @@ export class DataController {
         // that may lack USAGE on user-created schemas.
         // This endpoint is admin-only (dashboard always sends system token).
         try {
-            const result = await req.projectPool!.query(`
+            const result = await r.projectPool!.query(`
                 SELECT schema_name as name 
                 FROM information_schema.schemata 
                 WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
@@ -256,19 +256,19 @@ export class DataController {
     }
 
     static async applyMaskingTier(req: CascataRequest, responseData: any, tableName: string): Promise<any> {
-        if (!responseData || !req.project.metadata?.masked_columns) return responseData;
+        if (!responseData || !r.project.metadata?.masked_columns) return responseData;
 
-        const masks = req.project.metadata.masked_columns[tableName] || {};
+        const masks = r.project.metadata.masked_columns[tableName] || {};
         if (Object.keys(masks).length === 0) return responseData;
 
-        const isAdmin = req.userRole === 'service_role';
-        
+        const isAdmin = r.userRole === 'service_role';
+
         // Lazy load SecurityUtils for decryption
         let SecurityUtils: any;
         if (isAdmin) {
             try {
                 SecurityUtils = (await import('../utils/SecurityUtils.js')).SecurityUtils;
-            } catch (e) {}
+            } catch (e) { }
         }
 
         const apply = (row: any) => {
@@ -283,7 +283,7 @@ export class DataController {
                     if (maskType === 'encrypt' && newRow[col] && typeof newRow[col] === 'string' && newRow[col].includes(':')) {
                         try {
                             newRow[col] = SecurityUtils.decrypt(newRow[col]);
-                        } catch (err) {}
+                        } catch (err) { }
                     }
                     continue; // Admin sees everything else (hide/mask/blur) unmasked
                 }
@@ -340,10 +340,10 @@ export class DataController {
                 // because column count changes frequently during development.
                 return await client.query(query, [limit, offset]);
             });
-            
+
             // --- CASCATA PRIVACY ENGINE (Centralized) ---
             const rows = await DataController.applyMaskingTier(req, result.rows, req.params.tableName);
-            
+
             res.json(rows);
         } catch (e: any) { next(e); }
     }
@@ -361,7 +361,7 @@ export class DataController {
             const schema = req.query.schema || 'public';
             const safeSchema = quoteId(schema as string);
 
-            const commentRes = await req.projectPool!.query(
+            const commentRes = await r.projectPool!.query(
                 `SELECT c.column_name, c.data_type, c.udt_name, col_description(
                     (SELECT oid FROM pg_class WHERE relname = $1 AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = $2)),
                     c.ordinal_position
@@ -431,7 +431,7 @@ export class DataController {
 
             const columns = keysArray.map(quoteId).join(', ');
             const flatValues: any[] = [];
-            
+
             // O SANTO GRAAL DOS BATCH INSERTS: Array Unnesting
             // Ao invez de explodir o driver com 65,000 parametros numéricos individuais ($1, $2, ... $65k)
             // Agrupamos os valores VERTICALMENTE. Teremos exatos "N" parametros, onde N = Numero de Colunas.
@@ -471,7 +471,7 @@ export class DataController {
             if (!data || !pkColumn || pkValue === undefined) throw new Error("Missing data or PK");
 
             // --- FORMAT VALIDATION (Server-Side Enforcement) ---
-            const commentRes = await req.projectPool!.query(
+            const commentRes = await r.projectPool!.query(
                 `SELECT c.column_name, col_description(
                     (SELECT oid FROM pg_class WHERE relname = $1 AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = $2)),
                     c.ordinal_position
@@ -546,7 +546,7 @@ export class DataController {
                   AND tco.table_name = $2
             `;
 
-            const pkRes = await req.projectPool!.query(pkQuery, [schema, tableName]);
+            const pkRes = await r.projectPool!.query(pkQuery, [schema, tableName]);
 
             if (pkRes.rows.length === 0) {
                 return res.status(400).json({ error: "Safety Block: Table has no Primary Key. Use SQL Editor." });
@@ -593,7 +593,7 @@ export class DataController {
         }
         try {
             const schema = req.query.schema || 'public';
-            const result = await req.projectPool!.query(`
+            const result = await r.projectPool!.query(`
                 SELECT DISTINCT routine_name as name 
                 FROM information_schema.routines 
                 WHERE routine_schema = $1 
@@ -610,7 +610,7 @@ export class DataController {
         }
         try {
             const schema = req.query.schema || 'public';
-            const result = await req.projectPool!.query(`
+            const result = await r.projectPool!.query(`
                 SELECT DISTINCT trigger_name as name 
                 FROM information_schema.triggers 
                 WHERE trigger_schema = $1
@@ -625,8 +625,8 @@ export class DataController {
         }
         try {
             const schema = req.query.schema || 'public';
-            const defResult = await req.projectPool!.query("SELECT pg_get_functiondef(p.oid) as def FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid WHERE p.proname = $1 AND n.nspname = $2", [req.params.name, schema]);
-            const argsResult = await req.projectPool!.query(`SELECT parameter_name as name, data_type as type, parameter_mode as mode FROM information_schema.parameters WHERE specific_name = (SELECT specific_name FROM information_schema.routines WHERE routine_name = $1 AND routine_schema = $2 LIMIT 1) ORDER BY ordinal_position ASC`, [req.params.name, schema]);
+            const defResult = await r.projectPool!.query("SELECT pg_get_functiondef(p.oid) as def FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid WHERE p.proname = $1 AND n.nspname = $2", [req.params.name, schema]);
+            const argsResult = await r.projectPool!.query(`SELECT parameter_name as name, data_type as type, parameter_mode as mode FROM information_schema.parameters WHERE specific_name = (SELECT specific_name FROM information_schema.routines WHERE routine_name = $1 AND routine_schema = $2 LIMIT 1) ORDER BY ordinal_position ASC`, [req.params.name, schema]);
             if (defResult.rows.length === 0) return res.status(404).json({ error: 'Function not found' });
             res.json({ definition: defResult.rows[0].def, args: argsResult.rows });
         } catch (e: any) { next(e); }
@@ -640,7 +640,7 @@ export class DataController {
             const schema = req.query.schema || 'public';
             // Trigger definitions are per-table, but here we look by name in the schema.
             // Using pg_trigger joined with pg_class and pg_namespace for schema awareness.
-            const result = await req.projectPool!.query(`
+            const result = await r.projectPool!.query(`
                 SELECT pg_get_triggerdef(t.oid) as def 
                 FROM pg_trigger t
                 JOIN pg_class c ON t.tgrelid = c.oid
@@ -648,7 +648,7 @@ export class DataController {
                 WHERE t.tgname = $1 AND n.nspname = $2
                 LIMIT 1
             `, [req.params.name, schema]);
-            
+
             if (result.rows.length === 0) return res.status(404).json({ error: 'Trigger not found' });
             res.json({ definition: result.rows[0].def });
         } catch (e: any) { next(e); }
@@ -662,7 +662,7 @@ export class DataController {
         }
         try {
             const schema = req.query.schema || 'public';
-            const result = await req.projectPool!.query(
+            const result = await r.projectPool!.query(
                 `SELECT 
                     c.column_name as name, 
                     c.data_type as type, 
@@ -683,10 +683,10 @@ export class DataController {
             );
 
             // TIER-3 UNIVERSAL PADLOCK (Frontend Propagation)
-            const globalLocks = req.project.metadata?.locked_columns || {};
+            const globalLocks = r.project.metadata?.locked_columns || {};
             const tableLocks = globalLocks[req.params.tableName] || {};
-            
-            const globalMasks = req.project.metadata?.masked_columns || {};
+
+            const globalMasks = r.project.metadata?.masked_columns || {};
             const tableMasks = globalMasks[req.params.tableName] || {};
 
             // Parse format patterns from comments
@@ -707,10 +707,10 @@ export class DataController {
     }
 
     static async runRawQuery(req: CascataRequest, res: any, next: any) {
-        if (req.userRole !== 'service_role') { res.status(403).json({ error: 'Only Service Role can execute raw SQL' }); return; }
+        if (r.userRole !== 'service_role') { res.status(403).json({ error: 'Only Service Role can execute raw SQL' }); return; }
         try {
             const start = Date.now();
-            const client = await req.projectPool!.connect();
+            const client = await r.projectPool!.connect();
             try {
                 await client.query("SET LOCAL statement_timeout = '60s'");
 
@@ -726,7 +726,7 @@ export class DataController {
                     // This is the nuclear option to prevent "cached plan" errors after schema changes.
                     try {
                         const PoolSvc = (await import('../../services/PoolService.js')).PoolService;
-                        await PoolSvc.reload(req.project.slug);
+                        await PoolSvc.reload(r.project.slug);
                     } catch (poolErr) {
                         console.warn('[runRawQuery] Pool reload failed:', poolErr);
                     }
@@ -798,12 +798,12 @@ export class DataController {
     }
 
     static async createTable(req: CascataRequest, res: any, next: any) {
-        if (!req.isSystemRequest) { res.status(403).json({ error: 'Only Dashboard can create tables.' }); return; }
+        if (!r.isSystemRequest) { res.status(403).json({ error: 'Only Dashboard can create tables.' }); return; }
         const { name, columns, description } = req.body;
         const schema = req.query.schema || 'public';
         const safeSchema = quoteId(schema as string);
         try {
-            if (req.projectPool) await DatabaseService.validateTableDefinition(req.projectPool, name, columns);
+            if (r.projectPool) await DatabaseService.validateTableDefinition(r.projectPool, name, columns);
             const safeName = quoteId(name);
             const colDefs = columns.map((c: any) => {
                 let def = `${quoteId(c.name)} ${c.type}`;
@@ -817,19 +817,19 @@ export class DataController {
             const sql = `CREATE TABLE ${safeSchema}.${safeName} (${colDefs});`;
 
             // Execute the schema creation
-            await req.projectPool!.query(sql);
+            await r.projectPool!.query(sql);
 
             // Optional RLS Enforcement (True by default, but user can opt-out for construction)
             const rlsEnabled = req.body.rls_enabled !== false;
-            
+
             if (rlsEnabled) {
-                await req.projectPool!.query(`ALTER TABLE ${safeSchema}.${safeName} ENABLE ROW LEVEL SECURITY`);
-                await req.projectPool!.query(`ALTER TABLE ${safeSchema}.${safeName} FORCE ROW LEVEL SECURITY`);
+                await r.projectPool!.query(`ALTER TABLE ${safeSchema}.${safeName} ENABLE ROW LEVEL SECURITY`);
+                await r.projectPool!.query(`ALTER TABLE ${safeSchema}.${safeName} FORCE ROW LEVEL SECURITY`);
 
                 // Security Blindagem: Create Master Policy for Service Role and Owner (God Mode)
                 const tblName = String(name);
                 const schName = String(schema);
-                await req.projectPool!.query(`
+                await r.projectPool!.query(`
                     DO $$ BEGIN
                         IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = ${quotePostgresLiteral(schName)} AND tablename = ${quotePostgresLiteral(tblName)} AND policyname = 'master_system_policy') THEN
                             EXECUTE format('CREATE POLICY master_system_policy ON %I.%I FOR ALL TO service_role, current_user USING (true) WITH CHECK (true)', ${quotePostgresLiteral(schName)}, ${quotePostgresLiteral(tblName)});
@@ -839,7 +839,7 @@ export class DataController {
             }
 
             // 1. Core Event Webhook Trigger
-            await req.projectPool!.query(`CREATE TRIGGER ${name}_changes AFTER INSERT OR UPDATE OR DELETE ON ${safeSchema}.${safeName} FOR EACH ROW EXECUTE FUNCTION public.notify_changes();`);
+            await r.projectPool!.query(`CREATE TRIGGER ${name}_changes AFTER INSERT OR UPDATE OR DELETE ON ${safeSchema}.${safeName} FOR EACH ROW EXECUTE FUNCTION public.notify_changes();`);
 
             // 2. TIER-3 UNIVERSAL PADLOCK (Auto-Injection for Temporal Columns)
             // As per Commander's directive: created_at and updated_at get the Database 'Iron-Clad' Trigger automatically.
@@ -866,16 +866,16 @@ export class DataController {
                     BEFORE UPDATE ON ${safeSchema}.${safeName}
                     FOR EACH ROW EXECUTE FUNCTION ${safeSchema}.${quoteId(triggerFuncName)}();
                 `;
-                await req.projectPool!.query(triggerSql);
+                await r.projectPool!.query(triggerSql);
             }
 
-            if (description) await req.projectPool!.query(`COMMENT ON TABLE ${safeSchema}.${safeName} IS $1`, [description]);
-            
+            if (description) await r.projectPool!.query(`COMMENT ON TABLE ${safeSchema}.${safeName} IS $1`, [description]);
+
             // SECURITY HYBRID FLUSH: Ensure new table structure is recognized immediately
             try {
                 const PoolSvc = (await import('../../services/PoolService.js')).PoolService;
-                await PoolSvc.reload(req.project.slug);
-            } catch (e) {}
+                await PoolSvc.reload(r.project.slug);
+            } catch (e) { }
 
             res.json({ success: true });
         } catch (e: any) { next(e); }
@@ -884,50 +884,50 @@ export class DataController {
     // --- RECYCLE BIN & SOFT DELETE ---
 
     static async deleteTable(req: CascataRequest, res: any, next: any) {
-        if (!req.isSystemRequest) { res.status(403).json({ error: 'Only Dashboard can delete tables.' }); return; }
+        if (!r.isSystemRequest) { res.status(403).json({ error: 'Only Dashboard can delete tables.' }); return; }
         const { mode } = req.body;
         const schema = req.query.schema || 'public';
         const safeSchema = quoteId(schema as string);
         try {
             if (mode === 'CASCADE' || mode === 'RESTRICT') {
                 const cascadeSql = mode === 'CASCADE' ? 'CASCADE' : '';
-                await req.projectPool!.query(`DROP TABLE ${safeSchema}.${quoteId(req.params.table)} ${cascadeSql}`);
+                await r.projectPool!.query(`DROP TABLE ${safeSchema}.${quoteId(req.params.table)} ${cascadeSql}`);
             } else {
                 const deletedName = `_deleted_${Date.now()}_${req.params.table}`;
-                await req.projectPool!.query(`ALTER TABLE ${safeSchema}.${quoteId(req.params.table)} RENAME TO ${quoteId(deletedName)}`);
+                await r.projectPool!.query(`ALTER TABLE ${safeSchema}.${quoteId(req.params.table)} RENAME TO ${quoteId(deletedName)}`);
             }
 
             // Pool Refresh to clear cached plans of the modified table
             try {
                 const PoolSvc = (await import('../../services/PoolService.js')).PoolService;
-                await PoolSvc.reload(req.project.slug);
-            } catch (e) {}
+                await PoolSvc.reload(r.project.slug);
+            } catch (e) { }
 
             res.json({ success: true });
         } catch (e: any) { next(e); }
     }
 
     static async listRecycleBin(req: CascataRequest, res: any, next: any) {
-        if (!req.isSystemRequest) { res.status(403).json({ error: 'Unauthorized' }); return; }
+        if (!r.isSystemRequest) { res.status(403).json({ error: 'Unauthorized' }); return; }
         try {
             const schema = req.query.schema || 'public';
-            const result = await req.projectPool!.query("SELECT table_name as name FROM information_schema.tables WHERE table_schema = $1 AND table_name LIKE '\\_deleted\\_%'", [schema]);
+            const result = await r.projectPool!.query("SELECT table_name as name FROM information_schema.tables WHERE table_schema = $1 AND table_name LIKE '\\_deleted\\_%'", [schema]);
             res.json(result.rows);
         } catch (e: any) { next(e); }
     }
 
     static async restoreTable(req: CascataRequest, res: any, next: any) {
-        if (!req.isSystemRequest) { res.status(403).json({ error: 'Unauthorized' }); return; }
+        if (!r.isSystemRequest) { res.status(403).json({ error: 'Unauthorized' }); return; }
         try {
             const schema = req.query.schema || 'public';
             const safeSchema = quoteId(schema as string);
             const originalName = req.params.table.replace(/^_deleted_\d+_/, '');
-            await req.projectPool!.query(`ALTER TABLE ${safeSchema}.${quoteId(req.params.table)} RENAME TO ${quoteId(originalName)}`);
-            
+            await r.projectPool!.query(`ALTER TABLE ${safeSchema}.${quoteId(req.params.table)} RENAME TO ${quoteId(originalName)}`);
+
             try {
                 const PoolSvc = (await import('../../services/PoolService.js')).PoolService;
-                await PoolSvc.reload(req.project.slug);
-            } catch (e) {}
+                await PoolSvc.reload(r.project.slug);
+            } catch (e) { }
 
             res.json({ success: true, restoredName: originalName });
         } catch (e: any) { next(e); }
@@ -952,7 +952,7 @@ export class DataController {
         try {
             const { slug, table } = req.params;
             const { settings } = req.body;
-            
+
             await systemPool.query(
                 `INSERT INTO system.ui_settings (project_slug, table_name, settings) 
                  VALUES ($1, $2, $3) 
@@ -973,7 +973,7 @@ export class DataController {
                  FROM system.assets 
                  WHERE project_slug = $1 
                  ORDER BY created_at DESC`,
-                [req.project.slug]
+                [r.project.slug]
             );
             res.json(result.rows);
         } catch (e: any) {
@@ -987,31 +987,31 @@ export class DataController {
             const safeParentId = (parent_id === 'root' || parent_id === '') ? null : parent_id;
             if (id) {
                 // CRITICAL FIX: Ensure the asset being updated belongs to the current project
-                const checkRes = await systemPool.query('SELECT 1 FROM system.assets WHERE id = $1 AND project_slug = $2', [id, req.project.slug]);
+                const checkRes = await systemPool.query('SELECT 1 FROM system.assets WHERE id = $1 AND project_slug = $2', [id, r.project.slug]);
                 if (checkRes.rowCount === 0) return res.status(404).json({ error: 'Asset not found or unauthorized' });
 
                 let query = 'UPDATE system.assets SET name=$1, metadata=$2 WHERE id=$3 AND project_slug=$4 RETURNING *';
-                let params = [name, metadata, id, req.project.slug];
+                let params = [name, metadata, id, r.project.slug];
                 if (parent_id !== undefined) {
                     query = 'UPDATE system.assets SET name=$1, metadata=$2, parent_id=$5 WHERE id=$3 AND project_slug=$4 RETURNING *';
-                    params = [name, metadata, id, req.project.slug, safeParentId];
+                    params = [name, metadata, id, r.project.slug, safeParentId];
                 }
                 const upd = await systemPool.query(query, params);
                 assetId = upd.rows[0].id;
                 res.json(upd.rows[0]);
             } else {
-                const ins = await systemPool.query('INSERT INTO system.assets (project_slug, name, type, parent_id, metadata) VALUES ($1, $2, $3, $4, $5) RETURNING *', [req.project.slug, name, type, safeParentId, metadata]);
+                const ins = await systemPool.query('INSERT INTO system.assets (project_slug, name, type, parent_id, metadata) VALUES ($1, $2, $3, $4, $5) RETURNING *', [r.project.slug, name, type, safeParentId, metadata]);
                 assetId = ins.rows[0].id;
                 res.json(ins.rows[0]);
             }
-            if (metadata?.sql) systemPool.query('INSERT INTO system.asset_history (asset_id, project_slug, content, metadata, created_by) VALUES ($1, $2, $3, $4, $5)', [assetId, req.project.slug, metadata.sql, metadata, req.userRole]);
+            if (metadata?.sql) systemPool.query('INSERT INTO system.asset_history (asset_id, project_slug, content, metadata, created_by) VALUES ($1, $2, $3, $4, $5)', [assetId, r.project.slug, metadata.sql, metadata, r.userRole]);
         } catch (e: any) { next(e); }
     }
     static async deleteAsset(req: CascataRequest, res: any, next: any) {
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.id)) return res.json({ success: true });
         try {
             // CRITICAL FIX: Ensure the asset being deleted belongs to the current project
-            await systemPool.query('DELETE FROM system.assets WHERE id=$1 AND project_slug=$2', [req.params.id, req.project.slug]);
+            await systemPool.query('DELETE FROM system.assets WHERE id=$1 AND project_slug=$2', [req.params.id, r.project.slug]);
             res.json({ success: true });
         } catch (e: any) { next(e); }
     }
@@ -1019,21 +1019,21 @@ export class DataController {
     // --- CASCATA AUTOMATIONS (MANAGEMENT) ---
 
     static async listAutomations(req: CascataRequest, res: any, next: any) {
-        if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
+        if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         try {
             const result = await systemPool.query(
                 `SELECT id, name, description, trigger_type, trigger_config, nodes, is_active, created_at, updated_at 
                  FROM system.automations 
                  WHERE project_slug = $1 
                  ORDER BY created_at DESC`,
-                [req.project.slug]
+                [r.project.slug]
             );
             res.json(result.rows);
         } catch (e: any) { next(e); }
     }
 
     static async upsertAutomation(req: CascataRequest, res: any, next: any) {
-        if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
+        if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         const { id, name, description, trigger_type, trigger_config, nodes, is_active } = req.body;
         try {
             if (id) {
@@ -1044,18 +1044,18 @@ export class DataController {
                      WHERE id = $7 AND project_slug = $8
                      RETURNING *`,
                     [
-                        name, 
-                        description, 
-                        trigger_type, 
-                        typeof trigger_config === 'string' ? trigger_config : JSON.stringify(trigger_config || {}), 
-                        typeof nodes === 'string' ? nodes : JSON.stringify(nodes || []), 
-                        is_active ?? true, 
-                        id, 
-                        req.project.slug
+                        name,
+                        description,
+                        trigger_type,
+                        typeof trigger_config === 'string' ? trigger_config : JSON.stringify(trigger_config || {}),
+                        typeof nodes === 'string' ? nodes : JSON.stringify(nodes || []),
+                        is_active ?? true,
+                        id,
+                        r.project.slug
                     ]
                 );
                 if (result.rowCount === 0) return res.status(404).json({ error: 'Automation not found.' });
-                AutomationService.invalidateCache(req.project.slug);
+                AutomationService.invalidateCache(r.project.slug);
 
                 // CRON SYNC: Ensure repeatable jobs are updated
                 await CronService.unregisterAutomation(id);
@@ -1071,16 +1071,16 @@ export class DataController {
                      VALUES ($1, $2, $3, $4, $5, $6, $7)
                      RETURNING *`,
                     [
-                        req.project.slug, 
-                        name, 
-                        description, 
-                        trigger_type, 
-                        typeof trigger_config === 'string' ? trigger_config : JSON.stringify(trigger_config || {}), 
-                        typeof nodes === 'string' ? nodes : JSON.stringify(nodes || []), 
+                        r.project.slug,
+                        name,
+                        description,
+                        trigger_type,
+                        typeof trigger_config === 'string' ? trigger_config : JSON.stringify(trigger_config || {}),
+                        typeof nodes === 'string' ? nodes : JSON.stringify(nodes || []),
                         is_active ?? true
                     ]
                 );
-                AutomationService.invalidateCache(req.project.slug);
+                AutomationService.invalidateCache(r.project.slug);
 
                 // CRON SYNC: Register if scheduled
                 if ((is_active ?? true) && trigger_type === 'CRON') {
@@ -1093,26 +1093,26 @@ export class DataController {
     }
 
     static async deleteAutomation(req: CascataRequest, res: any, next: any) {
-        if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
+        if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         try {
             await CronService.unregisterAutomation(req.params.id);
             const result = await systemPool.query(
                 'DELETE FROM system.automations WHERE id = $1 AND project_slug = $2',
-                [req.params.id, req.project.slug]
+                [req.params.id, r.project.slug]
             );
-            AutomationService.invalidateCache(req.project.slug);
+            AutomationService.invalidateCache(r.project.slug);
             res.json({ success: true });
         } catch (e: any) { next(e); }
     }
 
     static async listAutomationRuns(req: CascataRequest, res: any, next: any) {
-        if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
+        if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         const { automation_id } = req.query;
         try {
             let query = `SELECT id, automation_id, status, execution_time_ms, trigger_payload, final_output, error_message, created_at 
                          FROM system.automation_runs 
                          WHERE project_slug = $1`;
-            const params = [req.project.slug];
+            const params = [r.project.slug];
 
             if (automation_id) {
                 query += ` AND automation_id = $2`;
@@ -1127,7 +1127,7 @@ export class DataController {
     }
 
     static async getAutomationStats(req: CascataRequest, res: any, next: any) {
-        if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
+        if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         try {
             // One aggregation query per project — joins automation_runs grouped by automation_id.
             // LEFT JOIN ensures automations with zero runs still appear (with 0 counts).
@@ -1144,17 +1144,17 @@ export class DataController {
                    ON r.automation_id = a.id AND r.project_slug = a.project_slug
                  WHERE a.project_slug = $1
                  GROUP BY a.id`,
-                [req.project.slug]
+                [r.project.slug]
             );
             // Return as a map { [automation_id]: stats } for O(1) lookup in the frontend
             const statsMap: Record<string, any> = {};
             for (const row of result.rows) {
                 statsMap[row.automation_id] = {
-                    total_runs:    row.total_runs,
+                    total_runs: row.total_runs,
                     success_count: row.success_count,
-                    failed_count:  row.failed_count,
-                    avg_ms:        row.avg_ms ?? 0,
-                    last_run_at:   row.last_run_at
+                    failed_count: row.failed_count,
+                    avg_ms: row.avg_ms ?? 0,
+                    last_run_at: row.last_run_at
                 };
             }
             res.json(statsMap);
@@ -1170,7 +1170,7 @@ export class DataController {
                  INNER JOIN system.assets a ON a.id = h.asset_id
                  WHERE h.asset_id = $1 AND a.project_slug = $2
                  ORDER BY h.created_at DESC LIMIT 50`,
-                [req.params.id, req.project.slug]
+                [req.params.id, r.project.slug]
             );
             res.json(result.rows);
         } catch (e: any) { next(e); }
@@ -1189,9 +1189,9 @@ export class DataController {
                   AND created_at > NOW() - INTERVAL '24 hours'
                 GROUP BY 1 
                 ORDER BY 1
-            `, [req.project.slug]);
+            `, [r.project.slug]);
 
-            const client = await req.projectPool!.connect();
+            const client = await r.projectPool!.connect();
             try {
                 await client.query("RESET ROLE");
                 const [tables, users, size] = await Promise.all([
@@ -1224,14 +1224,14 @@ export class DataController {
         try {
             // TIER-3 UNIVERSAL PADLOCK (Gateway Extraction & Injection)
             // Extract the locked columns metadata configured via the Frontend Table Builder
-            const lockedColumns = req.project.metadata?.locked_columns;
+            const lockedColumns = r.project.metadata?.locked_columns;
             if (lockedColumns) {
                 req.headers['x-cascata-locked-columns'] = JSON.stringify(lockedColumns);
-                req.headers['x-cascata-role'] = req.userRole;
-                req.headers['x-cascata-project-id'] = req.project.id;
-                req.headers['x-cascata-jwt-secret'] = req.project.jwt_secret;
+                req.headers['x-cascata-role'] = r.userRole;
+                req.headers['x-cascata-project-id'] = r.project.id;
+                req.headers['x-cascata-jwt-secret'] = r.project.jwt_secret;
             }
-            const maskedColumns = req.project.metadata?.masked_columns;
+            const maskedColumns = r.project.metadata?.masked_columns;
             if (maskedColumns) {
                 req.headers['x-cascata-masked-columns'] = JSON.stringify(maskedColumns);
             }
@@ -1285,30 +1285,30 @@ export class DataController {
             // Allows the user to hijack and transform the API response via a No-Code workflow
             if (responseData && !fromCache) {
                 responseData = await AutomationService.interceptResponse(
-                    req.project.slug,
+                    r.project.slug,
                     req.params.tableName,
                     req.method as any,
                     responseData,
                     {
-                        vars: {}, 
+                        vars: {},
                         payload: responseData,
-                        projectSlug: req.project.slug,
-                        jwtSecret: req.project.jwt_secret,
-                        projectPool: req.projectPool!,
+                        projectSlug: r.project.slug,
+                        jwtSecret: r.project.jwt_secret,
+                        projectPool: r.projectPool!,
                         // --- SECURITY: Pass the caller's identity so SQL nodes
                         //     can enforce RLS with the correct role and claims. ---
-                        userRole: req.userRole,
+                        userRole: r.userRole,
                         jwtClaims: {
-                            sub:        req.user?.sub,
-                            email:      req.user?.email,
-                            role:       req.userRole,
+                            sub: req.user?.sub,
+                            email: req.user?.email,
+                            role: r.userRole,
                             identifier: (req.user as any)?.identifier,
-                            provider:   (req.user as any)?.provider,
+                            provider: (req.user as any)?.provider,
                         }
                     }
                 );
             }
-            
+
             // --- CASCATA PRIVACY ENGINE (Centralized Synergy) ---
             if (req.method === 'GET') {
                 responseData = await DataController.applyMaskingTier(req, responseData, req.params.tableName);
@@ -1324,7 +1324,7 @@ export class DataController {
             // Fire-And-Forget: Escreve no Dragonfly pós-resposta para não bloquear o Event Loop do client atual
             if (buildResult.cacheKey && !fromCache && dfly && (RateLimitService as any).isDragonflyHealthy) {
                 // A key expira sozinha pelo TTL exigido
-                dfly.set(buildResult.cacheKey, JSON.stringify(responseData), 'EX', buildResult.ttl || 60).catch(() => {});
+                dfly.set(buildResult.cacheKey, JSON.stringify(responseData), 'EX', buildResult.ttl || 60).catch(() => { });
             }
 
         } catch (e: any) { next(e); }

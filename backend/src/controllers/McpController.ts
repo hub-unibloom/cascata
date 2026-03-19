@@ -11,7 +11,7 @@ export class McpController {
     static async connectSSE(req: CascataRequest, res: any) {
         // ALLOW-LIST: service_role, authenticated, anon
         const allowedRoles = ['service_role', 'authenticated', 'anon'];
-        if (!allowedRoles.includes(req.userRole || '')) {
+        if (!allowedRoles.includes(r.userRole || '')) {
             res.status(403).json({ error: "Access Denied. Invalid role for MCP access." });
             return;
         }
@@ -21,13 +21,13 @@ export class McpController {
             const sysRes = await systemPool.query("SELECT settings->>'mcp_enabled' as mcp_enabled FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'ai_config'");
             const globalEnabled = sysRes.rows[0]?.mcp_enabled;
             if (globalEnabled === 'false' || globalEnabled === false) {
-                 res.status(503).json({ error: "System Governance: Global MCP Access Terminated." });
-                 return;
+                res.status(503).json({ error: "System Governance: Global MCP Access Terminated." });
+                return;
             }
-        } catch(e) {}
+        } catch (e) { }
 
         // GOVERNANCE: Project Level Check
-        const projGovernance = req.project.metadata?.ai_governance;
+        const projGovernance = r.project.metadata?.ai_governance;
         if (projGovernance?.mcp_enabled === false) {
             res.status(403).json({ error: "Project Governance: MCP Access Disabled for this project." });
             return;
@@ -35,7 +35,7 @@ export class McpController {
 
         // --- IP & URL SECURITY PERIMETER ---
         const mcpPerimeter = projGovernance?.mcp_perimeter;
-        if (mcpPerimeter && req.userRole !== 'service_role') {
+        if (mcpPerimeter && r.userRole !== 'service_role') {
             const allowedIps = mcpPerimeter.allowed_ips || [];
             const allowedUrls = mcpPerimeter.allowed_urls || [];
 
@@ -72,19 +72,19 @@ export class McpController {
     static async handleMessage(req: CascataRequest, res: any, next: any) {
         // ALLOW-LIST: service_role, authenticated, anon
         const allowedRoles = ['service_role', 'authenticated', 'anon'];
-        if (!allowedRoles.includes(req.userRole || '')) {
+        if (!allowedRoles.includes(r.userRole || '')) {
             return res.status(403).json({ error: "Access Denied" });
         }
 
         // GOVERNANCE: Project Level Check
-        const projGovernance = req.project.metadata?.ai_governance;
+        const projGovernance = r.project.metadata?.ai_governance;
         if (projGovernance?.mcp_enabled === false) {
             return res.json({ jsonrpc: "2.0", id: req.body.id, error: { code: -32000, message: "Project Governance: MCP Access Disabled." } });
         }
 
         // --- IP & URL SECURITY PERIMETER (REDUNDANT CHECK FOR NON-SSE CLIENTS) ---
         const mcpPerimeter = projGovernance?.mcp_perimeter;
-        if (mcpPerimeter && req.userRole !== 'service_role') {
+        if (mcpPerimeter && r.userRole !== 'service_role') {
             const allowedIps = mcpPerimeter.allowed_ips || [];
             const allowedUrls = mcpPerimeter.allowed_urls || [];
 
@@ -105,7 +105,7 @@ export class McpController {
         }
 
         const body = req.body;
-        
+
         try {
             if (body.method === 'initialize') {
                 return res.json({
@@ -125,7 +125,7 @@ export class McpController {
                     id: body.id,
                     result: {
                         resources: [{
-                            uri: `cascata://${req.project.slug}/context`,
+                            uri: `cascata://${r.project.slug}/context`,
                             name: "Project Context (Schema + Logic)",
                             mimeType: "text/plain",
                             description: "Database schema, relationships, RLS status, and available Edge Functions."
@@ -167,15 +167,15 @@ export class McpController {
                             {
                                 name: "manage_edge_function",
                                 description: "Create, update, read, or delete Serverless Edge Functions (TypeScript/JavaScript).",
-                                inputSchema: { 
-                                    type: "object", 
-                                    properties: { 
+                                inputSchema: {
+                                    type: "object",
+                                    properties: {
                                         action: { type: "string", enum: ["create", "update", "delete", "read"] },
                                         name: { type: "string" },
                                         code: { type: "string", description: "The JS/TS source code (for create/update)" },
                                         metadata: { type: "object", description: "Env vars, timeout, etc." }
-                                    }, 
-                                    required: ["action", "name"] 
+                                    },
+                                    required: ["action", "name"]
                                 }
                             }
                         ]
@@ -185,8 +185,8 @@ export class McpController {
 
             if (body.method === 'tools/call') {
                 const result = await McpService.executeTool(
-                    req, 
-                    body.params.name, 
+                    req,
+                    body.params.name,
                     body.params.arguments
                 );
                 return res.json({ jsonrpc: "2.0", id: body.id, result: result });
@@ -208,10 +208,10 @@ export class McpController {
             const sysRes = await systemPool.query("SELECT settings->>'mcp_enabled' as mcp_enabled FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'ai_config'");
             const globalEnabled = sysRes.rows[0]?.mcp_enabled;
             if (globalEnabled === 'false' || globalEnabled === false) {
-                 res.status(503).json({ error: "System Governance: Global MCP Access Terminated." });
-                 return;
+                res.status(503).json({ error: "System Governance: Global MCP Access Terminated." });
+                return;
             }
-        } catch(e) {}
+        } catch (e) { }
 
         // Auth handled by middleware (Cookie/Header Admin Token)
         res.writeHead(200, {
@@ -230,12 +230,12 @@ export class McpController {
             const sysRes = await systemPool.query("SELECT settings->>'mcp_enabled' as mcp_enabled FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'ai_config'");
             const globalEnabled = sysRes.rows[0]?.mcp_enabled;
             if (globalEnabled === 'false' || globalEnabled === false) {
-                 return res.json({ jsonrpc: "2.0", id: req.body.id, error: { code: -32000, message: "System Governance: Global MCP Access Terminated." } });
+                return res.json({ jsonrpc: "2.0", id: req.body.id, error: { code: -32000, message: "System Governance: Global MCP Access Terminated." } });
             }
-        } catch(e) {}
+        } catch (e) { }
 
         const body = req.body;
-        
+
         try {
             if (body.method === 'initialize') {
                 return res.json({
@@ -287,13 +287,13 @@ export class McpController {
                             {
                                 name: "create_project",
                                 description: "Provision a new Project (Database, Keys, Vector Store).",
-                                inputSchema: { 
-                                    type: "object", 
-                                    properties: { 
-                                        name: { type: "string" }, 
-                                        slug: { type: "string", description: "URL-friendly identifier" } 
-                                    }, 
-                                    required: ["name", "slug"] 
+                                inputSchema: {
+                                    type: "object",
+                                    properties: {
+                                        name: { type: "string" },
+                                        slug: { type: "string", description: "URL-friendly identifier" }
+                                    },
+                                    required: ["name", "slug"]
                                 }
                             },
                             {

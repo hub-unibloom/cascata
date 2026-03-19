@@ -8,19 +8,19 @@ export class PushController {
 
     // Registra o device do usuário atual (Autenticado)
     static async registerDevice(req: CascataRequest, res: any, next: any) {
-        if (!req.user || !req.user.sub) {
+        if (!req.user || !r.user.sub) {
             return res.status(401).json({ error: 'User must be authenticated to register a device.' });
         }
-        
+
         const { token, platform, app_version } = req.body;
         if (!token) return res.status(400).json({ error: 'FCM Token is required.' });
 
         try {
             await PushService.registerDevice(
-                req.projectPool!, 
-                req.user.sub, 
-                token, 
-                platform, 
+                r.projectPool!,
+                r.user.sub,
+                token,
+                platform,
                 app_version
             );
             res.json({ success: true });
@@ -32,7 +32,7 @@ export class PushController {
     // Envia Push Manual (Via API/RPC)
     static async sendPush(req: CascataRequest, res: any, next: any) {
         // Requer Service Role ou lógica customizada de segurança
-        if (req.userRole !== 'service_role') {
+        if (r.userRole !== 'service_role') {
             return res.status(403).json({ error: 'Only service_role can send arbitrary pushes.' });
         }
 
@@ -41,16 +41,16 @@ export class PushController {
 
         try {
             // Assume que o usuário salvou o JSON do Firebase no metadata do projeto
-            const firebaseConfig = req.project.metadata?.firebase_config;
+            const firebaseConfig = r.project.metadata?.firebase_config;
 
             if (!firebaseConfig) {
                 return res.status(400).json({ error: 'Firebase not configured in Project Settings.' });
             }
 
             const result = await PushService.sendToUser(
-                req.projectPool!,
+                r.projectPool!,
                 systemPool,
-                req.project.slug,
+                r.project.slug,
                 user_id,
                 { title, body, data },
                 {
@@ -71,7 +71,7 @@ export class PushController {
         try {
             const result = await systemPool.query(
                 `SELECT * FROM system.notification_rules WHERE project_slug = $1 ORDER BY created_at DESC`,
-                [req.project.slug]
+                [r.project.slug]
             );
             res.json(result.rows);
         } catch (e: any) { next(e); }
@@ -84,7 +84,7 @@ export class PushController {
                 `INSERT INTO system.notification_rules 
                 (project_slug, name, trigger_table, trigger_event, recipient_column, title_template, body_template, conditions)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-                [req.project.slug, name, trigger_table, trigger_event, recipient_column, title_template, body_template, JSON.stringify(conditions || [])]
+                [r.project.slug, name, trigger_table, trigger_event, recipient_column, title_template, body_template, JSON.stringify(conditions || [])]
             );
             res.json(result.rows[0]);
         } catch (e: any) { next(e); }
@@ -92,7 +92,7 @@ export class PushController {
 
     static async deleteRule(req: CascataRequest, res: any, next: any) {
         try {
-            await systemPool.query(`DELETE FROM system.notification_rules WHERE id = $1 AND project_slug = $2`, [req.params.id, req.project.slug]);
+            await systemPool.query(`DELETE FROM system.notification_rules WHERE id = $1 AND project_slug = $2`, [req.params.id, r.project.slug]);
             res.json({ success: true });
         } catch (e: any) { next(e); }
     }
@@ -103,7 +103,7 @@ export class PushController {
             const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
             const result = await systemPool.query(
                 `SELECT * FROM system.notification_history WHERE project_slug = $1 ORDER BY created_at DESC LIMIT $2`,
-                [req.project.slug, limit]
+                [r.project.slug, limit]
             );
             res.json(result.rows);
         } catch (e: any) { next(e); }
