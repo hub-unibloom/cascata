@@ -1,0 +1,574 @@
+# Usei esse comano aqui para ver os logs:
+
+ubuntu@ip-172-26-15-0:~$ cd cascata
+ubuntu@ip-172-26-15-0:~/cascata$ docker logs -f cascata-backend & docker logs -f cascata-backend-data & docker logs -f cascata-db
+[1] 18721
+[2] 18722
+[SystemLogService] Decoupled Logging Engine Initialized (Dragonfly Buffer Mode).
+[Hyper-Cluster] Primary Master PID: 1 is running.
+[Hyper-Cluster] Spawning 4 Zero-Network Socket Workers...
+[Realtime] ✅ Service initialized with Hydration Batcher V2 (Env Aware)
+[PoolService] Smart Reaper initialized (Aggressive Mode).
+[System:Primary] Booting up...
+[RateLimit] Dragonfly Connected & Healthy.
+[MigrationService] Initializing...
+[MigrationService] Lock acquired. Starting checks...
+[MigrationService] Lock released.
+[System:Primary] Failed to inject SQL Procedures: schema "auth" does not exist
+[System:Primary] Platform Ready & Healthy.
+[SystemLogService] Decoupled Logging Engine Initialized (Dragonfly Buffer Mode).
+[SystemLogService] Decoupled Logging Engine Initialized (Dragonfly Buffer Mode).
+[SystemLogService] Decoupled Logging Engine Initialized (Dragonfly Buffer Mode).
+[SystemLogService] Decoupled Logging Engine Initialized (Dragonfly Buffer Mode).
+[System] Booting up...
+[System] Booting up...
+[System] Booting up...
+[System] Booting up...
+[Hyper-Cluster Worker 3] Listening on IPC Unix Socket: /tmp/cascata_sockets/worker_3.sock
+[Hyper-Cluster Worker 1] Listening on IPC Unix Socket: /tmp/cascata_sockets/worker_1.sock
+[Hyper-Cluster Worker 4] Listening on IPC Unix Socket: /tmp/cascata_sockets/worker_4.sock
+[Hyper-Cluster Worker 2] Listening on IPC Unix Socket: /tmp/cascata_sockets/worker_2.sock
+[RateLimit] Dragonfly Connected & Healthy.
+[RateLimit] Dragonfly Connected & Healthy.
+[RateLimit] Dragonfly Connected & Healthy.
+[RateLimit] Dragonfly Connected & Healthy.
+[MigrationService] Initializing...
+[MigrationService] Lock acquired. Starting checks...
+[MigrationService] Initializing...
+[MigrationService] Another instance holds the lock. Skipping migrations check to allow fast boot.
+[System] Platform Ready & Healthy.
+[MigrationService] Initializing...
+[MigrationService] Another instance holds the lock. Skipping migrations check to allow fast boot.
+[System] Platform Ready & Healthy.
+[MigrationService] Initializing...
+[MigrationService] Another instance holds the lock. Skipping migrations check to allow fast boot.
+[System] Platform Ready & Healthy.
+[MigrationService] Lock released.
+[System] Platform Ready & Healthy.
+(node:18) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:20) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:19) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[Realtime] 🟢 Spawning dedicated listener for teste:live
+(node:21) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[Realtime] 🔴 Closing idle listener for teste:live
+[Realtime] 🟢 Spawning dedicated listener for teste:live
+============================================================
+  Cascata PostgreSQL — True Phantom Injection Engine
+  Postgres 18 Alpine + Dynamic Extension Loading
+============================================================
+[Cascata] Starting Phantom Extension Linker daemon...
+[Cascata] Phantom Linker started (PID: 6)
+[PhantomLinker] Starting Phantom Extension Linker v1.0
+[PhantomLinker] Monitoring: /cascata_extensions/lib, /cascata_extensions/share, /cascata_extensions/os_lib
+[PhantomLinker] Target: /usr/local/lib/postgresql, /usr/local/share/postgresql/extension, /usr/lib
+[PhantomLinker] Using inotify mode (real-time detection)
+The files belonging to this database system will be owned by user "postgres".
+This user must also own the server process.
+
+The database cluster will be initialized with locale "en_US.utf8".
+The default database encoding has accordingly been set to "UTF8".
+The default text search configuration will be set to "english".
+
+Data page checksums are enabled.
+
+fixing permissions on existing directory /var/lib/postgresql/data ... ok
+creating subdirectories ... ok
+selecting dynamic shared memory implementation ... posix
+selecting default "max_connections" ... 100
+selecting default "shared_buffers" ... 128MB
+selecting default time zone ... UTC
+creating configuration files ... ok
+running bootstrap script ... ok
+sh: locale: not found
+2026-03-19 04:55:15.593 UTC [39] WARNING:  no usable system locales were found
+performing post-bootstrap initialization ... ok
+initdb: warning: enabling "trust" authentication for local connections
+initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+syncing data to disk ... ok
+
+
+Success. You can now start the database server using:
+
+    pg_ctl -D /var/lib/postgresql/data -l logfile start
+
+waiting for server to start....2026-03-19 04:55:16.394 UTC [193] LOG:  starting PostgreSQL 18.3 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2026-03-19 04:55:16.396 UTC [193] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-03-19 04:55:16.405 UTC [199] LOG:  database system was shut down at 2026-03-19 04:55:16 UTC
+2026-03-19 04:55:16.411 UTC [193] LOG:  database system is ready to accept connections
+2026-03-19 04:55:16.416 UTC [202] FATAL:  database "cascata_system" does not exist
+2026-03-19 04:55:16.419 UTC [193] LOG:  background worker "pg_cron launcher" (PID 202) exited with exit code 1
+ done
+server started
+CREATE DATABASE
+
+
+/usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/init.sql
+DO
+CREATE SCHEMA
+CREATE EXTENSION
+CREATE TABLE
+INSERT 0 1
+
+
+waiting for server to shut down....2026-03-19 04:55:16.616 UTC [193] LOG:  received fast shutdown request
+2026-03-19 04:55:16.618 UTC [193] LOG:  aborting any active transactions
+2026-03-19 04:55:16.622 UTC [193] LOG:  background worker "logical replication launcher" (PID 203) exited with exit code 1
+2026-03-19 04:55:16.625 UTC [197] LOG:  shutting down
+2026-03-19 04:55:16.627 UTC [197] LOG:  checkpoint starting: shutdown immediate
+2026-03-19 04:55:16.687 UTC [197] LOG:  checkpoint complete: wrote 956 buffers (5.8%), wrote 3 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.042 s, sync=0.011 s, total=0.062 s; sync files=312, longest=0.003 s, average=0.001 s; distance=4388 kB, estimate=4388 kB; lsn=0/1BA83E0, redo lsn=0/1BA83E0
+2026-03-19 04:55:16.712 UTC [193] LOG:  database system is shut down
+ done
+server stopped
+
+PostgreSQL init process complete; ready for start up.
+
+2026-03-19 04:55:16.749 UTC [1] LOG:  starting PostgreSQL 18.3 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2026-03-19 04:55:16.750 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-03-19 04:55:16.750 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+2026-03-19 04:55:16.756 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-03-19 04:55:16.766 UTC [218] LOG:  database system was shut down at 2026-03-19 04:55:16 UTC
+2026-03-19 04:55:16.773 UTC [1] LOG:  database system is ready to accept connections
+2026-03-19 04:55:16.791 UTC [221] LOG:  pg_cron scheduler started
+2026-03-19 04:55:30.178 UTC [1135] ERROR:  relation "system.ui_settings" does not exist at character 22
+2026-03-19 04:55:30.178 UTC [1135] STATEMENT:  SELECT settings FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'system_config'
+2026-03-19 04:55:30.752 UTC [1132] ERROR:  relation "system.automations" does not exist at character 71
+2026-03-19 04:55:30.752 UTC [1132] STATEMENT:  SELECT id, project_slug, nodes, trigger_config 
+	                 FROM system.automations 
+	                 WHERE is_active = true 
+	                 AND trigger_type = 'CRON'
+2026-03-19 04:55:30.792 UTC [1133] ERROR:  schema "auth" does not exist
+2026-03-19 04:55:30.792 UTC [1133] STATEMENT:  
+	        -- IDENTITY-FIRST AUTHENTICATOR (The Holy Grail)
+	        CREATE OR REPLACE FUNCTION auth.upsert_user_v2(profile jsonb, auto_verify boolean)
+	        RETURNS uuid AS $$
+	        DECLARE
+	            v_user_id uuid;
+	            v_current_meta jsonb;
+	            v_provider text;
+	            v_identifier text;
+	        BEGIN
+	            v_provider := profile->>'provider';
+	            v_identifier := profile->>'id';
+	
+	            -- 1. Eixo Principal: Identidade (O vínculo imutável)
+	            SELECT u.id INTO v_user_id 
+	            FROM auth.identities i
+	            JOIN auth.users u ON i.user_id = u.id
+[SystemLogService] Decoupled Logging Engine Initialized (Dragonfly Buffer Mode).
+	            WHERE i.provider = v_provider AND i.identifier = v_identifier;
+	
+	            IF v_user_id IS NULL THEN
+	                -- 2. Eixo Secundário: Cross-Link via Email (Apenas se e-mail estiver presente e for confiável)
+	                IF profile->>'email' IS NOT NULL THEN
+	                    SELECT id INTO v_user_id FROM auth.users WHERE raw_user_meta_data->>'email' = profile->>'email' LIMIT 1;
+	                END IF;
+	
+	                -- 3. Criação de Usuário Neutro (Sem dependência rígida de campos)
+	                IF v_user_id IS NULL THEN
+	                    INSERT INTO auth.users (raw_user_meta_data, created_at, last_sign_in_at) 
+	                    VALUES (profile, now(), now())
+	                    RETURNING id INTO v_user_id;
+	                END IF;
+	
+	                -- 4. Registro da Nova Identidade
+	                INSERT INTO auth.identities (user_id, provider, identifier, identity_data, created_at, last_sign_in_at, verified_at) 
+	                VALUES (v_user_id, v_provider, v_identifier, profile, now(), now(), CASE WHEN auto_verify THEN now() ELSE NULL END);
+	            ELSE
+	                -- 5. Atualização de Rastro
+	                UPDATE auth.users SET last_sign_in_at = now() WHERE id = v_user_id;
+	                UPDATE auth.identities SET last_sign_in_at = now(), identity_data = profile 
+	                WHERE provider = v_provider AND identifier = v_identifier;
+	            END IF;
+	
+	            -- 6. Sincronização de Metadados (Merge Seguro)
+	            SELECT raw_user_meta_data INTO v_current_meta FROM auth.users WHERE id = v_user_id;
+	            UPDATE auth.users SET raw_user_meta_data = COALESCE(v_current_meta, '{}'::jsonb) || profile 
+	            WHERE id = v_user_id;
+	
+	            RETURN v_user_id;
+	        END;
+	        $$ LANGUAGE plpgsql SECURITY DEFINER;
+	
+	        CREATE OR REPLACE FUNCTION auth.refresh_session_v2(p_old_hash text, p_new_hash text, p_ip text, p_ua text)
+	        RETURNS TABLE (status text, p_user_id uuid, p_user_meta jsonb) AS $$
+	        DECLARE
+	            v_token record;
+	            v_user_meta jsonb;
+	        BEGIN
+	            -- 1. Localização Atômica do Token
+[System] Control Plane: Initializing internal queues.
+	            SELECT id, user_id, revoked, parent_token INTO v_token 
+	            FROM auth.refresh_tokens WHERE token_hash = p_old_hash AND expires_at > now();
+	
+	            IF NOT FOUND THEN RETURN QUERY SELECT 'invalid_token'::text, NULL::uuid, NULL::jsonb; RETURN; END IF;
+[QueueService] Initializing Queues with Dragonfly...
+	            IF v_token.revoked THEN RETURN QUERY SELECT 'revoked_reuse_detected'::text, NULL::uuid, NULL::jsonb; RETURN; END IF;
+[QueueService] Starting Workers (Mode: CONTROL_PLANE)...
+[CronService] Initializing Scheduled Automations...
+	
+[PoolService] Smart Reaper initialized (Aggressive Mode).
+	            -- 2. Invalidação (Revogação)
+[Realtime] ✅ Service initialized with Hydration Batcher V2 (Env Aware)
+[System] Booting up...
+	            UPDATE auth.refresh_tokens SET revoked = true WHERE id = v_token.id;
+[CASCATA SECURE SERVER] Listening on port 3000 [PID: 1]
+	
+[RateLimit] Dragonfly Connected & Healthy.
+Failed to schedule log purge ReplyError: ERR Error running script (call to e5761020314ba017695d330c53534440ea2459c0): @user_script:206: -ERR script tried accessing undeclared key, key: {cascata}bull:cascata-maintenance:repeat:87ed24ddaa3af0665239693fac0bedf9
+    at parseError (/app/node_modules/redis-parser/lib/parser.js:179:12)
+    at parseType (/app/node_modules/redis-parser/lib/parser.js:302:14) {
+  command: {
+    name: 'eval',
+    args: [
+      '--[[\n' +
+        '  Adds a repeatable job\n' +
+        '    Input:\n' +
+        "      KEYS[1] 'repeat' key\n" +
+        "      KEYS[2] 'delayed' key\n" +
+        '      ARGV[1] next milliseconds\n' +
+        '      ARGV[2] msgpacked options\n' +
+        '            [1]  name\n' +
+        '            [2]  tz?\n' +
+        '            [3]  pattern?\n' +
+        '            [4]  endDate?\n' +
+        '            [5]  every?\n' +
+        '      ARGV[3] legacy custom key TODO: remove this logic in next breaking change\n' +
+        '      ARGV[4] custom key\n' +
+        '      ARGV[5] prefix key\n' +
+        '      Output:\n' +
+        '        repeatableKey  - OK\n' +
+        ']]\n' +
+        'local rcall = redis.call\n' +
+        'local repeatKey = KEYS[1]\n' +
+        'local delayedKey = KEYS[2]\n' +
+        'local nextMillis = ARGV[1]\n' +
+        'local legacyCustomKey = ARGV[3]\n' +
+        'local customKey = ARGV[4]\n' +
+        'local prefixKey = ARGV[5]\n' +
+        '-- Includes\n' +
+        '--[[\n' +
+        '  Function to remove job.\n' +
+        ']]\n' +
+        '-- Includes\n' +
+        '--[[\n' +
+        '  Function to remove deduplication key if needed\n' +
+        '  when a job is being removed.\n' +
+        ']]\n' +
+        'local function removeDeduplicationKeyIfNeededOnRemoval(prefixKey,\n' +
+        '  jobId, deduplicationId)\n' +
+        '  if deduplicationId then\n' +
+        '    local deduplicationKey = prefixKey .. "de:" .. deduplicationId\n' +
+        "    local currentJobId = rcall('GET', deduplicationKey)\n" +
+        '    if currentJobId and currentJobId == jobId then\n' +
+        '      return rcall("DEL", deduplicationKey)\n' +
+        '    end\n' +
+        '  end\n' +
+        'end\n' +
+        '--[[\n' +
+        '  Function to remove job keys.\n' +
+        ']]\n' +
+        'local function removeJobKeys(jobKey)\n' +
+        `  return rcall("DEL", jobKey, jobKey .. ':logs', jobKey .. ':dependencies',\n` +
+        "    jobKey .. ':processed', jobKey .. ':failed', jobKey .. ':unsuccessful')\n" +
+        'end\n' +
+        '--[[\n' +
+        '  Check if this job has a parent. If so we will just remove it from\n' +
+        '  the parent child list, but if it is the last child we should move the parent to "wait/paused"\n' +
+        '  which requires code from "moveToFinished"\n' +
+        ']]\n' +
+        '-- Includes\n' +
+        '--[[\n' +
+        '  Function to add job in target list and add marker if needed.\n' +
+        ']]\n' +
+        '-- Includes\n' +
+        '--[[\n' +
+        '  Add marker if needed when a job is available.\n' +
+        ']]\n' +
+        'local function addBaseMarkerIfNeeded(markerKey, isPausedOrMaxed)\n' +
+        '  if not isPausedOrMaxed then\n' +
+        '    rcall("ZADD", markerKey, 0, "0")\n' +
+        '  end  \n' +
+        'end\n' +
+        'local function addJobInTargetList(targetKey, markerKey, pushCmd, isPausedOrMaxed, jobId)\n' +
+        '  rcall(pushCmd, targetKey, jobId)\n' +
+        '  addBaseMarkerIfNeeded(markerKey, isPausedOrMaxed)\n' +
+        'end\n' +
+        '--[[\n' +
+        '  Functions to destructure job key.\n' +
+        '  Just a bit of warning, these functions may be a bit slow and affect performance significantly.\n' +
+        ']]\n' +
+        'local getJobIdFromKey = function (jobKey)\n' +
+        '  return string.match(jobKey, ".*:(.*)")\n' +
+        'end\n' +
+        'local getJobKeyPrefix = function (jobKey, jobId)\n' +
+        '  return string.sub(jobKey, 0, #jobKey - #jobId)\n' +
+        'end\n' +
+        '--[[\n' +
+        '  Function to check for the meta.paused key to decide if we are paused or not\n' +
+        '  (since an empty list and !EXISTS are not really the same).\n' +
+        ']]\n' +
+        'local function getTargetQueueList(queueMetaKey, activeKey, waitKey, pausedKey)\n' +
+        '  local queueAttributes = rcall("HMGET", queueMetaKey, "paused", "concurrency", "max", "duration")\n' +
+        '  if queueAttributes[1] then\n' +
+        '    return pausedKey, true, queueAttributes[3], queueAttributes[4]\n' +
+        '  else\n' +
+        '    if queueAttributes[2] then\n' +
+        '      local activeCount = rcall("LLEN", activeKey)\n' +
+        '      if activeCount >= tonumber(queueAttributes[2]) then\n' +
+        '        return waitKey, true, queueAttributes[3], queueAttributes[4]\n' +
+        '      else\n' +
+        '        return waitKey, false, queueAttributes[3], queueAttributes[4]\n' +
+        '      end\n' +
+        '    end\n' +
+        '  end\n' +
+        '  return waitKey, false, queueAttributes[3], queueAttributes[4]\n' +
+        'end\n' +
+        'local function _moveParentToWait(parentPrefix, parentId, emitEvent)\n' +
+        '  local parentTarget, isPausedOrMaxed = getTargetQueueList(parentPrefix .. "meta", parentPrefix .. "active",\n' +
+        '    parentPrefix .. "wait", parentPrefix .. "paused")\n' +
+        '  addJobInTargetList(parentTarget, parentPrefix .. "marker", "RPUSH", isPausedOrMaxed, parentId)\n' +
+        '  if emitEvent then\n' +
+        '    local parentEventStream = parentPrefix .. "events"\n' +
+        '    rcall("XADD", parentEventStream, "*", "event", "waiting", "jobId", parentId, "prev", "waiting-children")\n' +
+        '  end\n' +
+        'end\n' +
+        'local function removeParentDependencyKey(jobKey, hard, parentKey, baseKey, debounceId)\n' +
+        '  if parentKey then\n' +
+        '    local parentDependenciesKey = parentKey .. ":dependencies"\n' +
+        '    local result = rcall("SREM", parentDependenciesKey, jobKey)\n' +
+        '    if result > 0 then\n' +
+        '      local pendingDependencies = rcall("SCARD", parentDependenciesKey)\n' +
+        '      if pendingDependencies == 0 then\n' +
+        '        local parentId = getJobIdFromKey(parentKey)\n' +
+        '        local parentPrefix = getJobKeyPrefix(parentKey, parentId)\n' +
+        '        local numRemovedElements = rcall("ZREM", parentPrefix .. "waiting-children", parentId)\n' +
+        '        if numRemovedElements == 1 then\n' +
+        '          if hard then -- remove parent in same queue\n' +
+        '            if parentPrefix == baseKey then\n' +
+        '              removeParentDependencyKey(parentKey, hard, nil, baseKey, nil)\n' +
+        '              removeJobKeys(parentKey)\n' +
+        '              if debounceId then\n' +
+        '                rcall("DEL", parentPrefix .. "de:" .. debounceId)\n' +
+        '              end\n' +
+        '            else\n' +
+        '              _moveParentToWait(parentPrefix, parentId)\n' +
+        '            end\n' +
+        '          else\n' +
+        '            _moveParentToWait(parentPrefix, parentId, true)\n' +
+        '          end\n' +
+        '        end\n' +
+        '      end\n' +
+        '      return true\n' +
+        '    end\n' +
+        '  else\n' +
+        '    local parentAttributes = rcall("HMGET", jobKey, "parentKey", "deid")\n' +
+        '    local missedParentKey = parentAttributes[1]\n' +
+        '    if( (type(missedParentKey) == "string") and missedParentKey ~= ""\n' +
+        '      and (rcall("EXISTS", missedParentKey) == 1)) then\n' +
+        '      local parentDependenciesKey = missedParentKey .. ":dependencies"\n' +
+        '      local result = rcall("SREM", parentDependenciesKey, jobKey)\n' +
+        '      if result > 0 then\n' +
+        '        local pendingDependencies = rcall("SCARD", parentDependenciesKey)\n' +
+        '        if pendingDependencies == 0 then\n' +
+        '          local parentId = getJobIdFromKey(missedParentKey)\n' +
+        '          local parentPrefix = getJobKeyPrefix(missedParentKey, parentId)\n' +
+        '          local numRemovedElements = rcall("ZREM", parentPrefix .. "waiting-children", parentId)\n' +
+        '          if numRemovedElements == 1 then\n' +
+        '            if hard then\n' +
+        '              if parentPrefix == baseKey then\n' +
+        '                removeParentDependencyKey(missedParentKey, hard, nil, baseKey, nil)\n' +
+        '                removeJobKeys(missedParentKey)\n' +
+        '                if parentAttributes[2] then\n' +
+        '                  rcall("DEL", parentPrefix .. "de:" .. parentAttributes[2])\n' +
+        '                end\n' +
+        '              else\n' +
+        '                _moveParentToWait(parentPrefix, parentId)\n' +
+        '              end\n' +
+        '            else\n' +
+        '              _moveParentToWait(parentPrefix, parentId, true)\n' +
+        '            end\n' +
+        '          end\n' +
+        '        end\n' +
+	            -- 3. Rotação de Token (Encadeamento Imutável)
+	            INSERT INTO auth.refresh_tokens (token_hash, user_id, expires_at, parent_token, ip_address, user_agent) 
+	            VALUES (p_new_hash, v_token.user_id, now() + interval '30 days', v_token.id, p_ip, p_ua);
+	
+	            -- 4. Recuperação do Perfil Enriquecido
+	            SELECT raw_user_meta_data INTO v_user_meta FROM auth.users WHERE id = v_token.user_id;
+	
+	            RETURN QUERY SELECT 'success'::text, v_token.user_id, v_user_meta;
+	        END;
+	        $$ LANGUAGE plpgsql SECURITY DEFINER;
+	        
+2026-03-19 04:55:31.094 UTC [1136] WARNING:  there is already a transaction in progress
+2026-03-19 04:55:31.097 UTC [1136] WARNING:  there is no transaction in progress
+2026-03-19 04:55:31.115 UTC [1136] WARNING:  there is already a transaction in progress
+2026-03-19 04:55:31.118 UTC [1136] WARNING:  there is no transaction in progress
+2026-03-19 04:55:32.301 UTC [1287] ERROR:  schema "auth" does not exist
+2026-03-19 04:55:32.301 UTC [1287] STATEMENT:  
+	        -- IDENTITY-FIRST AUTHENTICATOR (The Holy Grail)
+	        CREATE OR REPLACE FUNCTION auth.upsert_user_v2(profile jsonb, auto_verify boolean)
+	        RETURNS uuid AS $$
+	        DECLARE
+	            v_user_id uuid;
+	            v_current_meta jsonb;
+	            v_provider text;
+	            v_identifier text;
+	        BEGIN
+	            v_provider := profile->>'provider';
+	            v_identifier := profile->>'id';
+	
+	            -- 1. Eixo Principal: Identidade (O vínculo imutável)
+	            SELECT u.id INTO v_user_id 
+	            FROM auth.identities i
+	            JOIN auth.users u ON i.user_id = u.id
+	            WHERE i.provider = v_provider AND i.identifier = v_identifier;
+	
+	            IF v_user_id IS NULL THEN
+	                -- 2. Eixo Secundário: Cross-Link via Email (Apenas se e-mail estiver presente e for confiável)
+	                IF profile->>'email' IS NOT NULL THEN
+	                    SELECT id INTO v_user_id FROM auth.users WHERE raw_user_meta_data->>'email' = profile->>'email' LIMIT 1;
+	                END IF;
+	
+	                -- 3. Criação de Usuário Neutro (Sem dependência rígida de campos)
+	                IF v_user_id IS NULL THEN
+	                    INSERT INTO auth.users (raw_user_meta_data, created_at, last_sign_in_at) 
+	                    VALUES (profile, now(), now())
+	                    RETURNING id INTO v_user_id;
+	                END IF;
+	
+	                -- 4. Registro da Nova Identidade
+	                INSERT INTO auth.identities (user_id, provider, identifier, identity_data, created_at, last_sign_in_at, verified_at) 
+        '        return true\n' +
+	                VALUES (v_user_id, v_provider, v_identifier, profile, now(), now(), CASE WHEN auto_verify THEN now() ELSE NULL END);
+        '      end\n' +
+        '    end\n' +
+	            ELSE
+        '  end\n' +
+        '  return false\n' +
+	                -- 5. Atualização de Rastro
+        'end\n' +
+	                UPDATE auth.users SET last_sign_in_at = now() WHERE id = v_user_id;
+        'local function removeJob(jobId, hard, baseKey, shouldRemoveDeduplicationKey)\n' +
+        '  local jobKey = baseKey .. jobId\n' +
+	                UPDATE auth.identities SET last_sign_in_at = now(), identity_data = profile 
+        '  removeParentDependencyKey(jobKey, hard, nil, baseKey)\n' +
+        '  if shouldRemoveDeduplicationKey then\n' +
+	                WHERE provider = v_provider AND identifier = v_identifier;
+        '    local deduplicationId = rcall("HGET", jobKey, "deid")\n' +
+        '    removeDeduplicationKeyIfNeededOnRemoval(baseKey, jobId, deduplicationId)\n' +
+	            END IF;
+        '  end\n' +
+	
+        '  removeJobKeys(jobKey)\n' +
+	            -- 6. Sincronização de Metadados (Merge Seguro)
+        'end\n' +
+        'local function storeRepeatableJob(repeatKey, customKey, nextMillis, rawOpts)\n' +
+	            SELECT raw_user_meta_data INTO v_current_meta FROM auth.users WHERE id = v_user_id;
+        '  rcall("ZADD", repeatKey, nextMillis, customKey)\n' +
+	            UPDATE auth.users SET raw_user_meta_data = COALESCE(v_current_meta, '{}'::jsonb) || profile 
+	            WHERE id = v_user_id;
+        '  local opts = cmsgpack.unpack(rawOpts)\n' +
+	
+        '  local optionalValues = {}\n' +
+	            RETURN v_user_id;
+	        END;
+        "  if opts['tz'] then\n" +
+	        $$ LANGUAGE plpgsql SECURITY DEFINER;
+	
+        '    table.insert(optionalValues, "tz")\n' +
+	        CREATE OR REPLACE FUNCTION auth.refresh_session_v2(p_old_hash text, p_new_hash text, p_ip text, p_ua text)
+	        RETURNS TABLE (status text, p_user_id uuid, p_user_meta jsonb) AS $$
+        "    table.insert(optionalValues, opts['tz'])\n" +
+	        DECLARE
+	            v_token record;
+        '  end\n' +
+	            v_user_meta jsonb;
+	        BEGIN
+        "  if opts['pattern'] then\n" +
+        '    table.insert(optionalValues, "pattern")\n' +
+	            -- 1. Localização Atômica do Token
+        "    table.insert(optionalValues, opts['pattern'])\n" +
+	            SELECT id, user_id, revoked, parent_token INTO v_token 
+        '  end\n' +
+        "  if opts['endDate'] then\n" +
+	            FROM auth.refresh_tokens WHERE token_hash = p_old_hash AND expires_at > now();
+        '    table.insert(optionalValues, "endDate")\n' +
+        "    table.insert(optionalValues, opts['endDate'])\n" +
+	
+        '  end\n' +
+	            IF NOT FOUND THEN RETURN QUERY SELECT 'invalid_token'::text, NULL::uuid, NULL::jsonb; RETURN; END IF;
+        "  if opts['every'] then\n" +
+	            IF v_token.revoked THEN RETURN QUERY SELECT 'revoked_reuse_detected'::text, NULL::uuid, NULL::jsonb; RETURN; END IF;
+	
+        '    table.insert(optionalValues, "every")\n' +
+	            -- 2. Invalidação (Revogação)
+	            UPDATE auth.refresh_tokens SET revoked = true WHERE id = v_token.id;
+        "    table.insert(optionalValues, opts['every'])\n" +
+	
+        '  end\n' +
+        `  rcall("HMSET", repeatKey .. ":" .. customKey, "name", opts['name'],\n` +
+	            -- 3. Rotação de Token (Encadeamento Imutável)
+        '    unpack(optionalValues))\n' +
+	            INSERT INTO auth.refresh_tokens (token_hash, user_id, expires_at, parent_token, ip_address, user_agent) 
+	            VALUES (p_new_hash, v_token.user_id, now() + interval '30 days', v_token.id, p_ip, p_ua);
+        '  return customKey\n' +
+	
+        'end\n' +
+        '-- If we are overriding a repeatable job we must delete the delayed job for\n' +
+	            -- 4. Recuperação do Perfil Enriquecido
+        '-- the next iteration.\n' +
+	            SELECT raw_user_meta_data INTO v_user_meta FROM auth.users WHERE id = v_token.user_id;
+	
+        'local prevMillis = rcall("ZSCORE", repeatKey, customKey)\n' +
+	            RETURN QUERY SELECT 'success'::text, v_token.user_id, v_user_meta;
+	        END;
+        'if prevMillis then\n' +
+	        $$ LANGUAGE plpgsql SECURITY DEFINER;
+	        
+        '  local delayedJobId =  "repeat:" .. customKey .. ":" .. prevMillis\n' +
+2026-03-19 04:56:16.619 UTC [4469] ERROR:  relation "system.project_configs" does not exist at character 15
+        '  local nextDelayedJobId =  repeatKey .. ":" .. customKey .. ":" .. nextMillis\n' +
+        '  if rcall("ZSCORE", delayedKey, delayedJobId)\n' +
+2026-03-19 04:56:16.619 UTC [4469] STATEMENT:  SELECT * FROM system.project_configs WHERE project_id = $1
+2026-03-19 04:56:16.620 UTC [4470] ERROR:  relation "system.project_configs" does not exist at character 15
+        '   and rcall("EXISTS", nextDelayedJobId) ~= 1 then\n' +
+        '    removeJob(delayedJobId, true, prefixKey, true --[[remove debounce key]])\n' +
+2026-03-19 04:56:16.620 UTC [4470] STATEMENT:  SELECT * FROM system.project_configs WHERE project_id = $1
+        '    rcall("ZREM", delayedKey, delayedJobId)\n' +
+        '  end\n' +
+        'end\n' +
+        '-- Keep backwards compatibility with old repeatable jobs (<= 3.0.0)\n' +
+        'if rcall("ZSCORE", repeatKey, legacyCustomKey) ~= false then\n' +
+        '  return storeRepeatableJob(repeatKey, legacyCustomKey, nextMillis, ARGV[2])\n' +
+        'end\n' +
+        'return storeRepeatableJob(repeatKey, customKey, nextMillis, ARGV[2])\n',
+      '2',
+      '{cascata}bull:cascata-maintenance:repeat',
+      '{cascata}bull:cascata-maintenance:delayed',
+      '1773979200000',
+      <Buffer de 00 05 a4 6e 61 6d 65 aa 70 75 72 67 65 2d 6c 6f 67 73 a7 65 6e 64 44 61 74 65 c0 a2 74 7a c0 a7 70 61 74 74 65 72 6e a9 30 20 34 20 2a 20 2a 20 2a ... 7 more bytes>,
+      'purge-logs:system-log-purge:::0 4 * * *',
+      '87ed24ddaa3af0665239693fac0bedf9',
+      '{cascata}bull:cascata-maintenance:'
+    ]
+  }
+}
+[CronService] Sync failed: relation "system.automations" does not exist
+[MigrationService] Initializing...
+[MigrationService] Initializing...
+[MigrationService] Another instance holds the lock. Skipping migrations check to allow fast boot.
+[System] Failed to inject SQL Procedures: schema "auth" does not exist
+[MigrationService] Another instance holds the lock. Skipping migrations check to allow fast boot.
+[System] Platform Ready & Healthy.
+[AdminController] Login with unencrypted payload detected. Upgrade to secure handshake flow.
+[DatabaseService] Initializing project structure (Push Engine Enabled)...
+
+
+
+
+

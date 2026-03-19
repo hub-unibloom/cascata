@@ -337,16 +337,26 @@ export class DatabaseService {
                         FROM system.dynamic_security_locks 
                         WHERE project_slug = _project_slug AND table_name = TG_TABLE_NAME
                     LOOP
-                        -- Immutability on INSERT (No initial explicit inject by untrusted clients)
-                        IF TG_OP = 'INSERT' AND _new_value ? _lock_record.column_name THEN
-                            IF _lock_record.lock_type = 'immutable' AND coalesce(_request_role, 'service_role') IN ('anon', 'authenticated') THEN
-                                RAISE EXCEPTION USING ERRCODE = 'PDC03', MESSAGE = 'Security Lock Violation: Column "' || _lock_record.column_name || '" is IMMUTABLE and cannot be explicitly set by clients on row creation.';
+                        -- Immutability on INSERT: 
+                        -- We allow INSERT for immutable columns to support database-generated defaults (id, created_at).
+                        -- However, we PREVENT updates to them.
+                        -- If the user wants to block explicit INSERT insertion, they should use 'service_role_only'.
+                        -- This FIXES Bug #10 (PDC03 false positive) where id/created_at blocked all inserts.
+                        IF TG_OP = 'INSERT' THEN
+                            -- On INSERT, 'immutable' acts as a pass-through for defaults.
+                            -- If we want to restrict specific columns from being set by users even on INSERT,
+                            -- we check if the user is a client (anon/auth) and the value was actually provided.
+                            -- For now, the safest synergy is to only enforce 'service_role_only' on INSERT.
+                            IF _lock_record.lock_type = 'service_role_only' AND coalesce(_request_role, 'service_role') IN ('anon', 'authenticated') THEN
+                                RAISE EXCEPTION USING ERRCODE = 'PDC04', MESSAGE = 'Security Lock Violation: Column "' || _lock_record.column_name || '" requires SERVICE_ROLE system privileges to set during insertion.';
                             END IF;
                         END IF;
 
                         -- Mutation Interception (Value effectively changed)
                         IF _new_value ? _lock_record.column_name AND (_old_value ->> _lock_record.column_name IS DISTINCT FROM _new_value ->> _lock_record.column_name) THEN
                             
+                            -- 'insert_only' and 'immutable' both block UPDATES.
+                            -- This is where the core security of Padlock resides.
                             IF _lock_record.lock_type IN ('insert_only', 'immutable') AND TG_OP = 'UPDATE' THEN
                                 RAISE EXCEPTION USING ERRCODE = 'PDC02', MESSAGE = 'Security Lock Violation: Column "' || _lock_record.column_name || '" is locked (' || _lock_record.lock_type || ') and cannot be updated.';
                             END IF;

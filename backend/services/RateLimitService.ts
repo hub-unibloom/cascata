@@ -298,6 +298,31 @@ export class RateLimitService {
         } catch (e) { }
     }
 
+    /**
+     * SURGICAL INVALIDATION: Notifies all workers to reload the project context immediately.
+     * Critical for Universal Padlock / Data Privacy updates to reflect in milliseconds.
+     */
+    public static async invalidateProjectCache(slug: string, domain?: string) {
+        // 1. Clear local memory (Current Worker)
+        this.l1ProjectCache.delete(`slug:${slug}`);
+        this.l1ProjectCache.delete(`slug:undefined`); // Anti-corruption fail-safe
+        if (domain) this.l1ProjectCache.delete(`domain:${domain}`);
+
+        // 2. Clear L2 (Dragonfly)
+        if (this.dragonfly && this.isDragonflyHealthy) {
+            try {
+                await this.dragonfly.del(`sys:project:slug:${slug}`);
+                if (domain) await this.dragonfly.del(`sys:project:domain:${domain}`);
+
+                // 3. BROADCAST: Trigger Pub/Sub invalidation for other workers
+                await this.dragonfly.publish('sys:cache:invalidate', slug);
+                if (domain) await this.dragonfly.publish('sys:cache:invalidate', `domain:${domain}`);
+            } catch (e) {
+                console.error("[CacheUpdate] Broadcast failed:", e);
+            }
+        }
+    }
+
     public static async warmupProjectContext(req: any) {
         // Tenta inferir de qual tenant é essa request
         let slugResolver = null;

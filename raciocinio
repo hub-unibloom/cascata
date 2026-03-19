@@ -1,0 +1,92 @@
+Entendido. Você está absolutamente certo em desconfiar — os testes em VPS nova provam que os problemas persistem. Vou fazer uma análise sistêmica completa, rastreando cada micro-fluxo. Primeiro, preciso ler os códigos com calma:
+
+Viewed DataController.ts:1-65
+Searched for "getColumns"
+Searched for "userRole"
+Viewed core.ts:300-395
+Viewed DataController.ts:610-700
+
+
+
+
+**Achei!** A [getColumns](cci:1://file:///home/cocorico/Documentos/proejetos/cascata/backend/src/controllers/DataController.ts:609:4-657:5) (linhas 637-651) lê `tableLocks` e `tableMasks` do metadata corretamente com nested format. Isso está OK no código. Mas o response do usuário mostra `lockLevel: "unlocked"` e `maskLevel: "unmasked"`. Isso pode ser um **problema de timing** — o cache do `req.project` pode estar desatualizado.
+
+Agora, o ponto CRÍTICO — a função [checkApiKeyLogic](cci:1://file:///home/cocorico/Documentos/proejetos/cascata/backend/src/middlewares/core.ts:353:8-371:10) (linha 354-372):
+
+```typescript
+if (token === r.project!.service_key) {
+    r.userRole = 'service_role';
+```
+
+Mas `r.project.service_key` está **criptografado** (`\\xc30d0407...`) e o token enviado pelo usuário é o **plaintext**! A comparação SEMPRE falha, logo cai no fallback.
+
+Vou verificar como as chaves são decifradas:
+
+Viewed core.ts:200-300
+Searched for "service_key"
+
+**Bingo!** Linha 140: `pgp_sym_decrypt(service_key::bytea, $1::text) as service_key` — as chaves SÃO decifradas na query SQL do [resolveProject](cci:1://file:///home/cocorico/Documentos/proejetos/cascata/backend/src/middlewares/core.ts:9:0-300:2). Então `r.project.service_key` deve ser o plaintext. OK, isso descarta o problema de criptografia.
+
+Agora preciso entender por que a trigger está bloqueando o INSERT. Vou olhar como [resolveProject](cci:1://file:///home/cocorico/Documentos/proejetos/cascata/backend/src/middlewares/core.ts:9:0-300:2) busca o projeto e como o cache funciona:
+
+Viewed core.ts:120-200
+
+OK, as chaves são decifradas. Agora o ponto crucial: Na linha 175, `await RateLimitService.cacheProject(r.project)` — o `r.project` contém as chaves **decifradas**. O cache armazena as chaves em plaintext. Então [checkApiKeyLogic](cci:1://file:///home/cocorico/Documentos/proejetos/cascata/backend/src/middlewares/core.ts:353:8-371:10) na linha 355 **deve** funcionar.
+
+Mas espera — o problema principal não é o role. Os logs mostram claramente que a trigger `enforce_dynamic_locks` ESTÁ DISPARANDO. Vou re-analisar o fluxo da trigger. O erro PDC03 acontece na linha 343:
+
+```sql
+IF TG_OP = 'INSERT' AND _new_value ? _lock_record.column_name THEN
+    IF _lock_record.lock_type = 'immutable' AND coalesce(_request_role, 'service_role') IN ('anon', 'authenticated') THEN
+```
+
+O INSERT não inclui [id](cci:1://file:///home/cocorico/Documentos/proejetos/cascata/frontend/pages/DatabaseExplorer.tsx:1339:2-1442:4), mas `to_jsonb(NEW)` **SEMPRE** inclui [id](cci:1://file:///home/cocorico/Documentos/proejetos/cascata/frontend/pages/DatabaseExplorer.tsx:1339:2-1442:4) porque o PostgreSQL preenche o DEFAULT (`gen_random_uuid()`) ANTES do BEFORE trigger. Então `_new_value ? 'id'` é **SEMPRE TRUE**.
+
+Se `_request_role` fosse `'service_role'`, o `coalesce('service_role', 'service_role') IN ('anon', 'authenticated')` seria FALSE e não bloquearia. MAS o erro está acontecendo. Então `_request_role` **NÃO É** `'service_role'`.
+
+Vou verificar definitivamente: quando o token do service_key é passado via Bearer, qual caminho o middleware toma?
+
+Viewed core.ts:392-445
+
+OK, na lógica do [cascataAuth](cci:1://file:///home/cocorico/Documentos/proejetos/cascata/backend/src/middlewares/core.ts:302:0-405:2):
+
+1. Linha 374: `bearerToken.split('.').length === 3` →  O `service_key` é um HMAC hex (`b6b942069c1697cb...`), não tem pontos. Então NÃO entra no `jwt.verify`.
+2. Linha 392: Cai no `else` → [checkApiKeyLogic(bearerToken)](cci:1://file:///home/cocorico/Documentos/proejetos/cascata/backend/src/middlewares/core.ts:353:8-371:10) → compara com `r.project!.service_key` → **deveria funcionar SE o service_key estiver decifrado**.
+3. Linha 397-398: Também verifica o `apiKeyHeader`.
+
+Então `r.userRole = 'service_role'` DEVERIA ser definido. Mas a trigger está bloqueando. Vou agora verificar o [queryWithRLS](cci:1://file:///home/cocorico/Documentos/proejetos/cascata/backend/src/utils/index.ts:336:0-534:2) para ver se o SET LOCAL realmente está propagando o role correto:
+
+Viewed index.ts:410-536
+
+O código do [queryWithRLS](cci:1://file:///home/cocorico/Documentos/proejetos/cascata/backend/src/utils/index.ts:336:0-534:2) está correto. Para `service_role` com write (linhas 427-448):
+- `BEGIN` → `SET LOCAL role='service_role'` → INSERT → `COMMIT`
+
+Mas o trigger está bloqueando. Então o REAL problema é: **`to_jsonb(NEW) ? 'id'` é SEMPRE true** porque o PostgreSQL preenche o DEFAULT **antes** do BEFORE trigger.
+
+Vou agora verificar a trigger na totalidade:
+
+Viewed DatabaseService.ts:305-405
+
+Agora tenho a visão completa do problema. Vou agora verificar o [handlePostgrest](cci:1://file:///home/cocorico/Documentos/proejetos/cascata/backend/src/controllers/DataController.ts:1172:4-1309:5) — especificamente como ele chama [queryWithRLS](cci:1://file:///home/cocorico/Documentos/proejetos/cascata/backend/src/utils/index.ts:336:0-534:2) para o POST via REST API:
+
+Viewed DataController.ts:1160-1310
+
+Agora tenho o quadro completo. Vou verificar a lógica de masking do `PostgrestService.buildQuery` para confirmar se a sanitização no POST está funcionando:
+
+Viewed PostgrestService.ts:100-190
+
+**Achei os dois bugs raiz!** Agora vou verificar onde está o caminho que leva ao cache retornando dados antes do masking:
+
+Viewed DataController.ts:1196-1230
+
+A lógica do cache (linhas 1203-1214) **retorna ANTES de aplicar masking** — se o cache contiver dados pré-masking, eles serão servidos sem máscara. Mas isso só acontece se houver `x-cascata-cache-control` no header (linha 110). O curl do usuário NÃO usa esse header, então o cache não é ativado.
+
+O masking (línhas 1264-1293) **ESTÁ no código correto**. Mas o usuário reporta que retorna sem masking. 
+
+Olha essa evidência crucial: o `lockLevel: "unlocked"` e `maskLevel: "unmasked"` no response dos columns. Isso quer dizer que `req.project.metadata.locked_columns` e `masked_columns` ESTÃO VAZIOS no momento do request. Mas o PATCH retornou com os dados corretos. **O problema é de cache do [resolveProject](cci:1://file:///home/cocorico/Documentos/proejetos/cascata/backend/src/middlewares/core.ts:9:0-300:2)!**
+
+Vou verificar como o cache do projeto funciona:
+
+Searched for "cacheProject"
+Searched for "warmupCache\|projectCache\|L1.*Cache\|L2.*Cache"
+Viewed RateLimitService.ts:1-800

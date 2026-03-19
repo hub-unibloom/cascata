@@ -472,6 +472,34 @@ export class AdminController {
             values.push(req.params.slug);
             const query = `UPDATE system.projects SET ${fields.join(', ')} WHERE slug = $${idx} RETURNING *`;
             const result = await systemPool.query(query, values);
+            
+            // --- SYNERGY HOT-RELOAD (Fase 1.6) ---
+            // Invalida o Cache L1/L2 em todos os workers para que o Padlock/Masking reflita instantaneamente.
+            try {
+                const updated = result.rows[0];
+                const RateLimitSvc = (await import('../../services/RateLimitService.js')).RateLimitService;
+                await RateLimitSvc.invalidateProjectCache(updated.slug, updated.custom_domain);
+                
+                const PoolSvc = (await import('../../services/PoolService.js')).PoolService;
+                await PoolSvc.reload(updated.db_name);
+
+                // Invalida o Cache Semântico do Dragonfly para as tabelas afetadas
+                if (metadata.locked_columns || metadata.masked_columns) {
+                    const dfly = (RateLimitSvc as any).dragonfly;
+                    const tables = new Set([
+                        ...Object.keys(metadata.locked_columns || {}),
+                        ...Object.keys(metadata.masked_columns || {})
+                    ]);
+                    for(const table of tables) {
+                        try {
+                            await dfly.publish('cascata_cache_invalidate', JSON.stringify({ table }));
+                        } catch(pubErr) {}
+                    }
+                }
+            } catch (cacheErr) {
+                console.warn('[AdminController] Hot-Reload post-update failed (Cache may be stale):', cacheErr);
+            }
+
             await CertificateService.rebuildNginxConfigs(systemPool);
             res.json(result.rows[0]);
         } catch (e: any) { next(e); }
