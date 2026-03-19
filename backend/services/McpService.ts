@@ -1,8 +1,10 @@
-
 import { Pool } from 'pg';
 import axios from 'axios';
 import { systemPool } from '../src/config/main.js';
 import { WebhookService } from './WebhookService.js';
+import { CascataRequest } from '../src/types.js';
+import { queryWithRLS } from '../src/utils/index.js';
+import { DataController } from '../src/controllers/DataController.js';
 
 export class McpService {
     
@@ -13,7 +15,12 @@ export class McpService {
      * 
      * FILTRADO pela configuração de Governança
      */
-    public static async getSchemaContext(pool: Pool, projectSlug: string, governance: any): Promise<string> {
+    public static async getSchemaContext(req: CascataRequest): Promise<string> {
+        const pool = req.projectPool!;
+        const projectSlug = req.project.slug;
+        const governance = req.project.metadata?.ai_governance;
+        const isAdmin = req.userRole === 'service_role';
+        
         const client = await pool.connect();
         try {
             // GOVERNANCE: Tables Map { "users": { c: true, r: true... } }
@@ -29,7 +36,11 @@ export class McpService {
 
             // --- DATABASE SCHEMA ---
             const tablesRes = await client.query(`
-                SELECT table_name, column_name, data_type, is_nullable, column_default 
+                SELECT table_name, column_name, data_type, is_nullable, column_default,
+                col_description(
+                    (SELECT oid FROM pg_class WHERE relname = table_name AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = table_schema)),
+                    ordinal_position
+                ) as comment
                 FROM information_schema.columns 
                 WHERE table_schema = 'public' 
                 ORDER BY table_name, ordinal_position
@@ -60,12 +71,13 @@ export class McpService {
 
             // --- FORMATTER ---
             let output = `--- CASCATA PROJECT CONTEXT: ${projectSlug} ---\n`;
+            output += `Role: ${req.userRole || 'anon'}\n`;
             
             // Add Governance Banner
             output += `!!! GOVERNANCE ACTIVE !!!\n`;
             if (hasAllowList) {
                 output += `You have specific permissions on the following tables:\n`;
-                allowedTableNames.forEach(t => {
+                allowedTableNames.forEach((t: string) => {
                     const perms = allowedTablesMap[t];
                     const modes = [];
                     if (perms.c) modes.push('INSERT');
@@ -74,6 +86,8 @@ export class McpService {
                     if (perms.d) modes.push('DELETE');
                     output += `- ${t}: [${modes.join(', ')}]\n`;
                 });
+            } else if (isAdmin) {
+                output += `Status: System Admin (Bypass all filters)\n`;
             } else {
                  output += `Warning: No specific table permissions found. You might be blocked.\n`;
             }
@@ -81,28 +95,46 @@ export class McpService {
             output += `\nThis context is read-only. Use the provided tools to interact with the system.\n\n`;
 
             output += `=== DATABASE SCHEMA (PostgreSQL) ===\n`;
-            // FIX: Explicitly cast tableName to string to avoid 'unknown' type error in includes check
-            const allTables = new Set<string>(tablesRes.rows.map(r => r.table_name));
+            const allTables = new Set<string>(tablesRes.rows.map((r: any) => r.table_name));
             
-            allTables.forEach(tableName => {
-                // GOVERNANCE FILTER (READ CHECK)
-                if (hasAllowList && !allowedTableNames.includes(tableName)) return;
+            const maskedColumnsMap = req.project.metadata?.masked_columns || {};
 
-                const cols = tablesRes.rows.filter(r => r.table_name === tableName);
-                const rels = relRes.rows.filter(r => r.table_name === tableName);
-                const rls = rlsRes.rows.find(r => r.relname === tableName);
+            allTables.forEach((tableName: string) => {
+                // GOVERNANCE FILTER (READ CHECK)
+                if (!isAdmin && hasAllowList && !allowedTableNames.includes(tableName)) return;
+
+                const cols = tablesRes.rows.filter((r: any) => r.table_name === tableName);
+                const rels = relRes.rows.filter((r: any) => r.table_name === tableName);
+                const rls = rlsRes.rows.find((r: any) => r.relname === tableName);
+                const tableMasks = maskedColumnsMap[tableName] || {};
                 
                 output += `TABLE: ${tableName} [RLS: ${rls?.relrowsecurity ? 'ON' : 'OFF'}]\n`;
                 output += `COLUMNS:\n`;
-                cols.forEach(c => {
-                    output += `  - ${c.column_name} (${c.data_type})${c.is_nullable === 'NO' ? '*' : ''}${c.column_default ? ` DEFAULT ${c.column_default}` : ''}\n`;
+                cols.forEach((c: any) => {
+                    const maskType = tableMasks[c.column_name];
+                    
+                    // IF HIDE, OMIT FROM CONTEXT (unless admin)
+                    if (maskType === 'hide' && !isAdmin) return;
+
+                    let colLine = `  - ${c.column_name} (${c.data_type})${c.is_nullable === 'NO' ? '*' : ''}${c.column_default ? ` DEFAULT ${c.column_default}` : ''}`;
+                    
+                    if (maskType && !isAdmin) {
+                        colLine += ` [PROTECTED: ${maskType.toUpperCase()}]`;
+                    }
+                    
+                    if (c.comment) colLine += ` -- ${c.comment}`;
+                    output += colLine + '\n';
                 });
                 
                 if (rels.length > 0) {
                     output += `RELATIONS:\n`;
-                    rels.forEach(r => {
+                    rels.forEach((r: any) => {
                          // Only show relation if target is also allowed (or if no filter)
-                        if (!hasAllowList || allowedTableNames.includes(r.foreign_table_name)) {
+                        if (isAdmin || !hasAllowList || allowedTableNames.includes(r.foreign_table_name)) {
+                            // Check if source or target columns are hidden
+                            const targetMasks = maskedColumnsMap[r.foreign_table_name] || {};
+                            if (!isAdmin && (tableMasks[r.column_name] === 'hide' || targetMasks[r.foreign_column_name] === 'hide')) return;
+
                             output += `  - ${r.column_name} -> ${r.foreign_table_name}(${r.foreign_column_name})\n`;
                         }
                     });
@@ -113,7 +145,7 @@ export class McpService {
             if (edgeRes.rows.length > 0) {
                 output += `=== EDGE FUNCTIONS (Serverless Logic) ===\n`;
                 output += `You can invoke these functions via HTTP POST /edge/{name}\n`;
-                edgeRes.rows.forEach(fn => {
+                edgeRes.rows.forEach((fn: any) => {
                     output += `FUNCTION: ${fn.name}\n`;
                     if (fn.metadata?.notes) output += `  DOCS: ${fn.metadata.notes}\n`;
                     output += `\n`;
@@ -132,15 +164,17 @@ export class McpService {
      * Suporta: SQL, Introspecção, Busca Vetorial e Gestão de Edge Functions.
      */
     public static async executeTool(
-        projectSlug: string,
-        pool: Pool, 
+        req: CascataRequest,
         toolName: string, 
-        args: any,
-        jwtSecret: string,
-        governance: any
+        args: any
     ): Promise<any> {
+        const projectSlug = req.project.slug;
+        const pool = req.projectPool!;
+        const jwtSecret = req.project.jwt_secret;
+        const governance = req.project.metadata?.ai_governance;
+        const isAdmin = req.userRole === 'service_role';
         
-        console.log(`[MCP] Agent executing tool: ${toolName} on ${projectSlug}`);
+        console.log(`[MCP] Agent (${req.userRole}) executing tool: ${toolName} on ${projectSlug}`);
 
         // GOVERNANCE: Master Kill Switch Check (Redundant safety)
         if (governance?.mcp_enabled === false) {
@@ -149,7 +183,6 @@ export class McpService {
 
         // 1. Tool: run_sql
         if (toolName === 'run_sql') {
-            // Explicitly cast to string to handle 'unknown' type from args
             const sql = String(args.sql);
             if (!sql || sql === 'undefined') throw new Error("Missing 'sql' argument");
             const cleanSql = sql.trim().toUpperCase();
@@ -186,35 +219,49 @@ export class McpService {
                 return { isError: true, content: [{ type: "text", text: "Governance Violation: DDL Statements (CREATE/DROP/ALTER) are currently blocked via MCP for safety." }] };
             }
 
-            if (targetTable) {
+            if (targetTable && !isAdmin) {
                  const perms = tablesMap[targetTable];
                  if (!perms || !perms[requiredPerm]) {
                       return { isError: true, content: [{ type: "text", text: `Governance Violation: You do not have ${requiredPerm.toUpperCase()} permission on table '${targetTable}'.` }] };
                  }
-            } else if (cleanSql.startsWith('SELECT')) {
-                 // Allow generic SELECTs (e.g. SELECT 1) if no table found, relying on DB role limits.
-            } else {
-                 return { isError: true, content: [{ type: "text", text: "Governance Violation: Could not determine target table for permission check." }] };
             }
 
             // Audit
             await systemPool.query(
                 `INSERT INTO system.api_logs (project_slug, method, path, status_code, client_ip, duration_ms, user_role, payload, geo_info) 
-                 VALUES ($1, 'MCP_TOOL', 'mcp/run_sql', 200, '0.0.0.0', 0, 'service_role', $2, '{"agent": "mcp"}')`,
-                [projectSlug, JSON.stringify({ sql })]
+                 VALUES ($1, 'MCP_TOOL', 'mcp/run_sql', 200, $3, 0, $4, $2, '{"agent": "mcp"}')`,
+                [projectSlug, JSON.stringify({ sql }), req.ip || '0.0.0.0', req.userRole]
             );
 
-            // Execute
+            // Execute via queryWithRLS (SECURE PATH)
             try {
-                const res = await pool.query(sql);
+                const results = await queryWithRLS(req, async (client) => {
+                    return await client.query(sql);
+                });
                 
+                let rows = results.rows || [];
+
+                // DATA VOLUME LIMIT: Prevent mass exfiltration for non-admins
+                if (!isAdmin && cleanSql.startsWith('SELECT')) {
+                    const maxRows = governance?.max_rows || 100;
+                    if (rows.length > maxRows) {
+                        rows = rows.slice(0, maxRows);
+                        // Optional: Add a note or flag that results were truncated
+                    }
+                }
+
+                // PRIVACY ENGINE: Apply masking to results
+                if (targetTable && cleanSql.startsWith('SELECT')) {
+                    rows = await DataController.applyMaskingTier(req, rows, targetTable);
+                }
+
                 // Webhook Event for modifications
                 if (!cleanSql.startsWith('SELECT')) {
                     WebhookService.dispatch(projectSlug, 'system', 'AI_ACTION', { sql }, systemPool, jwtSecret).catch(() => {});
                 }
 
                 return {
-                    content: [{ type: "text", text: JSON.stringify(res.rows, null, 2) }]
+                    content: [{ type: "text", text: JSON.stringify(rows, null, 2) }]
                 };
             } catch (sqlErr: any) {
                  return { isError: true, content: [{ type: "text", text: `SQL Error: ${sqlErr.message}` }] };
@@ -227,7 +274,7 @@ export class McpService {
              const tablesMap = governance?.tables || {};
 
              // GOVERNANCE: Visibility Check
-             if (!tablesMap[table]?.r) {
+             if (!isAdmin && !tablesMap[table]?.r) {
                  return { isError: true, content: [{ type: "text", text: `Governance Violation: Table '${table}' is not readable.` }] };
              }
 
@@ -282,7 +329,7 @@ export class McpService {
         if (toolName === 'manage_edge_function') {
             const { action, name, code, metadata } = args;
             
-            if (governance?.mode === 'read_only' && action !== 'read') {
+            if (!isAdmin && governance?.mode === 'read_only' && action !== 'read') {
                  return { isError: true, content: [{ type: "text", text: "Governance Violation: Read-Only mode active. Cannot modify Edge Functions." }] };
             }
 
@@ -296,6 +343,7 @@ export class McpService {
             }
 
             if (action === 'delete') {
+                 if (!isAdmin) return { isError: true, content: [{ type: "text", text: "Forbidden: Only Admin can delete functions." }] };
                  await systemPool.query(
                      "DELETE FROM system.assets WHERE project_slug = $1 AND type = 'edge_function' AND name = $2",
                      [projectSlug, name]
@@ -304,6 +352,7 @@ export class McpService {
             }
 
             if (action === 'create' || action === 'update') {
+                 if (!isAdmin) return { isError: true, content: [{ type: "text", text: "Forbidden: Only Admin can manage functions." }] };
                  if (!code) throw new Error("Code required for create/update");
                  
                  const meta = metadata || {};

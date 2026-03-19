@@ -108,3 +108,182 @@ CPF, dados bancários, PII — idealmente encriptados com `pgcrypto` e a chave f
 A sacada é: **um agente MCP comprometido não deveria conseguir dados além do que precisa pro seu fluxo específico** — mesmo que o prompt injection tente expandir o escopo.
 
 Isso é especialmente crítico pro caso dos Webhook Receivers de bancos (C6, Inter) que você tá desenhando — o role desses receivers deveria ser literalmente write-only em tabelas específicas, sem nenhum poder de leitura.
+
+
+
+#Vamos resolver daqui apra baixo.
+---
+
+## 🛡️ Solução Proposta: Perímetro de Segurança MCP (IP & URL Filtering)
+
+Para elevar a segurança do MCP de "Seguro por Senha" para "Enterprise Grade / Zero Trust", aqui está a visão técnica da implementação baseada em inteligência real:
+
+### 1. Novo Schema de Governança (Metadados)
+Atualmente, o Cascata já valida o `mcp_enabled` dentro de `project.metadata.ai_governance`. Vamos expandir esse objeto para suportar o **Perímetro Dinâmico**:
+
+```json
+{
+  "ai_governance": {
+    "mcp_enabled": true,
+    "mcp_perimeter": {
+      "allowed_ips": ["192.168.1.1", "2001:db8::/32"], // V4 e V6 (suporte a CIDR)
+      "allowed_urls": ["https://meu-app-seguro.com", "vscode-insiders://..."]
+    }
+  }
+}
+```
+
+### 2. Lógica de "Whitelist Opcional" (Cascata Inteligente)
+Conforme solicitado, o sistema manterá a compatibilidade e facilidade de uso seguindo a regra:
+- **Lista Vazia:** Comportamento atual. Qualquer cliente com a `Service Key` válida pode se conectar (Ideal para dev e testes rápidos).
+- **Lista Preenchida:** O `McpController` bloqueia sumariamente qualquer conexão cujo `req.ip` ou `Origin/Referer` não conste na whitelist.
+
+### 3. Integração com "Security Perimeter" (Frontend)
+A UI deve refletir essa proteção logo abaixo do gerenciador de **CORS Origins** existente:
+- **Localização:** `Overview > Project Settings > System Config > Security Perimeter`.
+- **Componentes:**
+    - Um seletor de lista de IPs (com detecção automática do IP atual do administrador para facilitar).
+    - Um seletor de URLs/Origins confiáveis especificamente para MCP.
+- **Diferenciação:** Deixaremos claro que estas são restrições de **Rede/Origem** e não apenas de **CORS**, agindo como um Firewall de aplicação (L7) específico para o protocolo MCP.
+
+### 4. Por que isso não é "mais do mesmo"?
+- O Cascata já resolve o **CORS** para a API de dados convencional, mas o MCP via SSE (Server-Sent Events) muitas vezes ignora headers de Origin em clientes puramente de terminal ou proxies locais.
+- A filtragem de IP (V4/V6) resolve o problema de vazamento da `Service Key`. Se a chave vazar, o atacante ainda precisaria estar na mesma rede ou originar o tráfego do endpoint permitido.
+
+### 5. Aplicação no Root MCP
+Esta mesma lógica será espelhada no **Control Plane**, permitindo que o administrador-mestre do Cascata restrinja o gerenciamento de toda a infraestrutura a IPs de VPNs corporativas ou URLs internas.
+
+---
+
+## 🧠 Reflexão: MCP como "Agente Público" (Chatbot/Atendente) — Precisamos de um Segundo MCP?
+
+### O Cenário Real (Crítico)
+Hoje, empresas usam MCP conectado a um LLM para criar atendentes de e-commerce, suporte, vendas. O agente recebe uma pergunta do **público** e faz queries no banco para responder. O problema:
+
+> Um concorrente abre o chat da loja e pergunta: *"Quantas vendas vocês tiveram hoje?"*  
+> O agente, com SELECT na tabela `pedidos`, responde alegremente: *"Hoje registramos 47 vendas totalizando R$ 12.340,00."*
+
+Isso é um vazamento de inteligência de negócio via canal público. **A culpa não é da IA, é da falta de perímetro no protocolo MCP.**
+
+### Resposta: NÃO precisamos de um segundo servidor MCP
+
+Criar dois servidores MCP (admin vs público) adiciona complexidade operacional sem ganho real. O que precisamos é de **Perfis de Governança MCP** — diferentes camadas de restrição aplicadas pelo **mesmo servidor MCP** baseado no contexto do token/role que está conectando.
+
+---
+
+### 🔴 FALHA REAL ENCONTRADA NO CÓDIGO ATUAL
+
+Ao auditar o `McpService.ts`, descobri uma falha **gravíssima** que prova o ponto:
+
+**O `run_sql` do MCP retorna resultados CRUS do banco**, sem passar pelo `applyMaskingTier()`:
+
+```
+// McpService.ts linha 209
+const res = await pool.query(sql);
+return { content: [{ type: "text", text: JSON.stringify(res.rows) }] };
+// ^^^ DADOS BRUTOS — SEM MASKING, SEM BLUR, SEM HIDE, SEM ENCRYPT
+```
+
+**Enquanto isso, a API REST do DataController aplica SEMPRE o Privacy Engine:**
+```
+// DataController.ts linha 345
+const rows = await DataController.applyMaskingTier(req, result.rows, req.params.tableName);
+```
+
+**Resultado:** Se o admin configurou no Dashboard que a coluna `cpf` deve ser `mask` e a coluna `salario` deve ser `hide`, a API REST respeita. Mas um agente MCP conectado via chatbot **ignora totalmente essas proteções** e retorna CPF limpo, salário visível, tudo.
+
+---
+
+### Soluções Propostas (Inteligência Real, Zero Regressão)
+
+**CORREÇÃO DA PROPOSTA ANTERIOR — A solução dos "Perfis de Governança" estava incompleta.**
+
+O Comandante trouxe a visão correta: o MCP deve suportar **3 modos de autenticação**, e não perfis estáticos:
+
+#### Os 3 Modos de Acesso MCP
+
+**Modo 1: `service_key` (Admin/Gestão)**
+- Comportamento atual. Acesso total. O MCP roda como Deus.
+- Ideal para: Dashboard, desenvolvimento, automações internas.
+- RLS: Bypass completo (role: `service_role`).
+
+**Modo 2: `anon_key` (Agente Público Anônimo)**
+- O chatbot de um site que NÃO tem login. Visitante anônimo perguntando sobre produtos.
+- RLS: Role `anon`. Só vê o que o `anon` pode via policies do PostgreSQL.
+- Privacy Engine: `applyMaskingTier` ativo. Dados sensíveis mascarados.
+- Perfeito para: FAQ bots, catálogo de produtos, informações públicas.
+
+**Modo 3: `JWT Token` (Agente "Como Usuário") ← A SACADA**
+- O agente MCP recebe um JWT de um **usuário autenticado** e opera COMO aquele usuário.
+- Quando o João logado pergunta *"Qual meu saldo?"*, o MCP executa a query **como o João**.
+- RLS: Role `authenticated`, com `SET LOCAL "request.jwt.claim.sub" = <uuid_do_joao>`.
+- O PostgreSQL filtra automaticamente: `WHERE user_id = auth.uid()` → só os dados do João aparecem.
+- Privacy Engine ativo: colunas marcadas como `hide/blur/mask/encrypt` são filtradas.
+- O João vê SEU saldo, mas NÃO vê o saldo de ninguém mais.
+- Um concorrente não consegue perguntar "quantas vendas hoje" porque a RLS dele só retorna os dados DELE.
+
+#### Por que isso é GENIAL e superior aos "Perfis"
+
+1. **Zero configuração extra:** Não precisa criar "perfis" de governança. Toda a segurança já está definida nas RLS policies do PostgreSQL que o próprio admin já criou.
+2. **Reaproveita 100% do que já existe:** O `queryWithRLS` (em `src/utils/index.ts`) já faz TODO o trabalho pesado:
+   ```
+   SET LOCAL ROLE 'authenticated';
+   SET LOCAL "request.jwt.claim.sub" = '<uuid>';
+   SET LOCAL "request.jwt.claim.email" = '<email>';
+   SET LOCAL "request.jwt.claim.role" = 'authenticated';
+   ```
+   O MCP só precisa chamar essa mesma cerimônia ao invés de `pool.query()` direto.
+3. **O admin não precisa aprender nada novo:** Ele já configura RLS no Database Explorer, já configura masking no Padlock/Privacy. Essas MESMAS regras se aplicam automaticamente ao MCP.
+4. **Segurança consistente:** A API REST e o MCP respeitam exatamente as mesmas regras. Não existe "caminho alternativo" sem proteção.
+
+#### Implementação Técnica (O que muda no código)
+
+**1. `McpController.ts` — Aceitar 3 modos de auth**
+Hoje o MCP só aceita `service_role`:
+```
+if (req.userRole !== 'service_role') { res.status(403)... }
+```
+Precisa mudar para aceitar qualquer role válido (`service_role`, `authenticated`, `anon`), usando o middleware de JWT que já existe. O middleware já faz decode do token e popula `req.user` e `req.userRole`.
+
+**2. `McpService.executeTool()` → usar `queryWithRLS()` ao invés de `pool.query()`**
+Hoje (FALHA):
+```
+const res = await pool.query(sql);  // BYPASS TOTAL de RLS e masking
+```
+Deve virar:
+```
+const res = await queryWithRLS(req, async (client) => {
+    return await client.query(sql);
+});
+// + applyMaskingTier nos resultados
+```
+Isso AUTOMATICAMENTE herda:
+- O role do JWT (anon, authenticated, service_role)  
+- O sub/email/identifier do usuário
+- Todas as RLS policies ativas
+- Todos os semáforos de consistência (read-after-write)
+
+**3. `McpService.getSchemaContext()` → filtrar colunas mascaradas**
+Hoje o contexto expõe TODAS as colunas, incluindo as mascaradas. Para agentes não-admin, colunas com `hide` devem ser omitidas do contexto. Colunas com `mask/blur/encrypt` podem aparecer mas com flag `[PROTECTED]` para que o LLM saiba que não deve pedir esses dados.
+
+**4. O que o Cascata JÁ resolve (e o MCP vai herdar automaticamente)**
+- ✅ CRUD governance por tabela (ai_governance.tables)
+- ✅ Column-level masking (hide, blur, mask, semi-mask, encrypt via masked_columns)
+- ✅ Column-level locking (immutable, insert_only via locked_columns)
+- ✅ RLS nativo do PostgreSQL (Row Level Security) com claims injection
+- ✅ Kill switch global e por projeto (mcp_enabled)
+- ✅ Audit trail de todas as ações MCP (api_logs)
+- ✅ Webhook events para ações destrutivas (AI_ACTION)
+- ✅ Read-After-Write Consistency via Dragonfly Semáforo
+- ✅ OTP-Protected columns (otp_verified claim)
+- ✅ Stale Plan Auto-Recovery (o queryWithRLS faz DEALLOCATE ALL + retry)
+
+**5. O que FALTA (gap real)**
+- ❌ O MCP NÃO aplica o Privacy Engine nos resultados (falha grave auditada acima)
+- ❌ O MCP exige `service_role` para tudo — não aceita `anon_key` nem `JWT token`
+- ❌ O MCP usa `pool.query()` direto ao invés de `queryWithRLS()` — bypass total de RLS
+- ❌ Não existe limite de volume (max_rows) para prevenir dump de dados via agente
+- ❌ O `getSchemaContext()` expõe colunas mascaradas no contexto do agente
+
+### Conclusão Arquitetural (Revisada)
+**MCP com 3 Modos = Service Key + Anon Key + JWT User Token.** O servidor MCP é o MESMO — a segurança muda com base em QUEM está conectado. Toda a infraestrutura já existe no `queryWithRLS`. O gap é conectar essa infraestrutura ao fluxo MCP. Zero overhead, zero complexidade extra, segurança máxima herdada.

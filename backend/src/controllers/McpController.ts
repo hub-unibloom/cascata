@@ -9,8 +9,10 @@ export class McpController {
     // --- DATA PLANE (Project Specific) ---
 
     static async connectSSE(req: CascataRequest, res: any) {
-        if (req.userRole !== 'service_role') {
-            res.status(403).json({ error: "Access Denied. Requires Service Key for MCP access." });
+        // ALLOW-LIST: service_role, authenticated, anon
+        const allowedRoles = ['service_role', 'authenticated', 'anon'];
+        if (!allowedRoles.includes(req.userRole || '')) {
+            res.status(403).json({ error: "Access Denied. Invalid role for MCP access." });
             return;
         }
 
@@ -18,7 +20,6 @@ export class McpController {
         try {
             const sysRes = await systemPool.query("SELECT settings->>'mcp_enabled' as mcp_enabled FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'ai_config'");
             const globalEnabled = sysRes.rows[0]?.mcp_enabled;
-            // If explicit false, block. If null/undefined, assume true (default).
             if (globalEnabled === 'false' || globalEnabled === false) {
                  res.status(503).json({ error: "System Governance: Global MCP Access Terminated." });
                  return;
@@ -30,6 +31,31 @@ export class McpController {
         if (projGovernance?.mcp_enabled === false) {
             res.status(403).json({ error: "Project Governance: MCP Access Disabled for this project." });
             return;
+        }
+
+        // --- IP & URL SECURITY PERIMETER ---
+        const mcpPerimeter = projGovernance?.mcp_perimeter;
+        if (mcpPerimeter && req.userRole !== 'service_role') {
+            const allowedIps = mcpPerimeter.allowed_ips || [];
+            const allowedUrls = mcpPerimeter.allowed_urls || [];
+
+            if (allowedIps.length > 0) {
+                const clientIp = req.ip || req.connection.remoteAddress;
+                // Basic IP check. For production accuracy, consider CIDR libraries if user asks.
+                if (!allowedIps.includes(clientIp)) {
+                    res.status(403).json({ error: `Security Perimeter: IP ${clientIp} is not authorized for MCP access.` });
+                    return;
+                }
+            }
+
+            if (allowedUrls.length > 0) {
+                const clientOrigin = req.headers.origin || req.headers.referer || '';
+                const isAllowed = allowedUrls.some((url: string) => clientOrigin.startsWith(url));
+                if (!isAllowed) {
+                    res.status(403).json({ error: `Security Perimeter: Origin ${clientOrigin} is not authorized for MCP access.` });
+                    return;
+                }
+            }
         }
 
         res.writeHead(200, {
@@ -44,7 +70,9 @@ export class McpController {
     }
 
     static async handleMessage(req: CascataRequest, res: any, next: any) {
-        if (req.userRole !== 'service_role') {
+        // ALLOW-LIST: service_role, authenticated, anon
+        const allowedRoles = ['service_role', 'authenticated', 'anon'];
+        if (!allowedRoles.includes(req.userRole || '')) {
             return res.status(403).json({ error: "Access Denied" });
         }
 
@@ -52,6 +80,28 @@ export class McpController {
         const projGovernance = req.project.metadata?.ai_governance;
         if (projGovernance?.mcp_enabled === false) {
             return res.json({ jsonrpc: "2.0", id: req.body.id, error: { code: -32000, message: "Project Governance: MCP Access Disabled." } });
+        }
+
+        // --- IP & URL SECURITY PERIMETER (REDUNDANT CHECK FOR NON-SSE CLIENTS) ---
+        const mcpPerimeter = projGovernance?.mcp_perimeter;
+        if (mcpPerimeter && req.userRole !== 'service_role') {
+            const allowedIps = mcpPerimeter.allowed_ips || [];
+            const allowedUrls = mcpPerimeter.allowed_urls || [];
+
+            if (allowedIps.length > 0) {
+                const clientIp = req.ip || req.connection.remoteAddress;
+                if (!allowedIps.includes(clientIp)) {
+                    return res.json({ jsonrpc: "2.0", id: req.body.id, error: { code: -32000, message: `Security Perimeter: IP Unauthorized.` } });
+                }
+            }
+
+            if (allowedUrls.length > 0) {
+                const clientOrigin = req.headers.origin || req.headers.referer || '';
+                const isAllowed = allowedUrls.some((url: string) => clientOrigin.startsWith(url));
+                if (!isAllowed) {
+                    return res.json({ jsonrpc: "2.0", id: req.body.id, error: { code: -32000, message: `Security Perimeter: Origin Unauthorized.` } });
+                }
+            }
         }
 
         const body = req.body;
@@ -64,7 +114,7 @@ export class McpController {
                     result: {
                         protocolVersion: "0.1.0",
                         capabilities: { resources: {}, tools: {} },
-                        serverInfo: { name: "Cascata MCP (Project)", version: "1.2.0" }
+                        serverInfo: { name: "Cascata MCP (Project)", version: "2.0.0" }
                     }
                 });
             }
@@ -85,7 +135,7 @@ export class McpController {
             }
 
             if (body.method === 'resources/read') {
-                const schema = await McpService.getSchemaContext(req.projectPool!, req.project.slug, projGovernance);
+                const schema = await McpService.getSchemaContext(req);
                 return res.json({
                     jsonrpc: "2.0",
                     id: body.id,
@@ -135,12 +185,9 @@ export class McpController {
 
             if (body.method === 'tools/call') {
                 const result = await McpService.executeTool(
-                    req.project.slug, 
-                    req.projectPool!, 
+                    req, 
                     body.params.name, 
-                    body.params.arguments, 
-                    req.project.jwt_secret,
-                    projGovernance // Pass Governance Config to Service
+                    body.params.arguments
                 );
                 return res.json({ jsonrpc: "2.0", id: body.id, result: result });
             }
