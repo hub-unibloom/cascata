@@ -398,11 +398,11 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
             if (forceMaster && req.method === 'GET') {
                 try {
                     const PoolSvc = (await import('../../services/PoolService.js')).PoolService;
-                    const externalUrl = req.project?.metadata?.external_db_url;
+                    const externalUrl = req.project?.metadata?.external_db_url as string | undefined;
                     if (externalUrl) {
-                        targetPool = PoolSvc.get(req.project!.db_name, { connectionString: externalUrl });
+                        targetPool = await PoolSvc.get(req.project!.db_name, { connectionString: externalUrl });
                     } else {
-                        targetPool = PoolSvc.get(req.project!.db_name, { max: 10 });
+                        targetPool = await PoolSvc.get(req.project!.db_name, { max: 10 });
                     }
                 } catch (e) {}
             }

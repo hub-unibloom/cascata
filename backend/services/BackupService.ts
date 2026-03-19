@@ -11,6 +11,7 @@ import { URL } from 'url';
 import { GDriveService } from './GDriveService.js';
 import { S3BackupService } from './S3BackupService.js';
 import { systemPool, SYS_SECRET, TEMP_UPLOAD_ROOT } from '../src/config/main.js';
+import { VaultService } from './VaultService.js';
 
 export interface ProjectMetadata {
     id: string;

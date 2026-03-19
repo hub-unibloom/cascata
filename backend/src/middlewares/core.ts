@@ -44,7 +44,7 @@ export const resolveProject: RequestHandler = async (req: Request, res: Response
             // We remove the '/draft' segment so routes defined as '/tables/:name' match correctly.
             // Using replace on the specific string ensures we don't break query params.
             req.url = req.url.replace('/draft', '');
-            req.path = req.path.replace('/draft', '');
+            // req.path is read-only in newer Express versions. Modifying req.url is enough for routing.
         }
         // Implicitly 'live' otherwise. We do not strip other segments.
     }

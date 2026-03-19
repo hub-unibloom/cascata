@@ -511,19 +511,24 @@ export class AdminController {
                             const dbName = dbInfo.rows[0].db_name as string;
                             const projectPool = await PoolService.get(dbName, { useDirect: true });
                             if (projectPool) {
-                                // INJETOR ON-DEMAND: Se a base existir e nunca inicializou o motor The Foundry DDL
-                                // Ele rodará o provisionamento Native Locks no próprio banco do inquilino
-                                await DatabaseService.injectSecurityLockEngine(projectPool as unknown as pg.Pool);
+                                const client = await projectPool.connect();
+                                try {
+                                    // INJETOR ON-DEMAND: Se a base existir e nunca inicializou o motor The Foundry DDL
+                                    // Ele rodará o provisionamento Native Locks no próprio banco do inquilino
+                                    await DatabaseService.injectSecurityLockEngine(client);
 
-                                const columnsPayload = metadata.locked_columns as Record<string, Record<string, unknown>>;
-                                for (const [tableName, locksObj] of Object.entries(columnsPayload)) {
-                                    if (typeof locksObj === 'object' && locksObj !== null) {
-                                        // Invoca a engine DDL Nativa. O Lock Manager do Node vira apenas um mensageiro.
-                                        await projectPool.query(
-                                            'SELECT system.apply_security_locks($1, $2, $3::jsonb)',
-                                            [projectSlug, tableName, JSON.stringify(locksObj)]
-                                        );
+                                    const columnsPayload = metadata.locked_columns as Record<string, Record<string, unknown>>;
+                                    for (const [tableName, locksObj] of Object.entries(columnsPayload)) {
+                                        if (typeof locksObj === 'object' && locksObj !== null) {
+                                            // Invoca a engine DDL Nativa. O Lock Manager do Node vira apenas um mensageiro.
+                                            await client.query(
+                                                'SELECT system.apply_security_locks($1, $2, $3::jsonb)',
+                                                [projectSlug, tableName, JSON.stringify(locksObj)]
+                                            );
+                                        }
                                     }
+                                } finally {
+                                    client.release();
                                 }
                             }
                         }

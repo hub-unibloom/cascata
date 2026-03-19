@@ -147,7 +147,7 @@ else {
             cluster.fork({ WORKER_ID: i + 1 });
         }
 
-        cluster.on('exit', (worker: cluster.Worker, code: number | null, signal: string | null) => {
+        cluster.on('exit', (worker: { process: { pid: number; env: Record<string, string | undefined> } }, code: number | null, signal: string | null) => {
             console.error(`[Hyper-Cluster] Worker ${worker.process.pid} died (signal: ${signal}, code: ${code}). Respawning instantly...`);
             cluster.fork({ WORKER_ID: (worker.process.env['WORKER_ID'] || Math.floor(Math.random() * 100).toString()) });
         });

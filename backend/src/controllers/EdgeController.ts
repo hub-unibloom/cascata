@@ -46,14 +46,14 @@ export class EdgeController {
             // O Engine não tem acesso ao middleware `resolveProject`, então precisamos
             // passar a string de conexão explicitamente no contexto.
             let dbConnectionString = '';
-            if (req.project.metadata?.external_db_url) {
-                dbConnectionString = req.project.metadata.external_db_url;
+            if (r.project.metadata?.external_db_url) {
+                dbConnectionString = r.project.metadata.external_db_url as string;
             } else {
                 const dbHost = process.env.DB_DIRECT_HOST || 'db';
                 const dbPort = process.env.DB_DIRECT_PORT || '5432';
                 const user = process.env.DB_USER || 'cascata_admin';
                 const pass = process.env.DB_PASS || 'secure_pass';
-                dbConnectionString = `postgresql://${user}:${pass}@${dbHost}:${dbPort}/${req.project.db_name}`;
+                dbConnectionString = `postgresql://${user}:${pass}@${dbHost}:${dbPort}/${r.project.db_name}`;
             }
 
             const context = { 
