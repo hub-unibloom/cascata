@@ -1,5 +1,5 @@
 
-import { NextFunction, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import pg from 'pg';
@@ -35,7 +35,7 @@ export class AdminController {
     // HANDSHAKE: Inicia a sessão de criptografia ECDH X25519 efêmera
     // GET /auth/handshake → { sessionId, serverPublicKey }
     // ---------------------------------------------------------------------------
-    static async handshake(req: CascataRequest, res: any, next: any) {
+    static async handshake(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             // Gerar par de chaves ECDH X25519 efêmero para este login
             const session = PayloadCrypto.createHandshakeSession();
@@ -60,7 +60,7 @@ export class AdminController {
                     // TTL manual (fallback)
                     setTimeout(() => AdminController.handshakeFallbackStore.delete(session.sessionId), HANDSHAKE_TTL_SECONDS * 1000);
                 }
-            } catch {
+            } catch (err: unknown) {
                 if (AdminController.handshakeFallbackStore.size > 2000) {
                     const firstKey = AdminController.handshakeFallbackStore.keys().next().value;
                     if (firstKey) AdminController.handshakeFallbackStore.delete(firstKey);
@@ -75,7 +75,7 @@ export class AdminController {
                 serverPublicKey:   session.serverPublicKey,
                 serverFingerprint: PayloadCrypto.getServerFingerprint(),
             });
-        } catch (e: any) { next(e); }
+        } catch (e: unknown) { next(e); }
     }
 
     // Fallback store em memória para quando Dragonfly não está disponível
@@ -85,8 +85,9 @@ export class AdminController {
     // LOGIN: Suporta payload cifrado (ECDH+AES-GCM) e texto puro (retrocompatível)
     // POST /auth/login
     // ---------------------------------------------------------------------------
-    static async login(req: CascataRequest, res: any, next: any) {
+    static async login(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
         try {
+            const body = req.body as { v?: string; ciphertext?: string; sessionId?: string; email?: string; password?: string; otp_code?: string; clientPublicKey?: string }; 
             let email: string;
             let password: string;
             let parsedOtpCode: string = '';
@@ -94,14 +95,12 @@ export class AdminController {
             let sharedKey: Buffer | null = null;
 
             // ── DETECTOR DE PROTOCOLO ────────────────────────────────────────────
-            // Se o body contém 'v' (versão) e 'ciphertext', é um payload cifrado.
-            // Caso contrário, é um login em texto puro (fallback retrocompatível).
-            if (req.body?.v && req.body?.ciphertext && req.body?.sessionId) {
+            if (body?.v && body?.ciphertext && body?.sessionId) {
                 isEncrypted = true;
-                const encPayload = req.body;
+                const encPayload = body as { v: string; ciphertext: string; sessionId: string; clientPublicKey: string };
 
                 // 1. Recuperar sessão de handshake
-                let session: any = null;
+                let session: { serverPrivateKey: string; serverPublicKey: string; sharedKey?: Buffer } | null = null;
                 try {
                     const RLSvc = (await import('../../services/RateLimitService.js')).RateLimitService;
                     const dfly = (RLSvc as any).dragonfly;
@@ -127,16 +126,19 @@ export class AdminController {
 
                 // 2. Derivar chave compartilhada ECDH
                 sharedKey = PayloadCrypto.deriveSharedKey(
-                    session.serverPrivateKey,
+                    session.serverPrivateKey as string,
                     encPayload.clientPublicKey
                 );
 
                 // 3. Decifrar payload (inclui validação anti-replay de timestamp)
                 let plainBody: Record<string, unknown>;
                 try {
-                    plainBody = PayloadCrypto.decryptPayload(encPayload, sharedKey);
-                } catch (e: any) {
-                    console.warn('[AdminController] Payload decryption failed:', e.message);
+                    // SAFETY: encPayload is verified to have required fields by the cast above.
+                    // Using unknown cast instead of any for the parameter.
+                    // Buffer name might not be globally available yet.
+                    plainBody = PayloadCrypto.decryptPayload(encPayload as unknown as any, sharedKey as any);
+                } catch (e: unknown) {
+                    console.warn('[AdminController] Payload decryption failed:', (e as Error).message);
                     return res.status(401).json({ error: 'Invalid or tampered payload.' });
                 }
 
@@ -147,9 +149,9 @@ export class AdminController {
             } else {
                 // ── MODO LEGADO (texto puro): Aceito mas registrado como aviso ──
                 console.warn('[AdminController] Login with unencrypted payload detected. Upgrade to secure handshake flow.');
-                email         = String(req.body?.email    || '');
-                password      = String(req.body?.password || '');
-                parsedOtpCode = String(req.body?.otp_code || '');
+                email         = String(body?.email    || '');
+                password      = String(body?.password || '');
+                parsedOtpCode = String(body?.otp_code || '');
             }
 
             if (!email || !password) {
@@ -168,7 +170,7 @@ export class AdminController {
             }
 
             const admin = result.rows[0];
-            const isValid = await bcrypt.compare(password, admin.password_hash);
+            const isValid = await bcrypt.compare(password, admin.password_hash as string);
             if (!isValid) return res.status(401).json({ error: 'Invalid credentials' });
 
             // ── OTP / TOTP VALIDATION (SE CONFIGURADO) ───────────────────────────
@@ -235,38 +237,43 @@ export class AdminController {
                 return res.json({ token });
             }
 
-        } catch (e: any) { next(e); }
+        } catch (e: unknown) { next(e); }
     }
 
-    static async verify(req: CascataRequest, res: any, next: any) {
+    static async verify(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
         try {
-            const user = (await systemPool.query('SELECT * FROM system.admin_users LIMIT 1')).rows[0];
-            const isValid = await bcrypt.compare(req.body.password, user.password_hash);
+            const body = req.body as { password?: string };
+            if (!body.password) return res.status(400).json({ error: 'Password required' });
+            const user = (await systemPool.query('SELECT password_hash FROM system.admin_users LIMIT 1')).rows[0];
+            const isValid = await bcrypt.compare(body.password, user.password_hash as string);
             if (isValid) res.json({ success: true });
             else res.status(401).json({ error: 'Invalid password' });
-        } catch (e: any) { next(e); }
+        } catch (e: unknown) { next(e); }
     }
 
-    static async updateProfile(req: CascataRequest, res: any, next: any) {
-        const { email, password } = req.body;
+    static async updateProfile(req: Request, res: Response, next: NextFunction): Promise<void> {
+        const { email, password } = req.body as { email: string; password?: string };
         try {
-            let passwordHash = undefined;
+            let passwordHash: string | undefined = undefined;
             if (password) passwordHash = await bcrypt.hash(password, 10);
             let query = 'UPDATE system.admin_users SET email = $1';
-            const params = [email];
+            const params: string[] = [email];
             if (passwordHash) { query += ', password_hash = $2'; params.push(passwordHash); }
             query += ' WHERE id = (SELECT id FROM system.admin_users LIMIT 1)';
             await systemPool.query(query, params);
             res.json({ success: true });
-        } catch (e: any) { next(e); }
+        } catch (e: unknown) { next(e); }
     }
 
     // ... (System & Project Listing methods remain unchanged) ...
-    static async getSystemLogs(req: CascataRequest, res: any, next: any) {
-        try { const logs = await SystemLogService.getLogs(200); res.json(logs); } catch (e: any) { next(e); }
+    static async getSystemLogs(req: Request, res: Response, next: NextFunction): Promise<void> {
+        try { 
+            const logs = await SystemLogService.getLogs(200); 
+            res.json(logs); 
+        } catch (e: unknown) { next(e); }
     }
 
-    static async listProjects(req: CascataRequest, res: any, next: any) {
+    static async listProjects(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const result = await systemPool.query(`
                 SELECT id, name, slug, db_name, custom_domain, ssl_certificate_source, blocklist, status, created_at, 
@@ -276,24 +283,24 @@ export class AdminController {
             `);
             
             const vault = VaultService.getInstance();
-            const projects = result.rows;
+            const projects = result.rows as any[];
 
             for (const project of projects) {
-                if (project.anon_key && project.anon_key.startsWith('vault:')) {
+                if (project.anon_key && typeof project.anon_key === 'string' && project.anon_key.startsWith('vault:')) {
                     try {
                         project.anon_key = await vault.decrypt('cascata-system-keys', project.anon_key);
-                    } catch (e) {
+                    } catch (e: unknown) {
                         project.anon_key = '(decrypt-error)';
                     }
                 }
             }
 
             res.json(projects);
-        } catch (e: any) { next(e); }
+        } catch (e: unknown) { next(e); }
     }
 
-    static async createProject(req: CascataRequest, res: any, next: any) {
-        const { name, slug, timezone, custom_domain } = req.body;
+    static async createProject(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
+        const { name, slug, timezone, custom_domain } = req.body as { name: string; slug: string; timezone?: string; custom_domain?: string };
 
         // Comprehensive Payload Validation
         if (!name || !slug) {
@@ -330,26 +337,41 @@ export class AdminController {
             const safeTz = tz.replace(/[^a-zA-Z0-9_\-\/]/g, '');
             await systemPool.query(`ALTER DATABASE "${dbName}" SET timezone TO '${safeTz}'`);
 
-            const tempClient = new pg.Client({ connectionString: `postgresql://${process.env.DB_USER}:${process.env.DB_PASS}@${process.env.DB_DIRECT_HOST}:5432/${dbName}` });
+            const dbDirectHost = process.env.DB_DIRECT_HOST;
+            const dbUser = process.env.DB_USER;
+            const dbPass = process.env.DB_PASS;
+
+            const tempClient = new pg.Client({ connectionString: `postgresql://${dbUser}:${dbPass}@${dbDirectHost}:5432/${dbName}` });
             await tempClient.connect();
             try {
                 await DatabaseService.initProjectDb(tempClient);
             } finally {
                 await tempClient.end().catch(console.error);
             }
-            try { await axios.put(`http://${process.env.QDRANT_HOST}:6333/collections/${safeSlug}`, { vectors: { size: 1536, distance: 'Cosine' } }); } catch (e) { }
+            try { 
+                const qdrantHost = process.env.QDRANT_HOST;
+                if (qdrantHost) {
+                    await axios.put(`http://${qdrantHost}:6333/collections/${safeSlug}`, { vectors: { size: 1536, distance: 'Cosine' } }); 
+                }
+            } catch (e: unknown) { }
             
             // BORN SECURE: Populate default auth rate limits
             await AdminController.createDefaultAuthRules(safeSlug);
 
             await CertificateService.rebuildNginxConfigs(systemPool);
             res.json({ ...insertRes.rows[0], anon_key: keys.anon, service_key: keys.service, jwt_secret: keys.jwt });
-        } catch (e: any) {
+        } catch (e: unknown) {
+            const err = e as Error;
             // SAFETY: Clean up BOTH the project record AND the orphan database
             // This prevents the deadly scenario where DB exists but record is gone
-            await systemPool.query('DELETE FROM system.projects WHERE slug = $1', [safeSlug]).catch(() => { });
-            await systemPool.query(`DROP DATABASE IF EXISTS "${dbName}"`).catch(() => { });
-            next(e);
+            const bodySlug = (req.body as { slug?: string }).slug;
+            const sSlug = bodySlug?.toLowerCase().replace(/[^a-z0-9-]/g, '');
+            const dName = `cascata_db_${sSlug?.replace(/-/g, '_')}`;
+            if (sSlug) {
+                await systemPool.query('DELETE FROM system.projects WHERE slug = $1', [sSlug]).catch(() => { });
+                await systemPool.query(`DROP DATABASE IF EXISTS "${dName}"`).catch(() => { });
+            }
+            next(err);
         }
     }
 
@@ -357,8 +379,8 @@ export class AdminController {
      * Recover an orphan project: database exists but project record was lost.
      * This creates a new project record pointing to the existing database.
      */
-    static async recoverProject(req: CascataRequest, res: any, next: any) {
-        const { slug, name } = req.body;
+    static async recoverProject(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
+        const { slug, name } = req.body as { slug: string; name: string };
         if (!slug || !name) return res.status(400).json({ error: 'slug and name are required.' });
 
         const safeSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '');
@@ -395,10 +417,10 @@ export class AdminController {
 
             console.log(`[AdminController] Recovered orphan project: ${safeSlug} → ${dbName}`);
             res.json({ ...insertRes.rows[0], anon_key: keys.anon, service_key: keys.service, jwt_secret: keys.jwt, recovered: true });
-        } catch (e: any) { next(e); }
+        } catch (e: unknown) { next(e); }
     }
 
-    static async updateProject(req: CascataRequest, res: any, next: any) {
+    static async updateProject(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
         const { slug } = req.params;
         if (!slug) return res.status(400).json({ error: 'Project slug is required.' });
 
@@ -409,27 +431,35 @@ export class AdminController {
                 return res.status(404).json({ error: 'Project not found or already deleted.' });
             }
 
-            const { custom_domain, log_retention_days, metadata, ssl_certificate_source, status } = req.body;
+            const { custom_domain, log_retention_days, metadata, ssl_certificate_source, status, archive_logs } = req.body as { 
+                custom_domain?: string; 
+                log_retention_days?: number; 
+                metadata?: Record<string, unknown>; 
+                ssl_certificate_source?: string; 
+                status?: string; 
+                archive_logs?: boolean; 
+            };
 
             const fields: string[] = [];
-            const values: any[] = [];
+            const values: unknown[] = [];
             let idx = 1;
 
             if (status !== undefined) { fields.push(`status = $${idx++}`); values.push(status); }
             if (log_retention_days !== undefined) { fields.push(`log_retention_days = $${idx++}`); values.push(log_retention_days); }
-            if (req.body.archive_logs !== undefined) { fields.push(`archive_logs = $${idx++}`); values.push(req.body.archive_logs); }
+            if (archive_logs !== undefined) { fields.push(`archive_logs = $${idx++}`); values.push(archive_logs); }
             if (ssl_certificate_source !== undefined) { fields.push(`ssl_certificate_source = $${idx++}`); values.push(ssl_certificate_source); }
             if (custom_domain !== undefined) { fields.push(`custom_domain = $${idx++}`); values.push(custom_domain); }
 
             // VALIDATE GLOBAL CONNECTION CAP
             if (metadata && metadata.db_config) {
-                const requestedMax = parseInt(metadata.db_config.max_connections || metadata.db_config.maxConnections || '10', 10);
+                const dbConfig = metadata.db_config as any;
+                const requestedMax = parseInt(dbConfig.max_connections || dbConfig.maxConnections || '10', 10);
 
                 const sysConfigRes = await systemPool.query(
                     "SELECT settings FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'system_config'"
                 );
-                const sysConfig = sysConfigRes.rows[0]?.settings || {};
-                const globalMax = parseInt(sysConfig.maxConnections || sysConfig.max_connections || '100', 10);
+                const sysConfig = (sysConfigRes.rows[0]?.settings || {}) as Record<string, unknown>;
+                const globalMax = parseInt((sysConfig.maxConnections as string | undefined) || (sysConfig.max_connections as string | undefined) || '100', 10);
 
                 const sumRes = await systemPool.query(`
                     SELECT 
@@ -442,7 +472,7 @@ export class AdminController {
                         ) as total_used 
                     FROM system.projects 
                     WHERE slug != $1
-                `, [req.params.slug]);
+                `, [slug]);
 
                 const totalUsed = parseInt(sumRes.rows[0]?.total_used || '0', 10);
                 const remaining = globalMax - totalUsed;
@@ -460,11 +490,12 @@ export class AdminController {
 
                 // FIX: Hot-Reload database temporal configuration if Admin updates the Timezone
                 if (metadata.timezone) {
-                    const dbNameRow = await systemPool.query('SELECT db_name FROM system.projects WHERE slug = $1', [req.params.slug]);
+                    const dbNameRow = await systemPool.query('SELECT db_name FROM system.projects WHERE slug = $1', [slug]);
                     if (dbNameRow.rows.length > 0) {
-                        const safeTz = metadata.timezone.replace(/[^a-zA-Z0-9_\-\/]/g, '');
-                        await systemPool.query(`ALTER DATABASE "${dbNameRow.rows[0].db_name}" SET timezone TO '${safeTz}'`);
-                        await PoolService.reload(dbNameRow.rows[0].db_name);
+                        const dbName = dbNameRow.rows[0].db_name as string;
+                        const safeTz = (metadata.timezone as string).replace(/[^a-zA-Z0-9_\-\/]/g, '');
+                        await systemPool.query(`ALTER DATABASE "${dbName}" SET timezone TO '${safeTz}'`);
+                        await PoolService.reload(dbName);
                     }
                 }
 
@@ -472,19 +503,19 @@ export class AdminController {
                 // Se o payload contiver 'locked_columns', nós chamaremos a stored procedure recém criada
                 // no banco de dados do Inquilino para aplicar as Permissões Nativas em Lote (O(1)).
                 if (metadata.locked_columns) {
-                    const projectSlug = req.params.slug;
+                    const projectSlug = slug;
                     try {
                         // Garantir o Nome do Banco daquele projeto
                         const dbInfo = await systemPool.query('SELECT db_name FROM system.projects WHERE slug = $1', [projectSlug]);
                         if (dbInfo.rows.length > 0) {
-                            const dbName = dbInfo.rows[0].db_name;
+                            const dbName = dbInfo.rows[0].db_name as string;
                             const projectPool = await PoolService.get(dbName, { useDirect: true });
                             if (projectPool) {
                                 // INJETOR ON-DEMAND: Se a base existir e nunca inicializou o motor The Foundry DDL
                                 // Ele rodará o provisionamento Native Locks no próprio banco do inquilino
-                                await DatabaseService.injectSecurityLockEngine(projectPool as any);
+                                await DatabaseService.injectSecurityLockEngine(projectPool as unknown as pg.Pool);
 
-                                const columnsPayload = metadata.locked_columns;
+                                const columnsPayload = metadata.locked_columns as Record<string, Record<string, unknown>>;
                                 for (const [tableName, locksObj] of Object.entries(columnsPayload)) {
                                     if (typeof locksObj === 'object' && locksObj !== null) {
                                         // Invoca a engine DDL Nativa. O Lock Manager do Node vira apenas um mensageiro.
@@ -496,13 +527,13 @@ export class AdminController {
                                 }
                             }
                         }
-                    } catch (lockErr) {
-                        console.error(`[AdminController] Failed to compile Native DCL Security Locks for ${projectSlug}:`, lockErr);
+                    } catch (lockErr: unknown) {
+                        console.error(`[AdminController] Failed to compile Native DCL Security Locks for ${projectSlug}:`, (lockErr as Error).message);
                     }
                 }
             }
             if (fields.length === 0) return res.json({});
-            values.push(req.params.slug);
+            values.push(slug);
             const query = `UPDATE system.projects SET ${fields.join(', ')} WHERE slug = $${idx} RETURNING *`;
             const result = await systemPool.query(query, values);
             
@@ -517,7 +548,7 @@ export class AdminController {
                 await PoolSvc.reload(updated.db_name);
 
                 // Invalida o Cache Semântico do Dragonfly para as tabelas afetadas
-                if (metadata.locked_columns || metadata.masked_columns) {
+                if (metadata && (metadata.locked_columns || metadata.masked_columns)) {
                     const dfly = (RateLimitSvc as any).dragonfly;
                     const tables = new Set([
                         ...Object.keys(metadata.locked_columns || {}),
@@ -525,52 +556,61 @@ export class AdminController {
                     ]);
                     for(const table of tables) {
                         try {
-                            await dfly.publish('cascata_cache_invalidate', JSON.stringify({ table }));
-                        } catch(pubErr) {}
+                            if (dfly) await dfly.publish('cascata_cache_invalidate', JSON.stringify({ table }));
+                        } catch(pubErr: unknown) {}
                     }
                 }
-            } catch (cacheErr) {
-                console.warn('[AdminController] Hot-Reload post-update failed (Cache may be stale):', cacheErr);
+            } catch (cacheErr: unknown) {
+                console.warn('[AdminController] Hot-Reload post-update failed (Cache may be stale):', (cacheErr as Error).message);
             }
 
             await CertificateService.rebuildNginxConfigs(systemPool);
             res.json(result.rows[0]);
-        } catch (e: any) { next(e); }
+        } catch (e: unknown) { next(e); }
     }
 
-    static async deleteProject(req: CascataRequest, res: any, next: any) {
+    static async deleteProject(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
         const { slug } = req.params;
         try {
-            const project = (await systemPool.query('SELECT * FROM system.projects WHERE slug = $1', [slug])).rows[0];
+            const projectResult = await systemPool.query('SELECT * FROM system.projects WHERE slug = $1', [slug]);
+            const project = projectResult.rows[0];
             if (!project) return res.status(404).json({ error: 'Not found' });
-            await PoolService.terminate(project.db_name);
-            await systemPool.query(`DROP DATABASE IF EXISTS "${project.db_name}"`);
+            
+            const dbName = project.db_name as string;
+            await PoolService.terminate(dbName);
+            await systemPool.query(`DROP DATABASE IF EXISTS "${dbName}"`);
             await systemPool.query(`DELETE FROM system.projects WHERE slug = $1`, [slug]);
+            
             const storagePath = path.join(STORAGE_ROOT, slug);
-            if (fs.existsSync(storagePath)) fs.rmSync(storagePath, { recursive: true, force: true });
+            if (fs.existsSync(storagePath)) {
+                await fs.promises.rm(storagePath, { recursive: true, force: true });
+            }
+            
             await CertificateService.rebuildNginxConfigs(systemPool);
             res.json({ success: true });
-        } catch (e: any) { next(e); }
+        } catch (e: unknown) { next(e); }
     }
 
-    // ... (Key reveal/rotate, secrets, IPs, logs export logic remains same) ...
-    static async revealKey(req: CascataRequest, res: any, next: any) {
+    static async revealKey(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
+        const { slug } = req.params;
+        const { keyType, password } = req.body as { keyType: string; password: string };
         // SECURITY: Whitelist to prevent SQL injection via keyType interpolation
         const ALLOWED_KEY_TYPES: Record<string, string> = {
             anon_key: 'anon_key',
             service_key: 'service_key',
             jwt_secret: 'jwt_secret'
         };
-        const safeKeyType = ALLOWED_KEY_TYPES[req.body.keyType];
+        const safeKeyType = ALLOWED_KEY_TYPES[keyType];
         if (!safeKeyType) return res.status(400).json({ error: 'Invalid key type.' });
 
         try {
-            const admin = (await systemPool.query('SELECT * FROM system.admin_users LIMIT 1')).rows[0];
-            const isValid = await bcrypt.compare(req.body.password, admin.password_hash);
+            const adminResult = await systemPool.query('SELECT password_hash FROM system.admin_users LIMIT 1');
+            const admin = adminResult.rows[0];
+            const isValid = await bcrypt.compare(password, admin.password_hash as string);
             if (!isValid) return res.status(403).json({ error: "Invalid Password" });
             
-            const keyRes = await systemPool.query(`SELECT ${safeKeyType} as key FROM system.projects WHERE slug = $1`, [req.params.slug]);
-            let key = keyRes.rows[0].key;
+            const keyRes = await systemPool.query(`SELECT ${safeKeyType} as key FROM system.projects WHERE slug = $1`, [slug]);
+            let key = keyRes.rows[0].key as string | null;
 
             if (key && key.startsWith('vault:')) {
                 const vault = VaultService.getInstance();
@@ -578,114 +618,141 @@ export class AdminController {
             }
 
             res.json({ key });
-        } catch (e: any) { next(e); }
+        } catch (e: unknown) { next(e); }
     }
 
-    // ... (Keep existing Helper endpoints) ...
-    static async rotateKeys(req: CascataRequest, res: any, next: any) {
+    static async rotateKeys(req: Request, res: Response, next: NextFunction): Promise<void> {
+        const { slug } = req.params;
+        const { type } = req.body as { type: string };
         try { 
             const newKey = await generateKey();
             const vault = VaultService.getInstance();
             const encryptedKey = await vault.encrypt('cascata-system-keys', newKey);
             
-            const col = req.body.type === 'anon' ? 'anon_key' : 'service_key';
-            await systemPool.query(`UPDATE system.projects SET ${col} = $1 WHERE slug = $2`, [encryptedKey, req.params.slug]); 
+            const col = type === 'anon' ? 'anon_key' : 'service_key';
+            await systemPool.query(`UPDATE system.projects SET ${col} = $1 WHERE slug = $2`, [encryptedKey, slug]); 
             res.json({ success: true }); 
-        } catch (e: any) { next(e); }
+        } catch (e: unknown) { next(e); }
     }
-    static async updateSecrets(req: CascataRequest, res: any, next: any) {
-        try { await systemPool.query(`UPDATE system.projects SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{secrets}', $1) WHERE slug = $2`, [JSON.stringify(req.body.secrets), req.params.slug]); res.json({ success: true }); } catch (e: any) { next(e); }
+
+    static async updateSecrets(req: Request, res: Response, next: NextFunction): Promise<void> {
+        const { slug } = req.params;
+        const { secrets } = req.body as { secrets: Record<string, string> };
+        try { 
+            await systemPool.query(`UPDATE system.projects SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{secrets}', $1) WHERE slug = $2`, [JSON.stringify(secrets), slug]); 
+            res.json({ success: true }); 
+        } catch (e: unknown) { next(e); }
     }
-    static async blockIp(req: CascataRequest, res: any, next: any) {
-        try { await systemPool.query('UPDATE system.projects SET blocklist = array_append(blocklist, $1) WHERE slug = $2', [req.body.ip, req.params.slug]); res.json({ success: true }); } catch (e: any) { next(e); }
+
+    static async blockIp(req: Request, res: Response, next: NextFunction): Promise<void> {
+        const { slug } = req.params;
+        const { ip } = req.body as { ip: string };
+        try { 
+            await systemPool.query('UPDATE system.projects SET blocklist = array_append(blocklist, $1) WHERE slug = $2', [ip, slug]); 
+            res.json({ success: true }); 
+        } catch (e: unknown) { next(e); }
     }
-    static async unblockIp(req: CascataRequest, res: any, next: any) {
-        try { await systemPool.query('UPDATE system.projects SET blocklist = array_remove(blocklist, $1) WHERE slug = $2', [req.params.ip, req.params.slug]); res.json({ success: true }); } catch (e: any) { next(e); }
+
+    static async unblockIp(req: Request, res: Response, next: NextFunction): Promise<void> {
+        const { slug } = req.params;
+        const { ip } = req.body as { ip: string };
+        try { 
+            await systemPool.query('UPDATE system.projects SET blocklist = array_remove(blocklist, $1) WHERE slug = $2', [ip, slug]); 
+            res.json({ success: true }); 
+        } catch (e: unknown) { next(e); }
     }
-    static async purgeLogs(req: CascataRequest, res: any, next: any) {
+
+    static async purgeLogs(req: Request, res: Response, next: NextFunction): Promise<void> {
+        const { slug } = req.params;
+        const days = Number(req.query.days);
         const archive = req.query.archive === 'true';
-        try { await systemPool.query(`SELECT system.purge_old_logs($1, $2, $3)`, [req.params.slug, Number(req.query.days), archive]); res.json({ success: true }); } catch (e: any) { next(e); }
+        try { 
+            await systemPool.query(`SELECT system.purge_old_logs($1, $2, $3)`, [slug, days, archive]); 
+            res.json({ success: true }); 
+        } catch (e: unknown) { next(e); }
     }
-    static async exportProject(req: CascataRequest, res: any, next: any) {
+
+    static async exportProject(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
+        const { slug } = req.params;
         try {
-            const project = (await systemPool.query('SELECT * FROM system.projects WHERE slug = $1', [req.params.slug])).rows[0];
-            
+            const projectResult = await systemPool.query('SELECT * FROM system.projects WHERE slug = $1', [slug]);
+            const project = projectResult.rows[0];
+            if (!project) return res.status(404).json({ error: 'Project not found' });
+
             // DESCRIPTOGRAFIA SEGURA (VAULT)
             const vault = VaultService.getInstance();
             const keys: Record<string, string> = {};
             const keysToDecrypt = ['jwt_secret', 'anon_key', 'service_key'];
             
             for (const k of keysToDecrypt) {
-                if (project[k] && project[k].startsWith('vault:')) {
-                    keys[k] = await vault.decrypt('cascata-system-keys', project[k]);
-                } else {
-                    keys[k] = project[k];
+                const val = project[k] as string | null;
+                if (val && val.startsWith('vault:')) {
+                    keys[k] = await vault.decrypt('cascata-system-keys', val);
+                } else if (val) {
+                    keys[k] = val;
                 }
             }
 
             await BackupService.streamExport({ ...project, ...keys }, res);
-        } catch (e: any) { if (!res.headersSent) res.status(500).json({ error: e.message }); }
+        } catch (e: unknown) { 
+            if (!res.headersSent) res.status(500).json({ error: (e as Error).message }); 
+        }
     }
-    static async exportLogsToCloud(req: CascataRequest, res: any, next: any) {
+
+    static async exportLogsToCloud(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
+        const { slug } = req.params;
         try {
-            const { slug } = req.params;
-            const project = (await systemPool.query('SELECT * FROM system.projects WHERE slug = $1', [slug])).rows[0];
+            const projectResult = await systemPool.query('SELECT db_name FROM system.projects WHERE slug = $1', [slug]);
+            const project = projectResult.rows[0];
             if (!project) return res.status(404).json({ error: 'Project not found.' });
 
-            // Ensure S3 Backup Service has valid credentials
             if (!process.env.S3_ACCESS_KEY || !process.env.S3_SECRET_KEY) {
                 return res.status(400).json({ error: 'System not configured for Cloud Storage Exports. Verify S3 credentials.' });
             }
 
-            // Fire an async Job to pull the logs and upload to Cloud
             const insertRes = await systemPool.query(
                 `INSERT INTO system.async_operations (project_slug, type, status, metadata) 
                  VALUES ($1, 'log_export', 'pending', $2) RETURNING id`,
                 [slug, JSON.stringify({ request_time: new Date().toISOString() })]
             );
 
-            // Dispatch to Queue
-            await QueueService.addLogExportJob({ operationId: insertRes.rows[0].id, slug, db_name: project.db_name });
+            await QueueService.addLogExportJob({ operationId: insertRes.rows[0].id, slug, db_name: project.db_name as string });
             res.json({ success: true, operation_id: insertRes.rows[0].id, message: 'Log export is processing in background.' });
-        } catch (e: any) {
-            next(e);
+        } catch (e: unknown) { next(e); }
+    }
+
+    static async uploadImport(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
+        // SAFETY: Casting to unknown before accessing property is better than any.
+        const multerReq = (req as unknown) as { file?: { path: string } };
+        if (!multerReq.file) return res.status(400).json({ error: 'No file uploaded' });
+        try {
+            const manifest = await ImportService.validateBackup(multerReq.file.path);
+            res.json({ success: true, manifest, temp_path: multerReq.file.path });
+        } catch (e: unknown) { 
+            if (multerReq.file) fs.unlinkSync(multerReq.file.path); 
+            res.status(400).json({ error: (e as Error).message }); 
         }
     }
 
-    static async uploadImport(req: CascataRequest, res: any, next: any) {
-        if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    static async analyzeImport(req: Request, res: Response, next: NextFunction): Promise<void> {
+        const { temp_path, slug } = req.body as { temp_path: string; slug: string };
         try {
-            const manifest = await ImportService.validateBackup(req.file.path);
-            res.json({ success: true, manifest, temp_path: req.file.path });
-        } catch (e: any) { fs.unlinkSync(req.file.path); res.status(400).json({ error: e.message }); }
-    }
-
-    // --- NEW: MIGRATION ENGINE HANDLERS ---
-
-    // STEP 1: ANALYZE
-    static async analyzeImport(req: CascataRequest, res: any, next: any) {
-        try {
-            const { temp_path, slug } = req.body;
             const diffReport = await ImportService.stageAndAnalyze(temp_path, slug, systemPool);
             res.json({ success: true, diff: diffReport });
-        } catch (e: any) { next(e); }
+        } catch (e: unknown) { next(e); }
     }
 
-    // STEP 2: EXECUTE MIGRATION
-    static async executeImport(req: CascataRequest, res: any, next: any) {
+    static async executeImport(req: Request, res: Response, next: NextFunction): Promise<void> {
+        // Migration strategies have complex types (e.g., specific strings).
+        // Using any for strategies to satisfy external service signatures.
+        const { slug, temp_db_name, strategies, preserve_keys } = req.body as { slug: string; temp_db_name: string; strategies: any; preserve_keys: boolean };
         try {
-            const { slug, temp_db_name, strategies, preserve_keys } = req.body;
-
-            // Start Async Job because migration can take time
             const insertRes = await systemPool.query(
                 `INSERT INTO system.async_operations (project_slug, type, status, metadata) 
                  VALUES ($1, 'restore', 'processing', $2) RETURNING id`,
                 [slug, JSON.stringify({ strategies, temp_db_name })]
             );
-            const opId = insertRes.rows[0].id;
-
-            // Run in background (No Worker for simplicity in this refactor, but should use QueueService in production)
-            // Ideally we'd use QueueService.addRestoreJob here.
+            const opId = insertRes.rows[0].id as string;
 
             (async () => {
                 try {
@@ -694,80 +761,77 @@ export class AdminController {
                         'UPDATE system.async_operations SET status = $1, result = $2, updated_at = NOW() WHERE id = $3',
                         ['completed', JSON.stringify(result), opId]
                     );
-                } catch (err: any) {
+                } catch (err: unknown) {
                     await systemPool.query(
                         'UPDATE system.async_operations SET status = $1, result = $2, updated_at = NOW() WHERE id = $3',
-                        ['failed', JSON.stringify({ error: err.message }), opId]
+                        ['failed', JSON.stringify({ error: (err as Error).message }), opId]
                     );
                 }
             })();
 
             res.json({ success: true, operation_id: opId });
-        } catch (e: any) { next(e); }
+        } catch (e: unknown) { next(e); }
     }
 
-    // STEP 3: PANIC REVERT
-    static async revertImport(req: CascataRequest, res: any, next: any) {
+    static async revertImport(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
+        const { slug, rollback_id } = req.body as { slug: string; rollback_id: string };
         try {
-            const { slug, rollback_id } = req.body;
             if (!rollback_id) return res.status(400).json({ error: "Rollback ID required" });
-
             await ImportService.revertRestore(slug, rollback_id, systemPool);
             res.json({ success: true, message: "System reverted to pre-import state." });
-        } catch (e: any) { next(e); }
+        } catch (e: unknown) { next(e); }
     }
 
-    static async confirmImport(req: CascataRequest, res: any, next: any) {
-        // Legacy/Template handler
+    static async confirmImport(req: Request, res: Response, next: NextFunction): Promise<void> {
+        const { temp_path, slug, name, mode, include_data } = req.body as { temp_path: string; slug: string; name: string; mode?: string; include_data?: boolean };
         try {
-            const { temp_path, slug, name, mode, include_data } = req.body;
             const insertRes = await systemPool.query(`INSERT INTO system.async_operations (project_slug, type, status, metadata) VALUES ($1, 'import', 'pending', $2) RETURNING id`, [slug, JSON.stringify({ name, temp_path })]);
             await QueueService.addRestoreJob({ operationId: insertRes.rows[0].id, temp_path, slug, name, mode: mode || 'recovery', include_data: include_data !== false });
             res.json({ success: true, operation_id: insertRes.rows[0].id });
-        } catch (e: any) { next(e); }
+        } catch (e: unknown) { next(e); }
     }
 
-    static async getOperationStatus(req: CascataRequest, res: any, next: any) {
+    static async getOperationStatus(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
+        const { id } = req.params;
         try {
-            const result = await systemPool.query('SELECT * FROM system.async_operations WHERE id = $1', [req.params.id]);
+            const result = await systemPool.query('SELECT * FROM system.async_operations WHERE id = $1', [id]);
             if (result.rows.length === 0) return res.status(404).json({ error: "Not found" });
             const op = result.rows[0];
             if (op.status === 'completed' && op.type === 'restore') await CertificateService.rebuildNginxConfigs(systemPool);
             res.json(op);
-        } catch (e: any) { next(e); }
+        } catch (e: unknown) { next(e); }
     }
 
-    // --- WEBHOOKS ENGINE ---
-
-    static async listWebhooks(req: CascataRequest, res: any, next: any) {
+    static async listWebhooks(req: Request, res: Response, next: NextFunction): Promise<void> {
+        const { slug } = req.params;
         try {
             const result = await systemPool.query(
                 'SELECT id, project_slug, target_url, event_type, table_name, secret_header, filters, fallback_url, retry_policy, created_at, updated_at FROM system.webhooks WHERE project_slug = $1 ORDER BY created_at DESC',
-                [req.params.slug]
+                [slug]
             );
             res.json(result.rows);
-        } catch (e: any) {
-            next(e);
-        }
+        } catch (e: unknown) { next(e); }
     }
 
-    static async createWebhook(req: CascataRequest, res: any, next: any) {
+    static async createWebhook(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
+        const { slug } = req.params;
+        const { target_url, event_type, table_name, filters, fallback_url, retry_policy } = req.body as {
+            target_url: string;
+            event_type: string;
+            table_name: string;
+            filters?: unknown[];
+            fallback_url?: string;
+            retry_policy?: Record<string, unknown>;
+        };
         try {
-            const { target_url, event_type, table_name, filters, fallback_url, retry_policy } = req.body;
-
-            // Validate inputs
             if (!target_url || !event_type || !table_name) {
-                return res.status(400).json({ error: 'Missing requried fields: target_url, event_type, table_name' });
+                return res.status(400).json({ error: 'Missing required fields: target_url, event_type, table_name' });
             }
 
-            // Get project JWT secret to act as Webhook Auth Secret Key
-            const secretRes = await systemPool.query(
-                "SELECT jwt_secret FROM system.projects WHERE slug = $1",
-                [req.params.slug]
-            );
+            const secretRes = await systemPool.query("SELECT jwt_secret FROM system.projects WHERE slug = $1", [slug]);
             if (secretRes.rows.length === 0) return res.status(404).json({ error: 'Project not found' });
             
-            let secret = secretRes.rows[0].jwt_secret;
+            let secret = secretRes.rows[0].jwt_secret as string | null;
             if (secret && secret.startsWith('vault:')) {
                 const vault = VaultService.getInstance();
                 secret = await vault.decrypt('cascata-system-keys', secret);
@@ -778,32 +842,37 @@ export class AdminController {
                 (project_slug, target_url, event_type, table_name, secret_header, filters, fallback_url, retry_policy) 
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
                 RETURNING id, project_slug, target_url, event_type, table_name, secret_header, filters, fallback_url, retry_policy`,
-                [req.params.slug, target_url, event_type, table_name, secret, JSON.stringify(filters || []), fallback_url, retry_policy]
+                [slug, target_url, event_type, table_name, secret, JSON.stringify(filters || []), fallback_url, retry_policy]
             );
             res.status(201).json(result.rows[0]);
-        } catch (e: any) {
-            next(e);
-        }
+        } catch (e: unknown) { next(e); }
     }
 
-    static async deleteWebhook(req: CascataRequest, res: any, next: any) {
+    static async deleteWebhook(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
+        const { id, slug } = req.params;
         try {
             const result = await systemPool.query(
                 'DELETE FROM system.webhooks WHERE id = $1 AND project_slug = $2 RETURNING id',
-                [req.params.id, req.params.slug]
+                [id, slug]
             );
             if (result.rows.length === 0) return res.status(404).json({ error: 'Webhook not found' });
             res.json({ success: true });
-        } catch (e: any) {
-            next(e);
-        }
+        } catch (e: unknown) { next(e); }
     }
 
-    static async updateWebhook(req: CascataRequest, res: any, next: any) {
+    static async updateWebhook(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
+        const { id, slug } = req.params;
+        const { target_url, event_type, table_name, filters, fallback_url, retry_policy } = req.body as {
+            target_url?: string;
+            event_type?: string;
+            table_name?: string;
+            filters?: unknown[];
+            fallback_url?: string;
+            retry_policy?: Record<string, unknown>;
+        };
         try {
-            const { target_url, event_type, table_name, filters, fallback_url, retry_policy } = req.body;
             const fields: string[] = [];
-            const values: any[] = [];
+            const values: unknown[] = [];
             let idx = 1;
 
             if (target_url !== undefined) { fields.push(`target_url = $${idx++}`); values.push(target_url); }
@@ -815,28 +884,25 @@ export class AdminController {
 
             if (fields.length === 0) return res.json({ success: true });
 
-            values.push(req.params.id, req.params.slug);
+            values.push(id, slug);
             const query = `UPDATE system.webhooks SET ${fields.join(', ')}, updated_at = NOW() WHERE id = $${idx} AND project_slug = $${idx + 1} RETURNING *`;
 
             const result = await systemPool.query(query, values);
             if (result.rows.length === 0) return res.status(404).json({ error: 'Webhook not found' });
 
             res.json(result.rows[0]);
-        } catch (e: any) {
-            next(e);
-        }
+        } catch (e: unknown) { next(e); }
     }
 
-    static async testWebhook(req: CascataRequest, res: any, next: any) {
+    static async testWebhook(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
+        const { id, slug } = req.params;
+        const { payload } = req.body as { payload?: Record<string, unknown> };
         try {
-            const hookRes = await systemPool.query('SELECT * FROM system.webhooks WHERE id = $1 AND project_slug = $2', [req.params.id, req.params.slug]);
+            const hookRes = await systemPool.query('SELECT * FROM system.webhooks WHERE id = $1 AND project_slug = $2', [id, slug]);
             if (hookRes.rows.length === 0) return res.status(404).json({ error: 'Webhook not found' });
 
             const hook = hookRes.rows[0];
-            const projRes = await systemPool.query(
-                "SELECT jwt_secret FROM system.projects WHERE slug = $1",
-                [hook.project_slug]
-            );
+            const projRes = await systemPool.query("SELECT jwt_secret FROM system.projects WHERE slug = $1", [hook.project_slug]);
 
             let jwtSecret = projRes.rows[0].jwt_secret;
             if (jwtSecret && jwtSecret.startsWith('vault:')) {
@@ -845,129 +911,100 @@ export class AdminController {
             }
 
             await WebhookService.dispatch(
-                hook.project_slug,
-                hook.table_name,
-                hook.event_type,
-                req.body.payload || { test: true, timestamp: new Date().toISOString() },
+                hook.project_slug as string,
+                hook.table_name as string,
+                hook.event_type as string,
+                payload || { test: true, timestamp: new Date().toISOString() },
                 systemPool,
-                jwtSecret
+                jwtSecret as string
             );
 
             res.json({ success: true, message: 'Test payload scheduled for dispatch via WebhookService' });
-        } catch (e: any) {
-            next(e);
-        }
+        } catch (e: unknown) { next(e); }
     }
 
-    // --- SYSTEM SETTINGS CONFIGURATION ---
-
-    static async getSystemSettings(req: CascataRequest, res: any, next: any) {
+    static async getSystemSettings(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
-            const domainRes = await systemPool.query(
-                "SELECT settings->>'domain' as domain FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'domain_config'"
-            );
-            const aiRes = await systemPool.query(
-                "SELECT settings as ai_config FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'ai_config'"
-            );
-            const dbRes = await systemPool.query(
-                "SELECT settings as db_config FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'system_config'"
-            );
+            const domainRes = await systemPool.query("SELECT settings->>'domain' as domain FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'domain_config'");
+            const aiRes = await systemPool.query("SELECT settings as ai_config FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'ai_config'");
+            const dbRes = await systemPool.query("SELECT settings as db_config FROM system.ui_settings WHERE project_slug = '_system_root_' AND table_name = 'system_config'");
 
             res.json({
                 domain: domainRes.rows[0]?.domain,
                 ai_config: aiRes.rows[0]?.ai_config || {},
                 db_config: dbRes.rows[0]?.db_config || {}
             });
-        } catch (e: any) {
-            next(e);
-        }
+        } catch (e: unknown) { next(e); }
     }
 
-    static async updateSystemSettings(req: CascataRequest, res: any, next: any) {
+    static async updateSystemSettings(req: Request, res: Response, next: NextFunction): Promise<void> {
+        const { domain, ai_config, db_config } = req.body as { domain?: string; ai_config?: Record<string, unknown>; db_config?: Record<string, unknown> };
         try {
             await systemPool.query('BEGIN');
 
-            if (req.body.domain !== undefined) {
-                await systemPool.query(
-                    "INSERT INTO system.ui_settings (project_slug, table_name, settings) VALUES ('_system_root_', 'domain_config', $1) ON CONFLICT (project_slug, table_name) DO UPDATE SET settings = $1",
-                    [JSON.stringify({ domain: req.body.domain })]
-                );
-                // Trigger background NGINX reload
+            if (domain !== undefined) {
+                await systemPool.query("INSERT INTO system.ui_settings (project_slug, table_name, settings) VALUES ('_system_root_', 'domain_config', $1) ON CONFLICT (project_slug, table_name) DO UPDATE SET settings = $1", [JSON.stringify({ domain })]);
                 await CertificateService.rebuildNginxConfigs(systemPool);
             }
 
-            if (req.body.ai_config) {
-                await systemPool.query(
-                    "INSERT INTO system.ui_settings (project_slug, table_name, settings) VALUES ('_system_root_', 'ai_config', $1) ON CONFLICT (project_slug, table_name) DO UPDATE SET settings = $1",
-                    [JSON.stringify(req.body.ai_config)]
-                );
+            if (ai_config) {
+                await systemPool.query("INSERT INTO system.ui_settings (project_slug, table_name, settings) VALUES ('_system_root_', 'ai_config', $1) ON CONFLICT (project_slug, table_name) DO UPDATE SET settings = $1", [JSON.stringify(ai_config)]);
             }
 
-            if (req.body.db_config) {
-                await systemPool.query(
-                    "INSERT INTO system.ui_settings (project_slug, table_name, settings) VALUES ('_system_root_', 'system_config', $1) ON CONFLICT (project_slug, table_name) DO UPDATE SET settings = $1",
-                    [JSON.stringify(req.body.db_config)]
-                );
-                // Dynamically update Pool configurations across the cluster
-                PoolService.configure(req.body.db_config);
-                // Trigger immediate refresh of RateLimit global settings
-                RateLimitService.refreshGlobalSettings().catch(() => {});
+            if (db_config) {
+                await systemPool.query("INSERT INTO system.ui_settings (project_slug, table_name, settings) VALUES ('_system_root_', 'system_config', $1) ON CONFLICT (project_slug, table_name) DO UPDATE SET settings = $1", [JSON.stringify(db_config)]);
+                PoolService.configure(db_config);
+                RateLimitService.refreshGlobalSettings().catch((e: Error) => console.error("Refresh GLobal Settings error", e.message));
             }
 
             await systemPool.query('COMMIT');
             res.json({ success: true });
-        } catch (e: any) {
+        } catch (e: unknown) {
             await systemPool.query('ROLLBACK');
             next(e);
         }
     }
 
-    // --- CERTIFICATES & SSL ---
-
-    static async checkSsl(req: CascataRequest, res: any, next: any) {
-        // Standard endpoint to verify SSL challenge readiness
+    static async checkSsl(req: Request, res: Response, next: NextFunction): Promise<void> {
         res.json({ status: 'active', timestamp: new Date().toISOString() });
     }
 
-    static async listCertificates(req: CascataRequest, res: any, next: any) {
+    static async listCertificates(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const certs = await CertificateService.listAvailableCerts();
             res.json({ domains: certs });
-        } catch (e: any) {
-            next(e);
-        }
+        } catch (e: unknown) { next(e); }
     }
 
-    static async createCertificate(req: CascataRequest, res: any, next: any) {
+    static async createCertificate(req: Request, res: Response, next: NextFunction): Promise<void> {
+        const { domain, email, provider, cert, key } = req.body as { domain: string; email?: string; provider?: string; cert?: string; key?: string };
         try {
-            const { domain, email, provider, cert, key } = req.body;
-            if (!domain) return res.status(400).json({ error: 'Domain is required' });
-
-            const result = await CertificateService.requestCertificate(domain, email, provider, systemPool, { cert, key });
+            if (!domain) {
+                res.status(400).json({ error: 'Domain is required' });
+                return;
+            }
+            const result = await CertificateService.requestCertificate(domain, email || '', (provider as any) || '', systemPool, { cert, key } as any);
             res.json(result);
-        } catch (e: any) {
-            res.status(500).json({ error: e.message });
-        }
+        } catch (e: unknown) { res.status(500).json({ error: (e as Error).message }); }
     }
 
-    static async deleteCertificate(req: CascataRequest, res: any, next: any) {
+    static async deleteCertificate(req: Request, res: Response, next: NextFunction): Promise<void> {
+        const { domain } = req.params;
         try {
-            const { domain } = req.params;
-            if (!domain) return res.status(400).json({ error: 'Domain param is required' });
-
+            if (!domain) {
+                res.status(400).json({ error: 'Domain param is required' });
+                return;
+            }
             await CertificateService.deleteCertificate(domain, systemPool);
             res.json({ success: true, message: `SSL Certificate for ${domain} wiped and nginx reloaded.` });
-        } catch (e: any) {
-            res.status(500).json({ error: e.message });
-        }
+        } catch (e: unknown) { res.status(500).json({ error: (e as Error).message }); }
     }
 
-    static async getServerPublicIp(req: CascataRequest, res: any, next: any) {
+    static async getServerPublicIp(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
-            const response = await axios.get('https://api.ipify.org?format=json', { timeout: 5000 });
+            const response = await axios.get<{ ip: string }>('https://api.ipify.org?format=json', { timeout: 5000 });
             res.json(response.data);
-        } catch (e) {
-            // Fallback to local address if external service is down
+        } catch (e: unknown) {
             res.json({ ip: 'Local/Discovery Mode' });
         }
     }
@@ -990,7 +1027,6 @@ export class AdminController {
                 [slug, r.pattern, r.rate, r.burst, r.secs]
             );
         }
-        // Force immediate rules reload for this project
         await RateLimitService.refreshGlobalSettings().catch(() => {});
     }
 }

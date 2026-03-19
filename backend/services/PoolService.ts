@@ -36,7 +36,7 @@ export class PoolService {
   private static DEFAULT_STATEMENT_TIMEOUT = 15000; 
   private static MAX_IDLE_TX_TIME = '2 minutes'; // Tempo máximo para IDLE IN TRANSACTION
 
-  private static reaperInterval: NodeJS.Timeout | null = null;
+  private static reaperInterval: any = null;
 
   public static configure(config: { maxConnections?: number, idleTimeout?: number, statementTimeout?: number }) {
       if (config.statementTimeout) {
@@ -215,13 +215,13 @@ export class PoolService {
 
     const pool = new Pool(poolConfig);
 
-    pool.on('connect', (client) => {
-        client.query(`SET statement_timeout TO ${statementTimeout}`).catch(err => {
+    pool.on('connect', (client: pg.PoolClient) => {
+        client.query(`SET statement_timeout TO ${statementTimeout}`).catch((err: Error) => {
             console.warn(`[PoolService] Failed to set statement_timeout on ${uniqueKey}`, err.message);
         });
     });
 
-    pool.on('error', (err) => {
+    pool.on('error', (err: Error) => {
       console.error(`[PoolService] Error on ${uniqueKey}:`, err.message);
       if (this.pools.has(uniqueKey)) {
           this.pools.delete(uniqueKey);

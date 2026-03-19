@@ -1,5 +1,5 @@
 
-import { PoolClient, Client, Pool } from 'pg';
+import { PoolClient, Client, Pool, QueryResult } from 'pg';
 import { systemPool } from '../src/config/main.js';
 import { PoolService } from './PoolService.js';
 import { quoteId } from '../src/utils/index.js';
@@ -12,25 +12,25 @@ const Cursor = require('pg-cursor');
 
 export interface DataDiffSummary {
     table: string;
+    total_source: number;
+    total_target: number;
     new_rows: number;      // Rows in Draft but NOT in Live (INSERT)
     update_rows: number;   // Rows in Draft AND in Live (UPDATE)
     missing_rows: number;  // Rows in Live but NOT in Draft (Potential DELETE, usually ignored)
-    total_source: number;
-    total_target: number;
     conflicts: number;     // Legacy alias for update_rows
 }
 
 export interface GranularMergePlan {
     [tableName: string]: {
-        strategy: 'ignore' | 'append' | 'upsert' | 'overwrite' | 'smart_sync';
-    }
+        strategy: 'upsert' | 'append' | 'overwrite' | 'ignore' | 'missing_only' | 'smart_sync';
+    };
 }
 
 export class DatabaseService {
     /**
      * Initializes the standard Cascata database structure for the system database.
      */
-    public static async initSystemDb(client?: PoolClient) {
+    public static async initSystemDb(client?: PoolClient): Promise<void> {
         console.log('[System] Verifying/Initializing system structure...');
         const workerClient = client || await systemPool.connect();
         try {
@@ -70,14 +70,14 @@ export class DatabaseService {
                 );
             `);
         } finally {
-            if (!client) workerClient.release();
+            if (!client) (workerClient as PoolClient).release();
         }
     }
 
     /**
      * Initializes the standard Cascata database structure for a project.
      */
-    public static async initProjectDb(client: PoolClient | Client) {
+    public static async initProjectDb(client: PoolClient | Client): Promise<void> {
         console.log('[DatabaseService] Initializing project structure (Push Engine Enabled)...');
 
         await client.query(`
@@ -288,7 +288,7 @@ export class DatabaseService {
         await DatabaseService.injectSecurityLockEngine(client);
     }
 
-    public static async injectSecurityLockEngine(client: any) {
+    public static async injectSecurityLockEngine(client: PoolClient | Client): Promise<void> {
         // TIER-3 PADLOCK: INJECTING NATIVE SECURITY LOCKS HYBRID ENGINE (Eixos A e B)
         await client.query(`
             CREATE SCHEMA IF NOT EXISTS system;
@@ -413,11 +413,11 @@ export class DatabaseService {
         `);
     }
 
-    public static async validateTableDefinition(pool: Pool, tableName: string, columns: any[]) {
+    public static async validateTableDefinition(pool: Pool, tableName: string, columns: any[]): Promise<void> {
         const client = await pool.connect();
         try {
             const checkTable = await client.query("SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1", [tableName]);
-            if (checkTable.rowCount && checkTable.rowCount > 0) throw new Error(`Table "${tableName}" already exists.`);
+            if ((checkTable.rowCount || 0) > 0) throw new Error(`Table "${tableName}" already exists.`);
         } finally { client.release(); }
     }
 
@@ -428,7 +428,7 @@ export class DatabaseService {
 
     // --- SNAPSHOT & CLONING ENGINE ---
 
-    public static async terminateConnections(dbName: string) {
+    public static async terminateConnections(dbName: string): Promise<void> {
         await PoolService.terminate(dbName);
         await systemPool.query(`
             SELECT pg_terminate_backend(pid) 
@@ -437,7 +437,7 @@ export class DatabaseService {
         `, [dbName]);
     }
 
-    public static async createSnapshot(sourceDb: string, snapshotName: string) {
+    public static async createSnapshot(sourceDb: string, snapshotName: string): Promise<void> {
         console.log(`[DatabaseService] Creating Safety Snapshot: ${sourceDb} -> ${snapshotName}`);
         await this.terminateConnections(sourceDb);
         let dbOwner = process.env.DB_USER || 'cascata_admin';
@@ -446,14 +446,14 @@ export class DatabaseService {
                 const vault = VaultService.getInstance();
                 const creds = await vault.getDatabaseCredentials('cascata-admin-role');
                 dbOwner = creds.username;
-            } catch (err) {}
+            } catch (err: unknown) {}
         }
 
         await systemPool.query(`CREATE DATABASE "${snapshotName}" WITH TEMPLATE "${sourceDb}" OWNER "${dbOwner}"`);
         console.log(`[DatabaseService] Snapshot Created.`);
     }
 
-    public static async listDatabaseSnapshots(liveDbName: string) {
+    public static async listDatabaseSnapshots(liveDbName: string): Promise<any[]> {
         // Query Postgres for all databases starting with the live name + _backup_
         // Pattern: liveDbName_backup_TIMESTAMP
         const res = await systemPool.query(`
@@ -478,7 +478,7 @@ export class DatabaseService {
         });
     }
 
-    public static async cloneDatabase(sourceDb: string, targetDb: string) {
+    public static async cloneDatabase(sourceDb: string, targetDb: string): Promise<void> {
         console.log(`[DatabaseService] Cloning ${sourceDb} -> ${targetDb}...`);
         await this.terminateConnections(sourceDb);
         let dbOwner = process.env.DB_USER || 'cascata_admin';
@@ -487,12 +487,12 @@ export class DatabaseService {
                 const vault = VaultService.getInstance();
                 const creds = await vault.getDatabaseCredentials('cascata-admin-role');
                 dbOwner = creds.username;
-            } catch (err) {}
+            } catch (err: unknown) {}
         }
         await systemPool.query(`CREATE DATABASE "${targetDb}" WITH TEMPLATE "${sourceDb}" OWNER "${dbOwner}"`);
     }
 
-    public static async dropDatabase(dbName: string) {
+    public static async dropDatabase(dbName: string): Promise<void> {
         console.log(`[DatabaseService] Dropping ${dbName}...`);
         if (await this.dbExists(dbName)) {
             await this.terminateConnections(dbName);
@@ -500,7 +500,7 @@ export class DatabaseService {
         }
     }
 
-    public static async truncatePublicTables(dbName: string) {
+    public static async truncatePublicTables(dbName: string): Promise<void> {
         const pool = await PoolService.get(dbName, { useDirect: true });
         const client = await pool.connect();
         try {
@@ -510,10 +510,10 @@ export class DatabaseService {
                 await client.query(`TRUNCATE TABLE public.${quoteId(row.table_name)} CASCADE`);
             }
             await client.query('COMMIT');
-        } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+        } catch (e: unknown) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
     }
 
-    public static async pruneDatabase(dbName: string, percentToKeep: number) {
+    public static async pruneDatabase(dbName: string, percentToKeep: number): Promise<void> {
         if (percentToKeep >= 100) return;
         const deleteChance = 1 - (percentToKeep / 100);
         const pool = await PoolService.get(dbName, { useDirect: true });
@@ -528,10 +528,10 @@ export class DatabaseService {
             await client.query("SET session_replication_role = 'origin';");
             await client.query('COMMIT');
             await client.query('VACUUM FULL');
-        } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+        } catch (e: unknown) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
     }
 
-    public static async fixPermissions(dbName: string) {
+    public static async fixPermissions(dbName: string): Promise<void> {
         const pool = await PoolService.get(dbName, { useDirect: true });
         const client = await pool.connect();
         try {
@@ -556,7 +556,7 @@ export class DatabaseService {
         liveDb: string,
         snapshotDb: string,
         mode: 'hard' | 'smart'
-    ) {
+    ): Promise<{ quarantineDb: string }> {
         console.log(`[Rollback] Initiating ${mode.toUpperCase()} Rollback: ${liveDb} <- ${snapshotDb}`);
 
         // 0. Extract Timestamp from Snapshot Name for Data Salvage
@@ -586,7 +586,7 @@ export class DatabaseService {
                 const cutoff = new Date(snapshotTs - 1000).toISOString();
 
                 for (const row of tablesRes.rows) {
-                    const table = row.table_name;
+                    const table = row.table_name as string;
                     // Select new rows
                     const dataRes = await livePool.query(
                         `SELECT * FROM public.${quoteId(table)} WHERE created_at > $1`,
@@ -597,8 +597,8 @@ export class DatabaseService {
                         console.log(`[Rollback] Salvaged ${dataRes.rows.length} rows from ${table}`);
                     }
                 }
-            } catch (e) {
-                console.error("[Rollback] Data Salvage Failed (Aborting Smart Mode):", e);
+            } catch (e: unknown) {
+                console.error("[Rollback] Data Salvage Failed (Aborting Smart Mode):", (e as Error).message);
                 throw new Error("Smart Rollback failed during data salvage phase. No changes made.");
             }
         }
@@ -619,13 +619,13 @@ export class DatabaseService {
                 const vault = VaultService.getInstance();
                 const creds = await vault.getDatabaseCredentials('cascata-admin-role');
                 dbOwner = creds.username;
-            } catch (err) {}
+            } catch (err: unknown) {}
         }
 
         try {
             await systemPool.query(`CREATE DATABASE "${liveDb}" WITH TEMPLATE "${snapshotDb}" OWNER "${dbOwner}"`);
-        } catch (cloneErr) {
-            console.error("[Rollback] Failed to promote snapshot. Restoring quarantine...", cloneErr);
+        } catch (cloneErr: unknown) {
+            console.error("[Rollback] Failed to promote snapshot. Restoring quarantine...", (cloneErr as Error).message);
             await this.killAndRename(systemPool, quarantineDb, liveDb);
             throw cloneErr;
         }
@@ -650,12 +650,12 @@ export class DatabaseService {
 
                     // Get columns dynamically to match current schema
                     // Note: If schema changed drastically, this might fail. Smart rollback assumes mostly data drift.
-                    const firstRow = rows[0];
+                    const firstRow = rows[0] as Record<string, any>;
                     const cols = Object.keys(firstRow);
                     const colNames = cols.map(quoteId).join(', ');
 
                     for (const row of rows) {
-                        const values = cols.map(c => row[c]);
+                        const values = cols.map(c => (row as Record<string, any>)[c]);
                         const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
 
                         // Try Insert (Ignore conflicts, as old ID might exist in backup if timestamps overlap)
@@ -670,8 +670,8 @@ export class DatabaseService {
                 await client.query('COMMIT');
                 console.log("[Rollback] Data re-injection complete.");
 
-            } catch (injectErr) {
-                console.error("[Rollback] Data Re-injection Failed!", injectErr);
+            } catch (injectErr: unknown) {
+                console.error("[Rollback] Data Re-injection Failed!", (injectErr as Error).message);
                 await client.query('ROLLBACK');
                 // We do NOT revert the DB swap here. The system is online with old state (Hard Rollback equivalent).
                 // The user is notified that "Smart" part failed but system is stable.
@@ -686,7 +686,7 @@ export class DatabaseService {
         return { quarantineDb };
     }
 
-    public static async performDatabaseSwap(liveDb: string, newDb: string, backupDbName: string) {
+    public static async performDatabaseSwap(liveDb: string, newDb: string, backupDbName: string): Promise<void> {
         // Hardened Swap Logic
         console.log(`[Swap] Initiating Swap: ${liveDb} <-> ${newDb} (Backup: ${backupDbName})`);
 
@@ -701,7 +701,7 @@ export class DatabaseService {
         try {
             // 3. Rename New -> Live
             await this.killAndRename(systemPool, newDb, liveDb);
-        } catch (err) {
+        } catch (err: unknown) {
             console.error(`[Swap] Failed to promote new DB. Reverting...`);
             // Panic Rollback: Backup -> Live
             await this.killAndRename(systemPool, backupDbName, liveDb);
@@ -709,7 +709,7 @@ export class DatabaseService {
         }
     }
 
-    private static async killAndRename(pool: Pool, from: string, to: string) {
+    private static async killAndRename(pool: Pool, from: string, to: string): Promise<void> {
         const exists = await pool.query(`SELECT 1 FROM pg_database WHERE datname = $1`, [from]);
         if (exists.rowCount === 0) return;
 
@@ -721,7 +721,7 @@ export class DatabaseService {
         await pool.query(`UPDATE pg_database SET datallowconn = 'true' WHERE datname = '${to}'`);
     }
 
-    public static async smartDataSync(sourceDb: string, targetDb: string, specificTable?: string) {
+    public static async smartDataSync(sourceDb: string, targetDb: string, specificTable?: string): Promise<any[]> {
         return this.mergeData(sourceDb, targetDb, specificTable, 'upsert');
     }
 
@@ -733,9 +733,9 @@ export class DatabaseService {
         try {
             await client.query('CREATE EXTENSION IF NOT EXISTS dblink');
             
-            const getTables = async (pool: Pool) => {
+            const getTables = async (pool: Pool): Promise<string[]> => {
                 const res = await pool.query(`SELECT relname as table_name FROM pg_stat_user_tables WHERE schemaname = 'public'`);
-                return res.rows.map(r => r.table_name);
+                return res.rows.map(r => r.table_name as string);
             };
             
             const sourceTables = await getTables(sourcePool);
@@ -751,7 +751,7 @@ export class DatabaseService {
                     const creds = await vault.getDatabaseCredentials('cascata-admin-role');
                     dbUser = creds.username;
                     dbPass = creds.password;
-                } catch (err) {}
+                } catch (err: unknown) {}
             }
 
             const targetConnStr = `dbname=${targetDb} user=${dbUser} password=${dbPass} host=${process.env.DB_HOST || 'localhost'}`;
@@ -806,8 +806,8 @@ export class DatabaseService {
                         conflicts: Number(metrics.update_rows || 0)
                     });
 
-                } catch (e: any) {
-                    console.warn(`[DatabaseService] Diff Skip on ${table}: ${e.message}`);
+                } catch (e: unknown) {
+                    console.warn(`[DatabaseService] Diff Skip on ${table}:`, (e as Error).message);
                     summary.push({ table, total_source: 0, total_target: 0, new_rows: 0, update_rows: 0, missing_rows: 0, conflicts: 0 });
                 }
             }
@@ -831,24 +831,26 @@ export class DatabaseService {
             `);
 
             const graph: Record<string, Set<string>> = {};
-            tables.forEach(t => graph[t] = new Set());
+            tables.forEach(t => graph[t] = new Set<string>());
 
             res.rows.forEach(r => {
-                if (tables.includes(r.table_name) && tables.includes(r.foreign_table_name)) {
+                const tableName = r.table_name as string;
+                const foreignTableName = r.foreign_table_name as string;
+                if (tables.includes(tableName) && tables.includes(foreignTableName)) {
                     // Dependency: table_name depends on foreign_table_name
-                    graph[r.table_name].add(r.foreign_table_name);
+                    graph[tableName].add(foreignTableName);
                 }
             });
 
             const visited = new Set<string>();
             const sorted: string[] = [];
 
-            const visit = (node: string, stack: Set<string>) => {
+            const visit = (node: string, stack: Set<string>): void => {
                 if (visited.has(node)) return;
                 if (stack.has(node)) return; // Cycle detected
 
                 stack.add(node);
-                const deps = graph[node] || new Set();
+                const deps = graph[node] || new Set<string>();
                 for (const dep of deps) {
                     visit(dep, stack);
                 }
@@ -857,7 +859,7 @@ export class DatabaseService {
                 stack.delete(node);
             };
 
-            tables.forEach(t => visit(t, new Set()));
+            tables.forEach(t => visit(t, new Set<string>()));
             return sorted;
 
         } finally {
@@ -866,13 +868,13 @@ export class DatabaseService {
     }
 
     // --- HELPER: GET SCHEMA FROM SPECIFIC CLIENT ---
-    private static async getSchemaFromClient(client: PoolClient | Client): Promise<any[]> {
+    private static async getSchemaFromClient(client: PoolClient | Client): Promise<Record<string, string>[]> {
         const res = await client.query(`SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public'`);
-        return res.rows;
+        return res.rows as Record<string, string>[];
     }
 
     // --- SEQUENCE RESET ---
-    private static async resetSequences(client: PoolClient | Client) {
+    private static async resetSequences(client: PoolClient | Client): Promise<void> {
         const res = await client.query(`
             SELECT 'SELECT setval(' || quote_literal(quote_ident(S.relname)) || ', COALESCE(MAX(' ||quote_ident(C.attname)|| '), 1) ) FROM ' || quote_ident(T.relname) || ';' as fix_sql
             FROM pg_class AS S, pg_depend AS D, pg_class AS T, pg_attribute AS C
@@ -881,7 +883,7 @@ export class DatabaseService {
             AND T.relname NOT LIKE '_deleted_%'
         `);
         for (const row of res.rows) {
-            try { await client.query(row.fix_sql); } catch (e) { }
+            try { await client.query(row.fix_sql as string); } catch (e: unknown) { }
         }
     }
 
@@ -895,7 +897,7 @@ export class DatabaseService {
         globalStrategy: string,
         granularPlan?: GranularMergePlan,
         externalClient?: PoolClient | Client // Must be passed if inside a transaction!
-    ) {
+    ): Promise<any[]> {
         console.log(`[SmartMerge] Merging ${sourceDb} -> ${targetDb}. Default Strategy: ${globalStrategy}`);
 
         const sourcePool = await PoolService.get(sourceDb, { useDirect: true });
@@ -915,18 +917,28 @@ export class DatabaseService {
             const sourceMeta = await this.getSchemaFromClient(clientSource);
 
             const sourceTables: Record<string, string[]> = {};
-            sourceMeta.forEach(r => { if (!sourceTables[r.table_name]) sourceTables[r.table_name] = []; sourceTables[r.table_name].push(r.column_name); });
+            sourceMeta.forEach(r => { 
+                const tableName = r.table_name;
+                const columnName = r.column_name;
+                if (!sourceTables[tableName]) sourceTables[tableName] = []; 
+                sourceTables[tableName].push(columnName); 
+            });
 
             const targetTables: Record<string, string[]> = {};
-            targetMeta.forEach(r => { if (!targetTables[r.table_name]) targetTables[r.table_name] = []; targetTables[r.table_name].push(r.column_name); });
+            targetMeta.forEach(r => { 
+                const tableName = r.table_name;
+                const columnName = r.column_name;
+                if (!targetTables[tableName]) targetTables[tableName] = []; 
+                targetTables[tableName].push(columnName); 
+            });
 
             let tablesToSync: string[] = specificTable ? [specificTable] : Object.keys(sourceTables);
 
             if (tablesToSync.length > 1) {
                 try {
                     tablesToSync = await this.getDependencyOrder(sourcePool, tablesToSync);
-                } catch (e: any) {
-                    console.warn("[SmartMerge] Sort failed, fallback alphabetical.", e);
+                } catch (e: unknown) {
+                    console.warn("[SmartMerge] Sort failed, fallback alphabetical.", (e as Error).message);
                 }
             }
 
@@ -960,8 +972,8 @@ export class DatabaseService {
                         SELECT a.attname FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
                         WHERE i.indrelid = 'public.${quoteId(table)}'::regclass AND i.indisprimary;
                     `);
-                    if (pkRes.rows.length > 0) pkColumn = pkRes.rows[0].attname;
-                } catch (e) { }
+                    if (pkRes.rows.length > 0) pkColumn = pkRes.rows[0].attname as string;
+                } catch (e: unknown) { }
 
                 console.log(`[SmartMerge] Syncing ${table} using strategy: ${strategy}...`);
 
@@ -977,7 +989,7 @@ export class DatabaseService {
                 const cursor = clientSource.query(new Cursor(`SELECT ${colsList} FROM public.${quoteId(table)}`));
                 let rowCount = 0;
 
-                const readNext = async () => new Promise<any[]>((resolve, reject) => {
+                const readNext = async (): Promise<any[]> => new Promise<any[]>((resolve, reject) => {
                     // Mantemos chunks controlados para não estourar RAM do worker
                     cursor.read(2000, (err: Error, rows: any[]) => err ? reject(err) : resolve(rows));
                 });
@@ -1020,12 +1032,12 @@ export class DatabaseService {
 
             if (ownTransaction) await clientTarget.query('COMMIT');
 
-        } catch (err: any) {
-            console.error(`[SmartMerge] Transaction Failed:`, err);
+        } catch (err: unknown) {
+            console.error(`[SmartMerge] Transaction Failed:`, (err as Error).message);
             if (ownTransaction) await clientTarget.query('ROLLBACK');
             throw err;
         } finally {
-            try { await clientTarget.query("SET session_replication_role = 'origin';"); } catch (e) { }
+            try { await clientTarget.query("SET session_replication_role = 'origin';"); } catch (e: unknown) { }
 
             clientSource.release();
             if (ownTransaction) (clientTarget as PoolClient).release();
@@ -1045,7 +1057,7 @@ export class DatabaseService {
         columnName: string;
         attemptedValue: string;
         ip: string;
-    }) {
+    }): void {
         // Run completely asynchronously (detached from the current request's promise tree)
         setImmediate(async () => {
             try {
@@ -1060,8 +1072,8 @@ export class DatabaseService {
                     payload.attemptedValue,
                     payload.ip
                 ]);
-            } catch (err) {
-                console.error('[Security Firewall] Failed to log intrusion event:', err);
+            } catch (err: unknown) {
+                console.error('[Security Firewall] Failed to log intrusion event:', (err as Error).message);
                 // We swallow the error here because the actual API request must not fail 
                 // just because the intrusion log failed to save.
             }

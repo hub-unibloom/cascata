@@ -2,8 +2,6 @@
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   ▸  FASE 0 — Verificação de Pré-Requisitos
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
   ✓ Acesso sudo verificado
   ✓ git disponível
   ✓ Conectividade com internet verificada
@@ -12,11 +10,7 @@
   ✓ systemd disponível
   ✓ Todos os pré-requisitos atendidos!
   ✓ Fase 1 (Docker) já concluída — pulando
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   ▸  FASE 2 — Configuração e Inicialização do Cascata
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
   ➜ Clonando repositório Hub Unibloom/Cascata...
   ✓ Repositório pronto em: /home/ubuntu/cascata
   ➜ Ajustando nomenclatura de arquivos...
@@ -34,77 +28,42 @@
   ✓   database/init.sql.txt → database/init.sql
   ✓   nginx-controller/Dockerfile.txt → nginx-controller/Dockerfile
   ✓   Migrations renomeadas
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   ▸  FASE 2.1 — Configuração de Credenciais do Administrador
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
   Configurar email e senha do administrador do Cascata?
   (Caso não configure, serão usados os valores padrão inseguros do .env)
-
   Deseja configurar as credenciais de admin agora? [S/n]: n
   ⚡ Credenciais automáticas geradas. Anote a senha abaixo:
   SENHA GERADA: iiL99z=-z(/hd6MJ
   MUDE APÓS O PRIMEIRO LOGIN!
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   ▸  FASE 2.2 — Geração do Ambiente Seguro (.env)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
   ➜ Gerando chaves criptográficas exclusivas para este servidor...
   ✓ Chaves geradas com entropia local
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   ▸  FASE 2.1.5 — Configuração do HashiCorp Vault
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
   O Cascata utiliza HashiCorp Vault para gestão de segredos enterprise.
   Escolha como deseja configurar o Vault:
   1) Local (Sidecar): O instalador sobe um container Vault exclusivo para esta VPS.
   2) Cloud (Externo): Você fornece o endereço e token de um Vault já existente.
-
   Opção [1/2] [1]: 1
   ➜ Configurando Vault Local...
   ✓ Vault Local configurado com root token dinâmico
   ✓ .env configurado com segredos únicos desta VPS e Vault
   ✓ Credenciais injetadas no SQL de inicialização (sanitizadas contra SQL injection)
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   ▸  FASE 2.3 — OTP / Autenticação de Dois Fatores
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
   Deseja habilitar OTP (2FA) compatível com Google/Microsoft Authenticator?
   O segredo é gerado localmente com entropia desta VPS — zero conhecimento externo.
-
   Habilitar OTP? [S/n]: n
   ➜ OTP desabilitado. Recomendamos habilitar para ambientes de produção.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   ▸  FASE 2.4 — Restrição de Acesso por IP
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
   Restringir acesso administrativo a um IP fixo?
   Se você possui IP fixo, isso bloqueia qualquer outro endereço de acessar o painel.
   Deixe em branco para permitir qualquer IP (sem restrição de IP).
-
   IP Restrito (ex: 192.168.1.10) [Enter p/ pular]: 
   ➜ Sem restrição de IP configurada.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   ▸  FASE 2.5 — Criação da Infraestrutura de Dados
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
   ➜ Criando diretórios de dados em: /cascata-data
   ✓ Diretórios criados e permissões restritas (700) configuradas
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   ▸  FASE 2.6 — Inicialização dos Containers
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
   ➜ Construindo e subindo os containers Docker...
-
-time="2026-03-19T12:08:09Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variable is not set. Defaulting to a blank string."
-time="2026-03-19T12:08:09Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variable is not set. Defaulting to a blank string."
 time="2026-03-19T12:08:09Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variable is not set. Defaulting to a blank string."
  Image qdrant/qdrant:latest Pulling 
  Image nginx:alpine Pulling 
@@ -129,123 +88,83 @@ time="2026-03-19T12:08:09Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variab
 #1 [internal] load local bake definitions
 #1 reading from stdin 2.76kB done
 #1 DONE 0.0s
-
 #2 [frontend internal] load build definition from Dockerfile
 #2 transferring dockerfile: 438B done
 #2 DONE 0.0s
-
 #3 [nginx_controller internal] load build definition from Dockerfile
 #3 transferring dockerfile: 259B done
 #3 DONE 0.0s
-
 #4 [backend_engine internal] load build definition from Dockerfile
 #4 transferring dockerfile: 688B done
 #4 DONE 0.1s
-
 #5 [db internal] load build definition from Dockerfile
 #5 transferring dockerfile: 3.26kB done
 #5 DONE 0.1s
-
 #6 [frontend internal] load metadata for docker.io/library/nginx:alpine
 #6 DONE 0.1s
-
 #7 [backend_engine internal] load metadata for docker.io/library/node:20-alpine
 #7 ...
-
 #8 [db internal] load metadata for docker.io/library/postgres:18-alpine
 #8 DONE 0.4s
-
 #9 [db internal] load .dockerignore
 #9 transferring context: 2B done
 #9 DONE 0.0s
-
 #10 [db internal] load build context
 #10 DONE 0.0s
-
 #7 [backend_control internal] load metadata for docker.io/library/node:20-alpine
 #7 DONE 0.4s
-
 #11 [backend_data internal] load .dockerignore
 #11 transferring context: 2B done
 #11 DONE 0.1s
-
 #12 [nginx_controller internal] load .dockerignore
 #12 transferring context: 2B done
 #12 DONE 0.1s
-
 #13 [frontend internal] load .dockerignore
 #13 transferring context: 2B done
 #13 DONE 0.1s
-
 #14 [backend_control internal] load build context
 #14 DONE 0.0s
-
 #15 [nginx_controller 1/7] FROM docker.io/library/node:20-alpine@sha256:b88333c42c23fbd91596ebd7fd10de239cedab9617de04142dde7315e3bc0afa
 #15 resolve docker.io/library/node:20-alpine@sha256:b88333c42c23fbd91596ebd7fd10de239cedab9617de04142dde7315e3bc0afa
 #15 ...
-
-#10 [db internal] load build context
 #10 transferring context: 7.49kB 0.0s done
 #10 DONE 0.2s
-
 #15 [backend_data 1/7] FROM docker.io/library/node:20-alpine@sha256:b88333c42c23fbd91596ebd7fd10de239cedab9617de04142dde7315e3bc0afa
 #15 resolve docker.io/library/node:20-alpine@sha256:b88333c42c23fbd91596ebd7fd10de239cedab9617de04142dde7315e3bc0afa 0.1s done
-#15 ...
-
 #16 [nginx_controller internal] load build context
 #16 transferring context: 1.71kB done
 #16 DONE 0.2s
-
 #17 [frontend internal] load build context
 #17 transferring context: 1.65MB 0.1s done
 #17 DONE 0.2s
-
-#14 [backend_control internal] load build context
 #14 transferring context: 934.66kB 0.1s done
 #14 DONE 0.3s
-
-#15 [nginx_controller 1/7] FROM docker.io/library/node:20-alpine@sha256:b88333c42c23fbd91596ebd7fd10de239cedab9617de04142dde7315e3bc0afa
 #15 sha256:9d10d4687fae6e13c052431ea3221ccda835c3262df3564310345ffe173146d9 445B / 445B 0.0s done
 #15 sha256:7ad115895a6aadccf7f98a05c33873c04df2933ba557c5bcdbedd3de612803da 1.26MB / 1.26MB 0.1s done
-#15 ...
-
 #18 [db builder 1/3] FROM docker.io/library/postgres:18-alpine@sha256:4da1a4828be12604092fa55311276f08f9224a74a62dcb4708bd7439e2a03911
 #18 resolve docker.io/library/postgres:18-alpine@sha256:4da1a4828be12604092fa55311276f08f9224a74a62dcb4708bd7439e2a03911 0.1s done
 #18 DONE 0.8s
-
 #15 [backend_engine 1/7] FROM docker.io/library/node:20-alpine@sha256:b88333c42c23fbd91596ebd7fd10de239cedab9617de04142dde7315e3bc0afa
-#15 sha256:7ad115895a6aadccf7f98a05c33873c04df2933ba557c5bcdbedd3de612803da 1.26MB / 1.26MB 0.1s done
 #15 sha256:ed2fdcee5269a06b0b8b77c69867176443364a72a9626e9aa2e66ab1ebda35a7 8.39MB / 43.22MB 0.2s
 #15 sha256:ed2fdcee5269a06b0b8b77c69867176443364a72a9626e9aa2e66ab1ebda35a7 22.02MB / 43.22MB 0.3s
-#15 ...
-
 #19 [frontend stage-1 1/3] FROM docker.io/library/nginx:alpine@sha256:f46cb72c7df02710e693e863a983ac42f6a9579058a59a35f1ae36c9958e4ce0
 #19 resolve docker.io/library/nginx:alpine@sha256:f46cb72c7df02710e693e863a983ac42f6a9579058a59a35f1ae36c9958e4ce0 0.1s done
 #19 DONE 0.9s
-
-#15 [backend_engine 1/7] FROM docker.io/library/node:20-alpine@sha256:b88333c42c23fbd91596ebd7fd10de239cedab9617de04142dde7315e3bc0afa
 #15 sha256:ed2fdcee5269a06b0b8b77c69867176443364a72a9626e9aa2e66ab1ebda35a7 30.41MB / 43.22MB 0.5s
 #15 sha256:ed2fdcee5269a06b0b8b77c69867176443364a72a9626e9aa2e66ab1ebda35a7 39.85MB / 43.22MB 0.6s
 #15 sha256:ed2fdcee5269a06b0b8b77c69867176443364a72a9626e9aa2e66ab1ebda35a7 43.22MB / 43.22MB 0.8s
 #15 sha256:ed2fdcee5269a06b0b8b77c69867176443364a72a9626e9aa2e66ab1ebda35a7 43.22MB / 43.22MB 0.8s done
 #15 extracting sha256:ed2fdcee5269a06b0b8b77c69867176443364a72a9626e9aa2e66ab1ebda35a7
 #15 extracting sha256:ed2fdcee5269a06b0b8b77c69867176443364a72a9626e9aa2e66ab1ebda35a7 2.7s done
-#15 extracting sha256:ed2fdcee5269a06b0b8b77c69867176443364a72a9626e9aa2e66ab1ebda35a7 2.7s done
-#15 extracting sha256:7ad115895a6aadccf7f98a05c33873c04df2933ba557c5bcdbedd3de612803da 0.1s done
 #15 extracting sha256:7ad115895a6aadccf7f98a05c33873c04df2933ba557c5bcdbedd3de612803da 0.1s done
 #15 extracting sha256:9d10d4687fae6e13c052431ea3221ccda835c3262df3564310345ffe173146d9 0.0s done
 #15 DONE 4.1s
-
 #20 [backend_control 2/7] WORKDIR /app
 #20 DONE 0.5s
-
 #21 [frontend build 3/6] COPY package*.json ./
 #21 DONE 0.1s
-
 #22 [frontend build 4/6] RUN npm install
 #22 ...
-
-#18 [db builder 1/3] FROM docker.io/library/postgres:18-alpine@sha256:4da1a4828be12604092fa55311276f08f9224a74a62dcb4708bd7439e2a03911
 #18 sha256:51718cc743bc4f2fa661a5e8b4da6b2774cedf6da22ed5d603310b96535e6d80 183B / 183B 0.1s done
 #18 sha256:b88294e2a4c68807ab3e3e1fd19d695a553845024fba8a8e2cded6b591198d50 5.84kB / 5.84kB 0.1s done
 #18 sha256:946b644975333eb932287f90b22e1e62a25196280c664341f954eef3835a78f1 18.92kB / 18.92kB 0.1s done
@@ -259,14 +178,11 @@ time="2026-03-19T12:08:09Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variab
 #18 extracting sha256:455d094c943c166f228c5d803c9eaf5bc96dbfdc6a3dbf85e2fe7ecb12806ea3 0.1s done
 #18 extracting sha256:eb134dfb2af4a2e957ba132c05c9611ee61bed62bef6bc65aaaf612b4a1175a9 4.4s done
 #18 DONE 7.1s
-
-#18 [db builder 1/3] FROM docker.io/library/postgres:18-alpine@sha256:4da1a4828be12604092fa55311276f08f9224a74a62dcb4708bd7439e2a03911
 #18 extracting sha256:946b644975333eb932287f90b22e1e62a25196280c664341f954eef3835a78f1 0.0s done
 #18 extracting sha256:7fb0a4f2ca3fbae2494c927aa569c6a03c5512a3d841cd778e954241b4cf746f 0.0s done
 #18 extracting sha256:b88294e2a4c68807ab3e3e1fd19d695a553845024fba8a8e2cded6b591198d50 0.0s done
 #18 extracting sha256:51718cc743bc4f2fa661a5e8b4da6b2774cedf6da22ed5d603310b96535e6d80 0.0s done
 #18 DONE 7.2s
-
 #23 [backend_engine 3/7] RUN apk add --no-cache certbot openssl docker-cli postgresql-client python3 make g++ tzdata zip unzip
 #23 3.921 ( 1/87) Installing libbz2 (1.0.8-r6)
 #23 3.942 ( 2/87) Installing libexpat (2.7.5-r0)
@@ -282,7 +198,6 @@ time="2026-03-19T12:08:09Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variab
 #23 4.150 (12/87) Installing python3 (3.12.12-r0)
 #23 5.122 (13/87) Installing python3-pycache-pyc0 (3.12.12-r0)
 #23 ...
-
 #24 [nginx_controller 3/6] RUN apk add --no-cache docker-cli
 #24 3.595 (1/2) Installing ca-certificates (20251003-r0)
 #24 3.662 (2/2) Installing docker-cli (29.1.3-r3)
@@ -290,21 +205,16 @@ time="2026-03-19T12:08:09Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variab
 #24 4.421 Executing ca-certificates-20251003-r0.trigger
 #24 4.680 OK: 41.0 MiB in 20 packages
 #24 DONE 5.2s
-
 #25 [db stage-1 2/9] RUN apk add --no-cache inotify-tools
 #25 2.269 (1/2) Installing inotify-tools-libs (4.23.9.0-r0)
 #25 2.273 (2/2) Installing inotify-tools (4.23.9.0-r0)
 #25 2.280 Executing busybox-1.37.0-r30.trigger
 #25 2.316 OK: 211.8 MiB in 56 packages
 #25 DONE 2.8s
-
 #26 [nginx_controller 4/6] COPY package.json .
 #26 DONE 0.1s
-
 #27 [nginx_controller 5/6] RUN npm install
 #27 ...
-
-#23 [backend_engine 3/7] RUN apk add --no-cache certbot openssl docker-cli postgresql-client python3 make g++ tzdata zip unzip
 #23 5.594 (14/87) Installing pyc (3.12.12-r0)
 #23 5.596 (15/87) Installing certbot-pyc (5.1.0-r0)
 #23 5.687 (16/87) Installing py3-acme-pyc (5.2.0-r0)
@@ -369,8 +279,6 @@ time="2026-03-19T12:08:09Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variab
 #23 8.883 (75/87) Installing mpc1 (1.3.1-r1)
 #23 8.900 (76/87) Installing gcc (15.2.0-r2)
 #23 12.38 (77/87) Installing musl-dev (1.2.5-r21)
-#23 ...
-
 #28 [db builder 2/3] RUN apk add --no-cache     git     gcc     make     musl-dev     clang19     llvm19     llvm19-dev     postgresql-dev     && ln -s /usr/bin/clang-19 /usr/bin/clang || true     && ln -s /usr/bin/clang++-19 /usr/bin/clang++ || true     && mkdir -p /usr/lib/llvm19/bin     && ln -s /usr/bin/llvm-lto-19 /usr/lib/llvm19/bin/llvm-lto || true
 #28 2.394 ( 1/54) Upgrading zlib (1.3.1-r2 -> 1.3.2-r0)
 #28 2.414 ( 2/54) Installing llvm19-linker-tools (19.1.7-r7)
@@ -395,8 +303,6 @@ time="2026-03-19T12:08:09Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variab
 #28 10.23 (21/54) Installing git-init-template (2.52.0-r0)
 #28 10.24 (22/54) Installing llvm19 (19.1.7-r7)
 #28 ...
-
-#23 [backend_engine 3/7] RUN apk add --no-cache certbot openssl docker-cli postgresql-client python3 make g++ tzdata zip unzip
 #23 12.60 (78/87) Installing g++ (15.2.0-r2)
 #23 13.60 (79/87) Installing make (4.4.1-r3)
 #23 13.62 (80/87) Installing openssl (3.5.5-r0)
@@ -416,14 +322,10 @@ time="2026-03-19T12:08:09Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variab
 #23 14.67 * WARNING: opening from cache https://dl-cdn.alpinelinux.org/alpine/v3.23/community/x86_64/APKINDEX.tar.gz: No such file or directory
 #23 14.70 OK: 363.8 MiB in 105 packages
 #23 DONE 15.2s
-
 #29 [backend_control 4/7] COPY package*.json ./
 #29 ...
-
-#27 [nginx_controller 5/6] RUN npm install
 #27 10.31 
 #27 10.31 added 68 packages, and audited 69 packages in 10s
-#27 10.31 
 #27 10.31 15 packages are looking for funding
 #27 10.31   run `npm fund` for details
 #27 10.32 
@@ -432,18 +334,13 @@ time="2026-03-19T12:08:09Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variab
 #27 10.32 npm notice New major version of npm available! 10.8.2 -> 11.12.0
 #27 10.32 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.12.0
 #27 10.32 npm notice To update run: npm install -g npm@11.12.0
-#27 10.32 npm notice
 #27 DONE 10.6s
-
 #29 [backend_data 4/7] COPY package*.json ./
 #29 DONE 0.7s
-
 #30 [backend_data 5/7] RUN npm install
 #30 ...
-
 #31 [nginx_controller 6/6] COPY index.js .
 #31 DONE 0.2s
-
 #32 [nginx_controller] exporting to image
 #32 exporting layers
 #32 exporting layers 5.6s done
@@ -456,8 +353,6 @@ time="2026-03-19T12:08:09Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variab
 #32 unpacking to docker.io/library/cascata-nginx_controller:latest
 #32 unpacking to docker.io/library/cascata-nginx_controller:latest 1.4s done
 #32 DONE 7.2s
-
-#28 [db builder 2/3] RUN apk add --no-cache     git     gcc     make     musl-dev     clang19     llvm19     llvm19-dev     postgresql-dev     && ln -s /usr/bin/clang-19 /usr/bin/clang || true     && ln -s /usr/bin/clang++-19 /usr/bin/clang++ || true     && mkdir -p /usr/lib/llvm19/bin     && ln -s /usr/bin/llvm-lto-19 /usr/lib/llvm19/bin/llvm-lto || true
 #28 12.45 (23/54) Installing brotli (1.2.0-r0)
 #28 12.45 (24/54) Installing pkgconf (2.5.1-r0)
 #28 12.45 (25/54) Installing brotli-dev (1.2.0-r0)
@@ -488,25 +383,14 @@ time="2026-03-19T12:08:09Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variab
 #28 19.29 (50/54) Installing icu (76.1-r1)
 #28 19.34 (51/54) Installing icu-dev (76.1-r1)
 #28 19.48 (52/54) Installing llvm20 (20.1.8-r0)
-#28 ...
-
 #33 [nginx_controller] resolving provenance for metadata file
 #33 DONE 0.0s
-
-#30 [backend_data 5/7] RUN npm install
-#30 ...
-
-#28 [db builder 2/3] RUN apk add --no-cache     git     gcc     make     musl-dev     clang19     llvm19     llvm19-dev     postgresql-dev     && ln -s /usr/bin/clang-19 /usr/bin/clang || true     && ln -s /usr/bin/clang++-19 /usr/bin/clang++ || true     && mkdir -p /usr/lib/llvm19/bin     && ln -s /usr/bin/llvm-lto-19 /usr/lib/llvm19/bin/llvm-lto || true
 #28 21.81 (53/54) Installing lz4-dev (1.10.0-r0)
 #28 21.82 (54/54) Installing postgresql18-dev (18.3-r0)
 #28 22.06 Executing busybox-1.37.0-r30.trigger
 #28 22.09 OK: 1065.8 MiB in 107 packages
 #28 22.17 ln: /usr/lib/llvm19/bin/llvm-lto: File exists
 #28 DONE 22.5s
-
-#30 [backend_data 5/7] RUN npm install
-#30 ...
-
 #34 [db builder 3/3] RUN git clone --branch v1.6.7 --depth 1     https://github.com/citusdata/pg_cron.git /tmp/pg_cron     && cd /tmp/pg_cron     && USE_PGXS=1 make -j$(nproc)     && USE_PGXS=1 make install
 #34 0.381 Cloning into '/tmp/pg_cron'...
 #34 0.616 Note: switching to '465b38c737f584d520229f5a1d69d1d44649e4e5'.
@@ -514,18 +398,12 @@ time="2026-03-19T12:08:09Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variab
 #34 0.616 You are in 'detached HEAD' state. You can look around, make experimental
 #34 0.616 changes and commit them, and you can discard any commits you make in this
 #34 0.616 state without impacting any branches by switching back to a branch.
-#34 0.616 
 #34 0.616 If you want to create a new branch to retain commits you create, you may
 #34 0.616 do so (now or later) by using -c with the switch command. Example:
-#34 0.616 
 #34 0.616   git switch -c <new-branch-name>
-#34 0.616 
 #34 0.616 Or undo this operation with:
-#34 0.616 
 #34 0.616   git switch -
-#34 0.616 
 #34 0.616 Turn off this advice by setting config variable advice.detachedHead to false
-#34 0.616 
 #34 0.649 gcc -Wall -Wmissing-prototypes -Wpointer-arith -Wdeclaration-after-statement -Werror=vla -Wendif-labels -Wmissing-format-attribute -Wimplicit-fallthrough=3 -Wcast-function-type -Wshadow=compatible-local -Wformat-security -Wmissing-variable-declarations -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-format-truncation -Wno-stringop-truncation -O2 -fPIC -fvisibility=hidden -std=c99 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Iinclude -I/usr/local/include -I. -I./ -I/usr/local/include/postgresql/server -I/usr/local/include/postgresql/internal -D_GNU_SOURCE  -I/usr/include/libxml2     -c -o src/entry.o src/entry.c
 #34 0.651 gcc -Wall -Wmissing-prototypes -Wpointer-arith -Wdeclaration-after-statement -Werror=vla -Wendif-labels -Wmissing-format-attribute -Wimplicit-fallthrough=3 -Wcast-function-type -Wshadow=compatible-local -Wformat-security -Wmissing-variable-declarations -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-format-truncation -Wno-stringop-truncation -O2 -fPIC -fvisibility=hidden -std=c99 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Iinclude -I/usr/local/include -I. -I./ -I/usr/local/include/postgresql/server -I/usr/local/include/postgresql/internal -D_GNU_SOURCE  -I/usr/include/libxml2     -c -o src/job_metadata.o src/job_metadata.c
 #34 2.039 gcc -Wall -Wmissing-prototypes -Wpointer-arith -Wdeclaration-after-statement -Werror=vla -Wendif-labels -Wmissing-format-attribute -Wimplicit-fallthrough=3 -Wcast-function-type -Wshadow=compatible-local -Wformat-security -Wmissing-variable-declarations -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-format-truncation -Wno-stringop-truncation -O2 -fPIC -fvisibility=hidden -std=c99 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Iinclude -I/usr/local/include -I. -I./ -I/usr/local/include/postgresql/server -I/usr/local/include/postgresql/internal -D_GNU_SOURCE  -I/usr/include/libxml2     -c -o src/misc.o src/misc.c
@@ -553,40 +431,20 @@ time="2026-03-19T12:08:09Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variab
 #34 9.555 /usr/bin/install -c -m 644 src/task_states.bc '/usr/local/lib/postgresql/bitcode'/pg_cron/src/
 #34 9.557 cd '/usr/local/lib/postgresql/bitcode' && /usr/lib/llvm19/bin/llvm-lto -thinlto -thinlto-action=thinlink -o pg_cron.index.bc pg_cron/src/entry.bc pg_cron/src/job_metadata.bc pg_cron/src/misc.bc pg_cron/src/pg_cron.bc pg_cron/src/task_states.bc
 #34 DONE 9.7s
-
-#30 [backend_data 5/7] RUN npm install
-#30 ...
-
 #35 [db stage-1 3/9] COPY --from=builder /usr/local/lib/postgresql/pg_cron.so     /usr/local/lib/postgresql/pg_cron.so
 #35 DONE 0.1s
-
-#30 [backend_data 5/7] RUN npm install
-#30 ...
-
 #36 [db stage-1 4/9] COPY --from=builder /usr/local/share/postgresql/extension/pg_cron*     /usr/local/share/postgresql/extension/
 #36 DONE 0.1s
-
 #37 [db stage-1 5/9] COPY --from=builder /usr/local/lib/postgresql/bitcode/pg_cron*     /usr/local/lib/postgresql/bitcode/
 #37 DONE 0.1s
-
 #38 [db stage-1 6/9] RUN mkdir -p /cascata_extensions/lib /cascata_extensions/share
 #38 DONE 0.4s
-
-#30 [backend_data 5/7] RUN npm install
-#30 ...
-
 #39 [db stage-1 7/9] COPY docker-entrypoint-cascata.sh /usr/local/bin/docker-entrypoint-cascata.sh
 #39 DONE 0.1s
-
 #40 [db stage-1 8/9] COPY phantom_linker.sh /usr/local/bin/phantom_linker.sh
 #40 DONE 0.1s
-
 #41 [db stage-1 9/9] RUN chmod +x /usr/local/bin/docker-entrypoint-cascata.sh     /usr/local/bin/phantom_linker.sh
 #41 DONE 0.3s
-
-#30 [backend_data 5/7] RUN npm install
-#30 ...
-
 #42 [db] exporting to image
 #42 exporting layers
 #42 exporting layers 0.6s done
@@ -598,55 +456,31 @@ time="2026-03-19T12:08:09Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variab
 #42 unpacking to docker.io/library/cascata-db:latest
 #42 unpacking to docker.io/library/cascata-db:latest 0.3s done
 #42 DONE 1.1s
-
-#30 [backend_data 5/7] RUN npm install
-#30 ...
-
 #43 [db] resolving provenance for metadata file
 #43 DONE 0.0s
-
-#30 [backend_data 5/7] RUN npm install
-#30 ...
-
-#22 [frontend build 4/6] RUN npm install
 #22 44.87 
 #22 44.87 added 195 packages, and audited 196 packages in 43s
-#22 44.87 
 #22 44.87 27 packages are looking for funding
 #22 44.87   run `npm fund` for details
 #22 44.90 
 #22 44.90 5 vulnerabilities (3 moderate, 1 high, 1 critical)
-#22 44.90 
 #22 44.90 To address all issues (including breaking changes), run:
 #22 44.90   npm audit fix --force
-#22 44.90 
 #22 44.90 Run `npm audit` for details.
 #22 44.90 npm notice
 #22 44.90 npm notice New major version of npm available! 10.8.2 -> 11.12.0
 #22 44.90 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.12.0
 #22 44.90 npm notice To update run: npm install -g npm@11.12.0
-#22 44.90 npm notice
 #22 DONE 45.3s
-
-#30 [backend_data 5/7] RUN npm install
-#30 ...
-
 #44 [frontend build 5/6] COPY . .
 #44 DONE 0.2s
-
-#30 [backend_data 5/7] RUN npm install
-#30 ...
-
 #45 [frontend build 6/6] RUN npm run build
 #45 0.522 
 #45 0.522 > cascata-frontend@1.0.0 build
 #45 0.522 > vite build
-#45 0.522 
 #45 0.950 vite v5.4.21 building for production...
 #45 1.486 transforming...
 #45 ...
-
-#30 [backend_data 5/7] RUN npm install
 #30 41.90 npm error code ETARGET
 #30 41.90 npm error notarget No matching version found for @types/pg-cursor@^2.10.0.
 #30 41.90 npm error notarget In most cases you or one of your dependencies are requesting
@@ -655,11 +489,8 @@ time="2026-03-19T12:08:09Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variab
 #30 41.90 npm notice New major version of npm available! 10.8.2 -> 11.12.0
 #30 41.90 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.12.0
 #30 41.90 npm notice To update run: npm install -g npm@11.12.0
-#30 41.90 npm notice
 #30 41.90 npm error A complete log of this run can be found in: /root/.npm/_logs/2026-03-19T12_08_47_880Z-debug-0.log
 #30 ERROR: process "/bin/sh -c npm install" did not complete successfully: exit code: 1
-
-#45 [frontend build 6/6] RUN npm run build
 #45 CANCELED
 ------
  > [backend_data 5/7] RUN npm install:
@@ -671,29 +502,16 @@ time="2026-03-19T12:08:09Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variab
 41.90 npm notice New major version of npm available! 10.8.2 -> 11.12.0
 41.90 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.12.0
 41.90 npm notice To update run: npm install -g npm@11.12.0
-41.90 npm notice
 41.90 npm error A complete log of this run can be found in: /root/.npm/_logs/2026-03-19T12_08_47_880Z-debug-0.log
-------
 Dockerfile:14
-
 --------------------
-
   12 |     
-
   13 |     COPY package*.json ./
-
   14 | >>> RUN npm install
-
   15 |     
-
   16 |     # Copia arquivos do backend
-
---------------------
-
 target backend_control: failed to solve: process "/bin/sh -c npm install" did not complete successfully: exit code: 1
-
   ✗ Falha ao construir/subir containers. Verifique o log acima e /var/log/cascata/install.log.
-
   ╔══════════════════════════════════════════════════════════════╗
   ║  INSTALAÇÃO INTERROMPIDA                                   ║
   ╚══════════════════════════════════════════════════════════════╝

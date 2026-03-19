@@ -12,7 +12,7 @@ import process from 'process';
 
 interface ClientConnection {
     id: string;
-    res: any;
+    res: Response;
     tableFilter?: string;
 }
 
@@ -57,7 +57,7 @@ export class RealtimeService {
     // Backpressure Lock: Map<"projectSlug:env:tableName", Timestamp>
     private static activeFlushes = new Map<string, number>();
     
-    private static flushInterval: any = null;
+    private static flushInterval: NodeJS.Timeout | null = null;
     private static readonly BATCH_TICK_MS = 50; 
     private static readonly MAX_BUFFER_SIZE_PER_TABLE = 5000; 
     private static readonly LOCK_TIMEOUT_MS = 30000; // 30s max para um flush
@@ -80,8 +80,8 @@ export class RealtimeService {
         try {
             this.startBatcher();
             console.log('[Realtime] ✅ Service initialized with Hydration Batcher V2 (Env Aware)');
-        } catch (e) {
-            console.error('[Realtime] ❌ Initialization failed', e);
+        } catch (e: unknown) {
+            console.error('[Realtime] ❌ Initialization failed', (e as Error).message);
             throw e; // Falha no boot é crítica
         }
     }
@@ -128,10 +128,11 @@ export class RealtimeService {
         console.log('[Realtime] Shutdown complete.');
     }
 
-    public static async handleConnection(req: any, res: any) {
+    public static async handleConnection(req: Request, res: Response) {
+        const r = (req as unknown) as import('../src/types.js').CascataRequest;
         const slug = req.params.slug;
         const { table, env } = req.query; // Environment param
-        const project = req.project;
+        const project = r.project;
 
         if (!project) {
             res.status(404).json({ error: 'Project context missing.' });

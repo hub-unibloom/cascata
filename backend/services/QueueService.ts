@@ -78,7 +78,7 @@ export class QueueService {
     private static startWorkers() {
         // Push Worker (High Concurrency)
         this.pushWorker = new Worker('cascata-push', async (job: Job) => {
-            const { projectSlug, userId, notification, fcmConfig, dbName, externalDbUrl } = job.data;
+            const { projectSlug, userId, notification, fcmConfig, dbName, externalDbUrl } = job.data as { projectSlug: string; userId: string; notification: any; fcmConfig: any; dbName: string; externalDbUrl?: string };
             try {
                 const pool = await PoolService.get(dbName, { connectionString: externalDbUrl });
                 return await PushProcessor.processDelivery(
@@ -89,23 +89,23 @@ export class QueueService {
                     notification,
                     fcmConfig
                 );
-            } catch (error: any) {
-                console.error(`[Queue:Push] Error:`, error.message);
+            } catch (error: unknown) {
+                console.error(`[Queue:Push] Error:`, (error as Error).message);
                 throw error;
             }
         }, { ...DRAGONFLY_CONFIG, concurrency: 50 });
 
         // Webhook Worker (Outbound Delivery)
         this.webhookWorker = new Worker('cascata-webhooks', async (job: Job) => {
-            const { targetUrl, payload, secret, fallbackUrl } = job.data;
+            const { targetUrl, payload, secret, fallbackUrl } = job.data as { targetUrl: string; payload: any; secret: string; fallbackUrl?: string };
             try {
                 await this.validateTarget(targetUrl);
                 await axios.post(targetUrl, payload, {
                     headers: { 'X-Cascata-Signature': secret, 'Content-Type': 'application/json' },
                     timeout: 10000
                 });
-            } catch (error: any) {
-                console.error(`[Queue:Webhook] Primary delivery failed:`, error.message);
+            } catch (error: unknown) {
+                console.error(`[Queue:Webhook] Primary delivery failed:`, (error as Error).message);
                 if (fallbackUrl) {
                     try {
                         await axios.post(fallbackUrl, payload, {
@@ -113,8 +113,8 @@ export class QueueService {
                             timeout: 10000
                         });
                         return;
-                    } catch (fbErr: any) {
-                        console.error(`[Queue:Webhook] Fallback failed:`, fbErr.message);
+                    } catch (fbErr: unknown) {
+                        console.error(`[Queue:Webhook] Fallback failed:`, (fbErr as Error).message);
                     }
                 }
                 throw error; 
@@ -123,11 +123,11 @@ export class QueueService {
 
         // Backup Worker
         this.backupWorker = new Worker('cascata-backups', async (job: Job) => {
-            const { policyId } = job.data;
+            const { policyId } = job.data as { policyId: string };
             try {
                 await BackupService.executePolicyJob(policyId);
-            } catch (error: any) {
-                console.error(`[Queue:Backup] Error processing policy ${policyId}:`, error.message);
+            } catch (error: unknown) {
+                console.error(`[Queue:Backup] Error processing policy ${policyId}:`, (error as Error).message);
                 throw error;
             }
         }, { ...DRAGONFLY_CONFIG, concurrency: 2 });
@@ -146,11 +146,11 @@ export class QueueService {
                         totalPurged += parseInt(res.rows[0].purge_old_logs);
                     }
                     console.log(`[Queue:Maintenance] Purged/Archived ${totalPurged} old logs.`);
-                } catch (e: any) {
-                    console.error('[Queue:Maintenance] Log purge failed:', e.message);
+                } catch (e: unknown) {
+                    console.error('[Queue:Maintenance] Log purge failed:', (e as Error).message);
                 }
             } else if (job.name.startsWith('auto-')) {
-                const { automationId, projectSlug, nodes } = job.data;
+                const { automationId, projectSlug, nodes } = job.data as { automationId: string; projectSlug: string; nodes: any };
                 console.log(`[Queue:Maintenance] Triggering scheduled automation ${automationId}...`);
                 try {
                     const { AutomationService } = await import('./AutomationService.js');
@@ -169,15 +169,15 @@ export class QueueService {
                             jwtSecret: process.env.JWT_SECRET || 'secret' 
                         }
                     );
-                } catch (e: any) {
-                    console.error(`[Queue:Maintenance] Scheduled automation ${automationId} failed:`, e.message);
+                } catch (e: unknown) {
+                    console.error(`[Queue:Maintenance] Scheduled automation ${automationId} failed:`, (e as Error).message);
                 }
             }
         }, { ...DRAGONFLY_CONFIG });
 
         // Restore/Import Worker (Heavy IO) - Single Concurrency for safety
         this.restoreWorker = new Worker('cascata-restore', async (job: Job) => {
-            const { operationId, temp_path, slug, name, mode, include_data } = job.data;
+            const { operationId, temp_path, slug, name, mode, include_data } = job.data as { operationId: string; temp_path: string; slug: string; name: string; mode: string; include_data: boolean };
             console.log(`[Queue:Restore] Starting import for ${slug} (Op: ${operationId})`);
 
             try {
@@ -187,9 +187,9 @@ export class QueueService {
 
                 await systemPool.query('UPDATE system.async_operations SET status = $1, result = $2, updated_at = NOW() WHERE id = $3', ['completed', JSON.stringify(result), operationId]);
                 console.log(`[Queue:Restore] Success for ${slug}`);
-            } catch (e: any) {
-                console.error(`[Queue:Restore] Failed for ${slug}:`, e.message);
-                await systemPool.query('UPDATE system.async_operations SET status = $1, result = $2, updated_at = NOW() WHERE id = $3', ['failed', JSON.stringify({ error: e.message }), operationId]);
+            } catch (e: unknown) {
+                console.error(`[Queue:Restore] Failed for ${slug}:`, (e as Error).message);
+                await systemPool.query('UPDATE system.async_operations SET status = $1, result = $2, updated_at = NOW() WHERE id = $3', ['failed', JSON.stringify({ error: (e as Error).message }), operationId]);
                 throw e;
             }
         }, { ...DRAGONFLY_CONFIG, concurrency: 1 });
@@ -198,7 +198,7 @@ export class QueueService {
         this.maintenanceQueue.add('purge-logs', {}, {
             repeat: { pattern: '0 4 * * *' },
             jobId: 'system-log-purge'
-        }).catch((e: any) => console.error("Failed to schedule log purge", e));
+        }).catch((e: unknown) => console.error("Failed to schedule log purge", (e as Error).message));
     }
 
     public static async addPushJob(data: any) {

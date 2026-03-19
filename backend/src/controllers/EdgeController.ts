@@ -1,4 +1,4 @@
-import { Response, NextFunction } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import process from 'process';
 import axios from 'axios';
 import { CascataRequest } from '../types.js';
@@ -7,9 +7,10 @@ import { EdgeService } from '../../services/EdgeService.js';
 import { VaultService } from '../../services/VaultService.js';
 
 export class EdgeController {
-    static async execute(req: CascataRequest, res: Response, next: NextFunction) {
+    static async execute(req: Request, res: Response, next: NextFunction) {
+        const r = (req as unknown) as CascataRequest;
         try {
-            const assetRes = await systemPool.query("SELECT * FROM system.assets WHERE project_slug = $1 AND name = $2 AND type = 'edge_function'", [req.project.slug, req.params.name]);
+            const assetRes = await systemPool.query("SELECT * FROM system.assets WHERE project_slug = $1 AND name = $2 AND type = 'edge_function'", [r.project.slug, r.params.name]);
             if (assetRes.rows.length === 0) return res.status(404).json({ error: "Edge Function Not Found" });
             const asset = assetRes.rows[0];
             
@@ -18,7 +19,7 @@ export class EdgeController {
                 SELECT name, secret_value
                 FROM system.project_secrets
                 WHERE project_slug = $1 AND type != 'folder'
-            `, [req.project.slug]);
+            `, [r.project.slug]);
             
             const vault = VaultService.getInstance();
             const globalSecrets: Record<string, string> = {};
@@ -28,12 +29,12 @@ export class EdgeController {
                     // Tenta descriptografar usando o Vault. Se o valor não for um ciphertext válido, 
                     // mantém o valor original (fallback para compatibilidade ou texto claro).
                     if (row.secret_value && row.secret_value.startsWith('vault:')) {
-                        globalSecrets[row.name] = await vault.decrypt(`project-${req.project.slug}`, row.secret_value);
+                        globalSecrets[row.name] = await vault.decrypt(`project-${r.project.slug}`, row.secret_value);
                     } else {
                         globalSecrets[row.name] = row.secret_value;
                     }
-                } catch (e) {
-                    console.warn(`[EdgeController] Failed to decrypt secret ${row.name} for project ${req.project.slug}:`, e);
+                } catch (e: unknown) {
+                    console.warn(`[EdgeController] Failed to decrypt secret ${row.name} for project ${r.project.slug}:`, (e as Error).message);
                     globalSecrets[row.name] = row.secret_value; // Fallback
                 }
             }
@@ -56,11 +57,11 @@ export class EdgeController {
             }
 
             const context = { 
-                method: req.method, 
-                body: req.body, 
-                query: req.query, 
-                headers: req.headers, 
-                user: req.user,
+                method: r.method, 
+                body: r.body, 
+                query: r.query, 
+                headers: r.headers, 
+                user: r.user,
                 _db_connection_string: dbConnectionString // Contexto privilegiado para o Engine
             };
 
@@ -99,9 +100,9 @@ export class EdgeController {
                 asset.metadata.sql, 
                 context,
                 finalEnv, 
-                req.projectPool!, 
+                r.projectPool!, 
                 timeoutMs,
-                req.project.slug
+                r.project.slug
             );
             res.status(result.status).json(result.body);
             

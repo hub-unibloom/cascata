@@ -1,5 +1,4 @@
-
-import { NextFunction } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { CascataRequest } from '../types.js';
 import { systemPool } from '../config/main.js';
 import { DatabaseService } from '../../services/DatabaseService.js';
@@ -9,62 +8,66 @@ import { quoteId } from '../utils/index.js';
 
 export class BranchController {
 
-    static async getStatus(req: CascataRequest, res: any, next: any) {
+    static async getStatus(req: Request, res: Response, next: NextFunction) {
+        const r = (req as unknown) as CascataRequest;
         try {
-            const draftDbName = `${req.project.db_name}_draft`;
+            const draftDbName = `${r.project.db_name}_draft`;
             const exists = await DatabaseService.dbExists(draftDbName);
             
             res.json({
                 has_draft: exists,
-                project_slug: req.project.slug,
-                live_db: req.project.db_name,
+                project_slug: r.project.slug,
+                live_db: r.project.db_name,
                 draft_db: draftDbName,
-                sync_active: req.project.metadata?.draft_sync_active || false
+                sync_active: r.project.metadata?.draft_sync_active || false
             });
-        } catch (e: any) { next(e); }
+        } catch (e: unknown) { next(e); }
     }
 
     // --- SNAPSHOTS & ROLLBACK ---
 
-    static async listSnapshots(req: CascataRequest, res: any, next: any) {
+    static async listSnapshots(req: Request, res: Response, next: NextFunction) {
+        const r = req as CascataRequest;
         try {
-            const liveDb = req.project.db_name;
+            const liveDb = r.project.db_name;
             const snapshots = await DatabaseService.listDatabaseSnapshots(liveDb);
             res.json(snapshots);
-        } catch(e: any) { next(e); }
+        } catch(e: unknown) { next(e); }
     }
 
-    static async rollback(req: CascataRequest, res: any, next: any) {
+    static async rollback(req: Request, res: Response, next: NextFunction) {
+        const r = (req as unknown) as CascataRequest;
         try {
-            const { snapshot_name, mode } = req.body;
+            const { snapshot_name, mode } = req.body as { snapshot_name: string; mode?: 'hard' | 'smart' };
             if (!snapshot_name) return res.status(400).json({ error: "Snapshot name required" });
 
-            const liveDb = req.project.db_name;
+            const liveDb = r.project.db_name;
             const result = await DatabaseService.restoreSnapshot(liveDb, snapshot_name, mode || 'hard');
             
             // Log the operation
             await systemPool.query(
                 `INSERT INTO system.async_operations (project_slug, type, status, metadata) 
                  VALUES ($1, 'rollback', 'completed', $2)`,
-                [req.project.slug, JSON.stringify({ mode, from: snapshot_name, quarantine: result.quarantineDb })]
+                [r.project.slug, JSON.stringify({ mode, from: snapshot_name, quarantine: result.quarantineDb })]
             );
 
             res.json({ success: true, message: "Rollback successful.", quarantine: result.quarantineDb });
-        } catch(e: any) { 
+        } catch(e: unknown) { 
             console.error("Rollback failed:", e);
-            res.status(500).json({ error: e.message }); 
+            res.status(500).json({ error: (e as Error).message }); 
         }
     }
 
     // ---------------------------
 
-    static async createDraft(req: CascataRequest, res: any, next: any) {
+    static async createDraft(req: Request, res: Response, next: NextFunction) {
+        const r = (req as unknown) as CascataRequest;
         try {
-            const { mode, percent } = req.body; 
-            const liveDb = req.project.db_name;
+            const { mode, percent } = req.body as { mode?: 'schema' | 'hybrid'; percent?: number }; 
+            const liveDb = r.project.db_name;
             const draftDb = `${liveDb}_draft`;
 
-            console.log(`[Branch] Creating/Rebasing Draft for ${req.project.slug}. Data: ${percent}%`);
+            console.log(`[Branch] Creating/Rebasing Draft for ${r.project.slug}. Data: ${percent}%`);
 
             if (await DatabaseService.dbExists(draftDb)) {
                 await DatabaseService.dropDatabase(draftDb);
@@ -85,18 +88,19 @@ export class BranchController {
                 success: true, 
                 message: `Draft environment synchronized with Live (${percent !== undefined ? percent : (mode === 'schema' ? 0 : 100)}% Data).` 
             });
-        } catch (e: any) { next(e); }
+        } catch (e: unknown) { next(e); }
     }
     
-    static async toggleSync(req: CascataRequest, res: any, next: any) {
+    static async toggleSync(req: Request, res: Response, next: NextFunction) {
+        const r = (req as unknown) as CascataRequest;
         try {
-            const { active } = req.body;
+            const { active } = req.body as { active: boolean };
             await systemPool.query(
                 `UPDATE system.projects SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{draft_sync_active}', $1::jsonb) WHERE slug = $2`,
-                [JSON.stringify(active), req.project.slug]
+                [JSON.stringify(active), r.project.slug]
             );
             res.json({ success: true, active });
-        } catch(e: any) { next(e); }
+        } catch(e: unknown) { next(e); }
     }
 
     static async syncFromLive(req: CascataRequest, res: any, next: any) {
