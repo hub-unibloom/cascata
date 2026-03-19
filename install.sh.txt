@@ -641,8 +641,13 @@ provision_vault_resources() {
     local TOKEN="$VAULT_ROOT_TOKEN"
     
     # Função auxiliar para evitar problemas com IFS e espaços em variáveis
+    # Extrai dinamicamente a porta da configuração global para evitar hardcode,
+    # mantendo 127.0.0.1 como alvo interno seguro para o docker exec.
     vault_exec() {
-        docker exec -e VAULT_TOKEN="$TOKEN" cascata-vault vault "$@"
+        local V_PORT
+        V_PORT=$(echo "${VAULT_ADDR}" | sed -n 's/.*:\([0-9]*\)$/\1/p')
+        V_PORT=${V_PORT:-8200}
+        docker exec -i -e VAULT_TOKEN="$TOKEN" -e VAULT_ADDR="http://127.0.0.1:${V_PORT}" cascata-vault vault "$@"
     }
 
     info "Aguardando API do Vault ficar pronta..."
@@ -675,7 +680,7 @@ provision_vault_resources() {
         INTERNAL_CTRL_SECRET="${CTRL_SECRET}" > /dev/null
 
     # 4. Criar Política de Acesso para o Backend (Strict Read-Only)
-    cat <<EOF | docker exec -i cascata-vault vault policy write cascata-backend - 
+    cat <<EOF | vault_exec policy write cascata-backend - 
 path "secret/data/cascata/*" {
   capabilities = ["read"]
 }
@@ -695,7 +700,7 @@ EOF
     fi
 
     # 6. Atualizar .env: injeta o App Token e limpa chaves de aplicação
-    sed -i "s|VAULT_TOKEN=.*|VAULT_TOKEN=${BACKEND_TOKEN}|" .env
+    sed -i "s|^VAULT_TOKEN=.*|VAULT_TOKEN=${BACKEND_TOKEN}|" .env
     sed -i "s|^SYSTEM_JWT_SECRET=.*|# SYSTEM_JWT_SECRET (Managed by Vault)|" .env
     sed -i "s|^INTERNAL_CTRL_SECRET=.*|# INTERNAL_CTRL_SECRET (Managed by Vault)|" .env
     
