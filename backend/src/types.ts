@@ -22,7 +22,7 @@ export interface CascataRequest extends Request {
   path: string;
   url: string;
   socket: any;
-  ip?: string;
+  ip: string;
   connection?: any;
   on: (event: string, listener: (...args: any[]) => void) => this;
 }

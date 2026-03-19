@@ -135,8 +135,9 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
 
                 // --- MCP Governance ---
                 const mcpGov = current.metadata?.ai_governance || {};
-                setMcpIps(mcpGov.allowed_ips || []);
-                setMcpUrls(mcpGov.allowed_urls || []);
+                const mcpPerimeter = mcpGov.mcp_perimeter || {};
+                setMcpIps(mcpPerimeter.allowed_ips || mcpGov.allowed_ips || []);
+                setMcpUrls(mcpPerimeter.allowed_urls || mcpGov.allowed_urls || []);
                 setMcpMaxRows(mcpGov.max_rows || 100);
 
                 const rawOrigins = current.metadata?.allowed_origins || [];
@@ -411,8 +412,10 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
                 ai_governance: {
                     ...(project?.metadata?.ai_governance || {}),
                     mcp_enabled: mcpEnabled,
-                    allowed_ips: mcpIps,
-                    allowed_urls: mcpUrls,
+                    mcp_perimeter: {
+                        allowed_ips: mcpIps,
+                        allowed_urls: mcpUrls
+                    },
                     max_rows: mcpMaxRows
                 }
             };
