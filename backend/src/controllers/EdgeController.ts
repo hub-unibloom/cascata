@@ -78,7 +78,7 @@ export class EdgeController {
                         context,
                         envVars: finalEnv,
                         timeout: timeoutMs,
-                        slug: req.project.slug
+                        slug: r.project.slug
                     }, {
                         timeout: timeoutMs + 1000, // Margem de segurança para rede
                         validateStatus: () => true // Captura status code do engine
