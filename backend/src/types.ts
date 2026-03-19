@@ -1,19 +1,21 @@
 import { Request } from 'express';
 import pg from 'pg';
 import { IncomingHttpHeaders } from 'http';
+import { Socket } from 'net';
 
 export interface CascataRequest extends Request {
+  // --- Cascata Custom Properties ---
   project?: any;
   projectPool?: pg.Pool;
   user?: any;
   userRole?: 'service_role' | 'authenticated' | 'anon';
-  appClient?: any; // Identifies which Specific Anon Key / App Client initiated the request
+  appClient?: any;
   isSystemRequest?: boolean;
   file?: any;
   files?: any;
 
   // Explicitly define properties to resolve TypeScript errors in controllers
-  // These properties are normally inherited from Request but are explicitly added here to ensure compatibility
+  // These MUST match Express Request's signatures (no weaker optionality)
   body: any;
   params: any;
   query: any;
@@ -21,8 +23,7 @@ export interface CascataRequest extends Request {
   method: string;
   path: string;
   url: string;
-  socket: any;
   ip: string;
-  connection?: any;
+  socket: Socket;
   on: (event: string, listener: (...args: any[]) => void) => this;
 }

@@ -40,7 +40,7 @@ export class McpController {
             const allowedUrls = mcpPerimeter.allowed_urls || [];
 
             if (allowedIps.length > 0) {
-                const clientIp = req.ip || req.connection.remoteAddress;
+                const clientIp = req.ip || req.socket.remoteAddress;
                 // Basic IP check. For production accuracy, consider CIDR libraries if user asks.
                 if (!allowedIps.includes(clientIp)) {
                     res.status(403).json({ error: `Security Perimeter: IP ${clientIp} is not authorized for MCP access.` });
@@ -89,7 +89,7 @@ export class McpController {
             const allowedUrls = mcpPerimeter.allowed_urls || [];
 
             if (allowedIps.length > 0) {
-                const clientIp = req.ip || req.connection.remoteAddress;
+                const clientIp = req.ip || req.socket.remoteAddress;
                 if (!allowedIps.includes(clientIp)) {
                     return res.json({ jsonrpc: "2.0", id: req.body.id, error: { code: -32000, message: `Security Perimeter: IP Unauthorized.` } });
                 }
