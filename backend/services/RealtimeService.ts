@@ -373,13 +373,23 @@ export class RealtimeService {
             const draftPoolKey = `mirror_${slug}`;
             const host = process.env.DB_DIRECT_HOST || 'db';
             const port = process.env.DB_DIRECT_PORT || '5432';
-            const user = process.env.DB_USER || 'cascata_admin';
-            const pass = process.env.DB_PASS || 'secure_pass';
+            // Determine credentials (Vault or ENV)
+            let user = process.env.DB_USER || 'cascata_admin';
+            let pass = process.env.DB_PASS || 'secure_pass';
+
+            if (process.env.VAULT_ADDR && process.env.VAULT_TOKEN) {
+                try {
+                    const vault = VaultService.getInstance();
+                    const creds = await vault.getDatabaseCredentials('cascata-admin-role');
+                    user = creds.username;
+                    pass = creds.password;
+                } catch (err) {
+                    console.warn(`[Realtime] Mirroring Vault credentials fetch failed:`, (err as Error).message);
+                }
+            }
             
             // Construct Draft Connection
-            // We parse the LIVE connection string to handle potential different hosts/users, 
-            // but for managed, we can construct standard.
-            const draftConnString = `postgresql://${user}:${pass}@${host}:${port}/${draftDbName}`;
+            const draftConnString = `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${host}:${port}/${draftDbName}`;
             
             const pool = await PoolService.get(draftPoolKey, { connectionString: draftConnString });
             const client = await pool.connect();

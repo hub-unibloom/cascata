@@ -1,0 +1,61 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ▸  FASE 2.1.5 — Configuração do HashiCorp Vault
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  O Cascata utiliza HashiCorp Vault para gestão de segredos enterprise.
+  Escolha como deseja configurar o Vault:
+  1) Local (Sidecar): O instalador sobe um container Vault exclusivo para esta VPS.
+  2) Cloud (Externo): Você fornece o endereço e token de um Vault já existente.
+
+  Opção [1/2] [1]: 1
+  ➜ Configurando Vault Local...
+  ✓ Vault Local configurado com root token dinâmico
+  ✓ .env configurado com segredos únicos desta VPS e Vault
+  ✓ Credenciais injetadas no SQL de inicialização (sanitizadas contra SQL injection)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ▸  FASE 2.3 — OTP / Autenticação de Dois Fatores
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Deseja habilitar OTP (2FA) compatível com Google/Microsoft Authenticator?
+  O segredo é gerado localmente com entropia desta VPS — zero conhecimento externo.
+
+  Habilitar OTP? [S/n]: n
+  ➜ OTP desabilitado. Recomendamos habilitar para ambientes de produção.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ▸  FASE 2.4 — Restrição de Acesso por IP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Restringir acesso administrativo a um IP fixo?
+  Se você possui IP fixo, isso bloqueia qualquer outro endereço de acessar o painel.
+  Deixe em branco para permitir qualquer IP (sem restrição de IP).
+
+  IP Restrito (ex: 192.168.1.10) [Enter p/ pular]: 
+  ➜ Sem restrição de IP configurada.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ▸  FASE 2.5 — Criação da Infraestrutura de Dados
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ➜ Criando diretórios de dados em: /cascata-data
+  ✓ Diretórios criados e permissões restritas (700) configuradas
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ▸  FASE 2.6 — Inicialização dos Containers
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ➜ Construindo e subindo os containers Docker...
+
+failed to parse /home/ubuntu/cascata/docker-compose.yml: yaml: construct errors:
+  line 1: line 296: mapping key "volumes" already defined at line 294
+  ✗ Falha ao construir/subir containers. Verifique o log acima e /var/log/cascata/install.log.
+
+  ╔══════════════════════════════════════════════════════════════╗
+  ║  INSTALAÇÃO INTERROMPIDA                                   ║
+  ╚══════════════════════════════════════════════════════════════╝
+  Exit code: 1
+  Log completo: /var/log/cascata/install.log
+  A instalação pode ser retomada rodando ./install.sh novamente.
+
+ubuntu@ip-172-26-15-241:~$ 

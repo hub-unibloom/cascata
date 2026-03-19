@@ -613,9 +613,17 @@ export class DatabaseService {
 
         // Rename Snapshot -> Live (Clone logic: We actually want to CLONE the snapshot to Live, 
         // so the snapshot remains available for future rollbacks if this one fails too)
+        let dbOwner = process.env.DB_USER || 'cascata_admin';
+        if (process.env.VAULT_ADDR && process.env.VAULT_TOKEN) {
+            try {
+                const vault = VaultService.getInstance();
+                const creds = await vault.getDatabaseCredentials('cascata-admin-role');
+                dbOwner = creds.username;
+            } catch (err) {}
+        }
 
         try {
-            await systemPool.query(`CREATE DATABASE "${liveDb}" WITH TEMPLATE "${snapshotDb}" OWNER "${process.env.DB_USER}"`);
+            await systemPool.query(`CREATE DATABASE "${liveDb}" WITH TEMPLATE "${snapshotDb}" OWNER "${dbOwner}"`);
         } catch (cloneErr) {
             console.error("[Rollback] Failed to promote snapshot. Restoring quarantine...", cloneErr);
             await this.killAndRename(systemPool, quarantineDb, liveDb);

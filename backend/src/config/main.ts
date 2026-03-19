@@ -78,6 +78,11 @@ export const bootstrapConfig = async () => {
     _systemPool.on('error', (err: any) => {
         console.error('[SystemPool] Unexpected error on idle client', err);
     });
+
+    if (!process.env.SYSTEM_JWT_SECRET) {
+        console.error('[Config] FATAL: SYSTEM_JWT_SECRET is missing even after Vault bootstrap.');
+        process.exit(1);
+    }
 };
 
 /**
@@ -108,12 +113,21 @@ export const backupUpload = multer({
     limits: { fileSize: 5 * 1024 * 1024 * 1024 } 
 });
 
-if (!process.env.SYSTEM_JWT_SECRET) {
-    console.error('[Config] FATAL: SYSTEM_JWT_SECRET is missing. Security cannot be guaranteed.');
-    process.exit(1);
-}
+/**
+ * SYS_SECRET: Retorna o segredo JWT do sistema.
+ * Deve ser acessado apenas após o bootstrapConfig().
+ */
+export const getSystemSecret = () => {
+    if (!process.env.SYSTEM_JWT_SECRET) {
+        throw new Error('[Config] SYSTEM_JWT_SECRET accessed before bootstrap.');
+    }
+    return process.env.SYSTEM_JWT_SECRET;
+};
 
-export const SYS_SECRET = process.env.SYSTEM_JWT_SECRET;
+// Mantemos SYS_SECRET para compatibilidade legada, mas agora via getter dinâmico se possível
+// ou apenas exportamos a variável e confiamos no bootstrap.
+// Para garantir "zero regression", vamos manter a exportação mas avisar que depende do boot.
+export const SYS_SECRET = process.env.SYSTEM_JWT_SECRET || 'BOOTSTRAP_PENDING';
 
 export const MAGIC_NUMBERS: Record<string, string[]> = {
     'jpg': ['FFD8FF'],

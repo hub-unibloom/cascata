@@ -292,8 +292,6 @@ services:
       - VAULT_ADDR=http://0.0.0.0:8200
       - VAULT_API_ADDR=http://0.0.0.0:8200
     volumes:
-      - ${CASCATA_DATA_DIR:-/cascata-data}/vault/file:/vault/file
-    volumes:
       - ${CASCATA_DATA_DIR:-/cascata-data}/vault/logs:/vault/logs
       - ${CASCATA_DATA_DIR:-/cascata-data}/vault/file:/vault/file
     ports:
