@@ -1,50 +1,65 @@
+Crie um tabela:
 
-//EU comentando agora vou criaar uma tabela:
-2026-03-19 05:05:16.868 UTC [216] LOG:  checkpoint starting: time
-2026-03-19 05:05:16.983 UTC [216] LOG:  checkpoint complete: wrote 1 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.101 s, sync=0.003 s, total=0.116 s; sync files=1, longest=0.003 s, average=0.003 s; distance=8 kB, estimate=6194 kB; lsn=0/2262ED8, redo lsn=0/2262E80
-2026-03-19 05:06:17.440 UTC [4784] WARNING:  SET LOCAL can only be used in transaction blocks
-(node:1) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
-(Use `node --trace-deprecation ...` to show where the warning was created)
-[Realtime] 🔴 Closing idle listener for teste:live
-[Realtime] 🟢 Spawning dedicated listener for teste:live
-2026-03-19 05:06:19.059 UTC [4784] WARNING:  SET LOCAL can only be used in transaction blocks
+-- Create table: teste
+CREATE TABLE IF NOT EXISTS public.teste (
+    id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    hideee     text,
+    bluour     text,
+    massk      text,
+    incript    text
+);
 
-tabella que eu criei:
+cada tipo e privacy correpone ao nome da coluna, por exemplo: hideee é hide, bluour é blur, massk é mask, incript é encrypt
 
 
 Request URL
-http://44.195.21.157/api/data/teste/query?schema=public
-Request Method
-POST
-Status Code
-200 OK
-Remote Address
-44.195.21.157:80
-
-sql
-: 
-"-- Create table: tabelateste\nCREATE TABLE IF NOT EXISTS public.tabelateste (\n    id                         uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n    created_at                 timestamptz NOT NULL DEFAULT now(),\n    nome_privacy_tipo_hide     text,\n    tlefone_tipo_blour         text,\n    cpf_tipo_mask_asterisstico text,\n    cpf_tipo_incripty          text\n);\n\n-- Table Comment & Governance\nCOMMENT ON TABLE public.tabelateste IS 'tabela onde cada nome corresponde ao seu tipo';"
-
-o nome do tenacy/projeto é teste...:
-Request URL
-http://44.195.21.157/api/control/projects/teste
+http://52.3.229.37/api/control/projects/tets
 Request Method
 PATCH
 Status Code
 200 OK
 
+PAYLOAD:
 {
-    "id": "014badc4-a405-45b1-bb7b-21fc39b8fe9e",
-    "name": "teste",
-    "slug": "teste",
+    "metadata": {
+        "timezone": "America/Sao_Paulo",
+        "ai_governance": {
+            "mcp_enabled": true,
+            "tables": {},
+            "rpcs": []
+        },
+        "locked_columns": {
+            "teste": {
+                "id": "immutable",
+                "created_at": "insert_only"
+            }
+        },
+        "masked_columns": {
+            "teste": {
+                "hideee": "hide",
+                "bluour": "hide",
+                "massk": "mask",
+                "incript": "encrypt"
+            }
+        }
+    }
+}
+
+
+PREVIW:
+{
+    "id": "4959e578-96de-4260-bb36-8f177844d89e",
+    "name": "tets",
+    "slug": "tets",
     "status": "healthy",
-    "db_name": "cascata_db_teste",
+    "db_name": "cascata_db_tets",
     "custom_domain": null,
     "default_domain": null,
     "ssl_certificate_source": null,
-    "jwt_secret": "\\xc30d04070302bed4dab23d7f89b77dd27101f031e0dab575434571019d014ef794eff19c8481ad57587f6dd1cb7debf2e84fba6ab668145cadb5c42324ee4fda8640e2e5c016570dfc0be3ecb0bec2e8a28a449cc468d585eccd080d4506b03808c9ff565dde889fd9b83128973a11eeff999f1a976f9a2b15eb065be07b0c1a9708",
-    "anon_key": "\\xc30d040703022c6a1e142c19a3c86ed27101a0f9715262c033bc9056f281ff7d3ddcbaafecb2c55ffc5e1787d4a354d917a44c41a451d341bcc49e0d67042c39e9533c112b81d7ab1f7c8dd8d07323575721c9d817d5abae9251b7de29734bd2c7cbf1109e55c09a4200feb05eb3e4c6402becfe7a0b35eea2b18d2e2c4f13edec20",
-    "service_key": "\\xc30d04070302abdf2d7623e23b477ad2710140644df018ee97c056c8a2fb321230f4cd9dd1c03cd1faa832e2278de560ac63804c9b080e5a1064116928bfe3f82db36199a0beb9fabb18a91e47bbbb10903c8be78dcf717ce83fc460bbecdd925fe532a34d234168b00a6af2cfb2c74a695259c39989c68b4cc7aa136127e92f27e3",
+    "jwt_secret": "\\xc30d04070302174c0cf856c6cd647bd271011bc0a509de76fd0cafc06cdaff8fc14b0cb2bc7519764a33fc7ea9c05fe0c83a42f8ea334c89324a357a014ba5229f71212bb458056aeb61b156971d4c1bb3b5a878278c4a37605c1d62cb0b70b8ac8ed223d18cbb9a4c997b0c290caad0b1cef7c99c83f389825880edf019fa16cf62",
+    "anon_key": "\\xc30d040703027dcf69eda029705d66d27101dad4e44d01456f9faad76915aea8fcda5d34f82178590e12ce70b52f6f5572ca135ea3162400bf6d1cfb1c763e66ef28154c36725b2bc1f61defdfea2f823b5076e6ee7084f0513393d32b481d57cecdc4945fc4c5b6fbb8fd0c5e6984a54bad10c597be2e706754e10715cc04242226",
+    "service_key": "\\xc30d040703028f96d104da5e526d70d271016dad8c8e00bdc3c96ccfb889da5db827aa255ead8fd5ef11fb182844ef8d4f675df31b795c14e865ba37bf67f5009fcfa5f4908a81ad4d697f3135b51d037079b3e5e7861b69082cbed65e929330e6302c8c9dc31b5b9b68162050b513071df5f939bfbb49b00f9d118cb5a54e8f34e7",
     "blocklist": [],
     "metadata": {
         "timezone": "America/Sao_Paulo",
@@ -54,33 +69,76 @@ Status Code
             "mcp_enabled": true
         },
         "locked_columns": {
-            "tabelateste": {
+            "teste": {
                 "id": "immutable",
-                "created_at": "immutable"
+                "created_at": "insert_only"
             }
         },
         "masked_columns": {
-            "tabelateste": {
-                "cpf_tipo_incripty": "encrypt",
-                "tlefone_tipo_blour": "blur",
-                "nome_privacy_tipo_hide": "hide",
-                "cpf_tipo_mask_asterisstico": "mask"
+            "teste": {
+                "massk": "mask",
+                "bluour": "hide",
+                "hideee": "hide",
+                "incript": "encrypt"
             }
         }
     },
     "log_retention_days": 30,
-    "created_at": "2026-03-19 04:56:12.220909+00",
-    "updated_at": "2026-03-19 04:56:12.220909+00",
+    "created_at": "2026-03-19 06:10:53.523365+00",
+    "updated_at": "2026-03-19 06:10:53.523365+00",
+    "archive_logs": false
+}
+
+RESSPONSE:
+{
+    "id": "4959e578-96de-4260-bb36-8f177844d89e",
+    "name": "tets",
+    "slug": "tets",
+    "status": "healthy",
+    "db_name": "cascata_db_tets",
+    "custom_domain": null,
+    "default_domain": null,
+    "ssl_certificate_source": null,
+    "jwt_secret": "\\xc30d04070302174c0cf856c6cd647bd271011bc0a509de76fd0cafc06cdaff8fc14b0cb2bc7519764a33fc7ea9c05fe0c83a42f8ea334c89324a357a014ba5229f71212bb458056aeb61b156971d4c1bb3b5a878278c4a37605c1d62cb0b70b8ac8ed223d18cbb9a4c997b0c290caad0b1cef7c99c83f389825880edf019fa16cf62",
+    "anon_key": "\\xc30d040703027dcf69eda029705d66d27101dad4e44d01456f9faad76915aea8fcda5d34f82178590e12ce70b52f6f5572ca135ea3162400bf6d1cfb1c763e66ef28154c36725b2bc1f61defdfea2f823b5076e6ee7084f0513393d32b481d57cecdc4945fc4c5b6fbb8fd0c5e6984a54bad10c597be2e706754e10715cc04242226",
+    "service_key": "\\xc30d040703028f96d104da5e526d70d271016dad8c8e00bdc3c96ccfb889da5db827aa255ead8fd5ef11fb182844ef8d4f675df31b795c14e865ba37bf67f5009fcfa5f4908a81ad4d697f3135b51d037079b3e5e7861b69082cbed65e929330e6302c8c9dc31b5b9b68162050b513071df5f939bfbb49b00f9d118cb5a54e8f34e7",
+    "blocklist": [],
+    "metadata": {
+        "timezone": "America/Sao_Paulo",
+        "ai_governance": {
+            "rpcs": [],
+            "tables": {},
+            "mcp_enabled": true
+        },
+        "locked_columns": {
+            "teste": {
+                "id": "immutable",
+                "created_at": "insert_only"
+            }
+        },
+        "masked_columns": {
+            "teste": {
+                "massk": "mask",
+                "bluour": "hide",
+                "hideee": "hide",
+                "incript": "encrypt"
+            }
+        }
+    },
+    "log_retention_days": 30,
+    "created_at": "2026-03-19 06:10:53.523365+00",
+    "updated_at": "2026-03-19 06:10:53.523365+00",
     "archive_logs": false
 }
 
 
+AI TEMOS OUTRA CHADDA AUTOMATICA:
 Request URL
-http://44.195.21.157/api/data/teste/tables/tabelateste/columns?schema=public
+http://52.3.229.37/api/data/tets/tables/teste/columns?schema=public
 Request Method
 GET
 Status Code
-304 Not Modified
+200 OK
 
 [
     {
@@ -106,7 +164,7 @@ Status Code
         "maskLevel": "unmasked"
     },
     {
-        "name": "nome_privacy_tipo_hide",
+        "name": "hideee",
         "type": "text",
         "is_nullable": "YES",
         "defaultValue": null,
@@ -117,7 +175,7 @@ Status Code
         "maskLevel": "unmasked"
     },
     {
-        "name": "tlefone_tipo_blour",
+        "name": "bluour",
         "type": "text",
         "is_nullable": "YES",
         "defaultValue": null,
@@ -128,7 +186,7 @@ Status Code
         "maskLevel": "unmasked"
     },
     {
-        "name": "cpf_tipo_mask_asterisstico",
+        "name": "massk",
         "type": "text",
         "is_nullable": "YES",
         "defaultValue": null,
@@ -139,7 +197,7 @@ Status Code
         "maskLevel": "unmasked"
     },
     {
-        "name": "cpf_tipo_incripty",
+        "name": "incript",
         "type": "text",
         "is_nullable": "YES",
         "defaultValue": null,
@@ -152,87 +210,87 @@ Status Code
 ]
 
 
-
-agora populei com uma linha:
 Request URL
-http://44.195.21.157/api/data/teste/tables/tabelateste/rows
+http://52.3.229.37/api/data/tets/tables/teste/columns?schema=public
 Request Method
-POST
+GET
 Status Code
-201 Created
-Remote Address
-44.195.21.157:80
-Referrer Policy
-strict-origin-when-cross-origin
+200 OK
 
+
+RESPONSE:
 [
     {
-        "id": "0b8b64b7-250a-40fd-9baa-934b95fc1601",
-        "created_at": "2026-03-19 02:12:50.456459-03",
-        "nome_privacy_tipo_hide": "nome que eve hide",
-        "tlefone_tipo_blour": "tefone a ser blour",
-        "cpf_tipo_mask_asterisstico": "cpf asteritico",
-        "cpf_tipo_incripty": "07010191158"
+        "name": "id",
+        "type": "uuid",
+        "is_nullable": "NO",
+        "defaultValue": "gen_random_uuid()",
+        "isPrimaryKey": true,
+        "description": "",
+        "formatPattern": null,
+        "lockLevel": "immutable",
+        "maskLevel": "unmasked"
+    },
+    {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "is_nullable": "NO",
+        "defaultValue": "now()",
+        "isPrimaryKey": false,
+        "description": "",
+        "formatPattern": null,
+        "lockLevel": "insert_only",
+        "maskLevel": "unmasked"
+    },
+    {
+        "name": "hideee",
+        "type": "text",
+        "is_nullable": "YES",
+        "defaultValue": null,
+        "isPrimaryKey": false,
+        "description": "",
+        "formatPattern": null,
+        "lockLevel": "unlocked",
+        "maskLevel": "hide"
+    },
+    {
+        "name": "bluour",
+        "type": "text",
+        "is_nullable": "YES",
+        "defaultValue": null,
+        "isPrimaryKey": false,
+        "description": "",
+        "formatPattern": null,
+        "lockLevel": "unlocked",
+        "maskLevel": "hide"
+    },
+    {
+        "name": "massk",
+        "type": "text",
+        "is_nullable": "YES",
+        "defaultValue": null,
+        "isPrimaryKey": false,
+        "description": "",
+        "formatPattern": null,
+        "lockLevel": "unlocked",
+        "maskLevel": "mask"
+    },
+    {
+        "name": "incript",
+        "type": "text",
+        "is_nullable": "YES",
+        "defaultValue": null,
+        "isPrimaryKey": false,
+        "description": "",
+        "formatPattern": null,
+        "lockLevel": "unlocked",
+        "maskLevel": "encrypt"
     }
 ]
 
-tetei criar pelo terminal:
-┌─[cocorico@user-550XDA] ~ 
-└─▶ curl -X POST "http://44.195.21.157/api/data/teste/rest/v1/tabelateste" \
-  -H "apikey: b6b942069c1697cbfa7b1e42ae6fc747ae6769208c4eaa4a8920af719f43c0d0" \
-  -H "Authorization: Bearer b6b942069c1697cbfa7b1e42ae6fc747ae6769208c4eaa4a8920af719f43c0d0" \
-  -H "Content-Type: application/json" \
-  -d '{
-  "nome_privacy_tipo_hide": "Exemplo Nome",
-  "tlefone_tipo_blour": "text_value",
-  "cpf_tipo_mask_asterisstico": "text_value",
-  "cpf_tipo_incripty": "text_value"
-}'
-{"error":"Security Lock Violation: Column \"id\" is IMMUTABLE and cannot be explicitly set by clients on row creation.","code":"PDC03"}
-
-nos logs a maquia apareceu isso:
-
-
-
-//agora eu vou inerir ddados apra vermos as coias:
-[Realtime] 🔴 Closing idle listener for teste:live
-2026-03-19 05:14:52.917 UTC [4784] ERROR:  Security Lock Violation: Column "id" is IMMUTABLE and cannot be explicitly set by clients on row creation.
-2026-03-19 05:14:52.917 UTC [4784] CONTEXT:  PL/pgSQL function system.enforce_dynamic_locks() line 35 at RAISE
-2026-03-19 05:14:52.917 UTC [4784] STATEMENT:  INSERT INTO public."tabelateste" ("nome_privacy_tipo_hide", "tlefone_tipo_blour", "cpf_tipo_mask_asterisstico", "cpf_tipo_incripty") VALUES ($1, $2, $3, $4)  RETURNING *
-[Global Error] POST /api/data/teste/rest/v1/tabelateste: error: Security Lock Violation: Column "id" is IMMUTABLE and cannot be explicitly set by clients on row creation.
-    at /app/node_modules/pg/lib/client.js:631:17
-    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
-    at async execute (file:///app/dist/src/utils/index.js:469:41)
-    at async Object.query (file:///app/dist/src/utils/index.js:499:24)
-    at async file:///app/dist/src/controllers/DataController.js:1210:24
-    at async queryWithRLS (file:///app/dist/src/utils/index.js:506:12)
-    at async handlePostgrest (file:///app/dist/src/controllers/DataController.js:1198:28) {
-  length: 235,
-  severity: 'ERROR',
-  code: 'PDC03',
-  detail: undefined,
-  hint: undefined,
-  position: undefined,
-  internalPosition: undefined,
-  internalQuery: undefined,
-  where: 'PL/pgSQL function system.enforce_dynamic_locks() line 35 at RAISE',
-  schema: undefined,
-  table: undefined,
-  column: undefined,
-  dataType: undefined,
-  constraint: undefined,
-  file: 'pl_exec.c',
-  line: '3909',
-  routine: 'exec_stmt_raise'
-}
-2026-03-19 05:15:17.517 UTC [216] LOG:  checkpoint starting: time
-2026-03-19 05:15:19.541 UTC [216] LOG:  checkpoint complete: wrote 20 buffers (0.1%), wrote 1 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=2.009 s, sync=0.004 s, total=2.025 s; sync files=14, longest=0.003 s, average=0.001 s; distance=92 kB, estimate=5053 kB; lsn=0/22C2B38, redo lsn=0/22C2AE0
-
-FUi tentar puxar pelo terminal:
-┌─[cocorico@user-550XDA] ~ 
-└─▶ curl -X GET "http://44.195.21.157/api/data/teste/rest/v1/tabelateste?select=*&limit=10" \
-  -H "apikey: b6b942069c1697cbfa7b1e42ae6fc747ae6769208c4eaa4a8920af719f43c0d0" \
-  -H "Authorization: Bearer b6b942069c1697cbfa7b1e42ae6fc747ae6769208c4eaa4a8920af719f43c0d0"
-[{"id":"0b8b64b7-250a-40fd-9baa-934b95fc1601","created_at":"2026-03-19 02:12:50.456459-03","nome_privacy_tipo_hide":"nome que eve hide","tlefone_tipo_blour":"tefone a ser blour","cpf_tipo_mask_asterisstico":"cpf asteritico","cpf_tipo_incripty":"07010191158"}]
-
-como poe ver, naa voltou como esperava que voltasse, cada coluna em sua criação tem uma função, e quando eu puxo os dados eu esperava que ele voltasse com a função que foi definida para ela, mas não voltou, voltou como se não tivesse função nenhuma,  relaacionada ao privacy
+DEMOROU UM POUCO E A TELA FOI ATUALZIADDA, FIZ O TESTE PELO CMD/TERMINAL
+E FIZ ESSA CHAMADA
+curl -X GET "http://52.3.229.37/api/data/tets/rest/v1/teste?select=*&limit=10" \
+  -H "apikey: 43f717f094c1dd26e15ab42ea6138c8a6ec4599fd7fc6c069fe7454139547112" \
+  -H "Authorization: Bearer 43f717f094c1dd26e15ab42ea6138c8a6ec4599fd7fc6c069fe7454139547112"
+[{"id":"3b9c8778-b66e-47fc-a92c-815fc563e818","created_at":"2026-03-19 03:12:45.432549-03","massk":"********","incript":"8f6kn8vYEV7i0F6I:m52jMEEK2hNLoiy7DY2eQQ==:kvYGiVJLHg=="}]

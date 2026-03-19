@@ -255,6 +255,71 @@ export class DataController {
         } catch (e: any) { next(e); }
     }
 
+    static async applyMaskingTier(req: CascataRequest, responseData: any, tableName: string): Promise<any> {
+        if (!responseData || !req.project.metadata?.masked_columns) return responseData;
+
+        const masks = req.project.metadata.masked_columns[tableName] || {};
+        if (Object.keys(masks).length === 0) return responseData;
+
+        const isAdmin = req.userRole === 'service_role';
+        
+        // Lazy load SecurityUtils for decryption
+        let SecurityUtils: any;
+        if (isAdmin) {
+            try {
+                SecurityUtils = (await import('../utils/SecurityUtils.js')).SecurityUtils;
+            } catch (e) {}
+        }
+
+        const apply = (row: any) => {
+            if (!row) return row;
+            const newRow = { ...row };
+            for (const col of Object.keys(newRow)) {
+                const maskType = masks[col];
+                if (!maskType) continue;
+
+                // 1. ADMIN BYPASS & AUTO-DECRYPTION (Professional Sinergy)
+                if (isAdmin) {
+                    if (maskType === 'encrypt' && newRow[col] && typeof newRow[col] === 'string' && newRow[col].includes(':')) {
+                        try {
+                            newRow[col] = SecurityUtils.decrypt(newRow[col]);
+                        } catch (err) {}
+                    }
+                    continue; // Admin sees everything else (hide/mask/blur) unmasked
+                }
+
+                // 2. PRIVACY ENFORCEMENT (Anon/Authenticated)
+                if (maskType === 'hide') {
+                    delete newRow[col];
+                } else if (maskType === 'mask' && newRow[col]) {
+                    newRow[col] = '********';
+                } else if (maskType === 'semi-mask' && newRow[col]) {
+                    // Smart 25/75 Masking
+                    const str = String(newRow[col]);
+                    const visibleLen = Math.max(1, Math.floor(str.length * 0.25));
+                    newRow[col] = str.substring(0, visibleLen) + '*'.repeat(Math.max(3, str.length - visibleLen));
+                } else if (maskType === 'encrypt' && newRow[col]) {
+                    newRow[col] = '[ENCRYPTED]'; // Hide ciphertext from non-admins
+                } else if (maskType === 'blur' && newRow[col]) {
+                    const str = String(newRow[col]);
+                    if (str.length > 5) {
+                        newRow[col] = `${str.substring(0, 3)}...${str.substring(str.length - 2)}`;
+                    } else {
+                        newRow[col] = '***';
+                    }
+                }
+            }
+            return newRow;
+        };
+
+        if (Array.isArray(responseData)) {
+            return responseData.map(apply);
+        } else if (typeof responseData === 'object') {
+            return apply(responseData);
+        }
+        return responseData;
+    }
+
     static async queryRows(req: CascataRequest, res: any, next: any) {
         try {
             if (!req.params.tableName) throw new Error("Table name required");
@@ -276,30 +341,8 @@ export class DataController {
                 return await client.query(query, [limit, offset]);
             });
             
-            // --- READ DATA MASKING ---
-            let rows = result.rows;
-            const masks = req.project?.metadata?.masked_columns?.[req.params.tableName] || {};
-            if (Object.keys(masks).length > 0) {
-                rows = rows.map((row: any) => {
-                    const newRow = { ...row };
-                    for (const col of Object.keys(newRow)) {
-                        const maskType = masks[col];
-                        if (maskType === 'hide') {
-                            delete newRow[col];
-                        } else if (maskType === 'mask' && newRow[col]) {
-                            newRow[col] = '********';
-                        } else if (maskType === 'blur' && newRow[col]) {
-                            const str = String(newRow[col]);
-                            if (str.length > 5) {
-                                newRow[col] = `${str.substring(0, 3)}...${str.substring(str.length - 2)}`;
-                            } else {
-                                newRow[col] = '***';
-                            }
-                        }
-                    }
-                    return newRow;
-                });
-            }
+            // --- CASCATA PRIVACY ENGINE (Centralized) ---
+            const rows = await DataController.applyMaskingTier(req, result.rows, req.params.tableName);
             
             res.json(rows);
         } catch (e: any) { next(e); }
@@ -413,7 +456,9 @@ export class DataController {
                     RETURNING *
                 `, flatValues);
             });
-            res.status(201).json(result.rows);
+            // --- CASCATA PRIVACY ENGINE (Centralized) ---
+            const maskedRows = await DataController.applyMaskingTier(req, result.rows, req.params.tableName);
+            res.status(201).json(maskedRows);
         } catch (e: any) { next(e); }
     }
 
@@ -474,7 +519,9 @@ export class DataController {
             const result = await queryWithRLS(req, async (client) => {
                 return await client.query(`UPDATE ${safeSchema}.${safeTable} SET ${updates} WHERE ${quoteId(pkColumn)} = $${pkValIndex} RETURNING *`, [...values, pkValue], 'updRowsSingle');
             });
-            res.json(result.rows);
+            // --- CASCATA PRIVACY ENGINE (Centralized) ---
+            const maskedRows = await DataController.applyMaskingTier(req, result.rows, req.params.tableName);
+            res.json(maskedRows);
         } catch (e: any) { next(e); }
     }
 
@@ -516,7 +563,9 @@ export class DataController {
             const result = await queryWithRLS(req, async (client) => {
                 return await client.query(`DELETE FROM ${safeSchema}.${safeTable} WHERE ${quoteId(realPkColumn)} = ANY($1) RETURNING *`, [ids], 'delRowsMulti');
             });
-            res.json(result.rows);
+            // --- CASCATA PRIVACY ENGINE (Centralized) ---
+            const maskedRows = await DataController.applyMaskingTier(req, result.rows, req.params.tableName);
+            res.json(maskedRows);
         } catch (e: any) { next(e); }
     }
 
@@ -1260,37 +1309,9 @@ export class DataController {
                 );
             }
             
-            // --- DATA MASKING APPLIER (Fase 1.5) ---
-            if (req.method === 'GET' && req.project.metadata?.masked_columns) {
-                const masks = req.project.metadata.masked_columns[req.params.tableName] || {};
-                if (Object.keys(masks).length > 0) {
-                    const applyMask = (row: any) => {
-                        if (!row) return row;
-                        const newRow = { ...row };
-                        for (const col of Object.keys(newRow)) {
-                            const maskType = masks[col];
-                            if (maskType === 'hide') {
-                                delete newRow[col];
-                            } else if (maskType === 'mask' && newRow[col]) {
-                                newRow[col] = '********';
-                            } else if (maskType === 'blur' && newRow[col]) {
-                                const str = String(newRow[col]);
-                                if (str.length > 5) {
-                                    newRow[col] = `${str.substring(0, 3)}...${str.substring(str.length - 2)}`;
-                                } else {
-                                    newRow[col] = '***';
-                                }
-                            }
-                        }
-                        return newRow;
-                    };
-
-                    if (Array.isArray(responseData)) {
-                        responseData = responseData.map(applyMask);
-                    } else if (responseData && typeof responseData === 'object') {
-                        responseData = applyMask(responseData);
-                    }
-                }
+            // --- CASCATA PRIVACY ENGINE (Centralized Synergy) ---
+            if (req.method === 'GET') {
+                responseData = await DataController.applyMaskingTier(req, responseData, req.params.tableName);
             }
 
             // Finally, render the (potentially modified/masked) response
