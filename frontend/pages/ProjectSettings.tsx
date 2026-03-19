@@ -4,7 +4,7 @@ import {
     Shield, Key, Globe, Lock, Save, Loader2, CheckCircle2, Copy,
     Terminal, Eye, EyeOff, RefreshCw, Code, BookOpen, AlertTriangle,
     Server, ExternalLink, Plus, X, Link, CloudLightning, FileText, Info, Trash2,
-    Archive, Download, Upload, HardDrive, FileJson, Database, Zap, Network, Scale,
+    Archive, Download, Upload, HardDrive, FileJson, Database, Zap, Network, Scale, Layers,
     Smartphone, MessageSquare, Clock, RotateCcw, Calendar, Play, Vault,
     Folder, FolderPlus, FileKey, FileCode, ChevronRight, LockKeyhole, ShieldCheck, FileUp,
     ScanEye, Settings2
@@ -403,7 +403,6 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
             }
 
             const payload: any = { custom_domain: customDomain };
-
             const metaUpdate: any = {
                 db_config: dbConfig,
                 // Timezone is read-only here, not sent back
@@ -754,7 +753,7 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
                                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">External Connection String</label>
                                     <input
                                         value={externalDbUrl}
-                                        onChange={(e) => setExternalDbUrl(e.target.value)}
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setExternalDbUrl(e.target.value)}
                                         className="w-full bg-indigo-50/50 border border-indigo-100 rounded-[1.8rem] py-5 px-8 text-sm font-bold text-indigo-900 outline-none focus:ring-4 focus:ring-indigo-500/10"
                                         placeholder="postgres://user:pass@host:5432/db"
                                     />
@@ -763,7 +762,7 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
                                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Read Replica (Optional)</label>
                                     <input
                                         value={readReplicaUrl}
-                                        onChange={(e) => setReadReplicaUrl(e.target.value)}
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setReadReplicaUrl(e.target.value)}
                                         className="w-full bg-slate-50 border border-slate-100 rounded-[1.8rem] py-5 px-8 text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-indigo-500/10"
                                         placeholder="postgres://replica-host:5432/db"
                                     />
@@ -803,12 +802,12 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
                             <div className="space-y-4">
                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Allowed Origins (CORS)</label>
                                 <div className="flex gap-2">
-                                    <input value={newOrigin} onChange={(e) => setNewOrigin(e.target.value)} placeholder="https://myapp.com" className="flex-1 bg-slate-50 border border-slate-100 rounded-2xl py-3 px-6 text-xs font-bold outline-none" />
+                                    <input value={newOrigin} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewOrigin(e.target.value)} placeholder="https://myapp.com" className="flex-1 bg-slate-50 border border-slate-100 rounded-2xl py-3 px-6 text-xs font-bold outline-none" />
                                     <button onClick={addOrigin} className="bg-slate-900 text-white p-3 rounded-2xl hover:bg-slate-700 transition-all"><Plus size={16} /></button>
                                 </div>
                                 <div className="flex flex-wrap gap-2">
                                     {origins.length === 0 && <span className="text-xs text-slate-300 font-medium italic p-2">All origins allowed (Dev Mode)</span>}
-                                    {origins.map((o, i) => (
+                                    {origins.map((o: any, i: number) => (
                                         <div key={i} className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-600 shadow-sm">
                                             {o.url}
                                             <button onClick={() => removeOrigin(o.url)} className="text-rose-400 hover:text-rose-600"><X size={12} /></button>
@@ -827,14 +826,14 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
                                         </div>
                                         <div>
                                             <h4 className="text-sm font-black text-slate-900 tracking-tight">MCP Allowed IPs</h4>
-                                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Whitelist for AI Agents</p>
+                                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Whitelist for AI Agents (IPv4/IPv6)</p>
                                         </div>
                                     </div>
                                     <div className="flex gap-2">
                                         <input
                                             value={newMcpIp}
-                                            onChange={e => setNewMcpIp(e.target.value)}
-                                            onKeyDown={e => e.key === 'Enter' && (setMcpIps([...mcpIps, newMcpIp]), setNewMcpIp(''))}
+                                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewMcpIp(e.target.value)}
+                                            onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && (setMcpIps([...mcpIps, newMcpIp]), setNewMcpIp(''))}
                                             placeholder="e.g. 192.168.1.1/32"
                                             className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-bold outline-none"
                                         />
@@ -842,7 +841,7 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
                                     </div>
                                     <div className="flex flex-wrap gap-2">
                                         {mcpIps.length === 0 && <p className="text-[10px] text-slate-400 font-medium italic">Empty: Access from any IP is permitted (Default)</p>}
-                                        {mcpIps.map(ip => (
+                                        {mcpIps.map((ip: string) => (
                                             <div key={ip} className="flex items-center gap-2 bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg text-[10px] font-bold group">
                                                 {ip}
                                                 <button onClick={() => setMcpIps(mcpIps.filter(i => i !== ip))} className="text-slate-300 hover:text-rose-500 transition-colors"><X size={12} /></button>
@@ -865,8 +864,8 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
                                     <div className="flex gap-2">
                                         <input
                                             value={newMcpUrl}
-                                            onChange={e => setNewMcpUrl(e.target.value)}
-                                            onKeyDown={e => e.key === 'Enter' && (setMcpUrls([...mcpUrls, newMcpUrl]), setNewMcpUrl(''))}
+                                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewMcpUrl(e.target.value)}
+                                            onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && (setMcpUrls([...mcpUrls, newMcpUrl]), setNewMcpUrl(''))}
                                             placeholder="e.g. app.n8n.cloud"
                                             className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-bold outline-none"
                                         />
@@ -874,7 +873,7 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
                                     </div>
                                     <div className="flex flex-wrap gap-2">
                                         {mcpUrls.length === 0 && <p className="text-[10px] text-slate-400 font-medium italic">Empty: All origins allowed (Default)</p>}
-                                        {mcpUrls.map(url => (
+                                        {mcpUrls.map((url: string) => (
                                             <div key={url} className="flex items-center gap-2 bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg text-[10px] font-bold">
                                                 {url}
                                                 <button onClick={() => setMcpUrls(mcpUrls.filter(u => u !== url))} className="text-slate-300 hover:text-rose-500 transition-colors"><X size={12} /></button>
@@ -902,7 +901,7 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
                                                 max="1000"
                                                 step="10"
                                                 value={mcpMaxRows}
-                                                onChange={e => setMcpMaxRows(parseInt(e.target.value))}
+                                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMcpMaxRows(parseInt(e.target.value))}
                                                 className="w-32 accent-indigo-600"
                                             />
                                             <span className="text-xs font-black text-indigo-600 w-12 text-center">{mcpMaxRows}</span>
@@ -933,7 +932,7 @@ const ProjectSettings: React.FC<{ projectId: string }> = ({ projectId }) => {
                                 type="password"
                                 autoFocus
                                 value={verifyPassword}
-                                onChange={e => setVerifyPassword(e.target.value)}
+                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setVerifyPassword(e.target.value)}
                                 className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 text-center font-bold text-slate-900 outline-none mb-6 focus:ring-4 focus:ring-indigo-500/10"
                                 placeholder="••••••••"
                             />

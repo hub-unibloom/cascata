@@ -707,7 +707,6 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
                                     </div>
                                 )}
 
-                                // Security Lock Editor (inline)
                                 {col.lockLevel && col.lockLevel !== 'unlocked' && (
                                     <div className="mt-2 bg-rose-50/50 border border-rose-200 rounded-lg p-2 animate-in slide-in-from-top-1">
                                         <div className="flex items-center gap-2 mb-2">
@@ -729,7 +728,7 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
                                         </select>
                                     </div>
                                 )}
-                                
+
                                 {/* Privacy Mask Editor (inline) */}
                                 {col.maskLevel && col.maskLevel !== 'unmasked' && (
                                     <div className="mt-2 bg-indigo-50/50 border border-indigo-200 rounded-lg p-2 animate-in slide-in-from-top-1">
