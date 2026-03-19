@@ -1050,26 +1050,42 @@ print(f'{healthy}/{total_hc}')
     # -----------------------------------------------------------------------
     provision_vault_resources() {
         section "FASE 2.5 — Provisionamento Enterprise do Vault"
-        info "Configurando motores e políticas de segurança..."
-
+        
         local TOKEN="$VAULT_ROOT_TOKEN"
         local VX="docker exec -e VAULT_TOKEN=$TOKEN cascata-vault vault"
 
-        # 1. Ativar Motores
+        info "Aguardando API do Vault ficar pronta..."
+        local VRETRY=0
+        while [ $VRETRY -lt 20 ]; do
+            if docker exec cascata-vault vault status > /dev/null 2>&1; then
+                break
+            fi
+            sleep 2
+            VRETRY=$((VRETRY + 1))
+        done
+
+        if [ $VRETRY -eq 20 ]; then
+            err "Vault não respondeu a tempo. Verifique: docker logs cascata-vault"
+        fi
+
+        info "Configurando motores e políticas de segurança..."
+
+        # 1. Ativar Motores (ignore erros se já existirem)
         $VX secrets enable transit 2>/dev/null || true
         $VX secrets enable -path=secret kv-v2 2>/dev/null || true
 
         # 2. Criar Chave Transit mestre
-        $VX write -f transit/keys/cascata-system-keys 2>/dev/null || true
+        $VX write -f transit/keys/cascata-system-keys > /dev/null 2>&1 || true
 
-        # 3. Migrar segredos mestre para o Vault
+        # 3. Migrar segredos de aplicação para o Vault
+        # Nota: DB_PASS continua no .env para o container DB, mas o backend usa esta URL do Vault.
         $VX kv put secret/cascata/system \
             SYSTEM_DATABASE_URL="postgresql://${DB_USER}:${DB_PASS}@db:5432/${DB_NAME}" \
             SYSTEM_JWT_SECRET="${JWT_SECRET}" \
             INTERNAL_CTRL_SECRET="${CTRL_SECRET}" > /dev/null
 
-        # 4. Criar Política de Acesso para o Backend (Least Privilege)
-        cat <<EOF | docker exec -i cascata-vault vault policy write cascata-backend -
+        # 4. Criar Política de Acesso para o Backend (Strict Read-Only)
+        cat <<EOF | docker exec -i cascata-vault vault policy write cascata-backend - 
 path "secret/data/cascata/*" {
   capabilities = ["read"]
 }
@@ -1081,14 +1097,15 @@ path "transit/decrypt/cascata-system-keys" {
 }
 EOF
 
-        # 5. Gerar App Token para o Backend (Sem expiração para este ambiente)
+        # 5. Gerar App Token para o Backend (Lease de 32 dias renovável)
         BACKEND_TOKEN=$($VX token create -policy=cascata-backend -orphan -period=768h -format=json | python3 -c "import sys, json; print(json.load(sys.stdin)['auth']['client_token'])")
 
-        # 6. Atualizar .env com o Token de App LIMITADO
+        # 6. Atualizar .env: injeta o App Token e limpa chaves de aplicação
         sed -i "s|VAULT_TOKEN=.*|VAULT_TOKEN=${BACKEND_TOKEN}|" .env
+        sed -i "s|^SYSTEM_JWT_SECRET=.*|# SYSTEM_JWT_SECRET (Managed by Vault)|" .env
+        sed -i "s|^INTERNAL_CTRL_SECRET=.*|# INTERNAL_CTRL_SECRET (Managed by Vault)|" .env
         
-        ok "Vault provisionado: Motores ativos, Chaves criadas e Segredos migrados!"
-        ok "App Token gerado e injetado no .env"
+        ok "Vault provisionado com sucesso: Motores ativos e App Token gerado."
     }
 
     if [[ "$VAULT_CHOICE" == "1" ]]; then
