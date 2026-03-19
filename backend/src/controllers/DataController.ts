@@ -1229,12 +1229,10 @@ export class DataController {
             }
 
             // Finally, render the (potentially modified/masked) response
-            res.json(responseData);
-
+            // FIX: Set cache header BEFORE sending response body — headers cannot be set after res.json()
             if (buildResult.cacheKey && !fromCache) {
                 res.setHeader('X-Cascata-Cache', 'MISS');
             }
-
             res.json(responseData);
 
             // Fire-And-Forget: Escreve no Dragonfly pós-resposta para não bloquear o Event Loop do client atual

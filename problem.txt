@@ -1,0 +1,48 @@
+Fiz uma análise cirúrgica profunda em toda a arquitetura do Universal Padlock e do Data Privacy Override. Encontrei exatamente onde estavam os furos que causavam esse comportamento bizarro.
+Existem dois bugs críticos de implementação: um no Frontend (estruturação do JSON) e outro no Backend (tratamento de strings no PostgreSQL).
+1. O Furo na Estrutura do JSON (Frontend)
+O problema principal que quebrava quase toda a feature estava no arquivo frontend/pages/DatabaseExplorer.tsx.
+Quando você salvava as configurações do cadeado no modal (handleToggleLock) ou ao criar uma tabela (handleSqlFromDrawer), o frontend estava salvando os metadados locked_columns e masked_columns no formato errado:
+Formato Errado (Como estava):
+code
+JSON
+{
+  "nome_da_coluna": "otp_protected"
+}
+Formato Correto (Como o Backend espera no AdminController.ts):
+code
+JSON
+{
+  "nome_da_tabela": {
+    "nome_da_coluna": "otp_protected"
+  }
+}
+A Consequência:
+Como a estrutura estava errada, o AdminController.ts (linha 454) iterava sobre as chaves e encontrava uma string ("otp_protected") em vez de um objeto contendo as colunas. Isso fazia com que a chamada para a stored procedure system.apply_security_locks fosse ignorada.
+Como a procedure nunca era chamada, a trigger trg_dynamic_locks nunca era criada no banco de dados.
+2. Por que o "IMMUTABLE" parecia funcionar?
+Se a trigger nunca era criada, por que o "IMMUTABLE" funcionava?
+A resposta está no "SECURITY LOCK SANITIZER (SILENT STRIP)" dentro do DataController.ts e PostgrestService.ts.
+O backend tem um mecanismo de fallback (para não quebrar ORMs) que remove silenciosamente colunas marcadas como immutable ou insert_only do payload (JSON) antes mesmo de enviar a query INSERT ou UPDATE para o banco de dados.
+Como a coluna era removida da requisição, o banco de dados não recebia a instrução para atualizá-la, dando a falsa impressão de que a trava de segurança do banco estava funcionando.
+Os modos service_role_only e otp_protected não fazem parte desse "Silent Strip", então eles dependiam 100% da trigger do banco (que nunca era criada), e por isso falhavam miseravelmente.
+3. O Furo do "Data Privacy Override" (Masking)
+O mascaramento de dados (hide, mask, blur) é aplicado no DataController.ts (linha 1199) durante requisições GET.
+Ele busca as regras usando req.project.metadata.masked_columns[req.params.tableName].
+Como o frontend salvava o JSON sem o nome da tabela (bug #1), essa busca sempre retornava undefined. Logo, o mascaramento nunca era aplicado e os dados vazavam em clear-text.
+4. O Furo do CamelCase na Trigger (Backend)
+No arquivo backend/services/DatabaseService.ts, dentro da função apply_security_locks, havia um erro sutil na linha 384:
+code
+Plpgsql
+_col_name := quote_ident(_col_name);
+Isso forçava a adição de aspas duplas no nome da coluna ao salvar na tabela system.dynamic_security_locks (ex: "minhaColuna").
+Porém, dentro da trigger system.enforce_dynamic_locks, a verificação é feita usando _new_value ? _lock_record.column_name. O objeto _new_value (que é to_jsonb(NEW)) tem chaves sem aspas.
+Isso fazia com que a trigger falhasse silenciosamente para qualquer coluna que usasse camelCase ou caracteres especiais, pois "minhaColuna" nunca daria match com minhaColuna.
+Soluções Aplicadas
+Fiz as seguintes edições cirúrgicas no código para tapar todos esses furos:
+frontend/pages/DatabaseExplorer.tsx:
+Corrigi as funções handleToggleLock e handleSqlFromDrawer para aninhar corretamente as configurações dentro do nome da tabela (lockedCols[editLock.table] = tableLocks;).
+Adicionei o suporte ausente para maskedColumns no handleSqlFromDrawer.
+backend/services/DatabaseService.ts:
+Removi a instrução _col_name := quote_ident(_col_name); do loop de inserção. O nome da coluna agora é salvo em sua forma bruta (raw), garantindo que o operador ? do JSONB na trigger consiga encontrar a chave corretamente.
+Com essas correções, o Universal Padlock e o Data Privacy Override agora funcionarão plenamente em todos os seus níveis (incluindo OTP e Service Role), pois as triggers serão criadas corretamente no banco e o mascaramento encontrará a tabela correta no JSON de metadados.

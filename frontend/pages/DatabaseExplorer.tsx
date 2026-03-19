@@ -1119,9 +1119,11 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
   };
 
   // --- TABLE CREATOR CALLBACK & GOVERNANCE SYNC ---
+  // FIX: lockedColumns and maskedColumns must be nested as { "table_name": { "column_name": "level" } }
+  // so that AdminController.updateProject() can iterate tables correctly.
   const handleSqlFromDrawer = async (
     sql: string,
-    metaConfig?: { tableName: string, mcpEnabled: boolean, mcpPerms: { r: boolean, c: boolean, u: boolean, d: boolean }, lockedColumns?: Record<string, string> }
+    metaConfig?: { tableName: string, mcpEnabled: boolean, mcpPerms: { r: boolean, c: boolean, u: boolean, d: boolean }, lockedColumns?: Record<string, string>, maskedColumns?: Record<string, string> }
   ) => {
     try {
       // 1. Execute Table Creation DDL
@@ -1133,8 +1135,8 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
       fetchTables();
       fetchSchemas(); // P6: refresh schemas after table creation
 
-      // 2. Synchronize Metadata (MCP Governance & Universal Padlock) to Backend Engine
-      if (metaConfig && (metaConfig.mcpEnabled || metaConfig.lockedColumns)) {
+      // 2. Synchronize Metadata (MCP Governance, Universal Padlock & Data Privacy Override) to Backend Engine
+      if (metaConfig && (metaConfig.mcpEnabled || metaConfig.lockedColumns || metaConfig.maskedColumns)) {
         try {
           // Fetch current project metadata
           const resProj = await fetchWithAuth(`/api/control/projects`);
@@ -1143,7 +1145,8 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
           if (currentProject) {
             const currentMetadata = currentProject.metadata || {};
             const gov = currentMetadata.ai_governance || { mcp_enabled: true, tables: {}, rpcs: [] };
-            const lockedCols = currentMetadata.locked_columns || {};
+            const lockedCols = { ...(currentMetadata.locked_columns || {}) };
+            const maskedCols = { ...(currentMetadata.masked_columns || {}) };
 
             // Inject new table permissions
             const updatedGov = {
@@ -1154,9 +1157,20 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
               }
             };
 
-            // Inject locked columns
+            // Inject locked columns — nested under table name
             if (metaConfig.lockedColumns && Object.keys(metaConfig.lockedColumns).length > 0) {
-              Object.assign(lockedCols, metaConfig.lockedColumns);
+              lockedCols[metaConfig.tableName] = {
+                ...(lockedCols[metaConfig.tableName] || {}),
+                ...metaConfig.lockedColumns
+              };
+            }
+
+            // Inject masked columns — nested under table name (Data Privacy Override)
+            if (metaConfig.maskedColumns && Object.keys(metaConfig.maskedColumns).length > 0) {
+              maskedCols[metaConfig.tableName] = {
+                ...(maskedCols[metaConfig.tableName] || {}),
+                ...metaConfig.maskedColumns
+              };
             }
 
             // Patch backend
@@ -1166,7 +1180,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}`
               },
-              body: JSON.stringify({ metadata: { ...currentMetadata, ai_governance: updatedGov, locked_columns: lockedCols } })
+              body: JSON.stringify({ metadata: { ...currentMetadata, ai_governance: updatedGov, locked_columns: lockedCols, masked_columns: maskedCols } })
             });
             console.log(`[Metadata] Sync complete for table ${metaConfig.tableName}`);
           }
@@ -1184,7 +1198,11 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
     }
   };
 
-  // --- UNIVERSAL PADLOCK — Toggle Column Immutability ---
+  // --- UNIVERSAL PADLOCK — Toggle Column Immutability & Data Privacy ---
+  // FIX: Metadata must be nested as { "table_name": { "column_name": "lock_type" } }
+  // so that AdminController.updateProject() can iterate tables and invoke
+  // system.apply_security_locks() for each one. Flat structure causes the loop to skip
+  // because typeof "immutable" !== 'object'.
   const handleToggleLock = async () => {
     if (!editLock) return;
     try {
@@ -1197,16 +1215,32 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
         const lockedCols = { ...(currentMetadata.locked_columns || {}) };
         const maskedCols = { ...(currentMetadata.masked_columns || {}) };
 
+        // --- LOCK: Nest under table name ---
+        const tableLocks = { ...(lockedCols[editLock.table] || {}) };
         if (editLock.currentLevel === 'unlocked') {
-          delete lockedCols[editLock.column];
+          delete tableLocks[editLock.column];
         } else {
-          lockedCols[editLock.column] = editLock.currentLevel;
+          tableLocks[editLock.column] = editLock.currentLevel;
+        }
+        // Clean up: remove table entry if no locks remain
+        if (Object.keys(tableLocks).length > 0) {
+          lockedCols[editLock.table] = tableLocks;
+        } else {
+          delete lockedCols[editLock.table];
         }
 
+        // --- MASK: Nest under table name ---
+        const tableMasks = { ...(maskedCols[editLock.table] || {}) };
         if (editLock.currentMaskLevel === 'unmasked') {
-          delete maskedCols[editLock.column];
+          delete tableMasks[editLock.column];
         } else {
-          maskedCols[editLock.column] = editLock.currentMaskLevel;
+          tableMasks[editLock.column] = editLock.currentMaskLevel;
+        }
+        // Clean up: remove table entry if no masks remain
+        if (Object.keys(tableMasks).length > 0) {
+          maskedCols[editLock.table] = tableMasks;
+        } else {
+          delete maskedCols[editLock.table];
         }
 
         await fetch(`/api/control/projects/${projectId}`, {

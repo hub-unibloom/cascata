@@ -373,15 +373,18 @@ export class DatabaseService {
                 _col_name TEXT;
                 _lock_type TEXT;
                 _has_dynamic BOOLEAN := FALSE;
-                _safe_table TEXT;
             BEGIN
-                _safe_table := quote_ident(_table_name);
-                EXECUTE format('DROP TRIGGER IF EXISTS trg_dynamic_locks ON public.%I', _safe_table);
+                -- FIX: Use _table_name directly with %I — format('%I', ...) already applies
+                -- quote_ident internally. Using a pre-quoted value with %I causes double-quoting.
+                EXECUTE format('DROP TRIGGER IF EXISTS trg_dynamic_locks ON public.%I', _table_name);
                 DELETE FROM system.dynamic_security_locks WHERE project_slug = _project_slug AND table_name = _table_name;
                 
                 FOR _col_name, _lock_type IN SELECT * FROM jsonb_each_text(_locked_columns)
                 LOOP
-                    _col_name := quote_ident(_col_name);
+                    -- FIX: Do NOT quote_ident column names here. The enforce_dynamic_locks trigger
+                    -- compares column_name against JSONB keys from to_jsonb(NEW), which are stored
+                    -- without quotes. Using quote_ident would store '"col"' instead of 'col',
+                    -- causing ALL JSONB key-existence checks (? operator) to silently fail.
                     -- O Santo Graal: Zero conflitos com Table-Level GRANTs!
                     -- Toda a autoridade foi transladada com precisão cirúrgica para o Motor de Triggers (system.enforce_dynamic_locks).
                     -- Não há necessidade de gerenciar matrizes estáticas no sistema de permissões do PostgREST.
@@ -391,7 +394,7 @@ export class DatabaseService {
                 END LOOP;
 
                 IF _has_dynamic THEN
-                    EXECUTE format('CREATE TRIGGER trg_dynamic_locks BEFORE INSERT OR UPDATE ON public.%I FOR EACH ROW EXECUTE FUNCTION system.enforce_dynamic_locks()', _safe_table);
+                    EXECUTE format('CREATE TRIGGER trg_dynamic_locks BEFORE INSERT OR UPDATE ON public.%I FOR EACH ROW EXECUTE FUNCTION system.enforce_dynamic_locks()', _table_name);
                 END IF;
             END;
             $$ LANGUAGE plpgsql SECURITY DEFINER;
