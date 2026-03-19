@@ -25,7 +25,7 @@ interface ColumnDef {
     formatPreset?: string;
     formatPattern?: string;
     lockLevel?: 'unlocked' | 'immutable' | 'insert_only' | 'service_role_only' | 'otp_protected';
-    maskLevel?: 'unmasked' | 'hide' | 'blur' | 'mask' | 'encrypt';
+    maskLevel?: 'unmasked' | 'hide' | 'blur' | 'mask' | 'semi-mask' | 'encrypt';
 }
 
 // Types that support GENERATED AS IDENTITY (only pure integer types — NOT serial/bigserial)
@@ -714,6 +714,9 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
                                             <Lock size={12} className="text-rose-500" />
                                             <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest">Universal Security Lock</span>
                                         </div>
+                                        <p className="text-[9px] text-rose-400 mb-3 font-medium leading-tight px-0.5">
+                                            Prevents unauthorized API mutations based on the selected security tier.
+                                        </p>
                                         <select
                                             value={col.lockLevel}
                                             onChange={(e) => handleColumnChange(col.id, 'lockLevel', e.target.value)}
@@ -734,6 +737,9 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
                                             <EyeOff size={12} className="text-indigo-500" />
                                             <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Data Privacy (Read/Write Masking)</span>
                                         </div>
+                                        <p className="text-[9px] text-indigo-400 mb-3 font-medium leading-tight px-0.5">
+                                            Controls how data is structurally modified before leaving the API layer.
+                                        </p>
                                         <select
                                             value={col.maskLevel}
                                             onChange={(e) => handleColumnChange(col.id, 'maskLevel', e.target.value)}
@@ -742,6 +748,7 @@ const TableCreatorDrawer: React.FC<TableCreatorDrawerProps> = ({
                                             <option value="hide">HIDE (Removed entirely from API outputs)</option>
                                             <option value="blur">BLUR (Shows only first and last characters)</option>
                                             <option value="mask">MASK (Replaced completley with '*' placeholder)</option>
+                                            <option value="semi-mask">SEMI-MASK (75% Proportional Masking)</option>
                                             <option value="encrypt">ENCRYPT (Node.js AES-256 written ciphered to db)</option>
                                         </select>
                                     </div>

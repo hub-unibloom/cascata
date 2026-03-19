@@ -1698,9 +1698,12 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
               <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
                 <Lock size={32} />
               </div>
-              <h3 className="text-xl font-black text-slate-900 mb-2">Universal Padlock</h3>
-              <p className="text-xs text-slate-500 font-medium mb-6">
-                Protect column <strong>{editLock.column}</strong> from arbitrary API mutations. This applies <em>project-wide</em>.
+              <h3 className="text-xl font-black text-slate-900 mb-1 flex items-center justify-center gap-2">
+                <Lock size={20} className="text-rose-500" /> Universal Padlock
+              </h3>
+              <p className="text-[11px] text-slate-500 font-medium mb-6 leading-relaxed">
+                Define the global security tier and data privacy protocols for <strong>{editLock.column}</strong>.
+                These rules are enforced at the core engine level and apply <em>project-wide</em>.
               </p>
 
               <div className="space-y-4 mb-8 text-left">
@@ -1736,6 +1739,7 @@ const DatabaseExplorer: React.FC<{ projectId: string }> = ({ projectId }) => {
                   <option value="hide">HIDE (Removed entirely from API outputs)</option>
                   <option value="blur">BLUR (Shows only first and last characters)</option>
                   <option value="mask">MASK (Replaced completley with '*' placeholder)</option>
+                  <option value="semi-mask">SEMI-MASK (75% Proportional Masking)</option>
                   <option value="encrypt">ENCRYPT (Node.js AES-256 written ciphered to db)</option>
                 </select>
 
