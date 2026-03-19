@@ -643,14 +643,16 @@ setup_vault() {
     if [[ "$VAULT_CHOICE" == "1" ]]; then
         info "Configurando Vault Local..."
         VAULT_ADDR="http://vault:8200"
-        # Gerar um token de root para modo dev local
-        VAULT_TOKEN=$(gen_hex_secret 32)
-        VAULT_DEV_ROOT_TOKEN_ID="$VAULT_TOKEN"
-        ok "Vault Local configurado com root token dinâmico"
+        # Root Token dinâmico (não será salvo no .env para o backend)
+        VAULT_ROOT_TOKEN=$(gen_hex_secret 32)
+        VAULT_DEV_ROOT_TOKEN_ID="$VAULT_ROOT_TOKEN"
+        VAULT_TOKEN="$VAULT_ROOT_TOKEN" # Temporário para provisionamento
+        ok "Vault Local preparado com root token dinâmico"
     else
         info "Configurando Vault Cloud..."
         read -rp "  Endereço do Vault (ex: https://vault.meudominio.com): " VAULT_ADDR
-        prompt_password "  Token do Vault: " VAULT_TOKEN
+        prompt_password "  Token do Vault (Root/Admin): " VAULT_TOKEN
+        VAULT_ROOT_TOKEN="$VAULT_TOKEN"
         VAULT_DEV_ROOT_TOKEN_ID=""
         ok "Vault Cloud configurado!"
     fi
@@ -806,13 +808,14 @@ phase2_setup_and_start() {
     # Configurar Vault
     setup_vault
 
-    # Injetar no .env
+    # Injetar no .env (Preparar variáveis para boot do Vault)
     if [ -f ".env" ]; then
-        sed -i "s|^DB_PASS=.*|DB_PASS=${DB_PASS}|" .env
+        # Segredos Mestre (Não salvos no .env final do backend, apenas placeholders)
+        sed -i "s|^DB_PASS=.*|DB_PASS=VAULT_PROTECTED|" .env
         sed -i "s|^DB_USER=.*|DB_USER=${DB_USER}|" .env
         sed -i "s|^DB_NAME=.*|DB_NAME=${DB_NAME}|" .env
-        sed -i "s|^SYSTEM_JWT_SECRET=.*|SYSTEM_JWT_SECRET=${JWT_SECRET}|" .env
-        sed -i "s|^INTERNAL_CTRL_SECRET=.*|INTERNAL_CTRL_SECRET=${CTRL_SECRET}|" .env
+        sed -i "s|^SYSTEM_JWT_SECRET=.*|SYSTEM_JWT_SECRET=VAULT_PROTECTED|" .env
+        sed -i "s|^INTERNAL_CTRL_SECRET=.*|INTERNAL_CTRL_SECRET=VAULT_PROTECTED|" .env
         
         # Injetar Vault
         if grep -q "^VAULT_ADDR=" .env; then
@@ -821,10 +824,12 @@ phase2_setup_and_start() {
             echo "VAULT_ADDR=${VAULT_ADDR}" >> .env
         fi
         
+        # O backend usará um token limitado (App Token) gerado no provisionamento
+        # O Root Token NÃO fica no .env
         if grep -q "^VAULT_TOKEN=" .env; then
-            sed -i "s|^VAULT_TOKEN=.*|VAULT_TOKEN=${VAULT_TOKEN}|" .env
+            sed -i "s|^VAULT_TOKEN=.*|VAULT_TOKEN=PENDING_PROVISIONING|" .env
         else
-            echo "VAULT_TOKEN=${VAULT_TOKEN}" >> .env
+            echo "VAULT_TOKEN=PENDING_PROVISIONING" >> .env
         fi
 
         if [ -n "$VAULT_DEV_ROOT_TOKEN_ID" ]; then
@@ -835,7 +840,7 @@ phase2_setup_and_start() {
             fi
         fi
 
-        ok ".env configurado com segredos únicos desta VPS e Vault"
+        ok ".env configurado (segredos aguardando migração para Vault)"
     else
         warn ".env não encontrado — verifique o repositório clonado."
     fi
@@ -1040,6 +1045,56 @@ print(f'{healthy}/{total_hc}')
         warn "Verifique com: docker compose ps && docker compose logs"
     fi
 
+    # -----------------------------------------------------------------------
+    # G: PROVISIONAMENTO DO VAULT (ENTERPRISE BOOTSTRAP)
+    # -----------------------------------------------------------------------
+    provision_vault_resources() {
+        section "FASE 2.5 — Provisionamento Enterprise do Vault"
+        info "Configurando motores e políticas de segurança..."
+
+        local TOKEN="$VAULT_ROOT_TOKEN"
+        local VX="docker exec -e VAULT_TOKEN=$TOKEN cascata-vault vault"
+
+        # 1. Ativar Motores
+        $VX secrets enable transit 2>/dev/null || true
+        $VX secrets enable -path=secret kv-v2 2>/dev/null || true
+
+        # 2. Criar Chave Transit mestre
+        $VX write -f transit/keys/cascata-system-keys 2>/dev/null || true
+
+        # 3. Migrar segredos mestre para o Vault
+        $VX kv put secret/cascata/system \
+            SYSTEM_DATABASE_URL="postgresql://${DB_USER}:${DB_PASS}@db:5432/${DB_NAME}" \
+            SYSTEM_JWT_SECRET="${JWT_SECRET}" \
+            INTERNAL_CTRL_SECRET="${CTRL_SECRET}" > /dev/null
+
+        # 4. Criar Política de Acesso para o Backend (Least Privilege)
+        cat <<EOF | docker exec -i cascata-vault vault policy write cascata-backend -
+path "secret/data/cascata/*" {
+  capabilities = ["read"]
+}
+path "transit/encrypt/cascata-system-keys" {
+  capabilities = ["update"]
+}
+path "transit/decrypt/cascata-system-keys" {
+  capabilities = ["update"]
+}
+EOF
+
+        # 5. Gerar App Token para o Backend (Sem expiração para este ambiente)
+        BACKEND_TOKEN=$($VX token create -policy=cascata-backend -orphan -period=768h -format=json | python3 -c "import sys, json; print(json.load(sys.stdin)['auth']['client_token'])")
+
+        # 6. Atualizar .env com o Token de App LIMITADO
+        sed -i "s|VAULT_TOKEN=.*|VAULT_TOKEN=${BACKEND_TOKEN}|" .env
+        
+        ok "Vault provisionado: Motores ativos, Chaves criadas e Segredos migrados!"
+        ok "App Token gerado e injetado no .env"
+    }
+
+    if [[ "$VAULT_CHOICE" == "1" ]]; then
+        provision_vault_resources
+    fi
+
     # P5: Smoke Test pós-deploy
     info "Executando smoke test..."
     sleep 2
@@ -1082,6 +1137,12 @@ print(f'{healthy}/{total_hc}')
     if [ -n "$ALLOWED_IP" ]; then
         echo -e "  ${DIM}  IP Permitido:${NC} ${ALLOWED_IP}"
     fi
+    echo ""
+    echo -e "  ${BOLD}${RED}🔑 HASHICORP VAULT — ROOT TOKEN:${NC}"
+    echo -e "  ${BOLD}${RED}  ${VAULT_ROOT_TOKEN}${NC}"
+    echo -e "  ${DIM}  (Escaner/Cópia Única — Não salvo no .env por segurança!)${NC}"
+    echo -e "  ${DIM}  Armazenado em local seguro: /root/.vault_root_token${NC}"
+    sudo sh -c "echo '${VAULT_ROOT_TOKEN}' > /root/.vault_root_token && chmod 400 /root/.vault_root_token"
     echo ""
     echo -e "  ${DIM}  Log completo: $LOG_FILE${NC}"
     echo ""
