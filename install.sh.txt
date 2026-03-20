@@ -679,16 +679,30 @@ provision_vault_resources() {
         SYSTEM_JWT_SECRET="${JWT_SECRET}" \
         INTERNAL_CTRL_SECRET="${CTRL_SECRET}" > /dev/null
 
-    # 4. Criar Política de Acesso para o Backend (Strict Read-Only)
+    # 4. Criar Política de Acesso para o Backend (Enterprise Level)
     cat <<EOF | vault_exec policy write cascata-backend - 
+# Permissão para gerenciar segredos de projetos
 path "secret/data/cascata/*" {
-  capabilities = ["read"]
+  capabilities = ["create", "read", "update", "delete", "list"]
 }
+path "secret/metadata/cascata/*" {
+  capabilities = ["read", "delete", "list"]
+}
+
+# Permissão para usar a chave mestre do sistema
 path "transit/encrypt/cascata-system-keys" {
   capabilities = ["update"]
 }
 path "transit/decrypt/cascata-system-keys" {
   capabilities = ["update"]
+}
+path "transit/keys/cascata-system-keys" {
+  capabilities = ["read"]
+}
+
+# Permissão para healthcheck do sistema
+path "sys/health" {
+  capabilities = ["read"]
 }
 EOF
 
