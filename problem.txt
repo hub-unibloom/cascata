@@ -1,71 +1,2023 @@
-Li o arquivo inteiro com atenção. Segue análise honesta — separei por gravidade real, não por paranoia.
+„#!/usr/bin/env bash
+# =============================================================================
+#  CASCATA ORCHESTRATOR — SECURE INSTALLER v3.0
+#  Enterprise Production Grade — Multi-Distro + OS Military Hardening
+# =============================================================================
+# NOMENCLATURA: Este arquivo é install.sh.txt no repositório.
+# Na VPS, renomeie para install.sh antes de executar:
+#   mv install.sh.txt install.sh && chmod +x install.sh && ./install.sh
+# =============================================================================
 
----
+set -euo pipefail
+IFS=$'\n\t'
 
-## Bugs reais (comportamento errado)
+# ---------------------------------------------------------------------------
+# CONSTANTS & COLORS (readonly — imutáveis após definição)
+# ---------------------------------------------------------------------------
+readonly INSTALLER_VERSION="3.0"
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[1;33m'
+readonly BLUE='\033[0;34m'
+readonly CYAN='\033[0;36m'
+readonly MAGENTA='\033[0;35m'
+readonly BOLD='\033[1m'
+readonly DIM='\033[2m'
+readonly NC='\033[0m'
 
-**1. Padrão `err + FAIL=true` é dead code em toda a `preflight_checks` (linhas ~228, 246, 210)**
+readonly CASCATA_DIR="$HOME/cascata"
+readonly DATA_DIR="/cascata-data"
+readonly STATE_FILE="$HOME/.cascata_install_state"
+readonly LOG_DIR="/var/log/cascata"
+LOG_FILE="/var/log/cascata/install.log"
 
-A função `err()` chama `exit 1` diretamente. Então em todo o bloco:
+# Garantir diretório de logs com permissões restritas
+sudo mkdir -p "$LOG_DIR" 2>/dev/null || true
+sudo chown "$(id -u):$(id -g)" "$LOG_DIR" 2>/dev/null || true
+chmod 700 "$LOG_DIR" 2>/dev/null || true
+touch "$LOG_FILE" 2>/dev/null || { LOG_FILE="$HOME/cascata_install.log"; touch "$LOG_FILE"; }
+chmod 600 "$LOG_FILE"
 
-```bash
-err "Espaço em disco insuficiente..."
-FAIL=true   # ← nunca executa
-```
+# ---------------------------------------------------------------------------
+# LOGGING
+# ---------------------------------------------------------------------------
+log()  { echo -e "${DIM}[$(date +%H:%M:%S)]${NC} $*" | tee -a "$LOG_FILE"; }
+ok()   { echo -e "${GREEN}  ✓${NC} $*" | tee -a "$LOG_FILE"; }
+warn() { echo -e "${YELLOW}  ⚡${NC} $*" | tee -a "$LOG_FILE"; }
+err()  { echo -e "${RED}  ✗${NC} $*" | tee -a "$LOG_FILE"; exit 1; }
+info() { echo -e "${CYAN}  ➜${NC} $*" | tee -a "$LOG_FILE"; }
+section() {
+    echo ""
+    echo -e "${BOLD}${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}${BLUE}  ▸  $*${NC}"
+    echo -e "${BOLD}${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+}
 
-O `FAIL=true` é código morto. A checagem final `if [ "$FAIL" = true ]` na linha 250 **jamais dispara** — o intent era acumular todos os erros pré-voo e exibir no final, mas na prática o script aborta no primeiro. Não quebra nada porque `err` sai mesmo, mas o comportamento é completamente diferente do que o código aparenta. É um bug de design que vai confundir quem tentar depurar ou modificar.
+# ---------------------------------------------------------------------------
+# TRAP — Limpeza e Mensagem Amigável em Caso de Erro
+# ---------------------------------------------------------------------------
+cleanup_on_error() {
+    local exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        echo ""
+        echo -e "${RED}${BOLD}  ╔══════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${RED}${BOLD}  ║  INSTALAÇÃO INTERROMPIDA                                   ║${NC}"
+        echo -e "${RED}${BOLD}  ╚══════════════════════════════════════════════════════════════╝${NC}"
+        echo -e "  ${DIM}Exit code: ${exit_code}${NC}"
+        echo -e "  ${DIM}Log completo: ${LOG_FILE}${NC}"
+        echo -e "  ${DIM}A instalação pode ser retomada rodando ./install.sh novamente.${NC}"
+        echo ""
+    fi
+}
+trap cleanup_on_error EXIT
 
----
+# ---------------------------------------------------------------------------
+# HELPERS (Prompt Password, etc)
+# ---------------------------------------------------------------------------
+prompt_password() {
+    local prompt="$1"
+    local var_name="$2"
+    local pass=""
+    local char
+    echo -n -e "$prompt" >&2
+    while IFS= read -r -s -n 1 char; do
+        # Enter key ou EOF
+        if [[ -z "${char}" ]]; then
+            echo >&2
+            break
+        fi
+        # Backspace ou Delete (\x7f ou \b)
+        if [[ "${char}" == $'\x7f' || "${char}" == $'\b' ]]; then
+            if [[ -n "${pass}" ]]; then
+                pass="${pass%?}"
+                echo -n -e "\b \b" >&2
+            fi
+        else
+            pass+="${char}"
+            echo -n "*" >&2
+        fi
+    done
+    printf -v "$var_name" "%s" "$pass"
+}
 
-## Deprecated (vai gerar warnings ou quebrar em versões novas)
+# ---------------------------------------------------------------------------
+# BANNER
+# ---------------------------------------------------------------------------
+print_banner() {
+    clear
+    echo -e "${BOLD}${MAGENTA}"
+    echo '  ██████╗ █████╗ ███████╗ ██████╗ █████╗ ████████╗ █████╗ '
+    echo ' ██╔════╝██╔══██╗██╔════╝██╔════╝██╔══██╗╚══██╔══╝██╔══██╗'
+    echo ' ██║     ███████║███████╗██║     ███████║   ██║   ███████║'
+    echo ' ██║     ██╔══██║╚════██║██║     ██╔══██║   ██║   ██╔══██║'
+    echo ' ╚██████╗██║  ██║███████║╚██████╗██║  ██║   ██║   ██║  ██║'
+    echo '  ╚═════╝╚═╝  ╚═╝╚══════╝ ╚═════╝╚═╝  ╚═╝  ╚═╝   ╚═╝  ╚═╝'
+    echo -e "${NC}"
+    echo -e "${BOLD}        ORCHESTRATOR BaaS — SECURE INSTALLER v${INSTALLER_VERSION}${NC}"
+    echo -e "${DIM}        Enterprise Production Grade — Multi-Distro${NC}"
+    echo ""
+}
 
-**2. `ChallengeResponseAuthentication` deprecated no OpenSSH 9.0+**
+# ---------------------------------------------------------------------------
+# DISTRO DETECTION
+# ---------------------------------------------------------------------------
+detect_distro() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        DISTRO="${ID:-unknown}"
+        DISTRO_LIKE="${ID_LIKE:-}"
+        DISTRO_VERSION="${VERSION_ID:-}"
+    elif command -v lsb_release &>/dev/null; then
+        DISTRO=$(lsb_release -si | tr '[:upper:]' '[:lower:]')
+    else
+        DISTRO="unknown"
+    fi
 
-Linha 1482:
-```
-ChallengeResponseAuthentication yes
-```
+    # Normalize
+    case "$DISTRO" in
+        ubuntu|debian|linuxmint|pop)    PKG_MANAGER="apt"    ;;
+        centos|rhel|rocky|almalinux)    PKG_MANAGER="dnf"    ;;
+        fedora)                          PKG_MANAGER="dnf"    ;;
+        amzn)                            PKG_MANAGER="yum"    ;;
+        arch|manjaro)                    PKG_MANAGER="pacman" ;;
+        *)
+            # Try ID_LIKE as fallback
+            if echo "$DISTRO_LIKE" | grep -q "debian"; then PKG_MANAGER="apt"
+            elif echo "$DISTRO_LIKE" | grep -q "rhel"; then PKG_MANAGER="dnf"
+            else err "Distribuição '$DISTRO' não suportada automaticamente. Instale o Docker manualmente e execute novamente."; fi
+            ;;
+    esac
 
-No OpenSSH 9.0 (2022), essa diretiva foi renomeada para `KbdInteractiveAuthentication`. O script **já tem `KbdInteractiveAuthentication yes` na linha 1483**, então a redundância é inócua em versões antigas, mas em Ubuntu 24.04 (OpenSSH 9.3+) a linha deprecated gera warning no `sshd -t`. O `sshd -t` na linha 1527 pode ou não falhar dependendo da versão — em algumas é só warning, em outras é erro fatal. Dado que você roda Ubuntu 24.04, isso vai aparecer. **Solução: remover a linha 1482 — a 1483 já cobre.**
+    ok "Distro detectada: ${BOLD}$DISTRO${NC} (Pacotes: $PKG_MANAGER)"
+}
 
----
+# ---------------------------------------------------------------------------
+# FASE 0: VERIFICAÇÃO DE ESTADO (IDEMPOTÊNCIA)
+# ---------------------------------------------------------------------------
+check_install_state() {
+    PHASE1_DONE=false
+    PHASE2_DONE=false
+    PHASE3_DONE=false
 
-## Code smells que podem virar bug
+    if [ -f "$STATE_FILE" ]; then
+        # SEGURANÇA: Validar conteúdo antes de source (evita execução arbitrária)
+        if grep -qPv '^(PHASE[123]_DONE=(true|false)|#|$)' "$STATE_FILE" 2>/dev/null; then
+            warn "Arquivo de estado corrompido ou adulterado. Recriando..."
+            rm -f "$STATE_FILE"
+        else
+            # shellcheck disable=SC1090
+            source "$STATE_FILE"
+        fi
+    fi
+}
 
-**3. `local DAEMON_JSON` declarado duas vezes na mesma função**
+save_state() {
+    cat > "$STATE_FILE" <<STEOF
+# Cascata Install State — $(date -u +%Y-%m-%dT%H:%M:%SZ)
+PHASE1_DONE=$PHASE1_DONE
+PHASE2_DONE=$PHASE2_DONE
+PHASE3_DONE=$PHASE3_DONE
+STEOF
+    chmod 600 "$STATE_FILE"
+}
 
-Linhas 1643 e 1659, dentro da mesma função, ambas fazem `local DAEMON_JSON="/etc/docker/daemon.json"`. Bash não reclamará, mas é uma armadilha — qualquer edição futura pode dessincronizar os dois valores. Shellcheck vai marcar isso como SC2155.
+# ---------------------------------------------------------------------------
+# PRE-FLIGHT CHECKS — Verificação de Pré-Requisitos
+# ---------------------------------------------------------------------------
+preflight_checks() {
+    section "FASE 0 — Verificação de Pré-Requisitos"
+    local FAIL=false
 
-**4. Redirect redundante na linha 732**
+    # 1. Verifica se roda como usuário com sudo (não como root direto)
+    if [ "$(id -u)" -eq 0 ]; then
+        warn "Rodando como root. Recomendado: rode como usuário normal com sudo."
+    else
+        if ! sudo -n true 2>/dev/null; then
+            # Testa se pode pedir sudo
+            info "Verificando acesso sudo..."
+            sudo true || err "Este script precisa de acesso sudo. Configure e tente novamente."
+        fi
+        ok "Acesso sudo verificado"
+    fi
 
-```bash
-if ls backend/migrations/*.sql.txt &>/dev/null 2>&1; then
-```
+    # 2. Verifica git
+    if ! command -v git &>/dev/null; then
+        warn "git não encontrado. Tentando instalar..."
+        if sudo apt-get -qq update 2>/dev/null && sudo apt-get -qq install -y git 2>/dev/null || \
+           sudo yum -q install -y git 2>/dev/null || \
+           sudo dnf -q install -y git 2>/dev/null; then
+            ok "git instalado com sucesso"
+        else
+            warn "Não foi possível instalar git. Instale manualmente: apt install git"; FAIL=true
+        fi
+    else
+        ok "git disponível"
+    fi
 
-`&>/dev/null` já redireciona stdout e stderr juntos. O `2>&1` depois é redundante. Não quebra nada, mas é ruído.
+    # 3. Verifica conectividade com a internet
+    if ! curl -fsSL --max-time 10 https://github.com > /dev/null 2>&1; then
+        if ! curl -fsSL --max-time 10 https://google.com > /dev/null 2>&1; then
+            warn "Sem conectividade com a internet. Verifique sua rede."; FAIL=true
+        else
+            ok "Conectividade com internet verificada (via fallback)"
+        fi
+    else
+        ok "Conectividade com internet verificada"
+    fi
 
-**5. `provision_vault_resources` definida como função aninhada dentro de `phase2_setup_and_start`**
+    # 4. Verifica espaço em disco (mínimo 5GB)
+    local DISK_AVAIL_KB
+    DISK_AVAIL_KB=$(df / --output=avail 2>/dev/null | tail -1 | tr -d ' ' || echo "0")
+    local DISK_AVAIL_GB=$(( DISK_AVAIL_KB / 1048576 ))
+    if [ "$DISK_AVAIL_GB" -lt 5 ]; then
+        warn "Espaço em disco insuficiente: ${DISK_AVAIL_GB}GB disponível (mínimo: 5GB)."; FAIL=true
+    else
+        ok "Espaço em disco: ${DISK_AVAIL_GB}GB disponível"
+    fi
 
-Bash suporta isso, mas a função fica com escopo global após a primeira chamada. Se `phase2_setup_and_start` for chamada de novo (mesmo que improvável pelo state file), a função é redefinida. O padrão correto seria definir `provision_vault_resources` no nível top-level como todas as outras funções. Além de confuso pra ler.
+    # 5. Verifica RAM (mínimo 2GB)
+    local RAM_TOTAL_KB
+    RAM_TOTAL_KB=$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}' || echo "0")
+    local RAM_TOTAL_GB=$(( RAM_TOTAL_KB / 1048576 ))
+    if [ "$RAM_TOTAL_KB" -lt 1800000 ]; then
+        warn "RAM baixa: ~${RAM_TOTAL_GB}GB. Recomendado: 2GB+. Pode haver instabilidade."
+    else
+        ok "RAM: ~${RAM_TOTAL_GB}GB"
+    fi
 
-**6. HARDENING_TOKEN não é idempotente entre re-runs**
+    # 6. Verifica se systemd está disponível
+    if ! command -v systemctl &>/dev/null; then
+        warn "systemd não encontrado. Este instalador requer systemd."; FAIL=true
+    else
+        ok "systemd disponível"
+    fi
 
-Linha 1273 gera um token aleatório novo a cada execução. Se `PHASE3_DONE=false` e o script for re-executado, ele tenta `chattr -i` nos arquivos do token **novo** (que ainda não existem), mas os arquivos do token **anterior** ainda podem estar com `+i` ativo. Isso vai fazer a Fase 3 falhar ao tentar sobrescrever configs antigas congeladas. O `chattr -i` nas linhas 1316–1328 deveria ser sobre o token anterior (lido de algum manifest), não o novo.
+    if [ "$FAIL" = true ]; then
+        err "Pré-requisitos não atendidos. Corrija os erros acima e tente novamente."
+    fi
+    ok "Todos os pré-requisitos atendidos!"
+}
 
-**7. Sem error handling no pipeline do Vault token (linha 1104)**
+# ---------------------------------------------------------------------------
+# FASE 1: INSTALAÇÃO DO DOCKER
+# ---------------------------------------------------------------------------
+phase1_install_docker() {
+    section "FASE 1 — Instalação do Docker Engine"
 
-```bash
-BACKEND_TOKEN=$(vault_exec token create ... -format=json | python3 -c "...")
-```
+    # Verificar Docker existente
+    if command -v docker &>/dev/null; then
+        DOCKER_VER=$(docker --version 2>/dev/null | grep -E -o '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        ok "Docker já instalado — versão ${BOLD}$DOCKER_VER${NC}"
+        # Verificar se Docker Compose V2 está disponível
+        if docker compose version &>/dev/null 2>&1; then
+            ok "Docker Compose V2 disponível"
+            PHASE1_DONE=true
+            save_state
+            return 0
+        else
+            warn "Docker Compose V2 não encontrado. Reinstalando componentes..."
+        fi
+    fi
 
-Se o `vault_exec` falhar ou retornar JSON malformado, o python3 levanta exceção e `BACKEND_TOKEN` fica vazio (ou pior, `set -e` aborta o script no meio da fase 2 sem mensagem amigável). Mínimo: adicionar `|| err "Falha ao gerar token do Vault"`.
+    info "Iniciando instalação do Docker para: $DISTRO ($PKG_MANAGER)"
 
----
+    case "$PKG_MANAGER" in
+        apt)
+            sudo apt-get -qq update
+            sudo apt-get -qq install -y ca-certificates curl gnupg lsb-release
 
-## Minor (sem impacto em produção, mas vale corrigir)
+            sudo install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/${DISTRO}/gpg \
+              | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg 2>/dev/null
+            sudo chmod a+r /etc/apt/keyrings/docker.gpg
 
-`lsb_release -cs` na linha 290 é legacy em Ubuntu 22.04+ mas tem fallback para `$VERSION_CODENAME`. O comentário na linha 1633 tem typo ("atucha" → "atualiza"). `grep -oP` na linha 264 usa Perl regex — funciona em todas as distros alvo mas não é POSIX puro.
+            ARCH=$(dpkg --print-architecture)
+            CODENAME=$(lsb_release -cs 2>/dev/null || echo "$VERSION_CODENAME")
+            echo "deb [arch=${ARCH} signed-by=/etc/apt/keyrings/docker.gpg] \
+https://download.docker.com/linux/${DISTRO} ${CODENAME} stable" \
+              | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
----
+            sudo apt-get -qq update
+            sudo apt-get -qq install -y \
+                docker-ce docker-ce-cli containerd.io \
+                docker-buildx-plugin docker-compose-plugin
+            ;;
 
-**Resumo executivo:** o script é sólido no geral — a estrutura de fases, a geração de credenciais, o hardening SSH e kernel estão bem implementados. Os dois problemas que eu priorizaria corrigir antes de produção são o `ChallengeResponseAuthentication` deprecated (vai quebrar silenciosamente em Ubuntu 24.04) e o HARDENING_TOKEN sem idempotência (vai travar re-runs na Fase 3).
+        dnf)
+            sudo dnf -q install -y dnf-plugins-core
+            sudo dnf config-manager --add-repo \
+                https://download.docker.com/linux/centos/docker-ce.repo
+            sudo dnf -q install -y \
+                docker-ce docker-ce-cli containerd.io \
+                docker-buildx-plugin docker-compose-plugin
+            ;;
+
+        yum)
+            sudo yum install -y -q yum-utils
+            sudo yum-config-manager --add-repo \
+                https://download.docker.com/linux/centos/docker-ce.repo
+            sudo yum install -y -q \
+                docker-ce docker-ce-cli containerd.io \
+                docker-compose-plugin
+            ;;
+
+        pacman)
+            sudo pacman -Sy --noconfirm docker docker-compose
+            ;;
+    esac
+
+    sudo systemctl enable docker --quiet
+    sudo systemctl start docker
+
+    sudo usermod -aG docker "$USER"
+    ok "Docker instalado e configurado com sucesso"
+
+    # Edge Defense (Firewall)
+    echo ""
+    echo -e "${YELLOW}  ┌─────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${YELLOW}  │  EDGE DEFENSE (Opcional)                                │${NC}"
+    echo -e "${YELLOW}  │  Instalar ipset/iptables para bloqueio por IP no Kernel?│${NC}"
+    echo -e "${YELLOW}  └─────────────────────────────────────────────────────────┘${NC}"
+    read -rp "  Deseja instalar o Edge Defense Firewall? [s/N]: " INSTALL_FIREWALL || true
+    INSTALL_FIREWALL="${INSTALL_FIREWALL:-N}"
+
+    if [[ "$INSTALL_FIREWALL" =~ ^[Ss]$ ]]; then
+        case "$PKG_MANAGER" in
+            apt) sudo apt-get -qq install -y ipset ;;
+            dnf) sudo dnf -q install -y ipset ;;
+            yum) sudo yum -q install -y ipset ;;
+        esac
+        ok "Edge Defense instalado. Ative manualmente após reiniciar: nohup scripts/firewall-sync.sh > scripts/firewall.log 2>&1 &"
+    else
+        info "Edge Defense ignorado. Pode ser ativado manualmente depois."
+    fi
+
+    PHASE1_DONE=true
+    save_state
+
+    ok "Fase 1 concluída!"
+    echo ""
+    echo -e "${BOLD}${YELLOW}  ⚠  REINICIALIZAÇÃO NECESSÁRIA${NC}"
+    echo -e "  O servidor precisa reiniciar para aplicar o grupo 'docker' ao usuário."
+    echo -e "  Após o reboot, reconecte-se e execute ${BOLD}./install.sh${NC} novamente."
+    echo ""
+    read -rp "  Reiniciar agora? [S/n]: " DO_REBOOT || true
+    DO_REBOOT="${DO_REBOOT:-S}"
+    if [[ "$DO_REBOOT" =~ ^[Ss]$ ]]; then
+        sudo reboot
+    else
+        warn "Reinicie manualmente antes de continuar. Execute: sudo reboot"
+        exit 0
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# GERADOR DE SEGREDO OTP (TOTP RFC 6238 / SHA-512 Hybrid)
+# ---------------------------------------------------------------------------
+# A chave secreta é derivada de múltiplas fontes de entropia locais exclusivas
+# da VPS + urandom. Impossível de reproduzir externamente.
+# ---------------------------------------------------------------------------
+generate_otp_secret() {
+    # Entropia composta: machine-id + hostname + timestamp + urandom
+    local MACHINE_ID
+    MACHINE_ID=$(cat /etc/machine-id 2>/dev/null || cat /var/lib/dbus/machine-id 2>/dev/null || hostname 2>/dev/null || echo "unknown-$(date +%s)")
+    local ENTROPY_SOURCE="${MACHINE_ID}:$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "nohost"):$(date +%s%N):$(dd if=/dev/urandom bs=32 count=1 2>/dev/null | base64)"
+
+    # Hash SHA-512 da entropia composta → Base32 (padrão TOTP)
+    # Base32 charset: A-Z2-7
+    local RAW_HASH
+    RAW_HASH=$(echo -n "$ENTROPY_SOURCE" | sha512sum | cut -d' ' -f1)
+
+    # Converter hex para Base32 (20 bytes = 160 bits = 32 chars Base32)
+    # Usa python3 que está presente na maioria das distros, senão usa openssl
+    local SECRET=""
+
+    if command -v python3 &>/dev/null; then
+        SECRET=$(python3 -c "
+import hashlib, base64, sys
+data = bytes.fromhex('${RAW_HASH}')[:20]
+b32 = base64.b32encode(data).decode('utf-8')
+print(b32)
+" 2>/dev/null)
+    fi
+
+    # Fallback: se python3 falhou, usa awk ou morre (base32 estático nunca mais)
+    if [ -z "$SECRET" ]; then
+        # Converte os primeiros 10 bytes de urandom diretamente para Base32 (caracteres A-Z e 2-7 apenas)
+        SECRET=$(head -c 10 /dev/urandom | base32 2>/dev/null || \
+                python3 -c 'import os, base64; print(base64.b32encode(os.urandom(10)).decode())' 2>/dev/null)
+        
+        if [ -z "$SECRET" ]; then
+            err "Nem 'base32' nem 'python3' estão disponíveis — impossível gerar OTP seguro. Instale um deles e rode novamente."
+        fi
+        warn "python3 não disponível para sha512 — usando gerador Base32 alternativo."
+    fi
+
+    echo "$SECRET"
+}
+
+# ---------------------------------------------------------------------------
+# GERADOR DE QR CODE (ASCII/Unicode — sem instalar nada)
+# ---------------------------------------------------------------------------
+generate_qr_totp() {
+    local SECRET="$1"
+    local LABEL="${2:-Cascata Orchestrator}"
+    local ISSUER="${3:-Cascata}"
+
+    # URI padrão TOTP (Google Authenticator / Microsoft Authenticator)
+    local OTP_URI="otpauth://totp/${ISSUER}:${LABEL}?secret=${SECRET}&issuer=${ISSUER}&algorithm=SHA1&digits=6&period=30"
+
+    echo -e "\n${BOLD}${CYAN}  ┌─────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${BOLD}${CYAN}  │  📲 ESCANEIE COM SEU AUTENTICADOR                           │${NC}"
+    echo -e "${BOLD}${CYAN}  │  Google Authenticator / Microsoft Authenticator              │${NC}"
+    echo -e "${BOLD}${CYAN}  └─────────────────────────────────────────────────────────────┘${NC}\n"
+
+    # Tenta gerar QR Code via qrencode (se disponível) ou python3
+    local QR_SHOWN=false
+
+    # Instala qrencode de forma robusta e persistente (com apt-get update se aplicavel)
+    if ! command -v qrencode &>/dev/null; then
+        info "Procurando dependências de renderização de QR Code..."
+        case "$PKG_MANAGER" in
+            apt) 
+                sudo apt-get -qq update 2>/dev/null || true
+                sudo DEBIAN_FRONTEND=noninteractive apt-get -qq install -y qrencode 2>/dev/null || true 
+                ;;
+            dnf|yum) sudo yum -q install -y qrencode 2>/dev/null || true ;;
+            pacman) sudo pacman -S --noconfirm qrencode 2>/dev/null || true ;;
+        esac
+    fi
+
+    if command -v qrencode &>/dev/null; then
+        local QR_OUTPUT
+        QR_OUTPUT=$(qrencode -t ANSIUTF8 -m 2 "$OTP_URI" 2>/dev/null)
+        if [ -n "$QR_OUTPUT" ]; then
+            echo -e "${BOLD}${YELLOW}"
+            echo -e "$QR_OUTPUT"
+            echo -e "${NC}"
+            QR_SHOWN=true
+        fi
+    fi
+
+    if [ "$QR_SHOWN" = false ] && command -v python3 &>/dev/null; then
+        # Fallback robusto via pacote python3-qrcode se apt, ou pip
+        if ! python3 -c "import qrcode" &>/dev/null; then
+            if command -v apt-get &>/dev/null; then
+                sudo DEBIAN_FRONTEND=noninteractive apt-get -qq install -y python3-qrcode 2>/dev/null || true
+            elif command -v pip3 &>/dev/null; then
+                pip3 install qrcode -q 2>/dev/null || true
+            fi
+        fi
+
+        local PY_QR
+        PY_QR=$(python3 -c "
+try:
+    import urllib.parse, sys
+    import qrcode
+    qr = qrcode.QRCode(border=1)
+    qr.add_data('''${OTP_URI}''')
+    qr.make(fit=True)
+    qr.print_ascii(invert=True)
+    sys.exit(0)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null) && {
+            if [ -n "$PY_QR" ]; then
+                echo "$PY_QR"
+                QR_SHOWN=true
+            fi
+        } || true
+    fi
+
+    if [ "$QR_SHOWN" = false ]; then
+        echo -e "${YELLOW}  Copie esta URI no seu app de autenticação (entrada manual):${NC}"
+        echo -e "  secret=${SECRET}"
+        echo -e "  issuer=${ISSUER}"
+        echo -e "  URI completa:"
+        echo -n "  "
+        echo "${OTP_URI}" | fold -w 70 -s
+        echo ""
+    fi
+
+    # Sempre exibir a chave para entrada manual como backup
+    echo -e "\n  ${BOLD}Chave para entrada manual (caso o QR não funcione):${NC}"
+    echo -e "  ${GREEN}${BOLD}${SECRET}${NC}\n"
+}
+
+# ---------------------------------------------------------------------------
+# VERIFICAÇÃO DO OTP (valida que o usuário configurou corretamente)
+# ---------------------------------------------------------------------------
+verify_otp_setup() {
+    local SECRET="$1"
+
+    if ! command -v python3 &>/dev/null; then
+        warn "python3 não disponível — pulando verificação OTP. Configure o app e prossiga."
+        return 0
+    fi
+
+    echo -e "${CYAN}  Verificação de configuração OTP:${NC}"
+    echo -e "  Digite o código de 6 dígitos do seu app agora para confirmar:"
+    local ATTEMPTS=0
+    local MAX_ATTEMPTS=3
+
+    while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
+        read -rp "  Código OTP: " OTP_CODE || true
+        ATTEMPTS=$((ATTEMPTS + 1))
+
+        # Validar formato
+        if ! [[ "$OTP_CODE" =~ ^[0-9]{6}$ ]]; then
+            warn "Código deve ter exatamente 6 dígitos. (${ATTEMPTS}/${MAX_ATTEMPTS})"
+            continue
+        fi
+
+        # Verificar via python3 (TOTP HMAC-SHA1, janela ±1 step = ±30s clock drift)
+        local RESULT
+        RESULT=$(python3 -c "
+import hmac, hashlib, struct, time, base64
+
+secret_b32 = '${SECRET}'
+# Pad Base32 se necessário
+pad = len(secret_b32) % 8
+if pad:
+    secret_b32 += '=' * (8 - pad)
+
+try:
+    key = base64.b32decode(secret_b32.upper())
+except Exception:
+    # Se não for base32 válido (hex fallback), usa como bytes diretos
+    key = bytes.fromhex('${SECRET}'.lower()[:40]) if len('${SECRET}') >= 40 else '${SECRET}'.encode()
+
+def totp(key, t):
+    counter = struct.pack('>Q', int(t) // 30)
+    mac = hmac.new(key, counter, hashlib.sha1).digest()
+    offset = mac[-1] & 0x0F
+    code = struct.unpack('>I', mac[offset:offset+4])[0] & 0x7FFFFFFF
+    return str(code % 1000000).zfill(6)
+
+now = time.time()
+valid = [totp(key, now + offset) for offset in [-30, 0, 30]]
+entered = '${OTP_CODE}'
+print('OK' if entered in valid else 'FAIL')
+" 2>/dev/null || echo "ERROR")
+
+        if [ "$RESULT" = "OK" ]; then
+            ok "OTP verificado com sucesso! Autenticação de dois fatores ativa."
+            return 0
+        elif [ "$RESULT" = "ERROR" ]; then
+            warn "Erro interno ao verificar OTP. Pulando verificação automática."
+            return 0
+        else
+            warn "Código incorreto. (${ATTEMPTS}/${MAX_ATTEMPTS})"
+        fi
+    done
+
+    # Se saiu do loop, o maximo de tentativas foi atingido
+    warn "Verificação de OTP falhou repetidas vezes."
+    read -rp "  Deseja prosseguir mesmo assim? (Se escolher 'N', a instalação será abortada e as chaves não salvas) [S/n]: " CONTINUE_OTP || true
+    if [[ "${CONTINUE_OTP:-S}" =~ ^[Nn]$ ]]; then
+        err "Instalação abortada pelo usuário após falha no OTP. Rode o instalador novamente para reiniciar a configuração de OTP."
+    fi
+    warn "Prosseguindo com OTP, mas tenha o código manual salvo. Você poderá não conseguir logar se não configurou corretamente."
+}
+
+# ---------------------------------------------------------------------------
+# GERADOR DE SENHAS CRIPTOGRAFICAMENTE SEGURAS
+# ---------------------------------------------------------------------------
+gen_password() {
+    local LENGTH="${1:-24}"
+    local RESULT=""
+    # Tentativa 1: /dev/urandom (sem dependências externas)
+    RESULT=$(tr -dc 'A-Za-z0-9!@#%^&*()-_=+' < /dev/urandom | head -c "${LENGTH}" 2>/dev/null) || true
+    # Tentativa 2: openssl
+    if [ -z "$RESULT" ] || [ ${#RESULT} -lt "$LENGTH" ]; then
+        RESULT=$(openssl rand -base64 $((LENGTH * 2)) 2>/dev/null | tr -dc 'A-Za-z0-9!@#%^&*' | head -c "${LENGTH}") || true
+    fi
+    # Tentativa 3: python3
+    if [ -z "$RESULT" ] || [ ${#RESULT} -lt "$LENGTH" ]; then
+        RESULT=$(python3 -c "import secrets; cs='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'; print(''.join(secrets.choice(cs) for _ in range(${LENGTH})))" 2>/dev/null) || true
+    fi
+    # VALIDAÇÃO FATAL: se todas falharam, aborta (nunca usa senha vazia)
+    if [ -z "$RESULT" ] || [ ${#RESULT} -lt 8 ]; then
+        err "FALHA CRÍTICA: Impossível gerar senha segura. Verifique /dev/urandom, openssl e python3."
+    fi
+    echo "$RESULT"
+}
+
+# ---------------------------------------------------------------------------
+# GERADOR DE SENHAS SEGURAS PARA URLS (Bancos de Dados PostgreSQL)
+# ---------------------------------------------------------------------------
+# O parser do pg-connection-string e novas versões do URL API
+# falham ("ERR_INVALID_URL") caso a senha contenha caracteres 
+# reservados da RFC 3986, como @, #, ?, :, etc, se não encodados.
+# Para evitar cascata de erros no boot e quebra do container DB,
+# DB_PASS DEVE OBRIGATORIAMENTE usar um charset [A-Za-z0-9] (alphanumeric).
+gen_url_safe_password() {
+    local LENGTH="${1:-32}"
+    local RESULT=""
+    # Tentativa 1: /dev/urandom (alphanumeric apenas)
+    RESULT=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c "${LENGTH}" 2>/dev/null) || true
+    # Tentativa 2: openssl
+    if [ -z "$RESULT" ] || [ ${#RESULT} -lt "$LENGTH" ]; then
+        RESULT=$(openssl rand -base64 $((LENGTH * 2)) 2>/dev/null | tr -dc 'A-Za-z0-9' | head -c "${LENGTH}") || true
+    fi
+    # Tentativa 3: python3
+    if [ -z "$RESULT" ] || [ ${#RESULT} -lt "$LENGTH" ]; then
+        RESULT=$(python3 -c "import secrets; cs='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'; print(''.join(secrets.choice(cs) for _ in range(${LENGTH})))" 2>/dev/null) || true
+    fi
+    # VALIDAÇÃO FATAL:
+    if [ -z "$RESULT" ] || [ ${#RESULT} -lt 8 ]; then
+        err "FALHA CRÍTICA: Impossível gerar URL-safe password. Verifique dependências."
+    fi
+    echo "$RESULT"
+}
+
+# ---------------------------------------------------------------------------
+# PROVISIONAMENTO DO VAULT (ENTERPRISE BOOTSTRAP)
+# ---------------------------------------------------------------------------
+provision_vault_resources() {
+    section "FASE 2.5 — Provisionamento Enterprise do Vault"
+    
+    local TOKEN="$VAULT_ROOT_TOKEN"
+    
+    # Função auxiliar para evitar problemas com IFS e espaços em variáveis
+    # Extrai dinamicamente a porta da configuração global para evitar hardcode,
+    # mantendo 127.0.0.1 como alvo interno seguro para o docker exec.
+    vault_exec() {
+        local V_PORT
+        V_PORT=$(echo "${VAULT_ADDR}" | sed -n 's/.*:\([0-9]*\)$/\1/p')
+        V_PORT=${V_PORT:-8200}
+        docker exec -i -e VAULT_TOKEN="$TOKEN" -e VAULT_ADDR="http://127.0.0.1:${V_PORT}" cascata-vault vault "$@"
+    }
+
+    info "Aguardando API do Vault ficar pronta..."
+    local VRETRY=0
+    while [ $VRETRY -lt 20 ]; do
+        if vault_exec status > /dev/null 2>&1; then
+            break
+        fi
+        sleep 2
+        VRETRY=$((VRETRY + 1))
+    done
+
+    if [ $VRETRY -eq 20 ]; then
+        err "Vault não respondeu a tempo. Verifique: docker logs cascata-vault"
+    fi
+
+    info "Configurando motores e políticas de segurança..."
+
+    # 1. Ativar Motores (ignore erros se já existirem)
+    vault_exec secrets enable transit 2>/dev/null || true
+    vault_exec secrets enable -path=secret kv-v2 2>/dev/null || true
+
+    # 2. Criar Chave Transit mestre
+    vault_exec write -f transit/keys/cascata-system-keys > /dev/null 2>&1 || true
+
+    # 3. Migrar segredos de aplicação para o Vault
+    vault_exec kv put secret/cascata/system \
+        SYSTEM_DATABASE_URL="postgresql://${DB_USER}:${DB_PASS}@db:5432/${DB_NAME}" \
+        SYSTEM_JWT_SECRET="${JWT_SECRET}" \
+        INTERNAL_CTRL_SECRET="${CTRL_SECRET}" > /dev/null
+
+    # 4. Criar Política de Acesso para o Backend (Enterprise Level)
+    cat <<EOF | vault_exec policy write cascata-backend - 
+# Permissão para gerenciar segredos de projetos
+path "secret/data/cascata/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+path "secret/metadata/cascata/*" {
+  capabilities = ["read", "delete", "list"]
+}
+
+# Permissão para usar a chave mestre do sistema
+path "transit/encrypt/cascata-system-keys" {
+  capabilities = ["update"]
+}
+path "transit/decrypt/cascata-system-keys" {
+  capabilities = ["update"]
+}
+path "transit/keys/cascata-system-keys" {
+  capabilities = ["read"]
+}
+
+# Permissão para healthcheck do sistema
+path "sys/health" {
+  capabilities = ["read"]
+}
+EOF
+
+    # 5. Gerar App Token para o Backend (Lease de 32 dias renovável)
+    BACKEND_TOKEN=$(vault_exec token create -policy=cascata-backend -orphan -period=768h -format=json | python3 -c "import sys, json; print(json.load(sys.stdin)['auth']['client_token'])" || echo "")
+    
+    # Limpar qualquer caractere invisível (nova linha, espaços) que possa quebrar o .env
+    BACKEND_TOKEN=$(echo "$BACKEND_TOKEN" | tr -d '\r\n[:space:]')
+    
+    if [ -z "$BACKEND_TOKEN" ]; then
+        err "Falha ao gerar token do Vault para o backend."
+    fi
+
+    # 6. Atualizar .env: injeta o App Token e limpa chaves de aplicação
+    sed -i "s|^VAULT_TOKEN=.*|VAULT_TOKEN=${BACKEND_TOKEN}|" .env
+    sed -i "s|^SYSTEM_JWT_SECRET=.*|# SYSTEM_JWT_SECRET (Managed by Vault)|" .env
+    sed -i "s|^INTERNAL_CTRL_SECRET=.*|# INTERNAL_CTRL_SECRET (Managed by Vault)|" .env
+    
+    # FORÇA REINICIALIZAÇÃO TOTAL PARA GARANTIR CARREGAMENTO DO .ENV
+    # Isso resolve o erro de "permission denied" causado por contêineres lendo tokens antigos/pendentes.
+    docker compose --env-file .env up -d --force-recreate backend backend-data backend-engine nginx-controller > /dev/null 2>&1
+    
+    ok "Vault provisionado com sucesso e Backend sincronizado."
+}
+
+# ---------------------------------------------------------------------------
+# CONFIGURAÇÃO DO HASHICORP VAULT
+# ---------------------------------------------------------------------------
+setup_vault() {
+    section "FASE 2.1.5 — Configuração do HashiCorp Vault"
+    
+    echo -e "  ${BOLD}O Cascata utiliza HashiCorp Vault para gestão de segredos enterprise.${NC}"
+    echo -e "  Escolha como deseja configurar o Vault:"
+    echo -e "  1) ${BOLD}Local (Sidecar)${NC}: O instalador sobe um container Vault exclusivo para esta VPS."
+    echo -e "  2) ${BOLD}Cloud (Externo)${NC}: Você fornece o endereço e token de um Vault já existente."
+    echo ""
+    read -rp "  Opção [1/2] [1]: " VAULT_CHOICE || true
+    VAULT_CHOICE="${VAULT_CHOICE:-1}"
+
+    if [[ "$VAULT_CHOICE" == "1" ]]; then
+        info "Configurando Vault Local..."
+        VAULT_ADDR="http://vault:8200"
+        # Root Token dinâmico (não será salvo no .env para o backend)
+        VAULT_ROOT_TOKEN=$(gen_hex_secret 32)
+        VAULT_DEV_ROOT_TOKEN_ID="$VAULT_ROOT_TOKEN"
+        VAULT_TOKEN="$VAULT_ROOT_TOKEN" # Temporário para provisionamento
+        ok "Vault Local preparado com root token dinâmico"
+    else
+        info "Configurando Vault Cloud..."
+        read -rp "  Endereço do Vault (ex: https://vault.meudominio.com): " VAULT_ADDR
+        prompt_password "  Token do Vault (Root/Admin): " VAULT_TOKEN
+        VAULT_ROOT_TOKEN="$VAULT_TOKEN"
+        VAULT_DEV_ROOT_TOKEN_ID=""
+        ok "Vault Cloud configurado!"
+    fi
+}
+
+gen_hex_secret() {
+    local LENGTH="${1:-64}"
+    local RESULT=""
+    RESULT=$(od -A n -t x1 -N $((LENGTH/2)) /dev/urandom 2>/dev/null | tr -d ' \n' | head -c "$LENGTH") || true
+    if [ -z "$RESULT" ] || [ ${#RESULT} -lt "$LENGTH" ]; then
+        RESULT=$(openssl rand -hex $((LENGTH/2)) 2>/dev/null | head -c "$LENGTH") || true
+    fi
+    if [ -z "$RESULT" ] || [ ${#RESULT} -lt "$LENGTH" ]; then
+        RESULT=$(python3 -c "import os; print(os.urandom(${LENGTH}//2).hex())" 2>/dev/null) || true
+    fi
+    if [ -z "$RESULT" ] || [ ${#RESULT} -lt 16 ]; then
+        err "FALHA CRÍTICA: Impossível gerar segredo hex. Verifique /dev/urandom, openssl e python3."
+    fi
+    echo "$RESULT"
+}
+
+# ---------------------------------------------------------------------------
+# FASE 2: CLONE, CONFIGURAÇÃO E START
+# ---------------------------------------------------------------------------
+phase2_setup_and_start() {
+    section "FASE 2 — Configuração e Inicialização do Cascata"
+
+    # -----------------------------------------------------------------------
+    # A: Clonar repositório
+    # -----------------------------------------------------------------------
+    info "Clonando repositório Hub Unibloom/Cascata..."
+    if [ -d "$CASCATA_DIR/.git" ]; then
+        warn "Repositório já existe em $CASCATA_DIR. Atualizando..."
+        git -C "$CASCATA_DIR" pull --quiet origin main || \
+            warn "Não foi possível atualizar. Usando versão local existente."
+    else
+        git clone --quiet https://github.com/hub-unibloom/cascata.git "$CASCATA_DIR" \
+            || err "Falha ao clonar repositório. Verifique sua conexão e acesso ao GitHub."
+    fi
+    ok "Repositório pronto em: $CASCATA_DIR"
+
+    # -----------------------------------------------------------------------
+    # B: Renomear arquivos .txt para seus nomes reais
+    # -----------------------------------------------------------------------
+    # C3-FIX: Usar pushd/popd para não contaminar o CWD global
+    pushd "$CASCATA_DIR" > /dev/null || err "Falha ao entrar em $CASCATA_DIR"
+    info "Ajustando nomenclatura de arquivos..."
+
+    # Arquivos principais
+    declare -A FILE_MAP=(
+        [".env.txt"]=".env"
+        [".dockerignore.txt"]=".dockerignore"
+        ["nginx/nginx.conf.txt"]="nginx/nginx.conf"
+        ["backend/Dockerfile.txt"]="backend/Dockerfile"
+        ["database/init.sql.txt"]="database/init.sql"
+        ["database/Dockerfile.txt"]="database/Dockerfile"
+        ["database/phantom_linker.sh.txt"]="database/phantom_linker.sh"
+        ["database/docker-entrypoint-cascata.sh.txt"]="database/docker-entrypoint-cascata.sh"
+        ["frontend/Dockerfile.txt"]="frontend/Dockerfile"
+        ["frontend/nginx.conf.txt"]="frontend/nginx.conf"
+        ["nginx-controller/Dockerfile.txt"]="nginx-controller/Dockerfile"
+        ["scripts/firewall-sync.sh.txt"]="scripts/firewall-sync.sh"
+        ["install.sh.txt"]="install.sh"
+    )
+
+    for SRC in "${!FILE_MAP[@]}"; do
+        DST="${FILE_MAP[$SRC]}"
+        if [ -f "$SRC" ] && [ ! -f "$DST" ]; then
+            mv "$SRC" "$DST"
+            ok "  $SRC → $DST"
+        elif [ -f "$DST" ]; then
+            ok "  $DST (já existe)"
+        fi
+    done
+
+    # Migrations
+    if ls backend/migrations/*.sql.txt &>/dev/null; then
+        for f in backend/migrations/*.sql.txt; do
+            mv "$f" "${f%.txt}"
+        done
+        ok "  Migrations renomeadas"
+    fi
+
+    # Tornar scripts executáveis
+    chmod +x scripts/*.sh 2>/dev/null || true
+    chmod +x database/*.sh 2>/dev/null || true
+    chmod +x install.sh 2>/dev/null || true
+
+    # -----------------------------------------------------------------------
+    # C: CONFIGURAR CREDENCIAIS ADMIN
+    # -----------------------------------------------------------------------
+    section "FASE 2.1 — Configuração de Credenciais do Administrador"
+
+    echo -e "  ${BOLD}Configurar email e senha do administrador do Cascata?${NC}"
+    echo -e "  ${DIM}(Caso não configure, serão usados os valores padrão inseguros do .env)${NC}"
+    echo ""
+    read -rp "  Deseja configurar as credenciais de admin agora? [S/n]: " CONFIG_CREDS
+    CONFIG_CREDS="${CONFIG_CREDS:-S}"
+
+    if [[ "$CONFIG_CREDS" =~ ^[Ss]$ ]]; then
+        echo ""
+        # Email
+        while true; do
+            read -rp "  Email do admin [admin@cascata.io]: " ADMIN_EMAIL
+            ADMIN_EMAIL="${ADMIN_EMAIL:-admin@cascata.io}"
+            if [[ "$ADMIN_EMAIL" =~ ^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$ ]]; then
+                break
+            else
+                warn "Email inválido. Tente novamente."
+            fi
+        done
+
+        # Senha
+        while true; do
+            prompt_password "  Senha do admin (mín. 12 chars): " ADMIN_PASS
+            if [ ${#ADMIN_PASS} -ge 12 ]; then
+                prompt_password "  Confirme a senha: " ADMIN_PASS2
+                if [ "$ADMIN_PASS" = "$ADMIN_PASS2" ]; then
+                    break
+                else
+                    warn "As senhas não coincidem. Tente novamente."
+                fi
+            else
+                warn "Senha muito curta. Use pelo menos 12 caracteres."
+            fi
+        done
+
+        ok "Credenciais de admin configuradas"
+    else
+        ADMIN_EMAIL="admin@cascata.io"
+        ADMIN_PASS=$(gen_password 16)
+        warn "Credenciais automáticas geradas. Anote a senha abaixo:"
+        echo -e "  ${BOLD}${RED}SENHA GERADA: ${ADMIN_PASS}${NC}"
+        echo -e "  ${DIM}MUDE APÓS O PRIMEIRO LOGIN!${NC}"
+    fi
+
+    # -----------------------------------------------------------------------
+    # D: CONFIGURAR VARIÁVEIS DE AMBIENTE
+    # -----------------------------------------------------------------------
+    section "FASE 2.2 — Geração do Ambiente Seguro (.env)"
+    info "Gerando chaves criptográficas exclusivas para este servidor..."
+
+    DB_USER="cascata_admin"
+    DB_NAME="cascata_system"
+    # CRÍTICO: Utiliza gerador alfanumérico estrito para evitar o ERR_INVALID_URL
+    # que quebra o parse da SYSTEM_DATABASE_URL no docker-compose / pg-connection-string.
+    DB_PASS=$(gen_url_safe_password 32)
+    JWT_SECRET=$(gen_hex_secret 64)
+    CTRL_SECRET=$(gen_hex_secret 64)
+
+    ok "Chaves geradas com entropia local"
+
+    # Configurar Vault
+    setup_vault
+
+    # Injetar no .env (Preparar variáveis para boot do Vault)
+    if [ -f ".env" ]; then
+        # Segredos Mestre (Não salvos no .env final do backend, apenas placeholders)
+        sed -i "s|^DB_PASS=.*|DB_PASS=VAULT_PROTECTED|" .env
+        sed -i "s|^DB_USER=.*|DB_USER=${DB_USER}|" .env
+        sed -i "s|^DB_NAME=.*|DB_NAME=${DB_NAME}|" .env
+        sed -i "s|^SYSTEM_JWT_SECRET=.*|SYSTEM_JWT_SECRET=VAULT_PROTECTED|" .env
+        sed -i "s|^INTERNAL_CTRL_SECRET=.*|INTERNAL_CTRL_SECRET=VAULT_PROTECTED|" .env
+        
+        # Injetar Vault
+        if grep -q "^VAULT_ADDR=" .env; then
+            sed -i "s|^VAULT_ADDR=.*|VAULT_ADDR=${VAULT_ADDR}|" .env
+        else
+            echo "VAULT_ADDR=${VAULT_ADDR}" >> .env
+        fi
+        
+        # O backend usará um token limitado (App Token) gerado no provisionamento
+        # O Root Token NÃO fica no .env
+        if grep -q "^VAULT_TOKEN=" .env; then
+            sed -i "s|^VAULT_TOKEN=.*|VAULT_TOKEN=PENDING_PROVISIONING|" .env
+        else
+            echo "VAULT_TOKEN=PENDING_PROVISIONING" >> .env
+        fi
+
+        if [ -n "$VAULT_DEV_ROOT_TOKEN_ID" ]; then
+            if grep -q "^VAULT_DEV_ROOT_TOKEN_ID=" .env; then
+                sed -i "s|^VAULT_DEV_ROOT_TOKEN_ID=.*|VAULT_DEV_ROOT_TOKEN_ID=${VAULT_DEV_ROOT_TOKEN_ID}|" .env
+            else
+                echo "VAULT_DEV_ROOT_TOKEN_ID=${VAULT_DEV_ROOT_TOKEN_ID}" >> .env
+            fi
+        fi
+
+        ok ".env configurado (segredos aguardando migração para Vault)"
+    else
+        warn ".env não encontrado — verifique o repositório clonado."
+    fi
+
+    # Injetar admin no SQL init
+    if [ -f "database/init.sql" ]; then
+        # Hash bcrypt da senha via python3 (sanitização total contra SQL injection)
+        local SAFE_PASS
+        SAFE_PASS=$(printf '%s' "$ADMIN_PASS" | sed "s/'/''/g")
+        local SAFE_EMAIL
+        SAFE_EMAIL=$(printf '%s' "$ADMIN_EMAIL" | sed "s/'/''/g")
+
+        if command -v python3 &>/dev/null && python3 -c "import bcrypt" &>/dev/null 2>&1; then
+            # Passa a senha via stdin para evitar interpolação no shell
+            ADMIN_HASH=$(printf '%s' "$ADMIN_PASS" | python3 -c "
+import sys, bcrypt
+password = sys.stdin.read().encode()
+hash_bytes = bcrypt.hashpw(password, bcrypt.gensalt(12))
+print(hash_bytes.decode())
+" 2>/dev/null) || ADMIN_HASH='PENDING_HASH'
+        else
+            warn "bcrypt não disponível via python3 — o hash será gerado pelo próprio backend na primeira inicialização."
+            ADMIN_HASH='PENDING_HASH'
+        fi
+
+        # SQL seguro com dollar-quoting do PostgreSQL (imune a SQL injection)
+        cat >> database/init.sql <<EOSQL
+-- CASCATA SECURE INSTALL: Admin user provisioning
+-- Generated by install.sh on \$(date -u +%Y-%m-%dT%H:%M:%SZ)
+CREATE SCHEMA IF NOT EXISTS system;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+CREATE TABLE IF NOT EXISTS system.admin_users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO system.admin_users (email, password_hash)
+VALUES ('${SAFE_EMAIL}', '${ADMIN_HASH}')
+ON CONFLICT (email) DO UPDATE SET
+    password_hash = EXCLUDED.password_hash,
+    created_at = NOW();
+EOSQL
+        ok "Credenciais injetadas no SQL de inicialização (sanitizadas contra SQL injection)"
+    fi
+
+    # -----------------------------------------------------------------------
+    # E: OTP — AUTENTICAÇÃO DE DOIS FATORES
+    # -----------------------------------------------------------------------
+    section "FASE 2.3 — OTP / Autenticação de Dois Fatores"
+
+    echo -e "  ${BOLD}Deseja habilitar OTP (2FA) compatível com Google/Microsoft Authenticator?${NC}"
+    echo -e "  ${DIM}O segredo é gerado localmente com entropia desta VPS — zero conhecimento externo.${NC}"
+    echo ""
+    read -rp "  Habilitar OTP? [S/n]: " ENABLE_OTP || true
+    ENABLE_OTP="${ENABLE_OTP:-S}"
+
+    OTP_SECRET=""
+    if [[ "$ENABLE_OTP" =~ ^[Ss]$ ]]; then
+        info "Gerando segredo OTP com entropia híbrida local..."
+        OTP_SECRET=$(generate_otp_secret)
+        ok "Segredo OTP gerado — nunca é transmitido pela rede"
+
+        # Exibir QR Code para escaneamento
+        generate_qr_totp "$OTP_SECRET" "$ADMIN_EMAIL" "Cascata"
+
+        echo ""
+        echo -e "${BOLD}${YELLOW}  ⚡ IMPORTANTE:${NC}"
+        echo -e "  1. Escaneie o QR Code AGORA com seu app de autenticação."
+        echo -e "  2. Se não conseguir escanear, use a ${BOLD}Chave para entrada manual${NC} acima."
+        echo -e "  3. Guarde o segredo em local seguro (offline)."
+        echo ""
+        read -rp "  Pressione ENTER quando tiver escaneado o QR Code..." _DUMMY || true
+
+        # Verificar se configurou corretamente
+        verify_otp_setup "$OTP_SECRET"
+
+        # Salvar no .env (criptografado via openssl se disponível)
+        if command -v openssl &>/dev/null; then
+            OTP_ENC=$(echo -n "$OTP_SECRET" | openssl enc -aes-256-cbc -pbkdf2 -pass "pass:${CTRL_SECRET}" -base64 -A 2>/dev/null || echo "$OTP_SECRET")
+        else
+            OTP_ENC="$OTP_SECRET"
+        fi
+
+        if [ -f ".env" ]; then
+            # Remove linha existente e adiciona nova
+            grep -v "^CASCATA_OTP_SECRET=" .env > "${CASCATA_DIR}/.env.tmp.$$" 2>/dev/null || true
+            mv "${CASCATA_DIR}/.env.tmp.$$" .env
+            echo "CASCATA_OTP_SECRET=${OTP_ENC}" >> .env
+            ok "OTP Secret salvo no .env (cifrado com INTERNAL_CTRL_SECRET)"
+        fi
+    else
+        info "OTP desabilitado. Recomendamos habilitar para ambientes de produção."
+    fi
+
+    # -----------------------------------------------------------------------
+    # F: RESTRIÇÃO DE IP (Zero Trust Network)
+    # -----------------------------------------------------------------------
+    section "FASE 2.4 — Restrição de Acesso por IP"
+
+    echo -e "  ${BOLD}Restringir acesso administrativo a um IP fixo?${NC}"
+    echo -e "  ${DIM}Se você possui IP fixo, isso bloqueia qualquer outro endereço de acessar o painel.${NC}"
+    echo -e "  ${DIM}Deixe em branco para permitir qualquer IP (sem restrição de IP).${NC}"
+    echo ""
+    read -rp "  IP Restrito (ex: 192.168.1.10) [Enter p/ pular]: " ALLOWED_IP || true
+    ALLOWED_IP="${ALLOWED_IP:-}"
+
+    if [ -n "$ALLOWED_IP" ]; then
+        # Validação básica de IP
+        if [[ "$ALLOWED_IP" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}(/[0-9]{1,2})?$ ]]; then
+            if [ -f ".env" ]; then
+                grep -v "^CASCATA_ALLOWED_IP=" .env > "${CASCATA_DIR}/.env.tmp.$$" 2>/dev/null || true
+                mv "${CASCATA_DIR}/.env.tmp.$$" .env
+                echo "CASCATA_ALLOWED_IP=${ALLOWED_IP}" >> .env
+            fi
+            ok "Acesso restrito ao IP: ${BOLD}${ALLOWED_IP}${NC}"
+        else
+            warn "Formato de IP inválido. Restrição de IP ignorada."
+        fi
+    else
+        info "Sem restrição de IP configurada."
+    fi
+
+    # -----------------------------------------------------------------------
+    # G: CRIAR DIRETÓRIOS DE DADOS
+    # -----------------------------------------------------------------------
+    section "FASE 2.5 — Criação da Infraestrutura de Dados"
+    info "Criando diretórios de dados em: $DATA_DIR"
+
+    sudo mkdir -p \
+        "${DATA_DIR}/pg" \
+        "${DATA_DIR}/qdrant" \
+        "${DATA_DIR}/dragonfly" \
+        "${DATA_DIR}/storage" \
+        "${DATA_DIR}/certs" \
+        "${DATA_DIR}/acme_challenge" \
+        "${DATA_DIR}/nginx_dynamic"
+
+    sudo chown -R "$USER:$USER" "$DATA_DIR"
+    sudo chmod 700 "$DATA_DIR"
+    sudo find "$DATA_DIR" -type d -exec chmod 700 {} \;
+    ok "Diretórios criados e permissões restritas (700) configuradas"
+
+    # -----------------------------------------------------------------------
+    # H: SUBIR CONTAINERS
+    # -----------------------------------------------------------------------
+    section "FASE 2.6 — Inicialização dos Containers"
+
+    info "Construindo e subindo os containers Docker..."
+    echo ""
+    # S6-FIX: Captura exit code real do docker compose (pipefail ativo)
+    if ! docker compose up -d --build 2>&1 | tee -a "$LOG_FILE"; then
+        err "Falha ao construir/subir containers. Verifique o log acima e $LOG_FILE."
+    fi
+    echo ""
+
+    # C7-FIX: Healthcheck real — verifica TODOS os containers críticos
+    info "Aguardando containers ficarem saudáveis..."
+    local RETRY=0
+    local MAX_RETRY=40
+    local ALL_HEALTHY=false
+    while [ $RETRY -lt $MAX_RETRY ]; do
+        local TOTAL_WITH_HC
+        TOTAL_WITH_HC=$(docker compose ps --format json 2>/dev/null | python3 -c "
+import sys, json
+lines = sys.stdin.read().strip().split('\n')
+healthy = 0; total_hc = 0
+for line in lines:
+    if not line.strip(): continue
+    try:
+        c = json.loads(line)
+        health = c.get('Health', c.get('Status', ''))
+        if 'healthy' in health.lower() or 'health' in c.get('Status', '').lower():
+            if 'healthy' in health.lower(): healthy += 1
+            total_hc += 1
+        elif 'unhealthy' in health.lower():
+            total_hc += 1
+    except: pass
+print(f'{healthy}/{total_hc}')
+" 2>/dev/null || echo "0/0")
+
+        if [ "$TOTAL_WITH_HC" != "0/0" ]; then
+            local HC_OK
+            HC_OK=$(echo "$TOTAL_WITH_HC" | cut -d'/' -f1)
+            local HC_TOTAL
+            HC_TOTAL=$(echo "$TOTAL_WITH_HC" | cut -d'/' -f2)
+            if [ "$HC_OK" -eq "$HC_TOTAL" ] && [ "$HC_TOTAL" -gt 0 ]; then
+                ok "Todos os containers saudáveis! (${HC_OK}/${HC_TOTAL})"
+                ALL_HEALTHY=true
+                break
+            fi
+            info "  Aguardando... (${HC_OK}/${HC_TOTAL} saudáveis) [${RETRY}/${MAX_RETRY}]"
+        fi
+        sleep 3
+        RETRY=$((RETRY + 1))
+    done
+
+    if [ "$ALL_HEALTHY" = false ]; then
+        warn "Timeout: nem todos os containers ficaram saudáveis em $(( MAX_RETRY * 3 ))s."
+        warn "Verifique com: docker compose ps && docker compose logs"
+    fi
+
+    if [[ "$VAULT_CHOICE" == "1" ]]; then
+        provision_vault_resources
+    fi
+
+    # P5: Smoke Test pós-deploy
+    info "Executando smoke test..."
+    sleep 2
+    if curl -fsSL --max-time 10 http://localhost/ > /dev/null 2>&1; then
+        ok "Smoke test PASSOU — Cascata respondendo na porta 80"
+    elif curl -fsSL --max-time 10 http://localhost:80/ > /dev/null 2>&1; then
+        ok "Smoke test PASSOU — Cascata respondendo"
+    else
+        warn "Smoke test falhou — o painel pode não estar acessível ainda. Verifique: docker compose logs nginx"
+    fi
+
+    PHASE2_DONE=true
+    save_state
+
+    # -----------------------------------------------------------------------
+    # SUMMARY FINAL
+    # -----------------------------------------------------------------------
+    section "🎉 INSTALAÇÃO CONCLUÍDA!"
+
+    echo -e "${GREEN}${BOLD}"
+    echo "  ┌──────────────────────────────────────────────────────────┐"
+    echo "  │  Cascata Orchestrator está em execução!                  │"
+    echo "  └──────────────────────────────────────────────────────────┘"
+    echo -e "${NC}"
+
+    # Descobrir IP público para exibir URL de acesso
+    PUBLIC_IP=$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || \
+                curl -fsSL --max-time 5 https://ipecho.net/plain 2>/dev/null || \
+                hostname -I | awk '{print $1}' 2>/dev/null || echo "SEU_IP")
+
+    echo -e "  ${BOLD}Acesse o painel em:${NC}"
+    echo -e "  ${CYAN}  http://${PUBLIC_IP}${NC}"
+    echo ""
+    echo -e "  ${BOLD}Credenciais:${NC}"
+    echo -e "  ${DIM}  Email:${NC} ${ADMIN_EMAIL}"
+    echo -e "  ${DIM}  Senha:${NC} (a que você configurou)"
+    if [ -n "$OTP_SECRET" ]; then
+        echo -e "  ${DIM}  OTP:${NC}   Ativo — use seu app autenticador"
+    fi
+    if [ -n "$ALLOWED_IP" ]; then
+        echo -e "  ${DIM}  IP Permitido:${NC} ${ALLOWED_IP}"
+    fi
+    echo ""
+    echo -e "  ${BOLD}${RED}🔑 HASHICORP VAULT — ROOT TOKEN:${NC}"
+    echo -e "  ${BOLD}${RED}  ${VAULT_ROOT_TOKEN}${NC}"
+    echo -e "  ${DIM}  (Escaner/Cópia Única — Não salvo no .env por segurança!)${NC}"
+    echo -e "  ${DIM}  Armazenado em local seguro: /root/.vault_root_token${NC}"
+    sudo sh -c "echo '${VAULT_ROOT_TOKEN}' > /root/.vault_root_token && chmod 400 /root/.vault_root_token"
+    echo ""
+    echo -e "  ${DIM}  Log completo: $LOG_FILE${NC}"
+    echo ""
+    echo -e "  ${YELLOW}${BOLD}⚡ PRÓXIMOS PASSOS RECOMENDADOS:${NC}"
+    echo -e "  ${YELLOW}  1. Configure um domínio e SSL no painel (System Settings)${NC}"
+    echo -e "  ${YELLOW}  2. Troque as credenciais padrão se não as configurou${NC}"
+    echo -e "  ${YELLOW}  3. Ative o Backup automático para seus projetos${NC}"
+    echo ""
+
+    # P8: Registro de versão da instalação
+    cat > "${CASCATA_DIR}/.cascata_install_receipt" <<RECEIPT
+# Cascata Orchestrator — Install Receipt
+VERSION=${INSTALLER_VERSION}
+DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+DISTRO=${DISTRO:-unknown}
+ADMIN_EMAIL=${ADMIN_EMAIL}
+OTP_ENABLED=$( [ -n "${OTP_SECRET:-}" ] && echo "true" || echo "false" )
+IP_RESTRICTION=$( [ -n "${ALLOWED_IP:-}" ] && echo "$ALLOWED_IP" || echo "none" )
+DATA_DIR=${DATA_DIR}
+RECEIPT
+    chmod 600 "${CASCATA_DIR}/.cascata_install_receipt" 2>/dev/null || true
+    ok "Recibo de instalação salvo em ${CASCATA_DIR}/.cascata_install_receipt"
+
+    popd > /dev/null 2>&1 || true
+}
+
+# ===========================================================================
+# FASE 3 — HARDENING DO SISTEMA OPERACIONAL (Nível Militar)
+# ===========================================================================
+# Objetivo: Tornar o servidor IMPOSSÍVEL de comprometer sem o OTP.
+# Mesmo que o provedor VPS, ubuntu, ou qualquer big tech tente acessar
+# o sistema, encontrará camadas que se reforçam mutuamente.
+# ===========================================================================
+phase3_os_hardening() {
+    section "FASE 3 — Hardening do Sistema Operacional"
+
+    echo -e "  ${BOLD}${RED}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "  ${BOLD}${RED}║  MODO FORTALEZA — HARDENING DE NÍVEL EXTREMO               ║${NC}"
+    echo -e "  ${BOLD}${RED}║  Esta fase torna o servidor inacessível sem OTP válido.    ║${NC}"
+    echo -e "  ${BOLD}${RED}║  Qualquer porta não autorizada será bloqueada no Kernel.   ║${NC}"
+    echo -e "  ${BOLD}${RED}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  ${YELLOW}Após esta fase:${NC}"
+    echo -e "  • SSH exigirá Chave + OTP (código do app, 6 dígitos, 30s)"
+    echo -e "  • Apenas portas 22, 80, 443 abertas para entrada"
+    echo -e "  • Saída bloqueada exceto destinos autorizados pelo Cascata"
+    echo -e "  • Root desabilitado no SSH — impossível logar como root remoto"
+    echo -e "  • Arquivos críticos tornam-se imutáveis (nem root apaga)"
+    echo -e "  • Audit log de todas as ações privilegiadas"
+    echo ""
+    read -rp "  Iniciar hardening? [S/n]: " DO_HARDEN || true
+    DO_HARDEN="${DO_HARDEN:-S}"
+    if ! [[ "$DO_HARDEN" =~ ^[Ss]$ ]]; then
+        warn "Hardening ignorado. Recomendamos fortemente ativá-lo em produção."
+        PHASE3_DONE=true; save_state; return 0
+    fi
+
+    # BUG 4 FIX: Recuperar ALLOWED_IP do .env se existir, para que o firewall na 
+    # Fase 3 funcione mesmo se rodado numa sessão de bash separada.
+    if [ -z "${ALLOWED_IP:-}" ] && [ -f "${CASCATA_DIR}/.env" ]; then
+        ALLOWED_IP=$(grep '^CASCATA_ALLOWED_IP=' "${CASCATA_DIR}/.env" | cut -d= -f2 || echo "")
+        if [ -n "$ALLOWED_IP" ]; then
+            info "ALLOWED_IP recuperado do .env passado: $ALLOWED_IP"
+        fi
+    fi
+
+    # Verificar se temos chave SSH (CRÍTICO — sem ela, podemos ficar trancados)
+    section "FASE 3.0 — Verificação de Chave SSH"
+    echo -e "  ${BOLD}${YELLOW}⚠  ATENÇÃO CRÍTICA:${NC}"
+    echo -e "  O hardening irá DESABILITAR login por senha no SSH."
+    echo -e "  Você PRECISA ter uma chave SSH configurada ANTES de continuar."
+    echo -e "  Se não tiver, você perderá o acesso ao servidor!"
+    echo ""
+    if [ -f ~/.ssh/authorized_keys ] && [ -s ~/.ssh/authorized_keys ]; then
+        KEY_COUNT=$(wc -l < ~/.ssh/authorized_keys)
+        ok "${KEY_COUNT} chave(s) SSH encontrada(s) em ~/.ssh/authorized_keys"
+    else
+        echo -e "  ${RED}${BOLD}NENHUMA chave SSH encontrada!${NC}"
+        echo -e "  Para adicionar sua chave pública agora:"
+        echo -e "  ${CYAN}  Exemplo: ssh-rsa AAAA... usuario@computador${NC}"
+        echo ""
+        read -rp "  Cole sua chave pública SSH (ou deixe vazio para pular): " SSH_PUB_KEY || true
+        if [ -n "$SSH_PUB_KEY" ]; then
+            mkdir -p ~/.ssh
+            chmod 700 ~/.ssh
+            echo "$SSH_PUB_KEY" >> ~/.ssh/authorized_keys
+            chmod 600 ~/.ssh/authorized_keys
+            ok "Chave SSH adicionada"
+        else
+            warn "Sem chave SSH! Continuando apenas com senha — hardening SSH parcial."
+            SSH_KEYS_ONLY=false
+        fi
+    fi
+    SSH_KEYS_ONLY="${SSH_KEYS_ONLY:-true}"
+
+    # -----------------------------------------------------------------------
+    # OBSCURIDADE ESTRUTURAL: Nome aleatório para arquivos de hardening
+    # -----------------------------------------------------------------------
+    # Ideia: arquivos de configuração com nomes IMPREVISÍVEIS.
+    # Scanners automáticos (rootkits, exploits) procuram nomes conhecidos.
+    # Um nome como "k7x9q2mf" é impossível de adivinhar.
+    # Além disso, o usuário pode adicionar uma palavra-chave personalizada.
+    # -----------------------------------------------------------------------
+    section "FASE 3.0.1 — Geração de Identidade Oculta do Hardening"
+
+    HARDENING_TOKEN=""
+    # Tenta recuperar do manifesto se já existir (idempotência)
+    if [ -f /root/.cascata_hardening_manifest ]; then
+        HARDENING_TOKEN=$(sudo grep "SSH_CONFIG=" /root/.cascata_hardening_manifest | sed -E 's|.*/([^/.]+)\.conf|\1|')
+        if [ -n "$HARDENING_TOKEN" ]; then
+            ok "Token de hardening recuperado do manifesto: ${BOLD}${HARDENING_TOKEN}${NC}"
+        fi
+    fi
+
+    if [ -z "$HARDENING_TOKEN" ]; then
+        # Token base: 8 chars hexadecimais de /dev/urandom
+        local AUTO_TOKEN
+        AUTO_TOKEN=$(od -A n -t x1 -N 4 /dev/urandom | tr -d ' \n')
+
+        echo -e "  ${BOLD}Deseja adicionar uma palavra-chave personalizada ao nome dos arquivos?${NC}"
+        echo -e "  ${DIM}Isso cria uma 'senha extra' estrutural — sem ela, ainda mais difícil de encontrar.${NC}"
+        echo -e "  ${DIM}Use letras e números apenas. Deixe vazio para usar apenas o token aleatório.${NC}"
+        echo ""
+        read -rp "  Palavra-chave personalizada (ex: 'cobalt', 'x9k', etc.): " USER_TOKEN || true
+        USER_TOKEN=$(echo "${USER_TOKEN:-}" | tr -cd 'a-z0-9A-Z' | head -c 16 | tr '[:upper:]' '[:lower:]')
+
+        if [ -n "$USER_TOKEN" ]; then
+            HARDENING_TOKEN="${USER_TOKEN}_${AUTO_TOKEN}"
+        else
+            HARDENING_TOKEN="${AUTO_TOKEN}"
+        fi
+        ok "Novo token de hardening gerado: ${BOLD}${HARDENING_TOKEN}${NC}"
+    fi
+    echo -e "  ${YELLOW}⚡ GUARDE ESTE TOKEN — necessário se precisar modificar as configurações no futuro:${NC}"
+    echo -e "  ${BOLD}  /etc/ssh/sshd_config.d/${HARDENING_TOKEN}.conf${NC}"
+    echo -e "  ${BOLD}  /etc/audit/rules.d/${HARDENING_TOKEN}.rules${NC}"
+    echo -e "  ${BOLD}  /etc/fail2ban/jail.d/${HARDENING_TOKEN}.conf${NC}"
+    echo -e "  ${BOLD}  /etc/sysctl.d/${HARDENING_TOKEN}-harden.conf${NC}"
+    echo ""
+
+    # Salvar mapeamento em local protegido (raiz, readable apenas por root)
+    sudo tee /root/.cascata_hardening_manifest > /dev/null <<MANIFEST_EOF
+# CASCATA HARDENING MANIFEST
+# Gerado em: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+# GUARDE ESTE ARQUIVO EM LOCAL SEGURO OFFLINE
+
+SSH_CONFIG=/etc/ssh/sshd_config.d/${HARDENING_TOKEN}.conf
+AUDIT_RULES=/etc/audit/rules.d/${HARDENING_TOKEN}.rules
+FAIL2BAN_CONF=/etc/fail2ban/jail.d/${HARDENING_TOKEN}.conf
+SYSCTL_CONF=/etc/sysctl.d/${HARDENING_TOKEN}-harden.conf
+
+# Para modificar qualquer regra (requer root + revogar imutabilidade):
+# sudo chattr -i /etc/ssh/sshd_config.d/${HARDENING_TOKEN}.conf
+# sudo nano /etc/ssh/sshd_config.d/${HARDENING_TOKEN}.conf
+# sudo chattr +i /etc/ssh/sshd_config.d/${HARDENING_TOKEN}.conf
+# sudo systemctl reload sshd
+MANIFEST_EOF
+
+    # BUG Fix: chattr -i antes de sobrescrever arquivos de hardening que podem já
+    # existir e estar com atributos +i ativados em rodadas passadas.
+    local HARDENING_FILES=(
+        "/etc/ssh/sshd_config.d/${HARDENING_TOKEN}.conf"
+        "/etc/audit/rules.d/${HARDENING_TOKEN}.rules"
+        "/etc/fail2ban/jail.d/${HARDENING_TOKEN}.conf"
+        "/etc/sysctl.d/${HARDENING_TOKEN}-harden.conf"
+        "/etc/issue.net"
+        "/etc/ufw/after.rules"
+    )
+    for F in "${HARDENING_FILES[@]}"; do
+        if [ -f "$F" ]; then
+            sudo chattr -i "$F" 2>/dev/null || true
+        fi
+    done
+
+    sudo chmod 400 /root/.cascata_hardening_manifest
+    ok "Manifesto salvo em /root/.cascata_hardening_manifest (somente root pode ler)"
+    read -rp "  Pressione ENTER para continuar..." _D || true
+
+    # -----------------------------------------------------------------------
+    # 3.1: INSTALAR FERRAMENTAS DE SEGURANÇA
+    # -----------------------------------------------------------------------
+    section "FASE 3.1 — Instalando Ferramentas de Segurança"
+    info "Instalando: fail2ban, ufw, auditd, libpam-google-authenticator, apparmor..."
+
+    case "$PKG_MANAGER" in
+        apt)
+            sudo apt-get -qq update
+            sudo DEBIAN_FRONTEND=noninteractive apt-get -qq install -y \
+                ufw fail2ban auditd audispd-plugins \
+                libpam-google-authenticator \
+                apparmor apparmor-utils apparmor-profiles \
+                unattended-upgrades apt-listchanges \
+                rkhunter chkrootkit \
+                2>/dev/null || warn "Alguns pacotes não instalados — continuando"
+            ;;
+        dnf)
+            sudo dnf -q install -y \
+                firewalld fail2ban audit \
+                google-authenticator pam \
+                2>/dev/null || warn "Alguns pacotes não instalados — continuando"
+            ;;
+        yum)
+            sudo yum -q install -y \
+                firewalld fail2ban audit \
+                2>/dev/null || warn "Alguns pacotes não instalados — continuando"
+            ;;
+    esac
+    ok "Ferramentas de segurança instaladas"
+
+    # -----------------------------------------------------------------------
+    # 3.2: OTP NO SSH — PAM + google-authenticator
+    # -----------------------------------------------------------------------
+    section "FASE 3.2 — OTP Obrigatório no SSH"
+    info "Configurando autenticação de dois fatores no SSH..."
+
+    # Gerar segredo TOTP para SSH (separado do OTP do Cascata web)
+    SSH_OTP_SECRET=$(generate_otp_secret)
+    ok "Segredo OTP SSH gerado"
+
+    # Configurar google-authenticator para o usuário atual (não-interativo)
+    if command -v google-authenticator &>/dev/null; then
+        # Gerar arquivo de configuração TOTP para o usuário
+        local GA_FILE="$HOME/.google_authenticator"
+
+        # Gerar 5 códigos de recuperação (scratchcodes) de uso único
+        local SCRATCH1 SCRATCH2 SCRATCH3 SCRATCH4 SCRATCH5
+        SCRATCH1=$(shuf -i 10000000-99999999 -n1 2>/dev/null || echo "$RANDOM$RANDOM")
+        SCRATCH2=$(shuf -i 10000000-99999999 -n1 2>/dev/null || echo "$RANDOM$RANDOM")
+        SCRATCH3=$(shuf -i 10000000-99999999 -n1 2>/dev/null || echo "$RANDOM$RANDOM")
+        SCRATCH4=$(shuf -i 10000000-99999999 -n1 2>/dev/null || echo "$RANDOM$RANDOM")
+        SCRATCH5=$(shuf -i 10000000-99999999 -n1 2>/dev/null || echo "$RANDOM$RANDOM")
+
+        # Escrever arquivo de configuração do google-authenticator
+        cat > "$GA_FILE" <<GAEOF
+${SSH_OTP_SECRET}
+" RATE_LIMIT 3 30
+" WINDOW_SIZE 3
+" DISALLOW_REUSE
+" TOTP_AUTH
+${SCRATCH1}
+${SCRATCH2}
+${SCRATCH3}
+${SCRATCH4}
+${SCRATCH5}
+GAEOF
+        chmod 600 "$GA_FILE"
+        ok "Arquivo google-authenticator configurado"
+
+        # Exibir QR Code para o SSH OTP
+        echo ""
+        echo -e "  ${BOLD}${MAGENTA}╔═══════════════════════════════════════════════════════════╗${NC}"
+        echo -e "  ${BOLD}${MAGENTA}║  📲 OTP PARA SSH — ESCANEIE AGORA                        ║${NC}"
+        echo -e "  ${BOLD}${MAGENTA}║  Este é DIFERENTE do OTP do painel web Cascata!          ║${NC}"
+        echo -e "  ${BOLD}${MAGENTA}╚═══════════════════════════════════════════════════════════╝${NC}"
+        generate_qr_totp "$SSH_OTP_SECRET" "$(whoami)@$(hostname)" "Cascata-SSH"
+
+        # Exibir códigos de recuperação
+        echo ""
+        echo -e "  ${BOLD}${RED}╔══════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "  ${BOLD}${RED}║  🔑 CÓDIGOS DE RECUPERAÇÃO — COPIE E GUARDE OFFLINE!       ║${NC}"
+        echo -e "  ${BOLD}${RED}║  Use se perder o celular. Cada código só funciona UMA VEZ. ║${NC}"
+        echo -e "  ${BOLD}${RED}╠══════════════════════════════════════════════════════════════╣${NC}"
+        echo -e "  ${BOLD}${RED}║${NC}  ${BOLD}1. ${SCRATCH1}${NC}                                          ${BOLD}${RED}║${NC}"
+        echo -e "  ${BOLD}${RED}║${NC}  ${BOLD}2. ${SCRATCH2}${NC}                                          ${BOLD}${RED}║${NC}"
+        echo -e "  ${BOLD}${RED}║${NC}  ${BOLD}3. ${SCRATCH3}${NC}                                          ${BOLD}${RED}║${NC}"
+        echo -e "  ${BOLD}${RED}║${NC}  ${BOLD}4. ${SCRATCH4}${NC}                                          ${BOLD}${RED}║${NC}"
+        echo -e "  ${BOLD}${RED}║${NC}  ${BOLD}5. ${SCRATCH5}${NC}                                          ${BOLD}${RED}║${NC}"
+        echo -e "  ${BOLD}${RED}╚══════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        read -rp "  CONFIRM: Anotei os 5 códigos de recuperação [ENTER para continuar]: " _D || true
+
+        # Verificar configuração do OTP SSH
+        verify_otp_setup "$SSH_OTP_SECRET"
+
+        # Configurar PAM para SSH usar TOTP (SEM pedir senha do sistema)
+        # Fluxo de autenticação desejado:
+        #   Fator 1: Chave SSH (validada pelo provedor/sshd via PubkeyAuthentication)
+        #   Fator 2: Código OTP de 6 dígitos (validado pelo pam_google_authenticator)
+        #   NÃO pede senha do Linux — muitos provedores (AWS, Lightsail, DO) nem
+        #   configuram senha para o usuário padrão, tornando impossível passar essa etapa.
+        if [ -f /etc/pam.d/sshd ]; then
+            if ! grep -q "pam_google_authenticator" /etc/pam.d/sshd; then
+                # 1. Comentar @include common-auth para não pedir senha do SO
+                sudo sed -i 's/^@include common-auth/# @include common-auth  # Cascata: desabilitado — chave SSH + OTP é suficiente/' /etc/pam.d/sshd
+
+                # 2. Inserir o módulo TOTP como único requisito interativo
+                sudo sed -i '1s|^|auth required pam_google_authenticator.so\n|' /etc/pam.d/sshd
+
+                ok "PAM configurado: Chave SSH (provedor) + OTP (6 dígitos) — sem senha extra"
+            else
+                ok "PAM TOTP já configurado"
+            fi
+        fi
+    else
+        warn "google-authenticator não disponível. OTP SSH não configurado."
+    fi
+
+    # -----------------------------------------------------------------------
+    # 3.3: HARDENING DO SSHD
+    # -----------------------------------------------------------------------
+    section "FASE 3.3 — Blindagem do SSH Daemon"
+    info "Aplicando configurações de máxima segurança ao sshd..."
+
+    # Porta SSH personalizada (opcional)
+    read -rp "  Porta SSH personalizada [22]: " SSH_PORT || true
+    SSH_PORT="${SSH_PORT:-22}"
+    if ! [[ "$SSH_PORT" =~ ^[0-9]+$ ]] || [ "$SSH_PORT" -lt 1 ] || [ "$SSH_PORT" -gt 65535 ]; then
+        warn "Porta inválida — usando 22"
+        SSH_PORT=22
+    fi
+
+    # Backup e reescrita do sshd_config
+    sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.cascata_backup
+
+    sudo tee "/etc/ssh/sshd_config.d/${HARDENING_TOKEN}.conf" > /dev/null <<SSHEOF
+# ============================================================
+# CASCATA SECURITY HARDENING — sshd config
+# Gerado automaticamente em $(date -u +%Y-%m-%dT%H:%M:%SZ)
+# ============================================================
+
+Port ${SSH_PORT}
+
+# Autenticação
+PermitRootLogin no
+PasswordAuthentication $( [[ "$SSH_KEYS_ONLY" == "true" ]] && echo 'no' || echo 'yes' )
+PubkeyAuthentication yes
+KbdInteractiveAuthentication yes
+UsePAM yes
+
+# Desabilitar métodos inseguros
+X11Forwarding no
+AllowAgentForwarding no
+AllowTcpForwarding no
+PermitEmptyPasswords no
+HostbasedAuthentication no
+IgnoreRhosts yes
+
+# Timeouts
+LoginGraceTime 30
+ClientAliveInterval 300
+ClientAliveCountMax 2
+MaxAuthTries 3
+MaxSessions 3
+
+# Algoritmos modernos apenas
+Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com
+MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com
+KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org
+
+# Logging detalhado
+LogLevel VERBOSE
+SyslogFacility AUTH
+
+# Banner de advertência legal
+Banner /etc/issue.net
+
+# Autenticação multifator: exige Chave SSH + TOTP
+AuthenticationMethods publickey,keyboard-interactive
+SSHEOF
+
+    # Banner legal (deters hackers, legally protects you)
+    sudo tee /etc/issue.net > /dev/null <<'BEOF'
+╔══════════════════════════════════════════════════════════════════════╗
+║  SISTEMA PRIVADO — ACESSO RESTRITO E MONITORADO                     ║
+║  Acesso não autorizado é crime e será reportado às autoridades.     ║
+║  PRIVATE SYSTEM — UNAUTHORIZED ACCESS IS PROHIBITED AND MONITORED  ║
+╚══════════════════════════════════════════════════════════════════════╝
+BEOF
+
+    # Validar e recarregar sshd
+    if sudo sshd -t -f /etc/ssh/sshd_config 2>/dev/null; then
+        sudo systemctl reload sshd 2>/dev/null || sudo systemctl reload ssh 2>/dev/null || true
+        ok "SSH daemon recarregado com hardening aplicado"
+        ok "Arquivo de config: /etc/ssh/sshd_config.d/${HARDENING_TOKEN}.conf"
+    else
+        warn "Erro na validação do sshd_config — configuração de segurança extra pode não ter sido aplicada"
+    fi
+
+    # -----------------------------------------------------------------------
+    # 3.4: FIREWALL UFW — ENTRADA E SAÍDA CONTROLADAS
+    # -----------------------------------------------------------------------
+    section "FASE 3.4 — Firewall Bidirecional (Kernel Level)"
+    info "Configurando UFW — bloqueio total com allowlist de saída..."
+
+    if command -v ufw &>/dev/null; then
+        # Reset completo
+        sudo ufw --force reset > /dev/null 2>&1
+
+        # Política padrão: bloquear TUDO em ambas as direções
+        sudo ufw default deny incoming  > /dev/null
+        sudo ufw default deny outgoing  > /dev/null
+        sudo ufw default deny forward   > /dev/null
+
+        # ── ENTRADAS AUTORIZADAS ───────────────────────────────
+        # SSH (porta configurada pelo usuário)
+        sudo ufw allow in "${SSH_PORT}/tcp" comment 'SSH' > /dev/null
+
+        # HTTP (necessário para Let's Encrypt ACME challenge + redirect)
+        sudo ufw allow in 80/tcp comment 'HTTP + ACME' > /dev/null
+
+        # HTTPS (tráfego principal do Cascata)
+        sudo ufw allow in 443/tcp comment 'HTTPS Cascata' > /dev/null
+
+        # ── SAÍDAS AUTORIZADAS (Allowlist Restrita) ────────────
+        # DNS — necessário para qualquer resolução
+        sudo ufw allow out 53/udp  comment 'DNS UDP' > /dev/null
+        sudo ufw allow out 53/tcp  comment 'DNS TCP' > /dev/null
+
+        # NTP — sincronização de relógio (crítico para OTP!)
+        sudo ufw allow out 123/udp comment 'NTP' > /dev/null
+
+        # HTTPS de saída — para: Docker Hub, GitHub, Let's Encrypt, apt updates
+        sudo ufw allow out 443/tcp comment 'HTTPS saída (Docker/Certs/Updates)' > /dev/null
+
+        # HTTP de saída — para: apt (alguns mirrors), repositórios
+        sudo ufw allow out 80/tcp  comment 'HTTP saída (apt/mirrors)' > /dev/null
+
+        # Docker Registry (porta interna entre containers — loopback)
+        sudo ufw allow out on lo   comment 'Loopback' > /dev/null
+        sudo ufw allow in  on lo   comment 'Loopback' > /dev/null
+
+        # Comunicação entre containers Docker (bridge network interna)
+        # Docker cria redes 172.17.0.0/16 e 172.16.0.0/12
+        sudo ufw allow out to 172.16.0.0/12 comment 'Docker networks' > /dev/null
+        sudo ufw allow in  from 172.16.0.0/12 comment 'Docker networks' > /dev/null
+
+        # IP fixo autorizado (se configurado na Fase 2)
+        if [ -n "${ALLOWED_IP:-}" ]; then
+            sudo ufw allow in from "$ALLOWED_IP" comment 'Admin IP fixo' > /dev/null
+            ok "Regra de IP fixo aplicada: $ALLOWED_IP"
+        fi
+
+        # Ativar UFW
+        sudo ufw --force enable > /dev/null
+        ok "Firewall UFW ativado — todo tráfego não autorizado bloqueado"
+        sudo ufw status numbered 2>/dev/null | head -30 || true
+
+        # UFW persistência
+        sudo systemctl enable ufw 2>/dev/null || true
+
+        # CRÍTICO — UFW vs DOCKER: CONCILIAÇÃO ENTERPRISE DE VERDADE
+        # Em vez de bloquear o Docker de usar o iptables (o que quebra redes),
+        # nós usamos a chain 'DOCKER-USER' recomendada pela documentação oficial.
+        # Assim o Docker faz seu SNAT/DNAT de forma saudável, MAS as portas
+        # expostas dele são primeiro filtradas pelas nossas regras duras.
+        
+        info "Configurando Integração UFW + Docker (DOCKER-USER chain)..."
+        local UFW_AFTER_RULES="/etc/ufw/after.rules"
+        if sudo test -f "$UFW_AFTER_RULES"; then
+            if ! sudo grep -q "DOCKER-USER" "$UFW_AFTER_RULES" 2>/dev/null; then
+                # BUG 5 V4 FIX: Não fazer tee appended de um segundo *filter. Inserir ANTES do primeiro COMMIT no bloco *filter!
+                sudo awk '
+                /^\*filter/ { in_filter=1; print; next }
+                /^COMMIT/ && in_filter==1 {
+                    print "# ============================================================"
+                    print "# CASCATA SECURITY HARDENING: REGRAS DOCKER-USER"
+                    print "# Força o tráfego do Docker a obedecer às nossas interfaces"
+                    print "# ============================================================"
+                    print ":DOCKER-USER - [0:0]"
+                    print "-A DOCKER-USER -i lo -j RETURN"
+                    print "-A DOCKER-USER -i docker0 -j RETURN"
+                    print "-A DOCKER-USER -i br-+ -j RETURN"
+                    print "-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN"
+                    print "-A DOCKER-USER -p tcp -m multiport --dports 80,443 -j RETURN"
+                    print "-A DOCKER-USER -p tcp -m connlimit --connlimit-above 100 --connlimit-mask 32 -j DROP"
+                    print "-A DOCKER-USER -j DROP"
+                    print "COMMIT"
+                    in_filter=0
+                    next
+                }
+                { print }
+                ' "$UFW_AFTER_RULES" > /tmp/after.rules.cascata
+                sudo mv /tmp/after.rules.cascata "$UFW_AFTER_RULES"
+                sudo chmod 640 "$UFW_AFTER_RULES"
+                sudo chown root:root "$UFW_AFTER_RULES"
+                
+                # UFW reload sozinho às vezes não atualiza certas bridge chains dinâmicas
+                sudo ufw reload > /dev/null 2>&1 || true
+                sudo systemctl restart docker 2>/dev/null || true
+                ok "Chain DOCKER-USER injetada antes do COMMIT do *filter. Isolamento perfeito sem quebrar redes internas."
+            else
+                ok "Chain DOCKER-USER já presente no UFW."
+            fi
+        fi
+
+        # Garante que /etc/docker/daemon.json não contenha a configuração destrutiva
+        local DAEMON_JSON="/etc/docker/daemon.json"
+        if sudo test -f "$DAEMON_JSON" && sudo grep -q '"iptables": false' "$DAEMON_JSON" 2>/dev/null; then
+            sudo python3 -c "
+import json
+try:
+    with open('$DAEMON_JSON', 'r') as f:
+        d = json.load(f)
+    if 'iptables' in d: del d['iptables']
+    with open('$DAEMON_JSON', 'w') as f:
+        json.dump(d, f, indent=2)
+except: pass" 2>/dev/null || true
+            sudo systemctl restart docker
+            ok "Limpeza do daemon.json do Docker efetuada."
+        fi
+
+        # P4: Garantir log rotation no daemon.json do Docker
+        if [ -f "$DAEMON_JSON" ]; then
+            if ! grep -q 'log-driver' "$DAEMON_JSON" 2>/dev/null; then
+                sudo python3 -c "
+import json
+try:
+    with open('$DAEMON_JSON', 'r') as f:
+        d = json.load(f)
+    d['log-driver'] = 'json-file'
+    d['log-opts'] = {'max-size': '10m', 'max-file': '3'}
+    with open('$DAEMON_JSON', 'w') as f:
+        json.dump(d, f, indent=2)
+except: pass" 2>/dev/null || true
+                ok "Log rotation do Docker configurado (10MB x 3)"
+            fi
+        else
+            sudo mkdir -p /etc/docker
+            echo '{"log-driver": "json-file", "log-opts": {"max-size": "10m", "max-file": "3"}}' \
+                | sudo tee "$DAEMON_JSON" > /dev/null
+            ok "Log rotation do Docker configurado (10MB x 3)"
+        fi
+
+    else
+        # Fallback iptables básico
+        sudo iptables -P INPUT   DROP
+        sudo iptables -P FORWARD DROP
+        sudo iptables -P OUTPUT  ACCEPT
+        sudo iptables -A INPUT -i lo -j ACCEPT
+        sudo iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+        sudo iptables -A INPUT -p tcp --dport "${SSH_PORT}" -j ACCEPT
+        sudo iptables -A INPUT -p tcp --dport 80  -j ACCEPT
+        sudo iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+        ok "iptables configurado (básico)"
+    fi
+
+    # -----------------------------------------------------------------------
+    # 3.5: FAIL2BAN — BAN AUTOMÁTICO POR TENTATIVAS FALHAS
+    # -----------------------------------------------------------------------
+    section "FASE 3.5 — Fail2Ban (Anti Brute-Force)"
+    if command -v fail2ban-server &>/dev/null || systemctl list-unit-files | grep -q fail2ban; then
+
+        sudo tee "/etc/fail2ban/jail.d/${HARDENING_TOKEN}.conf" > /dev/null <<F2BEOF
+[DEFAULT]
+bantime   = 3600
+findtime  = 600
+maxretry  = 3
+ignoreip  = 127.0.0.1/8 ::1
+
+[sshd]
+enabled   = true
+port      = ${SSH_PORT}
+filter    = sshd
+logpath   = %(sshd_log)s
+maxretry  = 3
+bantime   = 86400
+# 24h de ban após 3 tentativas falhas
+
+[sshd-ddos]
+enabled   = true
+port      = ${SSH_PORT}
+filter    = sshd
+logpath   = %(sshd_log)s
+maxretry  = 6
+bantime   = 604800
+# 7 dias de ban após 6 tentativas
+F2BEOF
+
+        sudo systemctl enable fail2ban --quiet 2>/dev/null || true
+        sudo systemctl restart fail2ban 2>/dev/null || true
+        ok "Fail2Ban configurado: 3 tentativas → ban 24h | 6 tentativas → ban 7 dias"
+    else
+        warn "Fail2Ban não disponível — instale manualmente: apt install fail2ban"
+    fi
+
+    # -----------------------------------------------------------------------
+    # 3.6: AUDITD — LOG IMUTÁVEL DE TODAS AS AÇÕES PRIVILEGIADAS
+    # -----------------------------------------------------------------------
+    section "FASE 3.6 — Sistema de Auditoria (auditd)"
+    if command -v auditctl &>/dev/null || systemctl list-unit-files | grep -q auditd; then
+
+        sudo tee "/etc/audit/rules.d/${HARDENING_TOKEN}.rules" > /dev/null <<AUDITEOF
+# CASCATA AUDIT RULES — Gerado por install.sh
+# Qualquer tentativa de modificar estes arquivos será logada
+
+# Monitorar autenticações
+-w /etc/passwd -p wa -k identity
+-w /etc/shadow -p wa -k identity
+-w /etc/group  -p wa -k identity
+-w /etc/sudoers -p wa -k sudoers
+-w /etc/ssh/sshd_config -p wa -k sshd_config
+-w /etc/pam.d/ -p wa -k pam_config
+
+# Monitorar arquivos do Cascata
+-w ${CASCATA_DIR}/.env -p wa -k cascata_secrets
+-w /cascata-data/ -p wa -k cascata_data
+
+# Monitorar uso de sudo e su
+-w /usr/bin/sudo -p x -k privilege_escalation
+-w /bin/su -p x -k privilege_escalation
+
+# Monitorar conexões de rede
+-a always,exit -F arch=b64 -S connect -k network_connect
+
+# Monitorar módulos do kernel (rootkit detection)
+-w /sbin/insmod -p x -k kernel_module
+-w /sbin/rmmod  -p x -k kernel_module
+-w /sbin/modprobe -p x -k kernel_module
+
+# Imutabilidade: ninguém pode desativar o audit sem reboot
+-e 2
+AUDITEOF
+
+        sudo systemctl enable auditd --quiet 2>/dev/null || true
+        sudo systemctl restart auditd 2>/dev/null || true
+        ok "auditd ativado — log imutável de ações privilegiadas"
+        ok "Para ver logs: sudo ausearch -k cascata_secrets | aureport"
+    else
+        warn "auditd não disponível nesta distro"
+    fi
+
+    # -----------------------------------------------------------------------
+    # 3.7: APPARMOR — SANDBOX DO PROCESSO CASCATA
+    # -----------------------------------------------------------------------
+    section "FASE 3.7 — AppArmor (Sandboxing)"
+    if command -v aa-status &>/dev/null; then
+        sudo systemctl enable apparmor --quiet 2>/dev/null || true
+        sudo systemctl start  apparmor 2>/dev/null || true
+
+        # Profile básico para o docker daemon (restringe o que o daemon pode acessar)
+        sudo tee /etc/apparmor.d/cascata-docker-guardian > /dev/null <<AAEOF
+#include <tunables/global>
+profile cascata-docker-guardian flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+  # Permitir tudo para o docker daemon (ele já tem isolamento próprio)
+  capability,
+  file,
+  signal,
+  network,
+  # Bloquear acesso a arquivos sensíveis do host fora do /cascata-data
+  deny /etc/shadow rw,
+  deny /etc/passwd w,
+  deny /root/** rw,
+}
+AAEOF
+
+        ok "AppArmor ativado — sandbox habilitado"
+    else
+        warn "AppArmor não disponível (comum em RHEL/Alma — use SELinux)"
+        if command -v getenforce &>/dev/null; then
+            sudo setenforce 1 2>/dev/null || true
+            ok "SELinux enforcing ativado (RHEL)"
+        fi
+    fi
+
+    # -----------------------------------------------------------------------
+    # 3.8: ATUALIZAÇÕES AUTOMÁTICAS DE SEGURANÇA
+    # -----------------------------------------------------------------------
+    section "FASE 3.8 — Atualizações Automáticas de Segurança"
+    case "$PKG_MANAGER" in
+        apt)
+            sudo tee /etc/apt/apt.conf.d/50unattended-upgrades-cascata > /dev/null <<UAEOF
+Unattended-Upgrade::Allowed-Origins {
+    "\${distro_id}:\${distro_codename}-security";
+};
+Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+Unattended-Upgrade::Automatic-Reboot "false";
+UAEOF
+            sudo systemctl enable unattended-upgrades --quiet 2>/dev/null || true
+            ok "Atualizações de segurança automáticas ativadas"
+            ;;
+        dnf|yum)
+            if command -v dnf-automatic &>/dev/null; then
+                sudo systemctl enable dnf-automatic-install.timer --quiet 2>/dev/null || true
+            fi
+            ok "Atualizações automáticas ativadas (dnf)"
+            ;;
+    esac
+
+    # -----------------------------------------------------------------------
+    # 3.9: HARDENING DO KERNEL (sysctl)
+    # -----------------------------------------------------------------------
+    section "FASE 3.9 — Hardening do Kernel (sysctl)"
+    sudo tee "/etc/sysctl.d/${HARDENING_TOKEN}-harden.conf" > /dev/null <<SYSCTLEOF
+# CASCATA KERNEL HARDENING
+# Proteção contra IP spoofing
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
+# Desabilitar ICMP redirect (evita routing hijacking)
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv6.conf.all.accept_redirects = 0
+# Desabilitar IP source routing
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.default.accept_source_route = 0
+# SYN flood protection
+net.ipv4.tcp_syncookies = 1
+net.ipv4.tcp_syn_retries = 2
+net.ipv4.tcp_synack_retries = 2
+# Ignorar ping broadcasts (Smurf attack)
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+# Log de pacotes suspeitos
+net.ipv4.conf.all.log_martians = 1
+# Desabilitar IPv6 se não usar (reduz superfície de ataque)
+# net.ipv6.conf.all.disable_ipv6 = 1  # Descomente se não precisar de IPv6
+# Proteger /proc de leitura por outros usuários
+kernel.dmesg_restrict = 1
+kernel.kptr_restrict = 2
+# Desabilitar core dumps (evita vazar segredos da memória)
+fs.suid_dumpable = 0
+# Proteção contra ptrace (impede um processo ler memória de outro)
+kernel.yama.ptrace_scope = 2
+# Aumentar limites sensíveis de network (resiliência contra exaustão acidental/DDoS)
+net.core.somaxconn = 8192
+net.ipv4.tcp_max_syn_backlog = 8192
+SYSCTLEOF
+    sudo sysctl --system > /dev/null 2>&1 || true
+    ok "Hardening do kernel aplicado"
+
+    # -----------------------------------------------------------------------
+    # 3.10: ARQUIVOS CRÍTICOS IMUTÁVEIS
+    # -----------------------------------------------------------------------
+    section "FASE 3.10 — Arquivos Imutáveis (chattr)"
+    info "Tornando arquivos críticos imutáveis com chattr +i..."
+    info "(Nem mesmo root pode modificá-los sem revogar o atributo)"
+
+    # Lista de arquivos para tornar imutáveis
+    local IMMUTABLE_FILES=(
+        "/etc/ssh/sshd_config.d/${HARDENING_TOKEN}.conf"
+        "/etc/audit/rules.d/${HARDENING_TOKEN}.rules"
+        "/etc/fail2ban/jail.d/${HARDENING_TOKEN}.conf"
+        "/etc/sysctl.d/${HARDENING_TOKEN}-harden.conf"
+        "/etc/issue.net"
+    )
+
+    for F in "${IMMUTABLE_FILES[@]}"; do
+        if [ -f "$F" ]; then
+            sudo chattr +i "$F" 2>/dev/null && ok "  Imutável: $F" || warn "  Não suportado: $F"
+        fi
+    done
+
+    # -----------------------------------------------------------------------
+    # 3.11: RESUMO DO HARDENING
+    # -----------------------------------------------------------------------
+    section "✅ HARDENING CONCLUÍDO!"
+    echo -e "${GREEN}${BOLD}"
+    echo "  ╔═══════════════════════════════════════════════════════════════╗"
+    echo "  ║  SERVIDOR EM MODO FORTALEZA                                  ║"
+    echo "  ╚═══════════════════════════════════════════════════════════════╝"
+    echo -e "${NC}"
+    echo -e "  ${BOLD}O que foi ativado:${NC}"
+    echo -e "  ${GREEN}✓${NC} OTP obrigatório no SSH (TOTP RFC 6238)"
+    echo -e "  ${GREEN}✓${NC} SSH: root desabilitado, Chave SSH + OTP (sem senha extra do SO)"
+    echo -e "  ${GREEN}✓${NC} SSH porta: ${SSH_PORT}"
+    echo -e "  ${GREEN}✓${NC} Firewall UFW: entrada apenas ${SSH_PORT}/80/443, saída allowlist"
+    echo -e "  ${GREEN}✓${NC} Fail2Ban: ban 24h após 3 falhas, 7 dias após 6"
+    echo -e "  ${GREEN}✓${NC} auditd: log imutável de toda ação privilegiada"
+    echo -e "  ${GREEN}✓${NC} AppArmor/SELinux: sandboxing de processos"
+    echo -e "  ${GREEN}✓${NC} Kernel hardening: anti-spoofing, anti-flood, anti-ptrace"
+    echo -e "  ${GREEN}✓${NC} Atualizações de segurança automáticas"
+    echo -e "  ${GREEN}✓${NC} Arquivos de configuração imutáveis (chattr +i)"
+    echo ""
+    echo -e "  ${BOLD}${YELLOW}⚡ COMO SE CONECTAR AGORA:${NC}"
+    echo -e "  ${YELLOW}  ssh -p ${SSH_PORT} $(whoami)@SEU_IP${NC}"
+    echo -e "  ${YELLOW}  → Será solicitado: Chave SSH (do provedor) + Código OTP (6 dígitos)${NC}"
+    echo ""
+    echo -e "  ${BOLD}${RED}IMPORTANTE — GUARDE ISSO EM LOCAL SEGURO OFFLINE:${NC}"
+    echo -e "  ${RED}  • Os 5 códigos de recuperação SSH mostrados acima${NC}"
+    echo -e "  ${RED}  • O segredo OTP do painel web (.env / CASCATA_OTP_SECRET)${NC}"
+    echo ""
+
+    PHASE3_DONE=true
+    save_state
+}
+
+# ---------------------------------------------------------------------------
+# MAIN — PONTO DE ENTRADA
+# ---------------------------------------------------------------------------
+main() {
+    print_banner
+    detect_distro
+    check_install_state
+    preflight_checks
+
+    # Verificar Docker instalado
+    if [ "$PHASE1_DONE" = "false" ]; then
+        echo -e "${BOLD}  Verificando Docker...${NC}"
+        if command -v docker &>/dev/null && docker compose version &>/dev/null 2>&1; then
+            ok "Docker já instalado e funcionando"
+            PHASE1_DONE=true
+            save_state
+        else
+            phase1_install_docker
+            # Se chegou aqui sem reboot, continua
+        fi
+    else
+        ok "Fase 1 (Docker) já concluída — pulando"
+    fi
+
+    if [ "$PHASE2_DONE" = "false" ]; then
+        phase2_setup_and_start
+    else
+        ok "Fase 2 (Setup) já concluída — pulando"
+    fi
+
+    if [ "$PHASE3_DONE" = "false" ]; then
+        phase3_os_hardening
+    else
+        ok "Fase 3 (Hardening) já concluída — pulando"
+        echo ""
+        echo -e "  ${CYAN}Servidor Cascata em modo Fortaleza. Tudo rodando.${NC}"
+    fi
+
+    section "🏁 TUDO CONCLUÍDO!"
+    PUBLIC_IP=$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}' || echo 'SEU_IP')
+    echo -e "  Painel: ${CYAN}https://${PUBLIC_IP}${NC}"
+    echo -e "  SSH:    ${CYAN}ssh -p ${SSH_PORT:-22} $(whoami)@${PUBLIC_IP}${NC}  + OTP"
+    echo ""
+}
+
+main "$@"

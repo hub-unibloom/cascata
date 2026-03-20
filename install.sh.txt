@@ -709,6 +709,9 @@ EOF
     # 5. Gerar App Token para o Backend (Lease de 32 dias renovável)
     BACKEND_TOKEN=$(vault_exec token create -policy=cascata-backend -orphan -period=768h -format=json | python3 -c "import sys, json; print(json.load(sys.stdin)['auth']['client_token'])" || echo "")
     
+    # Limpar qualquer caractere invisível (nova linha, espaços) que possa quebrar o .env
+    BACKEND_TOKEN=$(echo "$BACKEND_TOKEN" | tr -d '\r\n[:space:]')
+    
     if [ -z "$BACKEND_TOKEN" ]; then
         err "Falha ao gerar token do Vault para o backend."
     fi
@@ -718,7 +721,11 @@ EOF
     sed -i "s|^SYSTEM_JWT_SECRET=.*|# SYSTEM_JWT_SECRET (Managed by Vault)|" .env
     sed -i "s|^INTERNAL_CTRL_SECRET=.*|# INTERNAL_CTRL_SECRET (Managed by Vault)|" .env
     
-    ok "Vault provisionado com sucesso: Motores ativos e App Token gerado."
+    # FORÇA REINICIALIZAÇÃO TOTAL PARA GARANTIR CARREGAMENTO DO .ENV
+    # Isso resolve o erro de "permission denied" causado por contêineres lendo tokens antigos/pendentes.
+    docker compose --env-file .env up -d --force-recreate backend backend-data backend-engine nginx-controller > /dev/null 2>&1
+    
+    ok "Vault provisionado com sucesso e Backend sincronizado."
 }
 
 # ---------------------------------------------------------------------------
