@@ -1,4 +1,4 @@
-„#!/usr/bin/env bash
+#!/usr/bin/env bash
 # =============================================================================
 #  CASCATA ORCHESTRATOR — SECURE INSTALLER v3.0
 #  Enterprise Production Grade — Multi-Distro + OS Military Hardening
@@ -10,6 +10,20 @@
 
 set -euo pipefail
 IFS=$'\n\t'
+
+# Alias inteligente para compatibilidade Docker Compose (V1 vs V2)
+if ! command -v docker &>/dev/null || ! docker compose version &>/dev/null 2>&1; then
+    if command -v docker-compose &>/dev/null; then
+        docker() {
+            if [[ "$1" == "compose" ]]; then
+                shift
+                command docker-compose "$@"
+            else
+                command docker "$@"
+            fi
+        }
+    fi
+fi
 
 # ---------------------------------------------------------------------------
 # CONSTANTS & COLORS (readonly — imutáveis após definição)
@@ -226,7 +240,21 @@ preflight_checks() {
         ok "Conectividade com internet verificada"
     fi
 
-    # 4. Verifica espaço em disco (mínimo 5GB)
+    # 4. Verifica python3 (crítico para parsing de JSON do Vault)
+    if ! command -v python3 &>/dev/null; then
+        warn "python3 não encontrado. Tentando instalar..."
+        if sudo apt-get -qq install -y python3 2>/dev/null || \
+           sudo yum -q install -y python3 2>/dev/null || \
+           sudo dnf -q install -y python3 2>/dev/null; then
+            ok "python3 instalado com sucesso"
+        else
+            warn "Não foi possível instalar python3 автоматически. Instale manualmente."; FAIL=true
+        fi
+    else
+        ok "python3 disponível"
+    fi
+
+    # 5. Verifica espaço em disco (mínimo 5GB)
     local DISK_AVAIL_KB
     DISK_AVAIL_KB=$(df / --output=avail 2>/dev/null | tail -1 | tr -d ' ' || echo "0")
     local DISK_AVAIL_GB=$(( DISK_AVAIL_KB / 1048576 ))
@@ -707,13 +735,22 @@ path "sys/health" {
 EOF
 
     # 5. Gerar App Token para o Backend (Lease de 32 dias renovável)
-    BACKEND_TOKEN=$(vault_exec token create -policy=cascata-backend -orphan -period=768h -format=json | python3 -c "import sys, json; print(json.load(sys.stdin)['auth']['client_token'])" || echo "")
+    info "Gerando App Token para o Backend..."
+    local RAW_TOKEN=""
+    RAW_TOKEN=$(vault_exec token create -policy=cascata-backend -orphan -period=768h -format=json 2>/dev/null || echo "FAILED")
     
-    # Limpar qualquer caractere invisível (nova linha, espaços) que possa quebrar o .env
+    if [[ "$RAW_TOKEN" == "FAILED" ]] || [ -z "$RAW_TOKEN" ]; then
+        err "Falha na comunicação com Vault para gerar token."
+    fi
+
+    BACKEND_TOKEN=$(echo "$RAW_TOKEN" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data['auth']['client_token'])" 2>/dev/null || echo "")
+    
+    # Limpar qualquer caractere invisível
     BACKEND_TOKEN=$(echo "$BACKEND_TOKEN" | tr -d '\r\n[:space:]')
     
     if [ -z "$BACKEND_TOKEN" ]; then
-        err "Falha ao gerar token do Vault para o backend."
+        log "DEBUG Vault Output: $RAW_TOKEN"
+        err "Falha ao extrair client_token do JSON do Vault."
     fi
 
     # 6. Atualizar .env: injeta o App Token e limpa chaves de aplicação
