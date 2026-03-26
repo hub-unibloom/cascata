@@ -1,4 +1,5 @@
-import express, { Request, Response, NextFunction } from 'express';
+
+import express, { NextFunction } from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -83,10 +84,10 @@ else if (process.env.SERVICE_MODE === 'ENGINE') {
     console.log('[System] Starting in ISOLATED RUNTIME ENGINE MODE...');
     const app = express();
     // Limite aumentado para payloads internos de código + contexto
-    app.use(express.json({ limit: '50mb' }));
+    app.use(express.json({ limit: '50mb' }) as any);
 
     // Rota Interna de Execução (Não exposta ao público)
-    app.post('/internal/run', async (req: Request, res: Response) => {
+    app.post('/internal/run', async (req: any, res: any) => {
         try {
             const { code, context, envVars, timeout, slug } = req.body;
 
@@ -104,14 +105,13 @@ else if (process.env.SERVICE_MODE === 'ENGINE') {
             );
 
             res.status(result.status).json(result.body);
-        } catch (e: unknown) {
-            const err = e as Error;
-            console.error('[Engine] Execution Fail:', err.message);
-            res.status(500).json({ error: err.message || 'Engine Failure' });
+        } catch (e: any) {
+            console.error('[Engine] Execution Fail:', e.message);
+            res.status(500).json({ error: e.message || 'Engine Failure' });
         }
     });
 
-    app.get('/health', (_req: Request, res: Response) => res.json({ status: 'ok', role: 'engine' }));
+    app.get('/health', (req: any, res: any) => res.json({ status: 'ok', role: 'engine' }));
 
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, async () => {
@@ -147,9 +147,9 @@ else {
             cluster.fork({ WORKER_ID: i + 1 });
         }
 
-        cluster.on('exit', (worker: { process: { pid: number; env: Record<string, string | undefined> } }, code: number | null, signal: string | null) => {
-            console.error(`[Hyper-Cluster] Worker ${worker.process.pid} died (signal: ${signal}, code: ${code}). Respawning instantly...`);
-            cluster.fork({ WORKER_ID: (worker.process.env['WORKER_ID'] || Math.floor(Math.random() * 100).toString()) });
+        cluster.on('exit', (worker: any, code: any, signal: any) => {
+            console.error(`[Hyper-Cluster] Worker ${worker.process.pid} died (${signal || code}). Respawning instanly...`);
+            cluster.fork({ WORKER_ID: (worker as any).process.env.WORKER_ID || (Math.floor(Math.random() * 100)) });
         });
         
         // Master process in cluster mode only manages workers, it does not run the HTTP Server.
@@ -265,21 +265,21 @@ else {
         }
 
         // --- SECURITY HEADERS (Global Hardening) ---
-        app.use((req: Request, res: Response, next: NextFunction) => {
+        app.use((req: any, res: any, next: NextFunction) => {
             res.setHeader('X-Content-Type-Options', 'nosniff');
             res.setHeader('X-Frame-Options', 'SAMEORIGIN');
             res.setHeader('X-XSS-Protection', '1; mode=block');
             res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
             res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
             res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
-            res.removeHeader('X-Powered-By');
+            (res as any).removeHeader('X-Powered-By');
             next();
         });
 
         // --- L1/L2 CACHED PROJECT BOOTSTRAPPER ---
         // Esse middleware é adicionado antes de tudo, chamando a nova maravilha
         // RateLimitService.ensureProjectCache L1/L2 que criaremos em seguida.
-        app.use(async (req: Request, res: Response, next: NextFunction) => {
+        app.use(async (req: any, res: any, next: NextFunction) => {
             if (req.path === '/' || req.path === '/health') return next();
             // Aquece o cache para uso imediato síncrono no `resolveProject` (Fase 1.2)
             await RateLimitService.warmupProjectContext(req);
@@ -308,20 +308,20 @@ else {
         });
 
         // --- HEALTH CHECK (Deep Check) ---
-        app.get('/', (req: Request, res: Response) => { res.send('Cascata Engine v9.9 (Phase 1) OK'); });
-        app.get('/health', async (req: Request, res: Response) => {
+        app.get('/', (req: any, res: any) => { res.send('Cascata Engine v9.9 (Phase 1) OK'); });
+        app.get('/health', async (req: any, res: any) => {
             let dbStatus = 'unknown';
             try {
                 await systemPool.query('SELECT 1');
                 dbStatus = 'connected';
-            } catch (e: unknown) { dbStatus = 'error'; }
+            } catch (e) { dbStatus = 'error'; }
 
             res.json({
                 status: 'ok',
-                mode: process.env['SERVICE_MODE'],
+                mode: process.env.SERVICE_MODE,
                 system_db: dbStatus,
                 pools: PoolService.getTotalActivePools(),
-                worker_id: process.env['WORKER_ID'] || 'single',
+                worker_id: process.env.WORKER_ID || 'single',
                 time: new Date()
             });
         });
@@ -330,24 +330,22 @@ else {
         app.use('/api', mainRouter);
 
         // --- GLOBAL ERROR HANDLER ---
-        app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-            if (err?.code && !err.code.startsWith('2') && !err.code.startsWith('4')) {
+        app.use((err: any, req: any, res: any, next: NextFunction) => {
+            if (!err.code?.startsWith('2') && !err.code?.startsWith('4')) {
                 console.error(`[Global Error] ${req.method} ${req.path}:`, err);
             }
 
             if (err instanceof multer.MulterError) {
                 return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: err.message, code: err.code });
             }
-            
-            const errorMessage = err instanceof Error ? err.message : String(err);
 
-            if (errorMessage === "User already registered" || err.code === 'user_already_exists') {
+            if (err.message === "User already registered" || err.code === 'user_already_exists') {
                 return res.status(422).json({ error: "user_already_exists", error_description: "User already registered" });
             }
-            if (errorMessage === "Invalid login credentials") {
+            if (err.message === "Invalid login credentials") {
                 return res.status(400).json({ error: "invalid_grant", error_description: "Invalid login credentials" });
             }
-            if (errorMessage === "Email not confirmed") {
+            if (err.message === "Email not confirmed") {
                 return res.status(400).json({ error: "email_not_confirmed", error_description: "Email not confirmed" });
             }
 
@@ -370,7 +368,7 @@ else {
             }
 
             res.status(err.status || 500).json({
-                error: errorMessage || 'Internal Server Error',
+                error: err.message || 'Internal Server Error',
                 code: err.code || 'INTERNAL_ERROR'
             });
         });

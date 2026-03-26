@@ -1,4 +1,5 @@
-import pg, { PoolConfig } from 'pg';
+
+import pg from 'pg';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -32,7 +33,7 @@ ensureDir(TEMP_UPLOAD_ROOT);
 
 
 let _systemPool: pg.Pool | null = null;
-let _poolConfig: PoolConfig | null = null;
+let _poolConfig: any = null;
 
 /**
  * Inicializa a configuração do sistema, buscando segredos no Vault se necessário.
@@ -74,14 +75,9 @@ export const bootstrapConfig = async () => {
 
     _systemPool = new Pool(_poolConfig);
     
-    _systemPool.on('error', (err: Error) => {
+    _systemPool.on('error', (err: any) => {
         console.error('[SystemPool] Unexpected error on idle client', err);
     });
-
-    if (!process.env.SYSTEM_JWT_SECRET) {
-        console.error('[Config] FATAL: SYSTEM_JWT_SECRET is missing even after Vault bootstrap.');
-        process.exit(1);
-    }
 };
 
 /**
@@ -112,21 +108,12 @@ export const backupUpload = multer({
     limits: { fileSize: 5 * 1024 * 1024 * 1024 } 
 });
 
-/**
- * SYS_SECRET: Retorna o segredo JWT do sistema.
- * Deve ser acessado apenas após o bootstrapConfig().
- */
-export const getSystemSecret = () => {
-    if (!process.env.SYSTEM_JWT_SECRET) {
-        throw new Error('[Config] SYSTEM_JWT_SECRET accessed before bootstrap.');
-    }
-    return process.env.SYSTEM_JWT_SECRET;
-};
+if (!process.env.SYSTEM_JWT_SECRET) {
+    console.error('[Config] FATAL: SYSTEM_JWT_SECRET is missing. Security cannot be guaranteed.');
+    process.exit(1);
+}
 
-// Mantemos SYS_SECRET para compatibilidade legada, mas agora via getter dinâmico se possível
-// ou apenas exportamos a variável e confiamos no bootstrap.
-// Para garantir "zero regression", vamos manter a exportação mas avisar que depende do boot.
-export const SYS_SECRET = process.env.SYSTEM_JWT_SECRET || 'BOOTSTRAP_PENDING';
+export const SYS_SECRET = process.env.SYSTEM_JWT_SECRET;
 
 export const MAGIC_NUMBERS: Record<string, string[]> = {
     'jpg': ['FFD8FF'],

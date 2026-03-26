@@ -13,8 +13,8 @@ export interface PoolConfig {
   idleTimeoutMillis?: number;
   connectionTimeoutMillis?: number;
   statementTimeout?: number;
-  useDirect?: boolean; 
-  connectionString?: string; 
+  useDirect?: boolean; // Força conexão direta (bypass PgBouncer)
+  connectionString?: string; // NOVO: Permite conexão externa (RDS, VPS Dedicada)
 }
 
 interface PoolEntry {
@@ -36,8 +36,6 @@ export class PoolService {
   private static DEFAULT_STATEMENT_TIMEOUT = 15000; 
   private static MAX_IDLE_TX_TIME = '2 minutes'; // Tempo máximo para IDLE IN TRANSACTION
 
-  private static reaperInterval: any = null;
-
   public static configure(config: { maxConnections?: number, idleTimeout?: number, statementTimeout?: number }) {
       if (config.statementTimeout) {
           this.DEFAULT_STATEMENT_TIMEOUT = config.statementTimeout;
@@ -45,14 +43,11 @@ export class PoolService {
   }
 
   public static initReaper() {
-      if (this.reaperInterval) clearInterval(this.reaperInterval);
+      if ((this as any)._reaperInterval) clearInterval((this as any)._reaperInterval);
       
-      this.reaperInterval = setInterval(() => {
+      (this as any)._reaperInterval = setInterval(() => {
           this.reapZombies();
-          this.killIdleTransactions().catch(e => {
-              const err = e as Error;
-              console.error('[PoolService] Idle Killer Failed:', err.message);
-          });
+          this.killIdleTransactions().catch(e => console.error('[PoolService] Idle Killer Failed:', e));
       }, this.REAPER_INTERVAL_MS);
       
       console.log('[PoolService] Smart Reaper initialized (Aggressive Mode).');
@@ -80,10 +75,9 @@ export class PoolService {
           if (res.rowCount && res.rowCount > 0) {
               console.warn(`[PoolService] ☢️  Killed ${res.rowCount} zombie transactions (Idle > ${this.MAX_IDLE_TX_TIME}).`);
           }
-      } catch (e: unknown) {
-          const err = e as { code?: string; message: string };
+      } catch (e: any) {
           // Ignora erros pontuais (ex: DB reiniciando)
-          if (err.code !== '57P03') console.error('[PoolService] Zombie Killer Error:', err.message);
+          if (e.code !== '57P03') console.error('[PoolService] Zombie Killer Error:', e.message);
       }
   }
 
@@ -120,10 +114,10 @@ export class PoolService {
 
   private static gracefulClose(key: string, entry: PoolEntry) {
       try {
-          entry.pool.end().catch(e => console.error(`[PoolService] Error closing ${key}:`, (e as Error).message));
+          entry.pool.end().catch(e => console.error(`[PoolService] Error closing ${key}:`, e.message));
           this.pools.delete(key);
-      } catch (e: unknown) {
-          console.error(`[PoolService] Critical error removing pool ${key}`, (e as Error).message);
+      } catch (e) {
+          console.error(`[PoolService] Critical error removing pool ${key}`, e);
       }
   }
 
@@ -215,13 +209,13 @@ export class PoolService {
 
     const pool = new Pool(poolConfig);
 
-    pool.on('connect', (client: pg.PoolClient) => {
-        client.query(`SET statement_timeout TO ${statementTimeout}`).catch((err: Error) => {
+    pool.on('connect', (client) => {
+        client.query(`SET statement_timeout TO ${statementTimeout}`).catch(err => {
             console.warn(`[PoolService] Failed to set statement_timeout on ${uniqueKey}`, err.message);
         });
     });
 
-    pool.on('error', (err: Error) => {
+    pool.on('error', (err) => {
       console.error(`[PoolService] Error on ${uniqueKey}:`, err.message);
       if (this.pools.has(uniqueKey)) {
           this.pools.delete(uniqueKey);
@@ -268,12 +262,12 @@ export class PoolService {
               WHERE datname = $1
               AND pid <> pg_backend_pid()
           `, [dbName]);
-      } catch (e: unknown) {
-          console.error(`[PoolService] Failed to terminate backend connections for ${dbName}:`, (e as Error).message);
+      } catch (e: any) {
+          console.error(`[PoolService] Failed to terminate backend connections for ${dbName}:`, e.message);
       }
   }
 
-  public static async closeAll(): Promise<void> {
+  public static async closeAll() {
       const promises = Array.from(this.pools.values()).map(entry => entry.pool.end().catch(() => {}));
       await Promise.all(promises);
       this.pools.clear();

@@ -11,7 +11,6 @@ import { URL } from 'url';
 import { GDriveService } from './GDriveService.js';
 import { S3BackupService } from './S3BackupService.js';
 import { systemPool, SYS_SECRET, TEMP_UPLOAD_ROOT } from '../src/config/main.js';
-import { VaultService } from './VaultService.js';
 
 export interface ProjectMetadata {
     id: string;
@@ -44,7 +43,7 @@ export class BackupService {
         archive.pipe(output);
 
         try {
-            const connectionString = await this.resolveConnectionString(project);
+            const connectionString = this.resolveConnectionString(project);
 
             // 1. MANIFEST
             const manifest = {
@@ -98,7 +97,7 @@ export class BackupService {
             for (const table of tables) {
                 if (table.schema === 'public') {
                     // Use COPY TO STDOUT for maximum speed and type safety in CSV
-                    const tableStream = await this.getTableCsvStream(await this.resolveConnectionString(project), table.schema, table.name);
+                    const tableStream = await this.getTableCsvStream(connectionString, table.schema, table.name);
                     archive.append(tableStream, { name: `data/${table.schema}.${table.name}.csv` });
                 }
             }
@@ -154,20 +153,8 @@ export class BackupService {
     public static async getLogExportStream(projectSlug: string): Promise<Readable> {
         const host = process.env.DB_DIRECT_HOST || 'db';
         const port = process.env.DB_DIRECT_PORT || '5432';
-        let user = process.env.DB_USER || 'cascata_admin';
-        let pass = process.env.DB_PASS || 'secure_pass';
-
-        if (process.env.VAULT_ADDR && process.env.VAULT_TOKEN) {
-            try {
-                const vault = VaultService.getInstance();
-                const creds = await vault.getDatabaseCredentials('cascata-admin-role');
-                user = creds.username;
-                pass = creds.password;
-            } catch (err) {
-                console.warn(`[BackupService] Log Export Vault credentials fetch failed:`, (err as Error).message);
-            }
-        }
-
+        const user = process.env.DB_USER || 'cascata_admin';
+        const pass = process.env.DB_PASS || 'secure_pass';
         const db = process.env.DB_NAME || 'cascata_system';
 
         const safeSlug = projectSlug.replace(/[^a-z0-9-_]/gi, '');
@@ -198,46 +185,33 @@ export class BackupService {
         
         const policyRes = await systemPool.query(
             `SELECT p.id, p.project_slug, p.name, p.provider, p.schedule_cron, p.retention_count,
-             p.config as config_raw,
+             CASE 
+                WHEN p.config ? 'encrypted_data' THEN pgp_sym_decrypt(decode(p.config->>'encrypted_data', 'base64'), $2)
+                ELSE p.config::text
+             END as config_str,
              pr.name as proj_name, pr.db_name, pr.slug, 
-             pr.jwt_secret,
-             pr.anon_key,
-             pr.service_key,
+             pgp_sym_decrypt(pr.jwt_secret::bytea, $2) as jwt_secret,
+             pgp_sym_decrypt(pr.anon_key::bytea, $2) as anon_key,
+             pgp_sym_decrypt(pr.service_key::bytea, $2) as service_key,
              pr.metadata, pr.custom_domain
              FROM system.backup_policies p
              JOIN system.projects pr ON pr.slug = p.project_slug
              WHERE p.id = $1`,
-            [policyId]
+            [policyId, SYS_SECRET]
         );
 
         if (policyRes.rows.length === 0) throw new Error("Policy not found");
         const policy = policyRes.rows[0];
-
-        // DESCRIPTOGRAFIA SEGURA (VAULT)
-        const vault = (process.env.VAULT_ADDR && process.env.VAULT_TOKEN) ? VaultService.getInstance() : null;
-        
-        const decryptVal = async (val: string, context: string) => {
-            if (val && val.startsWith('vault:') && vault) {
-                try {
-                    return await vault.decrypt(context, val);
-                } catch (e) {
-                    console.error(`[BackupService] Failed to decrypt ${context} secret:`, (e as Error).message);
-                    return val;
-                }
-            }
-            return val;
-        };
-
-        const config = typeof policy.config_raw === 'string' ? JSON.parse(policy.config_raw) : policy.config_raw;
+        const config = JSON.parse(policy.config_str);
         
         const project: ProjectMetadata = {
             id: policy.project_slug,
             name: policy.proj_name,
             slug: policy.slug,
             db_name: policy.db_name,
-            jwt_secret: await decryptVal(policy.jwt_secret, 'cascata-system-keys'),
-            anon_key: await decryptVal(policy.anon_key, 'cascata-system-keys'),
-            service_key: await decryptVal(policy.service_key, 'cascata-system-keys'),
+            jwt_secret: policy.jwt_secret,
+            anon_key: policy.anon_key,
+            service_key: policy.service_key,
             custom_domain: policy.custom_domain,
             metadata: policy.metadata
         };
@@ -303,26 +277,13 @@ export class BackupService {
         }
     }
 
-    private static async resolveConnectionString(project: ProjectMetadata): Promise<string> {
+    private static resolveConnectionString(project: ProjectMetadata): string {
         if (project.metadata?.external_db_url) return project.metadata.external_db_url;
         const host = process.env.DB_DIRECT_HOST || 'db';
         const port = process.env.DB_DIRECT_PORT || '5432';
-        
-        let user = process.env.DB_USER || 'cascata_admin';
-        let pass = process.env.DB_PASS || 'secure_pass';
-
-        if (process.env.VAULT_ADDR && process.env.VAULT_TOKEN) {
-            try {
-                const vault = VaultService.getInstance();
-                const creds = await vault.getDatabaseCredentials('cascata-admin-role');
-                user = creds.username;
-                pass = creds.password;
-            } catch (err) {
-                console.warn(`[BackupService] Connection resolution Vault credentials fetch failed:`, (err as Error).message);
-            }
-        }
-
-        return `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${host}:${port}/${project.db_name}`;
+        const user = process.env.DB_USER || 'cascata_admin';
+        const pass = process.env.DB_PASS || 'secure_pass';
+        return `postgresql://${user}:${pass}@${host}:${port}/${project.db_name}`;
     }
 
     private static async listTables(connectionString: string): Promise<TableDefinition[]> {

@@ -1,49 +1,21 @@
 
-import axios, { AxiosInstance, AxiosError } from 'axios';
+import axios, { AxiosInstance } from 'axios';
 import process from 'process';
-import { z } from 'zod';
 
 /**
- * Padrão Enterprise: Erros estruturados para rastreabilidade bancária.
+ * Interface para representar a resposta de um segredo do Vault.
  */
-export class VaultError extends Error {
-  constructor(
-    public override message: string,
-    public operation: string,
-    public statusCode?: number,
-    public details?: any
-  ) {
-    super(message);
-    this.name = 'VaultError';
-  }
+interface VaultSecretResponse {
+  data: {
+    data: Record<string, string>;
+    metadata: {
+      created_time: string;
+      deletion_time: string;
+      destroyed: boolean;
+      version: number;
+    };
+  };
 }
-
-/**
- * Esquemas de Validação Modernos (Zod) - Garante integridade absoluta dos dados.
- */
-const SecretResponseSchema = z.object({
-  data: z.object({
-    data: z.record(z.string()),
-    metadata: z.object({
-      version: z.number(),
-      created_time: z.string().datetime(),
-    }).optional(),
-  }),
-});
-
-const TransitResponseSchema = z.object({
-  data: z.object({
-    ciphertext: z.string().optional(),
-    plaintext: z.string().optional(),
-  }),
-});
-
-const DatabaseCredsSchema = z.object({
-  data: z.object({
-    username: z.string(),
-    password: z.string(),
-  }),
-});
 
 /**
  * VaultService: O guardião dos segredos do Cascata.
@@ -81,14 +53,14 @@ export class VaultService {
    * Busca um segredo estático (KV Engine v2).
    */
   public async getSecret(path: string): Promise<Record<string, string>> {
-    if (!this.token) throw new VaultError('Vault Token not set', 'getSecret');
-    
     try {
-      const { data } = await this.client.get(`secret/data/${path}`);
-      const validated = SecretResponseSchema.parse(data);
-      return validated.data.data;
+      if (!this.token) throw new Error('Vault Token not set');
+      
+      const response = await this.client.get<VaultSecretResponse>(`secret/data/${path}`);
+      return response.data.data.data;
     } catch (error: unknown) {
-      throw this.wrapError('getSecret', error);
+      this.handleError('getSecret', error);
+      throw error;
     }
   }
 
@@ -99,14 +71,13 @@ export class VaultService {
   public async encrypt(keyName: string, plaintext: string): Promise<string> {
     try {
       const base64Plaintext = Buffer.from(plaintext).toString('base64');
-      const { data } = await this.client.post(`transit/encrypt/${keyName}`, {
+      const response = await this.client.post(`transit/encrypt/${keyName}`, {
         plaintext: base64Plaintext,
       });
-      const validated = TransitResponseSchema.parse(data);
-      if (!validated.data.ciphertext) throw new Error('No ciphertext returned');
-      return validated.data.ciphertext;
+      return response.data.data.ciphertext;
     } catch (error: unknown) {
-      throw this.wrapError('encrypt', error);
+      this.handleError('encrypt', error);
+      throw error;
     }
   }
 
@@ -115,14 +86,14 @@ export class VaultService {
    */
   public async decrypt(keyName: string, ciphertext: string): Promise<string> {
     try {
-      const { data } = await this.client.post(`transit/decrypt/${keyName}`, {
+      const response = await this.client.post(`transit/decrypt/${keyName}`, {
         ciphertext: ciphertext,
       });
-      const validated = TransitResponseSchema.parse(data);
-      if (!validated.data.plaintext) throw new Error('No plaintext returned');
-      return Buffer.from(validated.data.plaintext, 'base64').toString('utf-8');
+      const base64Plaintext = response.data.data.plaintext;
+      return Buffer.from(base64Plaintext, 'base64').toString('utf-8');
     } catch (error: unknown) {
-      throw this.wrapError('decrypt', error);
+      this.handleError('decrypt', error);
+      throw error;
     }
   }
 
@@ -131,44 +102,34 @@ export class VaultService {
    * O Vault cria um usuário temporário no Postgres que expira sozinho.
    */
   public async getDatabaseCredentials(roleName: string): Promise<{ username: string; password: string }> {
-    if (!this.token) throw new VaultError('Vault Token not set', 'getDatabaseCredentials');
-    
     try {
-      const { data } = await this.client.get(`database/creds/${roleName}`);
-      const validated = DatabaseCredsSchema.parse(data);
+      if (!this.token) throw new Error('Vault Token not set');
+      
+      const response = await this.client.get(`database/creds/${roleName}`);
       return {
-        username: validated.data.username,
-        password: validated.data.password,
+        username: response.data.data.username,
+        password: response.data.data.password,
       };
     } catch (error: unknown) {
-      throw this.wrapError('getDatabaseCredentials', error);
+      this.handleError('getDatabaseCredentials', error);
+      throw error;
     }
   }
 
   /**
-   * Healthcheck do Vault - Sinergia com o Orquestrador.
+   * Gerencia erros de forma padronizada, evitando o uso de 'any'.
    */
-  public async isHealthy(): Promise<boolean> {
-    try {
-      const res = await this.client.get('/sys/health');
-      return res.status === 200;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Gerencia erros de forma padronizada para sistemas financeiros.
-   */
-  private wrapError(operation: string, error: unknown): VaultError {
+  private handleError(operation: string, error: unknown): void {
     if (axios.isAxiosError(error)) {
-      const axiosError = error as AxiosError<any>;
-      const message = axiosError.response?.data?.errors?.[0] || axiosError.message;
-      return new VaultError(message, operation, axiosError.response?.status, axiosError.response?.data);
+      console.error(`[VaultService] ${operation} failed:`, {
+        status: error.response?.status,
+        data: error.response?.data,
+        message: error.message,
+      });
+    } else if (error instanceof Error) {
+      console.error(`[VaultService] ${operation} error:`, error.message);
+    } else {
+      console.error(`[VaultService] ${operation} unknown error:`, error);
     }
-    if (error instanceof z.ZodError) {
-      return new VaultError('Schema validation failed', operation, 422, error.errors);
-    }
-    return new VaultError(error instanceof Error ? error.message : 'Unknown error', operation);
   }
 }

@@ -336,13 +336,12 @@ export const quotePostgresLiteral = (str: string | undefined | null): string => 
 
 // HARDENED RLS WRAPPER (Fast Path + Optimized Transaction Pipeline)
 export const queryWithRLS = async (req: CascataRequest, callback: (client: { query: (sql: string, params?: any[], name?: string) => Promise<any> }) => Promise<any>) => {
-    const r = req;
-    if (!r.projectPool) {
+    if (!req.projectPool) {
         throw { status: 500, message: 'Project context missing or database pool not initialized.' };
     }
 
     const sub = req.user?.sub || '';
-    const role = r.userRole || 'anon';
+    const role = req.userRole || 'anon';
     const email = req.user?.email || '';
     const identifier = (req.user as any)?.identifier || '';
     const provider = (req.user as any)?.provider || '';
@@ -386,7 +385,7 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
                         try {
                             const signal = await dfly.get(semaforoKey);
                             if (signal === 'LOCKED') forceMaster = true;
-                        } catch (e) { }
+                        } catch (e) {}
                     }
                 }
             }
@@ -394,18 +393,18 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
             // ======================================================================
             // CAMADA 3: SELEÇÃO DO POOL ALVO (Master vs Replica)
             // ======================================================================
-            let targetPool = r.projectPool!;
+            let targetPool = req.projectPool!;
 
             if (forceMaster && req.method === 'GET') {
                 try {
                     const PoolSvc = (await import('../../services/PoolService.js')).PoolService;
-                    const externalUrl = req.project?.metadata?.external_db_url as string | undefined;
+                    const externalUrl = req.project?.metadata?.external_db_url;
                     if (externalUrl) {
-                        targetPool = await PoolSvc.get(req.project!.db_name, { connectionString: externalUrl });
+                        targetPool = PoolSvc.get(req.project!.db_name, { connectionString: externalUrl });
                     } else {
-                        targetPool = await PoolSvc.get(req.project!.db_name, { max: 10 });
+                        targetPool = PoolSvc.get(req.project!.db_name, { max: 10 });
                     }
-                } catch (e) { }
+                } catch (e) {}
             }
 
             // ======================================================================
@@ -444,7 +443,7 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
 
                                 if (affectedTable && dfly) {
                                     const semaforoKey = `cascata_rw_lock:${req.project?.slug || 'unknown'}:${affectedTable}`;
-                                    try { dfly.set(semaforoKey, 'LOCKED', 'PX', 2500).catch(() => { }); } catch (e) { }
+                                    try { dfly.set(semaforoKey, 'LOCKED', 'PX', 2500).catch(() => {}); } catch (e) {}
                                 }
                                 return (Array.isArray(results) && results.length > 0) ? results[results.length - 1] : results;
                             }
@@ -459,15 +458,15 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
                             // Set Semáforo Pós-Write
                             if (isWriteDml && affectedTable && dfly) {
                                 const semaforoKey = `cascata_rw_lock:${req.project?.slug || 'unknown'}:${affectedTable}`;
-                                try { dfly.set(semaforoKey, 'LOCKED', 'PX', 2500).catch(() => { }); } catch (e) { }
+                                try { dfly.set(semaforoKey, 'LOCKED', 'PX', 2500).catch(() => {}); } catch (e) {}
                             }
-
+                            
                             return (Array.isArray(results) && results.length > 0) ? results[results.length - 1] : results;
                         }
 
                         // 🛡️ SECURE PATH: RLS Evaluation forces PostgreSQL Query Planner
                         await client.query('BEGIN');
-
+                        
                         const safeSub = quotePostgresLiteral(sub);
                         const safeRole = quotePostgresLiteral(role);
                         const safeEmail = quotePostgresLiteral(email);
@@ -490,7 +489,7 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
                             SET LOCAL "request.jwt.claim.otp_verified" = ${safeOtpVerified};
                             SET LOCAL statement_timeout = '30000';
                         `;
-
+                        
                         await client.query(setupSql);
 
                         const results = await client.query({
@@ -504,7 +503,7 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
                         // Set Semáforo Pós-Write
                         if (isWriteDml && affectedTable && dfly) {
                             const semaforoKey = `cascata_rw_lock:${req.project?.slug || 'unknown'}:${affectedTable}`;
-                            try { dfly.set(semaforoKey, 'LOCKED', 'PX', 2500).catch(() => { }); } catch (e) { }
+                            try { dfly.set(semaforoKey, 'LOCKED', 'PX', 2500).catch(() => {}); } catch (e) {}
                         }
 
                         return (Array.isArray(results) && results.length > 0) ? results[results.length - 1] : results;
@@ -514,13 +513,13 @@ export const queryWithRLS = async (req: CascataRequest, callback: (client: { que
                         if (useRetry && error.code === '0A000') {
                             console.warn(`[queryWithRLS] Stale plan detected in pool connection. Purging and retrying query...`);
                             // FIX: Always try ROLLBACK — service_role writes now also use transactions
-                            await client.query('ROLLBACK').catch(() => { });
-                            await client.query('DEALLOCATE ALL');
+                            await client.query('ROLLBACK').catch(() => {});
+                            await client.query('DEALLOCATE ALL'); 
                             return await execute(false); // Repeat WITHOUT name cache or with clean slate
                         }
 
                         // FIX: Always ROLLBACK — both service_role (writes) and other roles use transactions
-                        await client.query('ROLLBACK').catch(() => { });
+                        await client.query('ROLLBACK').catch(() => {});
                         throw error;
                     }
                 };

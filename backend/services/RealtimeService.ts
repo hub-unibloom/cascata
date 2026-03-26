@@ -12,7 +12,7 @@ import process from 'process';
 
 interface ClientConnection {
     id: string;
-    res: Response;
+    res: any;
     tableFilter?: string;
 }
 
@@ -57,7 +57,7 @@ export class RealtimeService {
     // Backpressure Lock: Map<"projectSlug:env:tableName", Timestamp>
     private static activeFlushes = new Map<string, number>();
     
-    private static flushInterval: NodeJS.Timeout | null = null;
+    private static flushInterval: any = null;
     private static readonly BATCH_TICK_MS = 50; 
     private static readonly MAX_BUFFER_SIZE_PER_TABLE = 5000; 
     private static readonly LOCK_TIMEOUT_MS = 30000; // 30s max para um flush
@@ -80,8 +80,8 @@ export class RealtimeService {
         try {
             this.startBatcher();
             console.log('[Realtime] ✅ Service initialized with Hydration Batcher V2 (Env Aware)');
-        } catch (e: unknown) {
-            console.error('[Realtime] ❌ Initialization failed', (e as Error).message);
+        } catch (e) {
+            console.error('[Realtime] ❌ Initialization failed', e);
             throw e; // Falha no boot é crítica
         }
     }
@@ -128,11 +128,10 @@ export class RealtimeService {
         console.log('[Realtime] Shutdown complete.');
     }
 
-    public static async handleConnection(req: Request, res: Response) {
-        const r = (req as unknown) as import('../src/types.js').CascataRequest;
+    public static async handleConnection(req: any, res: any) {
         const slug = req.params.slug;
         const { table, env } = req.query; // Environment param
-        const project = r.project;
+        const project = req.project;
 
         if (!project) {
             res.status(404).json({ error: 'Project context missing.' });
@@ -374,23 +373,13 @@ export class RealtimeService {
             const draftPoolKey = `mirror_${slug}`;
             const host = process.env.DB_DIRECT_HOST || 'db';
             const port = process.env.DB_DIRECT_PORT || '5432';
-            // Determine credentials (Vault or ENV)
-            let user = process.env.DB_USER || 'cascata_admin';
-            let pass = process.env.DB_PASS || 'secure_pass';
-
-            if (process.env.VAULT_ADDR && process.env.VAULT_TOKEN) {
-                try {
-                    const vault = VaultService.getInstance();
-                    const creds = await vault.getDatabaseCredentials('cascata-admin-role');
-                    user = creds.username;
-                    pass = creds.password;
-                } catch (err) {
-                    console.warn(`[Realtime] Mirroring Vault credentials fetch failed:`, (err as Error).message);
-                }
-            }
+            const user = process.env.DB_USER || 'cascata_admin';
+            const pass = process.env.DB_PASS || 'secure_pass';
             
             // Construct Draft Connection
-            const draftConnString = `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${host}:${port}/${draftDbName}`;
+            // We parse the LIVE connection string to handle potential different hosts/users, 
+            // but for managed, we can construct standard.
+            const draftConnString = `postgresql://${user}:${pass}@${host}:${port}/${draftDbName}`;
             
             const pool = await PoolService.get(draftPoolKey, { connectionString: draftConnString });
             const client = await pool.connect();

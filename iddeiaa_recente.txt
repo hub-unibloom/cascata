@@ -241,9 +241,9 @@ O Comandante trouxe a visão correta: o MCP deve suportar **3 modos de autentica
 **1. `McpController.ts` — Aceitar 3 modos de auth**
 Hoje o MCP só aceita `service_role`:
 ```
-if (r.userRole !== 'service_role') { res.status(403)... }
+if (req.userRole !== 'service_role') { res.status(403)... }
 ```
-Precisa mudar para aceitar qualquer role válido (`service_role`, `authenticated`, `anon`), usando o middleware de JWT que já existe. O middleware já faz decode do token e popula `req.user` e `r.userRole`.
+Precisa mudar para aceitar qualquer role válido (`service_role`, `authenticated`, `anon`), usando o middleware de JWT que já existe. O middleware já faz decode do token e popula `req.user` e `req.userRole`.
 
 **2. `McpService.executeTool()` → usar `queryWithRLS()` ao invés de `pool.query()`**
 Hoje (FALHA):

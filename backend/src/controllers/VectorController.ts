@@ -7,19 +7,18 @@ import { RateLimitService } from '../../services/RateLimitService.js';
  * Hardened Zero-Trust Proxy.
  */
 export class VectorController {
-
+    
     static async proxy(req: CascataRequest, res: any, next: any) {
-        const r = req;
         const { slug } = req.project;
         const subPath = req.params[0] || '';
         const qdrantUrl = `http://${process.env.QDRANT_HOST || 'qdrant'}:${process.env.QDRANT_PORT || '6333'}`;
-
+        
         try {
             // ZERO-TRUST BLOCK: Sincronia com Panic Mode
             // Embora o middleware resolveProject já verifique, uma checagem dupla no controller
             // garante que nenhum bypass de roteamento acesse o motor vetorial.
             const isPanic = await RateLimitService.checkPanic(slug);
-            if (isPanic && !r.isSystemRequest) {
+            if (isPanic && !req.isSystemRequest) {
                 return res.status(503).json({ error: "Security Lockdown: Vector Engine access suspended via Panic Mode." });
             }
 
@@ -31,7 +30,7 @@ export class VectorController {
                 data: req.body,
                 params: req.query,
                 headers: { 'Content-Type': 'application/json' },
-                validateStatus: () => true
+                validateStatus: () => true 
             });
 
             if (response.status === 404 && response.data?.status?.error?.includes('not found')) {

@@ -1,8 +1,7 @@
 
-import { Request, Response, NextFunction, RequestHandler } from 'express';
+import { RequestHandler } from 'express';
 import jwt from 'jsonwebtoken';
 import pg from 'pg';
-import process from 'process';
 import { CascataRequest } from '../types.js';
 import { systemPool, SYS_SECRET } from '../config/main.js';
 import { PoolService } from '../../services/PoolService.js';
@@ -17,7 +16,7 @@ import { VaultService } from '../../services/VaultService.js';
  * 3. Project Context (Database Connection)
  * 4. Security Policies (Blocklist, Panic Mode)
  */
-export const resolveProject: RequestHandler = async (req: Request, res: Response, next: NextFunction) => {
+export const resolveProject: RequestHandler = async (req: any, res: any, next: any) => {
     // 0. Fast Exit for Health Checks to reduce overhead
     if (req.path === '/' || req.path === '/health') return next();
 
@@ -44,7 +43,7 @@ export const resolveProject: RequestHandler = async (req: Request, res: Response
             // We remove the '/draft' segment so routes defined as '/tables/:name' match correctly.
             // Using replace on the specific string ensures we don't break query params.
             req.url = req.url.replace('/draft', '');
-            // req.path is read-only in newer Express versions. Modifying req.url is enough for routing.
+            req.path = req.path.replace('/draft', '');
         }
         // Implicitly 'live' otherwise. We do not strip other segments.
     }
@@ -309,8 +308,8 @@ export const resolveProject: RequestHandler = async (req: Request, res: Response
         }
 
         next();
-    } catch (e: unknown) {
-        console.error("[Resolution] Internal Error", (e as Error).message);
+    } catch (e) {
+        console.error("[Resolution] Internal Error", e);
         res.status(500).json({ error: 'Internal Resolution Error' });
     }
 };
@@ -319,7 +318,7 @@ export const resolveProject: RequestHandler = async (req: Request, res: Response
  * AUTH MIDDLEWARE: Role Assignment & Token Verification
  * Handles hierarchy: Admin > Service Key > Anon Key > User Token
  */
-export const cascataAuth: RequestHandler = async (req: Request, res: Response, next: NextFunction) => {
+export const cascataAuth: RequestHandler = async (req: any, res: any, next: any) => {
     const r = req as CascataRequest;
 
     // 1. SYSTEM ADMIN / DASHBOARD ACCESS
@@ -392,7 +391,7 @@ export const cascataAuth: RequestHandler = async (req: Request, res: Response, n
                     const isBlacklisted = await RateLimitService.isTokenBlacklisted(bearerToken);
                     if (isBlacklisted) return res.status(401).json({ error: 'Token Revoked' });
 
-                    const decoded = jwt.verify(bearerToken, r.project.jwt_secret, { algorithms: ['HS256'] }) as any;
+                    const decoded: any = jwt.verify(bearerToken, r.project.jwt_secret, { algorithms: ['HS256'] });
                     r.user = decoded;
                     r.userRole = decoded.role || 'authenticated';
 
@@ -425,7 +424,7 @@ export const cascataAuth: RequestHandler = async (req: Request, res: Response, n
  * ONLY 'service_role' (via Service Key or System Request) is allowed.
  * 'anon' and 'authenticated' roles are BLOCKED here to prevent bypass of RLS or Schema tampering.
  */
-export const requireManagementRole: RequestHandler = (req: Request, res: Response, next: NextFunction) => {
+export const requireManagementRole: RequestHandler = (req: any, res: any, next: any) => {
     const r = req as CascataRequest;
     
     // 1. Full Access: isSystemRequest (Secret Key or Admin Token) OR service_role (Project Service Key)

@@ -1,5 +1,5 @@
 
-import { Request, Response, NextFunction } from 'express';
+import { NextFunction, Response } from 'express';
 import { CascataRequest } from '../types.js';
 import { systemPool, SYS_SECRET } from '../config/main.js';
 import { AutomationService } from '../../services/AutomationService.js';
@@ -11,9 +11,8 @@ export class WebhookController {
 
     // --- Management (Admin) ---
 
-    static async list(req: Request, res: Response, next: NextFunction) {
-        const r = (req as unknown) as CascataRequest;
-        if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
+    static async list(req: CascataRequest, res: Response, next: NextFunction) {
+        if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         const { slug } = req.params;
         try {
             const result = await systemPool.query(
@@ -35,11 +34,10 @@ export class WebhookController {
             .replace(/^-|-$/g, '');
     }
 
-    static async create(req: Request, res: Response, next: NextFunction) {
-        const r = (req as unknown) as CascataRequest;
-        if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
+    static async create(req: CascataRequest, res: Response, next: NextFunction) {
+        if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         const { slug } = req.params;
-        let { name, path_slug, auth_method, secret_key, target_type, target_id } = req.body as any;
+        let { name, path_slug, auth_method, secret_key, target_type, target_id } = req.body;
         
         path_slug = WebhookController.sanitizeSlug(path_slug || '');
         if (!path_slug) return res.status(400).json({ error: 'Invalid or missing path slug.' });
@@ -57,9 +55,8 @@ export class WebhookController {
         }
     }
 
-    static async delete(req: Request, res: Response, next: NextFunction) {
-        const r = (req as unknown) as CascataRequest;
-        if (!r.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
+    static async delete(req: CascataRequest, res: Response, next: NextFunction) {
+        if (!req.isSystemRequest) return res.status(403).json({ error: 'Unauthorized' });
         const { id } = req.params;
         try {
             await systemPool.query(`DELETE FROM system.webhook_receivers WHERE id = $1`, [id]);
@@ -69,7 +66,7 @@ export class WebhookController {
 
     // --- Execution (Public Gateway) ---
 
-    static async handleIncoming(req: Request, res: Response) {
+    static async handleIncoming(req: any, res: Response) {
         const { projectSlug, pathSlug } = req.params;
         const payload = req.body;
         const headers = req.headers;
@@ -141,8 +138,8 @@ export class WebhookController {
 
             res.json({ success: true, message: 'Event received and processing.' });
 
-        } catch (e: unknown) {
-            console.error('[WebhookReceiver] Error:', (e as Error).message);
+        } catch (e: any) {
+            console.error('[WebhookReceiver] Error:', e.message);
             res.status(500).json({ error: 'Internal failure processing incoming webhook.' });
         }
     }
