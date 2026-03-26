@@ -4,8 +4,6 @@ import { systemPool } from '../src/config/main.js';
 import { PoolService } from './PoolService.js';
 import { quoteId } from '../src/utils/index.js';
 import { createRequire } from 'module';
-import { VaultService } from './VaultService.js';
-import process from 'process';
 
 const require = createRequire(import.meta.url);
 const Cursor = require('pg-cursor');
@@ -440,16 +438,11 @@ export class DatabaseService {
     public static async createSnapshot(sourceDb: string, snapshotName: string) {
         console.log(`[DatabaseService] Creating Safety Snapshot: ${sourceDb} -> ${snapshotName}`);
         await this.terminateConnections(sourceDb);
-        let dbOwner = process.env.DB_USER || 'cascata_admin';
-        if (process.env.VAULT_ADDR && process.env.VAULT_TOKEN) {
-            try {
-                const vault = VaultService.getInstance();
-                const creds = await vault.getDatabaseCredentials('cascata-admin-role');
-                dbOwner = creds.username;
-            } catch (err) {}
+        if (await this.dbExists(snapshotName)) {
+            await this.terminateConnections(snapshotName);
+            await systemPool.query(`DROP DATABASE "${snapshotName}"`);
         }
-
-        await systemPool.query(`CREATE DATABASE "${snapshotName}" WITH TEMPLATE "${sourceDb}" OWNER "${dbOwner}"`);
+        await systemPool.query(`CREATE DATABASE "${snapshotName}" WITH TEMPLATE "${sourceDb}" OWNER "${process.env.DB_USER}"`);
         console.log(`[DatabaseService] Snapshot Created.`);
     }
 
@@ -481,15 +474,11 @@ export class DatabaseService {
     public static async cloneDatabase(sourceDb: string, targetDb: string) {
         console.log(`[DatabaseService] Cloning ${sourceDb} -> ${targetDb}...`);
         await this.terminateConnections(sourceDb);
-        let dbOwner = process.env.DB_USER || 'cascata_admin';
-        if (process.env.VAULT_ADDR && process.env.VAULT_TOKEN) {
-            try {
-                const vault = VaultService.getInstance();
-                const creds = await vault.getDatabaseCredentials('cascata-admin-role');
-                dbOwner = creds.username;
-            } catch (err) {}
+        if (await this.dbExists(targetDb)) {
+            await this.terminateConnections(targetDb);
+            await systemPool.query(`DROP DATABASE "${targetDb}"`);
         }
-        await systemPool.query(`CREATE DATABASE "${targetDb}" WITH TEMPLATE "${sourceDb}" OWNER "${dbOwner}"`);
+        await systemPool.query(`CREATE DATABASE "${targetDb}" WITH TEMPLATE "${sourceDb}" OWNER "${process.env.DB_USER}"`);
     }
 
     public static async dropDatabase(dbName: string) {
@@ -501,7 +490,7 @@ export class DatabaseService {
     }
 
     public static async truncatePublicTables(dbName: string) {
-        const pool = await PoolService.get(dbName, { useDirect: true });
+        const pool = PoolService.get(dbName, { useDirect: true });
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
@@ -516,7 +505,7 @@ export class DatabaseService {
     public static async pruneDatabase(dbName: string, percentToKeep: number) {
         if (percentToKeep >= 100) return;
         const deleteChance = 1 - (percentToKeep / 100);
-        const pool = await PoolService.get(dbName, { useDirect: true });
+        const pool = PoolService.get(dbName, { useDirect: true });
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
@@ -532,7 +521,7 @@ export class DatabaseService {
     }
 
     public static async fixPermissions(dbName: string) {
-        const pool = await PoolService.get(dbName, { useDirect: true });
+        const pool = PoolService.get(dbName, { useDirect: true });
         const client = await pool.connect();
         try {
             await client.query(`
@@ -572,7 +561,7 @@ export class DatabaseService {
 
         if (mode === 'smart' && snapshotTs > 0) {
             console.log(`[Rollback] Salvaging data created after ${new Date(snapshotTs).toISOString()}...`);
-            const livePool = await PoolService.get(liveDb, { useDirect: true });
+            const livePool = PoolService.get(liveDb, { useDirect: true });
 
             try {
                 // Get all tables with 'created_at' column
@@ -625,7 +614,7 @@ export class DatabaseService {
         // 3. RE-INJECT SALVAGED DATA
         if (mode === 'smart' && Object.keys(salvagedData).length > 0) {
             console.log("[Rollback] Re-injecting salvaged data...");
-            const newLivePool = await PoolService.get(liveDb, { useDirect: true });
+            const newLivePool = PoolService.get(liveDb, { useDirect: true });
             const client = await newLivePool.connect();
 
             try {
@@ -718,8 +707,8 @@ export class DatabaseService {
     }
 
     public static async generateDataDiff(sourceDb: string, targetDb: string): Promise<DataDiffSummary[]> {
-        const sourcePool = await PoolService.get(sourceDb, { useDirect: true });
-        const targetPool = await PoolService.get(targetDb, { useDirect: true });
+        const sourcePool = PoolService.get(sourceDb, { useDirect: true });
+        const targetPool = PoolService.get(targetDb, { useDirect: true });
         const client = await sourcePool.connect();
 
         try {
@@ -734,19 +723,8 @@ export class DatabaseService {
             const summary: DataDiffSummary[] = [];
             
             // Construção da Connection String do target para uso interno no dblink
-            let dbUser = process.env.DB_USER || 'cascata_admin';
-            let dbPass = process.env.DB_PASSWORD || process.env.DB_PASS || 'secure_pass';
-
-            if (process.env.VAULT_ADDR && process.env.VAULT_TOKEN) {
-                try {
-                    const vault = VaultService.getInstance();
-                    const creds = await vault.getDatabaseCredentials('cascata-admin-role');
-                    dbUser = creds.username;
-                    dbPass = creds.password;
-                } catch (err) {}
-            }
-
-            const targetConnStr = `dbname=${targetDb} user=${dbUser} password=${dbPass} host=${process.env.DB_HOST || 'localhost'}`;
+            // Ex: user=test password=secret dbname=db_clone_xxx host=localhost
+            const targetConnStr = `dbname=${targetDb} user=${process.env.DB_USER} password=${process.env.DB_PASSWORD} host=${process.env.DB_HOST || 'localhost'}`;
 
             for (const table of sourceTables) {
                 try {
@@ -890,8 +868,8 @@ export class DatabaseService {
     ) {
         console.log(`[SmartMerge] Merging ${sourceDb} -> ${targetDb}. Default Strategy: ${globalStrategy}`);
 
-        const sourcePool = await PoolService.get(sourceDb, { useDirect: true });
-        const targetPool = await PoolService.get(targetDb, { useDirect: true });
+        const sourcePool = PoolService.get(sourceDb, { useDirect: true });
+        const targetPool = PoolService.get(targetDb, { useDirect: true });
 
         const clientTarget = externalClient || await targetPool.connect();
         const clientSource = await sourcePool.connect();

@@ -11,7 +11,6 @@ import { CascataRequest } from '../types.js';
 import { systemPool, SYS_SECRET, STORAGE_ROOT, TEMP_UPLOAD_ROOT } from '../config/main.js';
 import { DatabaseService } from '../../services/DatabaseService.js';
 import { PoolService } from '../../services/PoolService.js';
-import { VaultService } from '../../services/VaultService.js';
 import { CertificateService } from '../../services/CertificateService.js';
 import { BackupService } from '../../services/BackupService.js';
 import { ImportService } from '../../services/ImportService.js';
@@ -268,27 +267,9 @@ export class AdminController {
 
     static async listProjects(req: CascataRequest, res: any, next: any) {
         try {
-            const result = await systemPool.query(`
-                SELECT id, name, slug, db_name, custom_domain, ssl_certificate_source, blocklist, status, created_at, 
-                       '******' as jwt_secret, anon_key, '******' as service_key, (metadata - 'secrets') as metadata 
-                FROM system.projects 
-                ORDER BY created_at DESC
-            `);
-            
-            const vault = VaultService.getInstance();
-            const projects = result.rows;
-
-            for (const project of projects) {
-                if (project.anon_key && project.anon_key.startsWith('vault:')) {
-                    try {
-                        project.anon_key = await vault.decrypt('cascata-system-keys', project.anon_key);
-                    } catch (e) {
-                        project.anon_key = '(decrypt-error)';
-                    }
-                }
-            }
-
-            res.json(projects);
+            // Safe decrypt: COALESCE prevents a single corrupted project from crashing the entire listing
+            const result = await systemPool.query(`SELECT id, name, slug, db_name, custom_domain, ssl_certificate_source, blocklist, status, created_at, '******' as jwt_secret, COALESCE(pgp_sym_decrypt(anon_key::bytea, $1::text), '(decrypt-error)') as anon_key, '******' as service_key, (metadata - 'secrets') as metadata FROM system.projects ORDER BY created_at DESC`, [SYS_SECRET]);
+            res.json(result.rows);
         } catch (e: any) { next(e); }
     }
 
@@ -312,16 +293,9 @@ export class AdminController {
 
         try {
             const keys = { anon: await generateKey(), service: await generateKey(), jwt: await generateKey() };
-            const vault = VaultService.getInstance();
-            const encryptedKeys = {
-                anon: await vault.encrypt('cascata-system-keys', keys.anon),
-                service: await vault.encrypt('cascata-system-keys', keys.service),
-                jwt: await vault.encrypt('cascata-system-keys', keys.jwt)
-            };
-
             const insertRes = await systemPool.query(
-                "INSERT INTO system.projects (name, slug, db_name, anon_key, service_key, jwt_secret, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
-                [name, safeSlug, dbName, encryptedKeys.anon, encryptedKeys.service, encryptedKeys.jwt, JSON.stringify({ timezone: timezone || 'UTC' })]
+                "INSERT INTO system.projects (name, slug, db_name, anon_key, service_key, jwt_secret, metadata) VALUES ($1, $2, $3, pgp_sym_encrypt($4, $7), pgp_sym_encrypt($5, $7), pgp_sym_encrypt($6, $7), $8) RETURNING *",
+                [name, safeSlug, dbName, keys.anon, keys.service, keys.jwt, SYS_SECRET, JSON.stringify({ timezone: timezone || 'UTC' })]
             );
             await systemPool.query(`CREATE DATABASE "${dbName}"`);
 
@@ -374,17 +348,10 @@ export class AdminController {
             if (dbCheck.rows.length === 0) return res.status(404).json({ error: `No orphan database "${dbName}" found.` });
 
             // 3. Recreate project record with fresh keys
-            const vault = VaultService.getInstance();
             const keys = { anon: await generateKey(), service: await generateKey(), jwt: await generateKey() };
-            const encryptedKeys = {
-                anon: await vault.encrypt('cascata-system-keys', keys.anon),
-                service: await vault.encrypt('cascata-system-keys', keys.service),
-                jwt: await vault.encrypt('cascata-system-keys', keys.jwt)
-            };
-
             const insertRes = await systemPool.query(
-                "INSERT INTO system.projects (name, slug, db_name, anon_key, service_key, jwt_secret, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
-                [name, safeSlug, dbName, encryptedKeys.anon, encryptedKeys.service, encryptedKeys.jwt, JSON.stringify({ recovered: true, recovered_at: new Date().toISOString() })]
+                "INSERT INTO system.projects (name, slug, db_name, anon_key, service_key, jwt_secret, metadata) VALUES ($1, $2, $3, pgp_sym_encrypt($4, $7), pgp_sym_encrypt($5, $7), pgp_sym_encrypt($6, $7), $8) RETURNING *",
+                [name, safeSlug, dbName, keys.anon, keys.service, keys.jwt, SYS_SECRET, JSON.stringify({ recovered: true, recovered_at: new Date().toISOString() })]
             );
 
             // 4. Born Secure: Populate default auth rate limits
@@ -478,7 +445,7 @@ export class AdminController {
                         const dbInfo = await systemPool.query('SELECT db_name FROM system.projects WHERE slug = $1', [projectSlug]);
                         if (dbInfo.rows.length > 0) {
                             const dbName = dbInfo.rows[0].db_name;
-                            const projectPool = await PoolService.get(dbName, { useDirect: true });
+                            const projectPool = PoolService.get(dbName, { useDirect: true });
                             if (projectPool) {
                                 // INJETOR ON-DEMAND: Se a base existir e nunca inicializou o motor The Foundry DDL
                                 // Ele rodará o provisionamento Native Locks no próprio banco do inquilino
@@ -568,30 +535,14 @@ export class AdminController {
             const admin = (await systemPool.query('SELECT * FROM system.admin_users LIMIT 1')).rows[0];
             const isValid = await bcrypt.compare(req.body.password, admin.password_hash);
             if (!isValid) return res.status(403).json({ error: "Invalid Password" });
-            
-            const keyRes = await systemPool.query(`SELECT ${safeKeyType} as key FROM system.projects WHERE slug = $1`, [req.params.slug]);
-            let key = keyRes.rows[0].key;
-
-            if (key && key.startsWith('vault:')) {
-                const vault = VaultService.getInstance();
-                key = await vault.decrypt('cascata-system-keys', key);
-            }
-
-            res.json({ key });
+            const keyRes = await systemPool.query(`SELECT pgp_sym_decrypt(${safeKeyType}::bytea, $2) as key FROM system.projects WHERE slug = $1`, [req.params.slug, SYS_SECRET]);
+            res.json({ key: keyRes.rows[0].key });
         } catch (e: any) { next(e); }
     }
 
     // ... (Keep existing Helper endpoints) ...
     static async rotateKeys(req: CascataRequest, res: any, next: any) {
-        try { 
-            const newKey = await generateKey();
-            const vault = VaultService.getInstance();
-            const encryptedKey = await vault.encrypt('cascata-system-keys', newKey);
-            
-            const col = req.body.type === 'anon' ? 'anon_key' : 'service_key';
-            await systemPool.query(`UPDATE system.projects SET ${col} = $1 WHERE slug = $2`, [encryptedKey, req.params.slug]); 
-            res.json({ success: true }); 
-        } catch (e: any) { next(e); }
+        try { await systemPool.query(`UPDATE system.projects SET ${req.body.type === 'anon' ? 'anon_key' : 'service_key'} = pgp_sym_encrypt($1, $3) WHERE slug = $2`, [await generateKey(), req.params.slug, SYS_SECRET]); res.json({ success: true }); } catch (e: any) { next(e); }
     }
     static async updateSecrets(req: CascataRequest, res: any, next: any) {
         try { await systemPool.query(`UPDATE system.projects SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{secrets}', $1) WHERE slug = $2`, [JSON.stringify(req.body.secrets), req.params.slug]); res.json({ success: true }); } catch (e: any) { next(e); }
@@ -609,20 +560,7 @@ export class AdminController {
     static async exportProject(req: CascataRequest, res: any, next: any) {
         try {
             const project = (await systemPool.query('SELECT * FROM system.projects WHERE slug = $1', [req.params.slug])).rows[0];
-            
-            // DESCRIPTOGRAFIA SEGURA (VAULT)
-            const vault = VaultService.getInstance();
-            const keys: Record<string, string> = {};
-            const keysToDecrypt = ['jwt_secret', 'anon_key', 'service_key'];
-            
-            for (const k of keysToDecrypt) {
-                if (project[k] && project[k].startsWith('vault:')) {
-                    keys[k] = await vault.decrypt('cascata-system-keys', project[k]);
-                } else {
-                    keys[k] = project[k];
-                }
-            }
-
+            const keys = (await systemPool.query(`SELECT pgp_sym_decrypt(jwt_secret::bytea, $2) as jwt_secret, pgp_sym_decrypt(anon_key::bytea, $2) as anon_key, pgp_sym_decrypt(service_key::bytea, $2) as service_key FROM system.projects WHERE slug = $1`, [req.params.slug, SYS_SECRET])).rows[0];
             await BackupService.streamExport({ ...project, ...keys }, res);
         } catch (e: any) { if (!res.headersSent) res.status(500).json({ error: e.message }); }
     }
@@ -762,16 +700,12 @@ export class AdminController {
 
             // Get project JWT secret to act as Webhook Auth Secret Key
             const secretRes = await systemPool.query(
-                "SELECT jwt_secret FROM system.projects WHERE slug = $1",
-                [req.params.slug]
+                "SELECT pgp_sym_decrypt(jwt_secret::bytea, $1) as jwt_secret FROM system.projects WHERE slug = $2",
+                [SYS_SECRET, req.params.slug]
             );
+
             if (secretRes.rows.length === 0) return res.status(404).json({ error: 'Project not found' });
-            
-            let secret = secretRes.rows[0].jwt_secret;
-            if (secret && secret.startsWith('vault:')) {
-                const vault = VaultService.getInstance();
-                secret = await vault.decrypt('cascata-system-keys', secret);
-            }
+            const secret = secretRes.rows[0].jwt_secret;
 
             const result = await systemPool.query(
                 `INSERT INTO system.webhooks 
@@ -834,15 +768,11 @@ export class AdminController {
 
             const hook = hookRes.rows[0];
             const projRes = await systemPool.query(
-                "SELECT jwt_secret FROM system.projects WHERE slug = $1",
-                [hook.project_slug]
+                "SELECT pgp_sym_decrypt(jwt_secret::bytea, $1) as jwt_secret FROM system.projects WHERE slug = $2",
+                [SYS_SECRET, hook.project_slug]
             );
 
-            let jwtSecret = projRes.rows[0].jwt_secret;
-            if (jwtSecret && jwtSecret.startsWith('vault:')) {
-                const vault = VaultService.getInstance();
-                jwtSecret = await vault.decrypt('cascata-system-keys', jwtSecret);
-            }
+            const jwtSecret = projRes.rows[0].jwt_secret;
 
             await WebhookService.dispatch(
                 hook.project_slug,

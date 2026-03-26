@@ -186,7 +186,7 @@ export class BranchController {
                     }
                 }
 
-                const livePool = await PoolService.get(liveDb, { useDirect: true });
+                const livePool = PoolService.get(liveDb, { useDirect: true });
                 const client = await livePool.connect();
                 
                 try {
@@ -295,8 +295,8 @@ export class BranchController {
      * Returns the full diff object including `generated_sql`.
      */
     static async generateDiffInternal(liveDb: string, draftDb: string): Promise<any> {
-            const livePool = await PoolService.get(liveDb, { useDirect: true });
-            const draftPool = await PoolService.get(draftDb, { useDirect: true });
+            const livePool = PoolService.get(liveDb, { useDirect: true });
+            const draftPool = PoolService.get(draftDb, { useDirect: true });
 
             // --- SYSTEM-MANAGED OBJECTS EXCLUSION LIST ---
             // These are infrastructure functions/triggers auto-created by Cascata.

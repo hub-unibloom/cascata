@@ -80,7 +80,7 @@ export class QueueService {
         this.pushWorker = new Worker('cascata-push', async (job: Job) => {
             const { projectSlug, userId, notification, fcmConfig, dbName, externalDbUrl } = job.data;
             try {
-                const pool = await PoolService.get(dbName, { connectionString: externalDbUrl });
+                const pool = PoolService.get(dbName, { connectionString: externalDbUrl });
                 return await PushProcessor.processDelivery(
                     pool,
                     systemPool,
@@ -155,7 +155,7 @@ export class QueueService {
                 try {
                     const { AutomationService } = await import('./AutomationService.js');
                     const { PoolService } = await import('./PoolService.js');
-                    const pool = await PoolService.get(projectSlug);
+                    const pool = PoolService.get(projectSlug);
                     await AutomationService.dispatchAsyncTrigger(
                         automationId,
                         projectSlug,

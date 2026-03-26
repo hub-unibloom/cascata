@@ -1,0 +1,296 @@
+Crie um tabela:
+
+-- Create table: teste
+CREATE TABLE IF NOT EXISTS public.teste (
+    id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    hideee     text,
+    bluour     text,
+    massk      text,
+    incript    text
+);
+
+cada tipo e privacy correpone ao nome da coluna, por exemplo: hideee é hide, bluour é blur, massk é mask, incript é encrypt
+
+
+Request URL
+http://52.3.229.37/api/control/projects/tets
+Request Method
+PATCH
+Status Code
+200 OK
+
+PAYLOAD:
+{
+    "metadata": {
+        "timezone": "America/Sao_Paulo",
+        "ai_governance": {
+            "mcp_enabled": true,
+            "tables": {},
+            "rpcs": []
+        },
+        "locked_columns": {
+            "teste": {
+                "id": "immutable",
+                "created_at": "insert_only"
+            }
+        },
+        "masked_columns": {
+            "teste": {
+                "hideee": "hide",
+                "bluour": "hide",
+                "massk": "mask",
+                "incript": "encrypt"
+            }
+        }
+    }
+}
+
+
+PREVIW:
+{
+    "id": "4959e578-96de-4260-bb36-8f177844d89e",
+    "name": "tets",
+    "slug": "tets",
+    "status": "healthy",
+    "db_name": "cascata_db_tets",
+    "custom_domain": null,
+    "default_domain": null,
+    "ssl_certificate_source": null,
+    "jwt_secret": "\\xc30d04070302174c0cf856c6cd647bd271011bc0a509de76fd0cafc06cdaff8fc14b0cb2bc7519764a33fc7ea9c05fe0c83a42f8ea334c89324a357a014ba5229f71212bb458056aeb61b156971d4c1bb3b5a878278c4a37605c1d62cb0b70b8ac8ed223d18cbb9a4c997b0c290caad0b1cef7c99c83f389825880edf019fa16cf62",
+    "anon_key": "\\xc30d040703027dcf69eda029705d66d27101dad4e44d01456f9faad76915aea8fcda5d34f82178590e12ce70b52f6f5572ca135ea3162400bf6d1cfb1c763e66ef28154c36725b2bc1f61defdfea2f823b5076e6ee7084f0513393d32b481d57cecdc4945fc4c5b6fbb8fd0c5e6984a54bad10c597be2e706754e10715cc04242226",
+    "service_key": "\\xc30d040703028f96d104da5e526d70d271016dad8c8e00bdc3c96ccfb889da5db827aa255ead8fd5ef11fb182844ef8d4f675df31b795c14e865ba37bf67f5009fcfa5f4908a81ad4d697f3135b51d037079b3e5e7861b69082cbed65e929330e6302c8c9dc31b5b9b68162050b513071df5f939bfbb49b00f9d118cb5a54e8f34e7",
+    "blocklist": [],
+    "metadata": {
+        "timezone": "America/Sao_Paulo",
+        "ai_governance": {
+            "rpcs": [],
+            "tables": {},
+            "mcp_enabled": true
+        },
+        "locked_columns": {
+            "teste": {
+                "id": "immutable",
+                "created_at": "insert_only"
+            }
+        },
+        "masked_columns": {
+            "teste": {
+                "massk": "mask",
+                "bluour": "hide",
+                "hideee": "hide",
+                "incript": "encrypt"
+            }
+        }
+    },
+    "log_retention_days": 30,
+    "created_at": "2026-03-19 06:10:53.523365+00",
+    "updated_at": "2026-03-19 06:10:53.523365+00",
+    "archive_logs": false
+}
+
+RESSPONSE:
+{
+    "id": "4959e578-96de-4260-bb36-8f177844d89e",
+    "name": "tets",
+    "slug": "tets",
+    "status": "healthy",
+    "db_name": "cascata_db_tets",
+    "custom_domain": null,
+    "default_domain": null,
+    "ssl_certificate_source": null,
+    "jwt_secret": "\\xc30d04070302174c0cf856c6cd647bd271011bc0a509de76fd0cafc06cdaff8fc14b0cb2bc7519764a33fc7ea9c05fe0c83a42f8ea334c89324a357a014ba5229f71212bb458056aeb61b156971d4c1bb3b5a878278c4a37605c1d62cb0b70b8ac8ed223d18cbb9a4c997b0c290caad0b1cef7c99c83f389825880edf019fa16cf62",
+    "anon_key": "\\xc30d040703027dcf69eda029705d66d27101dad4e44d01456f9faad76915aea8fcda5d34f82178590e12ce70b52f6f5572ca135ea3162400bf6d1cfb1c763e66ef28154c36725b2bc1f61defdfea2f823b5076e6ee7084f0513393d32b481d57cecdc4945fc4c5b6fbb8fd0c5e6984a54bad10c597be2e706754e10715cc04242226",
+    "service_key": "\\xc30d040703028f96d104da5e526d70d271016dad8c8e00bdc3c96ccfb889da5db827aa255ead8fd5ef11fb182844ef8d4f675df31b795c14e865ba37bf67f5009fcfa5f4908a81ad4d697f3135b51d037079b3e5e7861b69082cbed65e929330e6302c8c9dc31b5b9b68162050b513071df5f939bfbb49b00f9d118cb5a54e8f34e7",
+    "blocklist": [],
+    "metadata": {
+        "timezone": "America/Sao_Paulo",
+        "ai_governance": {
+            "rpcs": [],
+            "tables": {},
+            "mcp_enabled": true
+        },
+        "locked_columns": {
+            "teste": {
+                "id": "immutable",
+                "created_at": "insert_only"
+            }
+        },
+        "masked_columns": {
+            "teste": {
+                "massk": "mask",
+                "bluour": "hide",
+                "hideee": "hide",
+                "incript": "encrypt"
+            }
+        }
+    },
+    "log_retention_days": 30,
+    "created_at": "2026-03-19 06:10:53.523365+00",
+    "updated_at": "2026-03-19 06:10:53.523365+00",
+    "archive_logs": false
+}
+
+
+AI TEMOS OUTRA CHADDA AUTOMATICA:
+Request URL
+http://52.3.229.37/api/data/tets/tables/teste/columns?schema=public
+Request Method
+GET
+Status Code
+200 OK
+
+[
+    {
+        "name": "id",
+        "type": "uuid",
+        "is_nullable": "NO",
+        "defaultValue": "gen_random_uuid()",
+        "isPrimaryKey": true,
+        "description": "",
+        "formatPattern": null,
+        "lockLevel": "unlocked",
+        "maskLevel": "unmasked"
+    },
+    {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "is_nullable": "NO",
+        "defaultValue": "now()",
+        "isPrimaryKey": false,
+        "description": "",
+        "formatPattern": null,
+        "lockLevel": "unlocked",
+        "maskLevel": "unmasked"
+    },
+    {
+        "name": "hideee",
+        "type": "text",
+        "is_nullable": "YES",
+        "defaultValue": null,
+        "isPrimaryKey": false,
+        "description": "",
+        "formatPattern": null,
+        "lockLevel": "unlocked",
+        "maskLevel": "unmasked"
+    },
+    {
+        "name": "bluour",
+        "type": "text",
+        "is_nullable": "YES",
+        "defaultValue": null,
+        "isPrimaryKey": false,
+        "description": "",
+        "formatPattern": null,
+        "lockLevel": "unlocked",
+        "maskLevel": "unmasked"
+    },
+    {
+        "name": "massk",
+        "type": "text",
+        "is_nullable": "YES",
+        "defaultValue": null,
+        "isPrimaryKey": false,
+        "description": "",
+        "formatPattern": null,
+        "lockLevel": "unlocked",
+        "maskLevel": "unmasked"
+    },
+    {
+        "name": "incript",
+        "type": "text",
+        "is_nullable": "YES",
+        "defaultValue": null,
+        "isPrimaryKey": false,
+        "description": "",
+        "formatPattern": null,
+        "lockLevel": "unlocked",
+        "maskLevel": "unmasked"
+    }
+]
+
+
+Request URL
+http://52.3.229.37/api/data/tets/tables/teste/columns?schema=public
+Request Method
+GET
+Status Code
+200 OK
+
+
+RESPONSE:
+[
+    {
+        "name": "id",
+        "type": "uuid",
+        "is_nullable": "NO",
+        "defaultValue": "gen_random_uuid()",
+        "isPrimaryKey": true,
+        "description": "",
+        "formatPattern": null,
+        "lockLevel": "immutable",
+        "maskLevel": "unmasked"
+    },
+    {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "is_nullable": "NO",
+        "defaultValue": "now()",
+        "isPrimaryKey": false,
+        "description": "",
+        "formatPattern": null,
+        "lockLevel": "insert_only",
+        "maskLevel": "unmasked"
+    },
+    {
+        "name": "hideee",
+        "type": "text",
+        "is_nullable": "YES",
+        "defaultValue": null,
+        "isPrimaryKey": false,
+        "description": "",
+        "formatPattern": null,
+        "lockLevel": "unlocked",
+        "maskLevel": "hide"
+    },
+    {
+        "name": "bluour",
+        "type": "text",
+        "is_nullable": "YES",
+        "defaultValue": null,
+        "isPrimaryKey": false,
+        "description": "",
+        "formatPattern": null,
+        "lockLevel": "unlocked",
+        "maskLevel": "hide"
+    },
+    {
+        "name": "massk",
+        "type": "text",
+        "is_nullable": "YES",
+        "defaultValue": null,
+        "isPrimaryKey": false,
+        "description": "",
+        "formatPattern": null,
+        "lockLevel": "unlocked",
+        "maskLevel": "mask"
+    },
+    {
+        "name": "incript",
+        "type": "text",
+        "is_nullable": "YES",
+        "defaultValue": null,
+        "isPrimaryKey": false,
+        "description": "",
+        "formatPattern": null,
+        "lockLevel": "unlocked",
+        "maskLevel": "encrypt"
+    }
+]
+
+DEMOROU UM POUCO E A TELA FOI ATUALZIADDA, FIZ O TESTE PELO CMD/TERMINAL
+E FIZ ESSA CHAMADA
+curl -X GET "http://52.3.229.37/api/data/tets/rest/v1/teste?select=*&limit=10" \
+  -H "apikey: 43f717f094c1dd26e15ab42ea6138c8a6ec4599fd7fc6c069fe7454139547112" \
+  -H "Authorization: Bearer 43f717f094c1dd26e15ab42ea6138c8a6ec4599fd7fc6c069fe7454139547112"
+[{"id":"3b9c8778-b66e-47fc-a92c-815fc563e818","created_at":"2026-03-19 03:12:45.432549-03","massk":"********","incript":"8f6kn8vYEV7i0F6I:m52jMEEK2hNLoiy7DY2eQQ==:kvYGiVJLHg=="}]

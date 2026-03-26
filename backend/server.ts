@@ -10,7 +10,7 @@ import cluster from 'cluster';
 import fs from 'fs';
 
 // --- CONFIG & UTILS ---
-import { systemPool, bootstrapConfig } from './src/config/main.js';
+import { systemPool } from './src/config/main.js';
 import { waitForDatabase, cleanTempUploads } from './src/utils/index.js';
 
 // --- SERVICES ---
@@ -45,10 +45,6 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const MIGRATIONS_ROOT = path.resolve(__dirname, '../migrations');
-
-// --- BOOTSTRAP CONFIG (VAULT) ---
-// Precisamos garantir que os segredos do Vault sejam carregados antes de qualquer serviço
-await bootstrapConfig();
 
 // --- INITIALIZE SERVICES ---
 SystemLogService.init();
@@ -93,7 +89,7 @@ else if (process.env.SERVICE_MODE === 'ENGINE') {
 
             // Instancia o pool do projeto sob demanda baseado na connection string recebida
             // Isso permite que o Engine seja stateless em relação aos pools
-            const projectPool = await PoolService.get(slug, { connectionString: context._db_connection_string });
+            const projectPool = PoolService.get(slug, { connectionString: context._db_connection_string });
 
             const result = await EdgeService.execute(
                 code,

@@ -626,36 +626,6 @@ gen_url_safe_password() {
     echo "$RESULT"
 }
 
-# ---------------------------------------------------------------------------
-# CONFIGURAÇÃO DO HASHICORP VAULT
-# ---------------------------------------------------------------------------
-setup_vault() {
-    section "FASE 2.1.5 — Configuração do HashiCorp Vault"
-    
-    echo -e "  ${BOLD}O Cascata utiliza HashiCorp Vault para gestão de segredos enterprise.${NC}"
-    echo -e "  Escolha como deseja configurar o Vault:"
-    echo -e "  1) ${BOLD}Local (Sidecar)${NC}: O instalador sobe um container Vault exclusivo para esta VPS."
-    echo -e "  2) ${BOLD}Cloud (Externo)${NC}: Você fornece o endereço e token de um Vault já existente."
-    echo ""
-    read -rp "  Opção [1/2] [1]: " VAULT_CHOICE || true
-    VAULT_CHOICE="${VAULT_CHOICE:-1}"
-
-    if [[ "$VAULT_CHOICE" == "1" ]]; then
-        info "Configurando Vault Local..."
-        VAULT_ADDR="http://vault:8200"
-        # Gerar um token de root para modo dev local
-        VAULT_TOKEN=$(gen_hex_secret 32)
-        VAULT_DEV_ROOT_TOKEN_ID="$VAULT_TOKEN"
-        ok "Vault Local configurado com root token dinâmico"
-    else
-        info "Configurando Vault Cloud..."
-        read -rp "  Endereço do Vault (ex: https://vault.meudominio.com): " VAULT_ADDR
-        prompt_password "  Token do Vault: " VAULT_TOKEN
-        VAULT_DEV_ROOT_TOKEN_ID=""
-        ok "Vault Cloud configurado!"
-    fi
-}
-
 gen_hex_secret() {
     local LENGTH="${1:-64}"
     local RESULT=""
@@ -803,9 +773,6 @@ phase2_setup_and_start() {
 
     ok "Chaves geradas com entropia local"
 
-    # Configurar Vault
-    setup_vault
-
     # Injetar no .env
     if [ -f ".env" ]; then
         sed -i "s|^DB_PASS=.*|DB_PASS=${DB_PASS}|" .env
@@ -813,29 +780,7 @@ phase2_setup_and_start() {
         sed -i "s|^DB_NAME=.*|DB_NAME=${DB_NAME}|" .env
         sed -i "s|^SYSTEM_JWT_SECRET=.*|SYSTEM_JWT_SECRET=${JWT_SECRET}|" .env
         sed -i "s|^INTERNAL_CTRL_SECRET=.*|INTERNAL_CTRL_SECRET=${CTRL_SECRET}|" .env
-        
-        # Injetar Vault
-        if grep -q "^VAULT_ADDR=" .env; then
-            sed -i "s|^VAULT_ADDR=.*|VAULT_ADDR=${VAULT_ADDR}|" .env
-        else
-            echo "VAULT_ADDR=${VAULT_ADDR}" >> .env
-        fi
-        
-        if grep -q "^VAULT_TOKEN=" .env; then
-            sed -i "s|^VAULT_TOKEN=.*|VAULT_TOKEN=${VAULT_TOKEN}|" .env
-        else
-            echo "VAULT_TOKEN=${VAULT_TOKEN}" >> .env
-        fi
-
-        if [ -n "$VAULT_DEV_ROOT_TOKEN_ID" ]; then
-            if grep -q "^VAULT_DEV_ROOT_TOKEN_ID=" .env; then
-                sed -i "s|^VAULT_DEV_ROOT_TOKEN_ID=.*|VAULT_DEV_ROOT_TOKEN_ID=${VAULT_DEV_ROOT_TOKEN_ID}|" .env
-            else
-                echo "VAULT_DEV_ROOT_TOKEN_ID=${VAULT_DEV_ROOT_TOKEN_ID}" >> .env
-            fi
-        fi
-
-        ok ".env configurado com segredos únicos desta VPS e Vault"
+        ok ".env configurado com segredos únicos desta VPS"
     else
         warn ".env não encontrado — verifique o repositório clonado."
     fi
