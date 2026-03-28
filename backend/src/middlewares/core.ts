@@ -22,6 +22,11 @@ export const resolveProject: RequestHandler = async (req: any, res: any, next: a
 
     // 0.1 SOVEREIGN BARRIER: Bloqueio total se o motor estiver selado (Sealed)
     const sovereignExempt = [
+        '/api/control/auth/handshake', 
+        '/api/control/auth/login', 
+        '/api/control/auth/otp/verify', 
+        '/api/control/auth/sovereign/status', 
+        '/api/control/auth/sovereign/unseal',
         '/auth/handshake', 
         '/auth/login', 
         '/auth/otp/verify', 

@@ -81,7 +81,6 @@ func (r *Router) handleEncrypt(w http.ResponseWriter, req *http.Request) {
 	keyName := body.Key
 	version := r.Manager.GetLatestVersion(keyName)
 	if version == 0 {
-		// Auto-generate key if it doesn't exist (Synergy: less manual config)
 		version, _ = r.Manager.GenerateKey(keyName)
 	}
 
@@ -97,7 +96,6 @@ func (r *Router) handleEncrypt(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// CSE:V1:KEY:VERSION:BASE64
 	final := fmt.Sprintf("cse:v1:%s:%d:%s", keyName, version, base64.StdEncoding.EncodeToString(ciphertext))
 	json.NewEncoder(w).Encode(map[string]string{"ciphertext": final})
 }
@@ -115,7 +113,6 @@ func (r *Router) handleDecrypt(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Ativa o Pântano se houver excesso de volume
 	r.Tarpit.RecordAndDelay()
 
 	plaintext, err := r.decryptOne(body.Ciphertext)
@@ -187,7 +184,6 @@ func (r *Router) handleDecryptBatch(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Ativa o Pântano para cada item no batch
 	for range body.Items {
 		r.Tarpit.RecordAndDelay()
 	}
@@ -224,7 +220,6 @@ func (r *Router) decryptOne(ctStr string) ([]byte, error) {
 }
 
 func (r *Router) handleHealth(w http.ResponseWriter, req *http.Request) {
-	// Pro-grade: Verificar se o manager está respondendo
 	if r.Manager == nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Manager not initialized"})

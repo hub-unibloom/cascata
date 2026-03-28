@@ -1906,7 +1906,7 @@ main() {
 
     section "🏁 TUDO CONCLUÍDO!"
     PUBLIC_IP=$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}' || echo 'SEU_IP')
-    echo -e "  Painel: ${CYAN}https://${PUBLIC_IP}${NC} $([ "$OTP_ENABLED" = "true" ] && echo "+ OTP")"
+    echo -e "  Painel: ${CYAN}http://${PUBLIC_IP}${NC} $([ "$OTP_ENABLED" = "true" ] && echo "+ OTP")"
     echo -e "  SSH:    ${CYAN}ssh -p ${SSH_PORT:-22} $(whoami)@${PUBLIC_IP}${NC} $([ "$DO_HARDEN" = "S" ] && echo "+ OTP")"
     echo ""
 }

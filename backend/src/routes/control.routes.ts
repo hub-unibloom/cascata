@@ -18,6 +18,8 @@ router.use(express.urlencoded({ extended: true, limit: '10mb' }) as any);
 router.get('/auth/handshake', AdminController.handshake as any);
 router.post('/auth/login', AdminController.login as any);
 router.post('/auth/verify', AdminController.verify as any);
+router.get('/auth/sovereign/status', AdminController.sovereignStatus as any);
+router.post('/auth/sovereign/unseal', AdminController.unseal as any);
 router.post('/system/ssl-check', AdminController.checkSsl as any);
 
 // Protected Routes

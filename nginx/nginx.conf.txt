@@ -74,6 +74,15 @@ server {
         proxy_send_timeout 3600s;
     }
 
+    # Sovereign Elite: Status & Unseal (Always to Control Plane)
+    location ~ ^/auth/sovereign/ {
+        proxy_pass http://backend_control:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     # API Data Plane (Hyper-Cluster Via Unix Sockets)
     location ~ ^/(api/data/|rpc/|auth/|storage/|edge/|tables/|rest/|vector/) {
         # O Pulo do Gato: Não podemos bloquear $host diferente de IP aqui,
