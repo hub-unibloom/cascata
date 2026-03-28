@@ -129,6 +129,7 @@ mv database/docker-entrypoint-cascata.sh.txt database/docker-entrypoint-cascata.
 mv frontend/Dockerfile.txt frontend/Dockerfile
 mv frontend/nginx.conf.txt frontend/nginx.conf
 mv nginx-controller/Dockerfile.txt nginx-controller/Dockerfile
+mv crypto-engine/Dockerfile.txt crypto-engine/Dockerfile
 mv scripts/firewall-sync.sh.txt scripts/firewall-sync.sh
 
 # Editar variáveis de ambiente

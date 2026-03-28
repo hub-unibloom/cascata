@@ -772,6 +772,7 @@ phase2_setup_and_start() {
     JWT_SECRET=$(gen_hex_secret 64)
     CTRL_SECRET=$(gen_hex_secret 64)
     MASTER_SECRET=$(gen_hex_secret 64)
+    OTP_SECRET=$(gen_hex_secret 64)
 
     ok "Chaves geradas com entropia local"
 
@@ -787,6 +788,12 @@ phase2_setup_and_start() {
             sed -i "s|^CASCATA_MASTER_SECRET=.*|CASCATA_MASTER_SECRET=${MASTER_SECRET}|" .env
         else
             echo "CASCATA_MASTER_SECRET=${MASTER_SECRET}" >> .env
+        fi
+        
+        if grep -q "CASCATA_OTP_SECRET" .env; then
+            sed -i "s|^CASCATA_OTP_SECRET=.*|CASCATA_OTP_SECRET=${OTP_SECRET}|" .env
+        else
+            echo "CASCATA_OTP_SECRET=${OTP_SECRET}" >> .env
         fi
         ok ".env configurado com segredos únicos desta VPS"
     else

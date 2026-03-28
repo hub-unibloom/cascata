@@ -43,10 +43,13 @@ export class WebhookController {
         if (!path_slug) return res.status(400).json({ error: 'Invalid or missing path slug.' });
 
         try {
+            // Hardening: Encrypt webhook secret via Go Engine
+            const encryptedSecret = secret_key ? await CryptoService.encrypt('webhook_auth', secret_key) : null;
+
             const result = await systemPool.query(
                 `INSERT INTO system.webhook_receivers (project_slug, name, path_slug, auth_method, secret_key, target_type, target_id)
                  VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-                [slug, name, path_slug, auth_method, secret_key, target_type, target_id]
+                [slug, name, path_slug, auth_method, encryptedSecret, target_type, target_id]
             );
             res.json(result.rows[0]);
         } catch (e: any) {
@@ -91,11 +94,13 @@ export class WebhookController {
             const jwtSecret = await CryptoService.decrypt(receiver.jwt_secret_cipher);
 
             // 2. Validate Security (HMAC SHA256)
+            // Hardening: Decrypt webhook secret via Go Engine if present
             if (receiver.auth_method === 'hmac_sha256' && receiver.secret_key) {
                 const signature = headers['x-cascata-signature'] || headers['x-hub-signature-256'] || headers['x-signature'];
                 if (!signature) return res.status(401).json({ error: 'Missing security signature.' });
 
-                const hmac = crypto.createHmac('sha256', receiver.secret_key);
+                const decryptedSecret = await CryptoService.decrypt(receiver.secret_key);
+                const hmac = crypto.createHmac('sha256', decryptedSecret);
                 const bodyStr = typeof payload === 'string' ? payload : JSON.stringify(payload);
                 const expected = hmac.update(bodyStr).digest('hex');
 

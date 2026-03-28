@@ -198,26 +198,19 @@ export class BackupService {
         if (policyRes.rows.length === 0) throw new Error("Policy not found");
         const policy = policyRes.rows[0];
 
-        // Decrypt via Crypto Engine
+        // Decrypt policy config but KEEP project secrets encrypted for the backup
         const { CryptoService } = await import('./CryptoService.js');
         const configStr = policy.encrypted_data ? await CryptoService.decrypt(policy.encrypted_data) : '{}';
         const config = JSON.parse(configStr);
-        
-        const [jwtSecret, anonKey, serviceKey] = await CryptoService.decryptBatch([
-            policy.jwt_secret, policy.anon_key, policy.service_key
-        ]);
-        policy.jwt_secret = jwtSecret;
-        policy.anon_key = anonKey;
-        policy.service_key = serviceKey;
         
         const project: ProjectMetadata = {
             id: policy.project_slug,
             name: policy.proj_name,
             slug: policy.slug,
             db_name: policy.db_name,
-            jwt_secret: policy.jwt_secret,
-            anon_key: policy.anon_key,
-            service_key: policy.service_key,
+            jwt_secret: policy.jwt_secret, // Mantém criptografado
+            anon_key: policy.anon_key,     // Mantém criptografado
+            service_key: policy.service_key, // Mantém criptografado
             custom_domain: policy.custom_domain,
             metadata: policy.metadata
         };
