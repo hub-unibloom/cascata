@@ -14,6 +14,7 @@ import (
 type Router struct {
 	Manager        *keystore.Manager
 	InternalSecret string
+	Tarpit         *crypto.Tarpit
 }
 
 type EncryptRequest struct {
@@ -40,6 +41,8 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	mux.HandleFunc("/v1/encrypt-batch", r.handleEncryptBatch)
 	mux.HandleFunc("/v1/decrypt-batch", r.handleDecryptBatch)
 	mux.HandleFunc("/v1/keys/rotate", r.handleRotateKey)
+	mux.HandleFunc("/v1/sys/status", r.handleStatus)
+	mux.HandleFunc("/v1/sys/unseal", r.handleUnseal)
 	mux.HandleFunc("/v1/health", r.handleHealth)
 	
 	mux.ServeHTTP(w, req)
@@ -49,6 +52,12 @@ func (r *Router) handleEncrypt(w http.ResponseWriter, req *http.Request) {
 	var body EncryptRequest
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 		http.Error(w, "Invalid body", http.StatusBadRequest)
+		return
+	}
+
+	if r.Manager.Sealed {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"error": "engine_sealed"})
 		return
 	}
 
@@ -82,12 +91,14 @@ func (r *Router) handleEncrypt(w http.ResponseWriter, req *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"ciphertext": final})
 }
 
-func (r *Router) handleDecrypt(w http.ResponseWriter, req *http.Request) {
-	var body DecryptRequest
-	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-		http.Error(w, "Invalid body", http.StatusBadRequest)
+	if r.Manager.Sealed {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"error": "engine_sealed"})
 		return
 	}
+
+	// Ativa o Pântano se houver excesso de volume
+	r.Tarpit.RecordAndDelay()
 
 	plaintext, err := r.decryptOne(body.Ciphertext)
 	if err != nil {
@@ -139,11 +150,15 @@ func (r *Router) handleEncryptBatch(w http.ResponseWriter, req *http.Request) {
 	json.NewEncoder(w).Encode(map[string][]string{"items": results})
 }
 
-func (r *Router) handleDecryptBatch(w http.ResponseWriter, req *http.Request) {
-	var body DecryptRequest
-	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-		http.Error(w, "Invalid body", http.StatusBadRequest)
+	if r.Manager.Sealed {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"error": "engine_sealed"})
 		return
+	}
+
+	// Ativa o Pântano para cada item no batch
+	for range body.Items {
+		r.Tarpit.RecordAndDelay()
 	}
 
 	results := make([]string, len(body.Items))
@@ -211,4 +226,33 @@ func (r *Router) handleRotateKey(w http.ResponseWriter, req *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]int{"new_version": newVersion})
+}
+
+func (r *Router) handleStatus(w http.ResponseWriter, req *http.Request) {
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"sealed":  r.Manager.Sealed,
+		"version": "1.0.0",
+		"engine":  "go-cse-v1-sovereign",
+	})
+}
+
+type UnsealRequest struct {
+	MasterSecret string `json:"master_secret"`
+}
+
+func (r *Router) handleUnseal(w http.ResponseWriter, req *http.Request) {
+	var body UnsealRequest
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		http.Error(w, "Invalid body", http.StatusBadRequest)
+		return
+	}
+
+	err := r.Manager.Unlock(body.MasterSecret)
+	if err != nil {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }

@@ -1,9 +1,0 @@
-A análise sistêmica revelou que a falta de sinergia vinha de uma fragmentação na aplicação das regras de privacidade. 
-
-Ao centralizar toda a inteligência de mascaramento no método estático `applyMaskingTier` dentro do `DataController.ts`, eliminamos qualquer possibilidade de um endpoint (como o PostgREST ou o console SQL) ignorar as travas de privacidade.
-
-A introdução do nível `semi-mask` resolveu a lacuna entre o "esconder tudo" e o "borrar apenas as bordas", oferecendo uma visualização proporcional de 25/75 (Enterprise Grade).
-
-No Frontend, o Universal Padlock foi transformado de uma simples trava de mutação para um painel completo deGovernança de Dados, com descrições que refletem seu real poder sobre a leitura e a escrita.
-
-Status Final: Sinergia Restaurada. Upgrade realizado com zero regressão.

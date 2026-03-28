@@ -19,6 +19,19 @@ export const resolveProject: RequestHandler = async (req: any, res: any, next: a
     // 0. Fast Exit for Health Checks to reduce overhead
     if (req.path === '/' || req.path === '/health') return next();
 
+    // 0.1 SOVEREIGN BARRIER: Bloqueio total se o motor estiver selado (Sealed)
+    const sovereignExempt = ['/auth/handshake', '/auth/sovereign/status', '/auth/sovereign/unseal'];
+    if (!sovereignExempt.includes(req.path)) {
+        const { CryptoService } = await import('../../services/CryptoService.js');
+        const status = await CryptoService.getSovereignStatus();
+        if (status.sealed) {
+            return res.status(503).json({ 
+                error: 'ENGINE_SEALED', 
+                message: 'Sistema em modo de segurança (ESTADO SELADO). Desbloqueio soberano necessário via Master Secret na RAM.' 
+            });
+        }
+    }
+
     const r = req as CascataRequest;
     const host = req.headers.host || '';
 

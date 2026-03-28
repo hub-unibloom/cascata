@@ -78,6 +78,28 @@ export class AdminController {
         } catch (e: any) { next(e); }
     }
 
+    static async sovereignStatus(req: CascataRequest, res: any, next: any) {
+        try {
+            const status = await CryptoService.getSovereignStatus();
+            res.json(status);
+        } catch (e: any) { next(e); }
+    }
+
+    static async unseal(req: CascataRequest, res: any, next: any) {
+        try {
+            const { master_secret } = req.body;
+            if (!master_secret) return res.status(400).json({ error: 'Master Secret is required' });
+            
+            await CryptoService.unseal(master_secret);
+            res.json({ success: true, message: 'Engine unsealed successfully. Powering up...' });
+
+            // Logger de Segurança Máxima
+            console.log(`[SOVEREIGN] Master Secret injected and accepted. Engine is now READY.`);
+        } catch (e: any) {
+            res.status(401).json({ error: e.message || 'Falha ao desbloquear o motor.' });
+        }
+    }
+
     // Fallback store em memória para quando Dragonfly não está disponível
     private static handshakeFallbackStore = new Map<string, any>();
 

@@ -776,6 +776,27 @@ phase2_setup_and_start() {
     # OTP_SECRET será gerado apenas se habilitado na Fase 2.3
     OTP_ENABLED="false" 
 
+    echo -e "  ${BOLD}Escolha o Nível de Soberania Digital:${NC}"
+    echo -e "  1) ${CYAN}Standard${NC} (Chave Mestra salva no .env — Conveniência)"
+    echo -e "  2) ${BOLD}${RED}Sovereign Elite${NC} (Chave Mestra APENAS na RAM — Segurança Máxima)"
+    echo ""
+    read -rp "  Sua escolha [1/2]: " SOV_CHOICE
+    
+    IS_ELITE=false
+    if [ "$SOV_CHOICE" == "2" ]; then
+        IS_ELITE=true
+        section "ALERTA DE SEGURANÇA MÁXIMA — SOVEREIGN ELITE"
+        warn "A Chave Mestre NÃO será salva no arquivo .env."
+        warn "Você precisará informar esta chave manualmente após cada REBOOT do servidor."
+        echo ""
+        echo -e "  ${BOLD}${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "  ${BOLD}${WHITE}  SUA CASCATA MASTER SECRET (SALVE AGORA EM LOCAL OFFLINE):${NC}"
+        echo -e "  ${BOLD}${YELLOW}  ${MASTER_SECRET}${NC}"
+        echo -e "  ${BOLD}${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        confirm "Eu salvei a chave em local seguro e entendo que sem ela perderei os dados."
+    fi
+
     ok "Chaves geradas com entropia local"
 
     # Injetar no .env
@@ -784,7 +805,14 @@ phase2_setup_and_start() {
         [ "$(grep -c "DB_PASS=" .env)" -eq 0 ] && echo "DB_PASS=${DB_PASS}" >> .env || sed -i "s|^DB_PASS=.*|DB_PASS=${DB_PASS}|" .env
         [ "$(grep -c "SYSTEM_JWT_SECRET=" .env)" -eq 0 ] && echo "SYSTEM_JWT_SECRET=${JWT_SECRET}" >> .env || sed -i "s|^SYSTEM_JWT_SECRET=.*|SYSTEM_JWT_SECRET=${JWT_SECRET}|" .env
         [ "$(grep -c "INTERNAL_CTRL_SECRET=" .env)" -eq 0 ] && echo "INTERNAL_CTRL_SECRET=${CTRL_SECRET}" >> .env || sed -i "s|^INTERNAL_CTRL_SECRET=.*|INTERNAL_CTRL_SECRET=${CTRL_SECRET}|" .env
-        [ "$(grep -c "CASCATA_MASTER_SECRET=" .env)" -eq 0 ] && echo "CASCATA_MASTER_SECRET=${MASTER_SECRET}" >> .env || sed -i "s|^CASCATA_MASTER_SECRET=.*|CASCATA_MASTER_SECRET=${MASTER_SECRET}|" .env
+        
+        # Só injeta se NÃO for Elite
+        if [ "$IS_ELITE" = false ]; then
+            [ "$(grep -c "CASCATA_MASTER_SECRET=" .env)" -eq 0 ] && echo "CASCATA_MASTER_SECRET=${MASTER_SECRET}" >> .env || sed -i "s|^CASCATA_MASTER_SECRET=.*|CASCATA_MASTER_SECRET=${MASTER_SECRET}|" .env
+        else
+            # Remove se existir para garantir isolamento
+            sed -i "/CASCATA_MASTER_SECRET=/d" .env
+        fi
         
         # Injetar FLAG de habilitado (será atualizada na Fase 2.3)
         if ! grep -q "CASCATA_OTP_ENABLED" .env; then

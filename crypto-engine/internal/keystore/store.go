@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/hub-unibloom/cascata/crypto-engine/internal/crypto"
+	"github.com/hub-unibloom/cascata/crypto-engine/internal/kek"
 )
 
 type KeyEntry struct {
@@ -25,6 +26,7 @@ type Manager struct {
 	kek       []byte
 	store     *Store
 	mu        sync.RWMutex
+	Sealed    bool
 }
 
 func NewManager(path string, kek []byte) (*Manager, error) {
@@ -32,6 +34,12 @@ func NewManager(path string, kek []byte) (*Manager, error) {
 		storePath: path,
 		kek:       kek,
 		store:     &Store{Keys: make(map[string][]KeyEntry)},
+		Sealed:    len(kek) == 0,
+	}
+
+	// Se estiver selado (sem KEK no boot), paramos aqui.
+	if m.Sealed {
+		return m, nil
 	}
 
 	err := m.load()
@@ -47,6 +55,38 @@ func NewManager(path string, kek []byte) (*Manager, error) {
 	return m, nil
 }
 
+// Unlock abre o cofre fornecendo a Master Secret
+func (m *Manager) Unlock(masterSecret string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.Sealed {
+		return fmt.Errorf("keyStore is already unsealed")
+	}
+
+	kekBytes, err := kek.DeriveKEK(masterSecret)
+	if err != nil {
+		return fmt.Errorf("failed to derive KEK from provided secret: %w", err)
+	}
+
+	m.kek = kekBytes
+	m.Sealed = false // Temporário para permitir o load()
+
+	err = m.load()
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Se não existir, inicializamos agora que temos a KEK
+			return m.initDefaults()
+		}
+		// Se falhou o load (senha errada talvez), voltamos ao estado selado
+		m.kek = nil
+		m.Sealed = true
+		return err
+	}
+
+	return nil
+}
+
 func (m *Manager) initDefaults() error {
 	_, err := m.GenerateKey("system")
 	if err != nil {
@@ -59,6 +99,10 @@ func (m *Manager) initDefaults() error {
 func (m *Manager) GetKey(name string, version int) ([]byte, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
+	if m.Sealed {
+		return nil, fmt.Errorf("operation forbidden: KeyStore is currently SEALED")
+	}
 
 	entries, ok := m.store.Keys[name]
 	if !ok {
@@ -92,6 +136,10 @@ func (m *Manager) GetLatestVersion(name string) int {
 func (m *Manager) GenerateKey(name string) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if m.Sealed {
+		return 0, fmt.Errorf("operation forbidden: KeyStore is currently SEALED")
+	}
 
 	newKey := make([]byte, 32)
 	if _, err := io.ReadFull(rand.Reader, newKey); err != nil {

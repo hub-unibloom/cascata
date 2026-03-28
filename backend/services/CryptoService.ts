@@ -28,9 +28,12 @@ export class CryptoService {
                 const res = await this.client.post('/v1/encrypt', { key: keyName, plaintext: b64 });
                 return res.data.ciphertext;
             } catch (e: any) {
+                if (e.response?.status === 503 || e.response?.data?.error === 'engine_sealed') {
+                    throw new Error('ENGINE_SEALED');
+                }
                 if (i === retries - 1) {
                     console.error(`[CryptoService] Encryption failed for key ${keyName} after ${retries} attempts:`, e.message);
-                    throw new Error(`Crypto Engine Error: ${e.response?.data || e.message}`);
+                    throw new Error(`Crypto Engine Error: ${JSON.stringify(e.response?.data) || e.message}`);
                 }
                 // Wait before retry (Exponential backoff)
                 await new Promise(res => setTimeout(res, 500 * (i + 1)));
@@ -54,8 +57,11 @@ export class CryptoService {
             const res = await this.client.post('/v1/decrypt', { ciphertext });
             return Buffer.from(res.data.plaintext, 'base64').toString('utf8');
         } catch (e: any) {
+            if (e.response?.status === 503 || e.response?.data?.error === 'engine_sealed') {
+                throw new Error('ENGINE_SEALED');
+            }
             console.error(`[CryptoService] Decryption failed:`, e.message);
-            throw new Error(`Crypto Engine Decrypt Error: ${e.response?.data || e.message}`);
+            throw new Error(`Crypto Engine Decrypt Error: ${JSON.stringify(e.response?.data) || e.message}`);
         }
     }
 
@@ -103,7 +109,7 @@ export class CryptoService {
     }
 
     /**
-     * Heatlh Check
+     * Heatlh Check & Status
      */
     static async healthCheck(): Promise<boolean> {
         try {
@@ -111,6 +117,24 @@ export class CryptoService {
             return res.data.status === 'ok';
         } catch {
             return false;
+        }
+    }
+
+    static async getSovereignStatus(): Promise<{ sealed: boolean, engine: string }> {
+        try {
+            const res = await this.client.get('/v1/sys/status');
+            return res.data;
+        } catch (e: any) {
+            return { sealed: true, engine: 'offline' };
+        }
+    }
+
+    static async unseal(masterSecret: string): Promise<boolean> {
+        try {
+            const res = await this.client.post('/v1/sys/unseal', { master_secret: masterSecret });
+            return !!res.data.success;
+        } catch (e: any) {
+            throw new Error(e.response?.data?.error || 'Falha na comunicação com o Cripto Engine');
         }
     }
 }
