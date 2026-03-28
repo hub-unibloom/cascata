@@ -1,7 +1,8 @@
 
 import { NextFunction } from 'express';
 import { CascataRequest } from '../types.js';
-import { systemPool, SYS_SECRET } from '../config/main.js';
+import { systemPool } from '../config/main.js';
+import { CryptoService } from '../../services/CryptoService.js';
 
 export class SecretsController {
     
@@ -42,13 +43,15 @@ export class SecretsController {
                 `;
                 params = [slug, safeParentId, name, description];
             } else {
-                // Criptografa o valor usando PGP nativo do Postgres usando a SYSTEM_JWT_SECRET como chave
+                // Criptografa o valor via Crypto Engine (Go) antes de salvar
+                const encryptedValue = await CryptoService.encrypt(`project-${slug}`, value);
+
                 query = `
                     INSERT INTO system.project_secrets (project_slug, parent_id, name, type, description, secret_value, metadata)
-                    VALUES ($1, $2, $3, $4, $5, pgp_sym_encrypt($6, $7), $8)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
                     RETURNING id, name, type
                 `;
-                params = [slug, safeParentId, name, type, description, value, SYS_SECRET, JSON.stringify(metadata || {})];
+                params = [slug, safeParentId, name, type, description, encryptedValue, JSON.stringify(metadata || {})];
             }
 
             const result = await systemPool.query(query, params);
@@ -72,19 +75,21 @@ export class SecretsController {
         const { slug, id } = req.params;
         
         try {
-            // 1. Busca e Decripta
+            // 1. Busca o ciphertext (sem tocar a chave no SQL)
             const result = await systemPool.query(`
-                SELECT name, type, metadata, pgp_sym_decrypt(secret_value::bytea, $3) as decrypted_value
+                SELECT name, type, metadata, secret_value
                 FROM system.project_secrets
                 WHERE id = $1 AND project_slug = $2
-            `, [id, slug, SYS_SECRET]);
+            `, [id, slug]);
 
             if (result.rows.length === 0) return res.status(404).json({ error: "Secret not found" });
             
             const secret = result.rows[0];
 
-            // 2. AUDITORIA DE SEGURANÇA (CRÍTICO)
-            // Registra quem viu, quando e qual segredo. Isso cria rastreabilidade.
+            // 2. Decripta via Crypto Engine (Go)
+            const decryptedValue = await CryptoService.decrypt(secret.secret_value);
+
+            // 3. AUDITORIA DE SEGURANÇA (CRÍTICO)
             const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
             await systemPool.query(
                 `INSERT INTO system.api_logs (project_slug, method, path, status_code, client_ip, duration_ms, user_role, payload, geo_info) 
@@ -93,7 +98,7 @@ export class SecretsController {
             );
             
             res.json({ 
-                value: secret.decrypted_value,
+                value: decryptedValue,
                 meta: secret.metadata 
             });
         } catch (e: any) { next(e); }

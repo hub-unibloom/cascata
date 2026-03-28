@@ -757,7 +757,7 @@ export class AutomationService {
     }
 
     /**
-     * Resolves a secret from the project's Secure Vault.
+     * Resolves a secret from the project's Secure Vault via Crypto Engine.
      */
     private static async resolveVaultSecret(projectSlug: string, identifier: string): Promise<string | null> {
         try {
@@ -766,13 +766,16 @@ export class AutomationService {
             const where = isId ? 'id = $1' : 'name = $1';
 
             const res = await systemPool.query(
-                `SELECT pg_sym_decrypt(secret_value::bytea, $3) as decrypted_value
+                `SELECT secret_value
                  FROM system.project_secrets
                  WHERE project_slug = $2 AND ${where} AND type != 'folder'`,
-                [identifier, projectSlug, SYS_SECRET]
+                [identifier, projectSlug]
             );
 
-            return res.rows[0]?.decrypted_value || null;
+            if (!res.rows[0]?.secret_value) return null;
+
+            const { CryptoService } = await import('./CryptoService.js');
+            return await CryptoService.decrypt(res.rows[0].secret_value);
         } catch (e) {
             console.error(`[AutomationEngine:Vault] Failed to resolve secret ${identifier}:`, e);
             return null;

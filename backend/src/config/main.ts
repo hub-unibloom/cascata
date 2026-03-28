@@ -65,6 +65,8 @@ if (!process.env.SYSTEM_JWT_SECRET) {
 }
 
 export const SYS_SECRET = process.env.SYSTEM_JWT_SECRET;
+export const INTERNAL_CTRL_SECRET = process.env.INTERNAL_CTRL_SECRET || 'fallback-danger-internal-secret';
+export const CRYPTO_ENGINE_URL = process.env.CRYPTO_ENGINE_URL || 'http://crypto_engine:50051';
 
 export const MAGIC_NUMBERS: Record<string, string[]> = {
     'jpg': ['FFD8FF'],

@@ -85,6 +85,7 @@ services:
       - TEMP_UPLOAD_ROOT=/cascata/temp
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
+      - CRYPTO_ENGINE_URL=http://crypto_engine:50051
       - API_KEY=${GEMINI_API_KEY}
     volumes:
       - ${CASCATA_DATA_DIR:-/cascata-data}/acme_challenge:/var/www/html
@@ -105,9 +106,12 @@ services:
         condition: service_started
       nginx_controller:
         condition: service_started
+      crypto_engine:
+        condition: service_started
     networks:
       - cascata_app
       - cascata_data
+      - cascata_secure
     restart: always
 
   backend_data:
@@ -137,6 +141,7 @@ services:
       - QDRANT_PORT=6333
       - API_KEY=${GEMINI_API_KEY}
       - ENGINE_URL=http://backend_engine:3000
+      - CRYPTO_ENGINE_URL=http://crypto_engine:50051
     volumes:
       - ${CASCATA_DATA_DIR:-/cascata-data}/storage:/cascata/storage
       - temp_data:/cascata/temp
@@ -153,9 +158,12 @@ services:
         condition: service_started
       backend_engine:
         condition: service_started
+      crypto_engine:
+        condition: service_started
     networks:
       - cascata_app
       - cascata_data
+      - cascata_secure
     restart: always
 
   # NOVO: Isolamento de Runtime (O "Airbag")
@@ -177,6 +185,7 @@ services:
       - DB_DIRECT_PORT=5432
       - DB_USER=${DB_USER}
       - DB_PASS=${DB_PASS}
+      - CRYPTO_ENGINE_URL=http://crypto_engine:50051
     # Sem volumes de storage (Engine é stateless para arquivos)
     # Limite rígido de memória para conter scripts maliciosos
     deploy:
@@ -188,9 +197,12 @@ services:
         condition: service_healthy
       dragonfly:
         condition: service_healthy
+      crypto_engine:
+        condition: service_started
     networks:
       - cascata_app # Precisa receber requisições do Data Plane
       - cascata_data # Precisa acessar o Banco para executar queries
+      - cascata_secure
     restart: always
 
   frontend:
@@ -267,12 +279,31 @@ services:
     networks:
       - cascata_data
 
+  # --- CRYPTO ENGINE (Go Service) ---
+  crypto_engine:
+    build:
+      context: ./crypto-engine
+      dockerfile: Dockerfile
+    container_name: cascata-crypto-engine
+    environment:
+      - CASCATA_MASTER_SECRET=${CASCATA_MASTER_SECRET}
+      - INTERNAL_CTRL_SECRET=${INTERNAL_CTRL_SECRET}
+      - PORT=50051
+    volumes:
+      - ${CASCATA_DATA_DIR:-/cascata-data}/crypto:/data/crypto
+    networks:
+      - cascata_secure
+    restart: always
+
 networks:
   cascata_public:
     driver: bridge
   cascata_app:
     driver: bridge
   cascata_data:
+    driver: bridge
+    internal: true
+  cascata_secure:
     driver: bridge
     internal: true
 

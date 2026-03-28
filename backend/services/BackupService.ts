@@ -185,24 +185,30 @@ export class BackupService {
         
         const policyRes = await systemPool.query(
             `SELECT p.id, p.project_slug, p.name, p.provider, p.schedule_cron, p.retention_count,
-             CASE 
-                WHEN p.config ? 'encrypted_data' THEN pgp_sym_decrypt(decode(p.config->>'encrypted_data', 'base64'), $2)
-                ELSE p.config::text
-             END as config_str,
+             p.config->>'encrypted_data' as encrypted_data,
              pr.name as proj_name, pr.db_name, pr.slug, 
-             pgp_sym_decrypt(pr.jwt_secret::bytea, $2) as jwt_secret,
-             pgp_sym_decrypt(pr.anon_key::bytea, $2) as anon_key,
-             pgp_sym_decrypt(pr.service_key::bytea, $2) as service_key,
+             pr.jwt_secret, pr.anon_key, pr.service_key,
              pr.metadata, pr.custom_domain
              FROM system.backup_policies p
              JOIN system.projects pr ON pr.slug = p.project_slug
              WHERE p.id = $1`,
-            [policyId, SYS_SECRET]
+            [policyId]
         );
 
         if (policyRes.rows.length === 0) throw new Error("Policy not found");
         const policy = policyRes.rows[0];
-        const config = JSON.parse(policy.config_str);
+
+        // Decrypt via Crypto Engine
+        const { CryptoService } = await import('./CryptoService.js');
+        const configStr = policy.encrypted_data ? await CryptoService.decrypt(policy.encrypted_data) : '{}';
+        const config = JSON.parse(configStr);
+        
+        const [jwtSecret, anonKey, serviceKey] = await CryptoService.decryptBatch([
+            policy.jwt_secret, policy.anon_key, policy.service_key
+        ]);
+        policy.jwt_secret = jwtSecret;
+        policy.anon_key = anonKey;
+        policy.service_key = serviceKey;
         
         const project: ProjectMetadata = {
             id: policy.project_slug,

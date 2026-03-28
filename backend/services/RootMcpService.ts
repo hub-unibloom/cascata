@@ -56,10 +56,14 @@ export class RootMcpService {
                 // 1. Generate Keys
                 const keys = { anon: generateKey(), service: generateKey(), jwt: generateKey() };
 
-                // 2. Register in System
+                // 2. Encrypt via Crypto Engine
+                const { CryptoService } = await import('./CryptoService.js');
+                const ciphers = await CryptoService.encryptBatch('system', [keys.anon, keys.service, keys.jwt]);
+
+                // 3. Register in System
                 await systemPool.query(
-                    "INSERT INTO system.projects (name, slug, db_name, anon_key, service_key, jwt_secret, metadata) VALUES ($1, $2, $3, pgp_sym_encrypt($4, $7), pgp_sym_encrypt($5, $7), pgp_sym_encrypt($6, $7), $8)",
-                    [name, safeSlug, dbName, keys.anon, keys.service, keys.jwt, SYS_SECRET, JSON.stringify({ timezone: 'UTC' })]
+                    "INSERT INTO system.projects (name, slug, db_name, anon_key, service_key, jwt_secret, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                    [name, safeSlug, dbName, ciphers[0], ciphers[1], ciphers[2], JSON.stringify({ timezone: 'UTC' })]
                 );
 
                 // 3. Provision DB

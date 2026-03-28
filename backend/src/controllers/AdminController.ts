@@ -22,6 +22,7 @@ import { GDriveService } from '../../services/GDriveService.js';
 import { S3BackupService } from '../../services/S3BackupService.js';
 import { QueueService } from '../../services/QueueService.js';
 import { PayloadCrypto } from '../utils/PayloadCrypto.js';
+import { CryptoService } from '../../services/CryptoService.js';
 
 const generateKey = () => import('crypto').then(c => c.randomBytes(32).toString('hex'));
 
@@ -267,9 +268,24 @@ export class AdminController {
 
     static async listProjects(req: CascataRequest, res: any, next: any) {
         try {
-            // Safe decrypt: COALESCE prevents a single corrupted project from crashing the entire listing
-            const result = await systemPool.query(`SELECT id, name, slug, db_name, custom_domain, ssl_certificate_source, blocklist, status, created_at, '******' as jwt_secret, COALESCE(pgp_sym_decrypt(anon_key::bytea, $1::text), '(decrypt-error)') as anon_key, '******' as service_key, (metadata - 'secrets') as metadata FROM system.projects ORDER BY created_at DESC`, [SYS_SECRET]);
-            res.json(result.rows);
+            // Safe query: we no longer use PGP in SQL. We fetch ciphertexts and decrypt in Node.js
+            const result = await systemPool.query(
+                `SELECT id, name, slug, db_name, custom_domain, ssl_certificate_source, blocklist, status, created_at, 
+                        anon_key, '******' as service_key, '******' as jwt_secret,
+                        (metadata - 'secrets') as metadata 
+                 FROM system.projects ORDER BY created_at DESC`
+            );
+            
+            // Batch decrypt all anon_keys for the list (Optimization: 1 network trip)
+            const ciphertexts = result.rows.map(r => r.anon_key);
+            const plaintexts = await CryptoService.decryptBatch(ciphertexts);
+            
+            const rows = result.rows.map((r, i) => ({
+                ...r,
+                anon_key: plaintexts[i]
+            }));
+
+            res.json(rows);
         } catch (e: any) { next(e); }
     }
 
@@ -292,10 +308,14 @@ export class AdminController {
         const dbName = `cascata_db_${safeSlug.replace(/-/g, '_')}`;
 
         try {
-            const keys = { anon: await generateKey(), service: await generateKey(), jwt: await generateKey() };
+            const rawKeys = { anon: await generateKey(), service: await generateKey(), jwt: await generateKey() };
+
+            // Encrypt all keys in one batch before saving to DB
+            const ciphers = await CryptoService.encryptBatch('system', [rawKeys.anon, rawKeys.service, rawKeys.jwt]);
+
             const insertRes = await systemPool.query(
-                "INSERT INTO system.projects (name, slug, db_name, anon_key, service_key, jwt_secret, metadata) VALUES ($1, $2, $3, pgp_sym_encrypt($4, $7), pgp_sym_encrypt($5, $7), pgp_sym_encrypt($6, $7), $8) RETURNING *",
-                [name, safeSlug, dbName, keys.anon, keys.service, keys.jwt, SYS_SECRET, JSON.stringify({ timezone: timezone || 'UTC' })]
+                "INSERT INTO system.projects (name, slug, db_name, anon_key, service_key, jwt_secret, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
+                [name, safeSlug, dbName, ciphers[0], ciphers[1], ciphers[2], JSON.stringify({ timezone: timezone || 'UTC' })]
             );
             await systemPool.query(`CREATE DATABASE "${dbName}"`);
 
@@ -317,7 +337,7 @@ export class AdminController {
             await AdminController.createDefaultAuthRules(safeSlug);
 
             await CertificateService.rebuildNginxConfigs(systemPool);
-            res.json({ ...insertRes.rows[0], anon_key: keys.anon, service_key: keys.service, jwt_secret: keys.jwt });
+            res.json({ ...insertRes.rows[0], anon_key: rawKeys.anon, service_key: rawKeys.service, jwt_secret: rawKeys.jwt });
         } catch (e: any) {
             // SAFETY: Clean up BOTH the project record AND the orphan database
             // This prevents the deadly scenario where DB exists but record is gone
@@ -348,10 +368,12 @@ export class AdminController {
             if (dbCheck.rows.length === 0) return res.status(404).json({ error: `No orphan database "${dbName}" found.` });
 
             // 3. Recreate project record with fresh keys
-            const keys = { anon: await generateKey(), service: await generateKey(), jwt: await generateKey() };
+            const rawKeys = { anon: await generateKey(), service: await generateKey(), jwt: await generateKey() };
+            const ciphers = await CryptoService.encryptBatch('system', [rawKeys.anon, rawKeys.service, rawKeys.jwt]);
+
             const insertRes = await systemPool.query(
-                "INSERT INTO system.projects (name, slug, db_name, anon_key, service_key, jwt_secret, metadata) VALUES ($1, $2, $3, pgp_sym_encrypt($4, $7), pgp_sym_encrypt($5, $7), pgp_sym_encrypt($6, $7), $8) RETURNING *",
-                [name, safeSlug, dbName, keys.anon, keys.service, keys.jwt, SYS_SECRET, JSON.stringify({ recovered: true, recovered_at: new Date().toISOString() })]
+                "INSERT INTO system.projects (name, slug, db_name, anon_key, service_key, jwt_secret, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
+                [name, safeSlug, dbName, ciphers[0], ciphers[1], ciphers[2], JSON.stringify({ recovered: true, recovered_at: new Date().toISOString() })]
             );
 
             // 4. Born Secure: Populate default auth rate limits
@@ -361,7 +383,7 @@ export class AdminController {
             await CertificateService.rebuildNginxConfigs(systemPool);
 
             console.log(`[AdminController] Recovered orphan project: ${safeSlug} → ${dbName}`);
-            res.json({ ...insertRes.rows[0], anon_key: keys.anon, service_key: keys.service, jwt_secret: keys.jwt, recovered: true });
+            res.json({ ...insertRes.rows[0], anon_key: rawKeys.anon, service_key: rawKeys.service, jwt_secret: rawKeys.jwt, recovered: true });
         } catch (e: any) { next(e); }
     }
 
@@ -535,14 +557,25 @@ export class AdminController {
             const admin = (await systemPool.query('SELECT * FROM system.admin_users LIMIT 1')).rows[0];
             const isValid = await bcrypt.compare(req.body.password, admin.password_hash);
             if (!isValid) return res.status(403).json({ error: "Invalid Password" });
-            const keyRes = await systemPool.query(`SELECT pgp_sym_decrypt(${safeKeyType}::bytea, $2) as key FROM system.projects WHERE slug = $1`, [req.params.slug, SYS_SECRET]);
-            res.json({ key: keyRes.rows[0].key });
+            
+            const keyRes = await systemPool.query(`SELECT ${safeKeyType} as ciphertext FROM system.projects WHERE slug = $1`, [req.params.slug]);
+            if (keyRes.rows.length === 0) return res.status(404).json({ error: 'Project not found' });
+
+            const plaintext = await CryptoService.decrypt(keyRes.rows[0].ciphertext);
+            res.json({ key: plaintext });
         } catch (e: any) { next(e); }
     }
 
     // ... (Keep existing Helper endpoints) ...
     static async rotateKeys(req: CascataRequest, res: any, next: any) {
-        try { await systemPool.query(`UPDATE system.projects SET ${req.body.type === 'anon' ? 'anon_key' : 'service_key'} = pgp_sym_encrypt($1, $3) WHERE slug = $2`, [await generateKey(), req.params.slug, SYS_SECRET]); res.json({ success: true }); } catch (e: any) { next(e); }
+        try { 
+            const newKey = await generateKey();
+            const field = req.body.type === 'anon' ? 'anon_key' : 'service_key';
+            const ciphertext = await CryptoService.encrypt('system', newKey);
+
+            await systemPool.query(`UPDATE system.projects SET ${field} = $1 WHERE slug = $2`, [ciphertext, req.params.slug]); 
+            res.json({ success: true }); 
+        } catch (e: any) { next(e); }
     }
     static async updateSecrets(req: CascataRequest, res: any, next: any) {
         try { await systemPool.query(`UPDATE system.projects SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{secrets}', $1) WHERE slug = $2`, [JSON.stringify(req.body.secrets), req.params.slug]); res.json({ success: true }); } catch (e: any) { next(e); }
@@ -560,7 +593,16 @@ export class AdminController {
     static async exportProject(req: CascataRequest, res: any, next: any) {
         try {
             const project = (await systemPool.query('SELECT * FROM system.projects WHERE slug = $1', [req.params.slug])).rows[0];
-            const keys = (await systemPool.query(`SELECT pgp_sym_decrypt(jwt_secret::bytea, $2) as jwt_secret, pgp_sym_decrypt(anon_key::bytea, $2) as anon_key, pgp_sym_decrypt(service_key::bytea, $2) as service_key FROM system.projects WHERE slug = $1`, [req.params.slug, SYS_SECRET])).rows[0];
+            if (!project) return res.status(404).json({ error: 'Not found' });
+
+            const plaintexts = await CryptoService.decryptBatch([project.jwt_secret, project.anon_key, project.service_key]);
+            
+            const keys = {
+                jwt_secret: plaintexts[0],
+                anon_key: plaintexts[1],
+                service_key: plaintexts[2]
+            };
+
             await BackupService.streamExport({ ...project, ...keys }, res);
         } catch (e: any) { if (!res.headersSent) res.status(500).json({ error: e.message }); }
     }
@@ -698,14 +740,14 @@ export class AdminController {
                 return res.status(400).json({ error: 'Missing requried fields: target_url, event_type, table_name' });
             }
 
-            // Get project JWT secret to act as Webhook Auth Secret Key
+            // Get project JWT secret (cipher)
             const secretRes = await systemPool.query(
-                "SELECT pgp_sym_decrypt(jwt_secret::bytea, $1) as jwt_secret FROM system.projects WHERE slug = $2",
-                [SYS_SECRET, req.params.slug]
+                "SELECT jwt_secret FROM system.projects WHERE slug = $1",
+                [req.params.slug]
             );
 
             if (secretRes.rows.length === 0) return res.status(404).json({ error: 'Project not found' });
-            const secret = secretRes.rows[0].jwt_secret;
+            const secret = await CryptoService.decrypt(secretRes.rows[0].jwt_secret);
 
             const result = await systemPool.query(
                 `INSERT INTO system.webhooks 
@@ -768,11 +810,12 @@ export class AdminController {
 
             const hook = hookRes.rows[0];
             const projRes = await systemPool.query(
-                "SELECT pgp_sym_decrypt(jwt_secret::bytea, $1) as jwt_secret FROM system.projects WHERE slug = $2",
-                [SYS_SECRET, hook.project_slug]
+                "SELECT jwt_secret FROM system.projects WHERE slug = $1",
+                [hook.project_slug]
             );
 
-            const jwtSecret = projRes.rows[0].jwt_secret;
+            const jwtSecretCipher = projRes.rows[0].jwt_secret;
+            const jwtSecret = await CryptoService.decrypt(jwtSecretCipher);
 
             await WebhookService.dispatch(
                 hook.project_slug,

@@ -2,7 +2,7 @@
 import { NextFunction } from 'express';
 import axios from 'axios';
 import { CascataRequest } from '../types.js';
-import { systemPool, SYS_SECRET } from '../config/main.js';
+import { systemPool } from '../config/main.js';
 import { EdgeService } from '../../services/EdgeService.js';
 
 export class EdgeController {
@@ -12,16 +12,21 @@ export class EdgeController {
             if (assetRes.rows.length === 0) return res.status(404).json({ error: "Edge Function Not Found" });
             const asset = assetRes.rows[0];
             
-            // INTEGRAÇÃO SEGURA COM VAULT: Buscar os segredos reais descriptografando sob demanda
+            // INTEGRAÇÃO SEGURA COM CRYPTO ENGINE: Buscar ciphertexts e descriptografar via Go
+            const { CryptoService } = await import('../../services/CryptoService.js');
             const vaultRes = await systemPool.query(`
-                SELECT name, pgp_sym_decrypt(secret_value::bytea, $2) as decrypted_value
+                SELECT name, secret_value
                 FROM system.project_secrets
                 WHERE project_slug = $1 AND type != 'folder'
-            `, [req.project.slug, SYS_SECRET]);
+            `, [req.project.slug]);
             
             const globalSecrets: Record<string, string> = {};
-            for (const row of vaultRes.rows) {
-                globalSecrets[row.name] = row.decrypted_value;
+            if (vaultRes.rows.length > 0) {
+                const ciphertexts = vaultRes.rows.map((r: any) => r.secret_value);
+                const plaintexts = await CryptoService.decryptBatch(ciphertexts);
+                for (let i = 0; i < vaultRes.rows.length; i++) {
+                    globalSecrets[vaultRes.rows[i].name] = plaintexts[i];
+                }
             }
 
             const localEnv = asset.metadata.env_vars || {};

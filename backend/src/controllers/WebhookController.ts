@@ -1,7 +1,8 @@
 
 import { NextFunction, Response } from 'express';
 import { CascataRequest } from '../types.js';
-import { systemPool, SYS_SECRET } from '../config/main.js';
+import { systemPool } from '../config/main.js';
+import { CryptoService } from '../../services/CryptoService.js';
 import { AutomationService } from '../../services/AutomationService.js';
 import { PoolService } from '../../services/PoolService.js';
 import crypto from 'crypto';
@@ -73,18 +74,21 @@ export class WebhookController {
         try {
             // 1. Fetch receiver + project context
             const query = `
-                SELECT r.*, p.db_name, pg_sym_decrypt(p.jwt_secret::bytea, $3) as jwt_secret
+                SELECT r.*, p.db_name, p.jwt_secret as jwt_secret_cipher
                 FROM system.webhook_receivers r
                 JOIN system.projects p ON r.project_slug = p.slug
                 WHERE r.project_slug = $1 AND r.path_slug = $2 AND r.is_active = true
             `;
-            const result = await systemPool.query(query, [projectSlug, pathSlug, SYS_SECRET]);
+            const result = await systemPool.query(query, [projectSlug, pathSlug]);
 
             if (result.rows.length === 0) {
                 return res.status(404).json({ error: 'Webhook receiver not found or inactive.' });
             }
 
             const receiver = result.rows[0];
+
+            // Decrypt jwt_secret via Crypto Engine
+            const jwtSecret = await CryptoService.decrypt(receiver.jwt_secret_cipher);
 
             // 2. Validate Security (HMAC SHA256)
             if (receiver.auth_method === 'hmac_sha256' && receiver.secret_key) {
@@ -112,9 +116,9 @@ export class WebhookController {
                         payload,
                         {
                             vars: {},
-                            payload, // FIXED: Added missing payload property
+                            payload,
                             projectSlug,
-                            jwtSecret: receiver.jwt_secret,
+                            jwtSecret: jwtSecret,
                             projectPool
                         }
                     );

@@ -2,6 +2,7 @@
 import { NextFunction } from 'express';
 import { CascataRequest } from '../types.js';
 import { systemPool, SYS_SECRET, TEMP_UPLOAD_ROOT } from '../config/main.js';
+import { CryptoService } from '../../services/CryptoService.js';
 import { QueueService } from '../../services/QueueService.js';
 import { GDriveService } from '../../services/GDriveService.js';
 import { S3BackupService } from '../../services/S3BackupService.js';
@@ -40,25 +41,23 @@ export class BackupController {
     static async listPolicies(req: CascataRequest, res: any, next: any) {
         try {
             const result = await systemPool.query(
-                `SELECT 
-                    id, project_slug, name, provider, schedule_cron, retention_count, is_active, last_run_at, last_status, created_at, updated_at,
-                    CASE 
-                        WHEN config ? 'encrypted_data' THEN pgp_sym_decrypt(decode(config->>'encrypted_data', 'base64'), $2)
-                        ELSE config::text
-                    END as config_str
+                `SELECT id, project_slug, name, provider, schedule_cron, retention_count, is_active, last_run_at, last_status, created_at, updated_at,
+                 config->>'encrypted_data' as encrypted_data
                  FROM system.backup_policies 
                  WHERE project_slug = $1 
                  ORDER BY created_at DESC`,
-                [req.params.slug, SYS_SECRET]
+                [req.params.slug]
             );
             
-            const rows = result.rows.map(r => {
+            const rows = [];
+            for (const r of result.rows) {
                 try {
-                    return { ...r, config: JSON.parse(r.config_str) };
+                    const configStr = r.encrypted_data ? await CryptoService.decrypt(r.encrypted_data) : '{}';
+                    rows.push({ ...r, config: JSON.parse(configStr), encrypted_data: undefined });
                 } catch (e) {
-                    return { ...r, config: {} };
+                    rows.push({ ...r, config: {}, encrypted_data: undefined });
                 }
-            });
+            }
 
             res.json(rows);
         } catch (e: any) { next(e); }
@@ -71,15 +70,18 @@ export class BackupController {
         if (!name || !schedule_cron || !config || !provider) return res.status(400).json({ error: "Missing required fields" });
         
         try {
+            // Encrypt config via Crypto Engine before saving
+            const encryptedConfig = await CryptoService.encrypt('backup', JSON.stringify(config));
+
             const result = await systemPool.query(
                 `INSERT INTO system.backup_policies 
                 (project_slug, name, provider, schedule_cron, config, retention_count) 
                 VALUES (
                     $1, $2, $3, $4, 
-                    jsonb_build_object('encrypted_data', encode(pgp_sym_encrypt($5::text, $7), 'base64')), 
+                    jsonb_build_object('encrypted_data', $5::text), 
                     $6
                 ) RETURNING id`,
-                [slug, name, provider, schedule_cron, JSON.stringify(config), retention_count || 7, SYS_SECRET]
+                [slug, name, provider, schedule_cron, encryptedConfig, retention_count || 7]
             );
             
             const policyId = result.rows[0].id;
@@ -107,9 +109,9 @@ export class BackupController {
             if (schedule_cron !== undefined) { fields.push(`schedule_cron = $${idx++}`); values.push(schedule_cron); }
             
             if (config !== undefined) { 
-                fields.push(`config = jsonb_build_object('encrypted_data', encode(pgp_sym_encrypt($${idx++}::text, $${idx++}), 'base64'))`); 
-                values.push(JSON.stringify(config));
-                values.push(SYS_SECRET);
+                const encryptedConfig = await CryptoService.encrypt('backup', JSON.stringify(config));
+                fields.push(`config = jsonb_build_object('encrypted_data', $${idx++}::text)`); 
+                values.push(encryptedConfig);
             }
             
             if (is_active !== undefined) { fields.push(`is_active = $${idx++}`); values.push(is_active); }
@@ -178,19 +180,17 @@ export class BackupController {
         try {
             const histRes = await systemPool.query(
                 `SELECT h.external_id, h.file_name, p.provider,
-                 CASE 
-                    WHEN p.config ? 'encrypted_data' THEN pgp_sym_decrypt(decode(p.config->>'encrypted_data', 'base64'), $2)
-                    ELSE p.config::text
-                 END as config_str
+                 p.config->>'encrypted_data' as encrypted_data
                  FROM system.backup_history h
                  JOIN system.backup_policies p ON h.policy_id = p.id
-                 WHERE h.id = $1 AND h.project_slug = $3`,
-                [historyId, SYS_SECRET, slug]
+                 WHERE h.id = $1 AND h.project_slug = $2`,
+                [historyId, slug]
             );
 
             if (histRes.rows.length === 0) return res.status(404).json({ error: "Backup not found" });
             const record = histRes.rows[0];
-            const config = JSON.parse(record.config_str);
+            const configStr = record.encrypted_data ? await CryptoService.decrypt(record.encrypted_data) : '{}';
+            const config = JSON.parse(configStr);
 
             let url = '';
             if (record.provider === 'gdrive') {
@@ -216,19 +216,17 @@ export class BackupController {
 
             const histRes = await systemPool.query(
                 `SELECT h.external_id, h.file_name, p.provider,
-                 CASE 
-                    WHEN p.config ? 'encrypted_data' THEN pgp_sym_decrypt(decode(p.config->>'encrypted_data', 'base64'), $2)
-                    ELSE p.config::text
-                 END as config_str
+                 p.config->>'encrypted_data' as encrypted_data
                  FROM system.backup_history h
                  JOIN system.backup_policies p ON h.policy_id = p.id
-                 WHERE h.id = $1 AND h.project_slug = $3`,
-                [historyId, SYS_SECRET, slug]
+                 WHERE h.id = $1 AND h.project_slug = $2`,
+                [historyId, slug]
             );
 
             if (histRes.rows.length === 0) return res.status(404).json({ error: "Backup not found" });
             const record = histRes.rows[0];
-            const config = JSON.parse(record.config_str);
+            const configStr = record.encrypted_data ? await CryptoService.decrypt(record.encrypted_data) : '{}';
+            const config = JSON.parse(configStr);
 
             console.log(`[Restore] Downloading backup ${record.external_id} from ${record.provider}...`);
             

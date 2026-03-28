@@ -135,21 +135,19 @@ export const resolveProject: RequestHandler = async (req: any, res: any, next: a
             const projectQuery = `
             SELECT 
                 id, name, slug, db_name, custom_domain, ssl_certificate_source, blocklist, metadata, status,
-                pgp_sym_decrypt(jwt_secret::bytea, $1::text) as jwt_secret,
-                pgp_sym_decrypt(anon_key::bytea, $1::text) as anon_key,
-                pgp_sym_decrypt(service_key::bytea, $1::text) as service_key
+                jwt_secret, anon_key, service_key
             FROM system.projects 
         `;
 
             // Strategy A: Domain Resolution (Custom Domains)
             if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
-                projectResult = await systemPool.query(`${projectQuery} WHERE custom_domain = $2`, [SYS_SECRET, host]);
+                projectResult = await systemPool.query(`${projectQuery} WHERE custom_domain = $1`, [host]);
                 if ((projectResult.rowCount ?? 0) > 0) resolutionMethod = 'domain';
             }
 
             // Strategy B: Slug Resolution (Path based)
             if ((!projectResult || (projectResult.rowCount ?? 0) === 0) && slugFromUrl) {
-                projectResult = await systemPool.query(`${projectQuery} WHERE slug = $2`, [SYS_SECRET, slugFromUrl]);
+                projectResult = await systemPool.query(`${projectQuery} WHERE slug = $1`, [slugFromUrl]);
                 if ((projectResult.rowCount ?? 0) > 0) resolutionMethod = 'slug';
             }
 
@@ -171,7 +169,20 @@ export const resolveProject: RequestHandler = async (req: any, res: any, next: a
                 // system.project_configs pode não existir ainda — fallback seguro a {}
                 console.warn('[Resolution] project_configs query failed (table may not exist), using defaults.');
             }
-            r.project = { ...projectResult.rows[0], config: projectConfig };
+
+            // Decrypt keys via Crypto Engine (only on cache miss — cached result is already decrypted)
+            const { CryptoService } = await import('../../services/CryptoService.js');
+            const row = projectResult.rows[0];
+            try {
+                const [jwtSecret, anonKey, serviceKey] = await CryptoService.decryptBatch([row.jwt_secret, row.anon_key, row.service_key]);
+                row.jwt_secret = jwtSecret;
+                row.anon_key = anonKey;
+                row.service_key = serviceKey;
+            } catch (cryptoErr) {
+                console.error('[Resolution] Crypto Engine decryption failed, keys may be in plaintext:', cryptoErr);
+            }
+
+            r.project = { ...row, config: projectConfig };
             await RateLimitService.cacheProject(r.project);
         } else {
             // O Cache acertou! Descobrimos o tenant na RAM sem encostar no banco ou dragonfly.

@@ -683,6 +683,7 @@ phase2_setup_and_start() {
         ["frontend/nginx.conf.txt"]="frontend/nginx.conf"
         ["nginx-controller/Dockerfile.txt"]="nginx-controller/Dockerfile"
         ["scripts/firewall-sync.sh.txt"]="scripts/firewall-sync.sh"
+        ["crypto-engine/Dockerfile.txt"]="crypto-engine/Dockerfile"
         ["install.sh.txt"]="install.sh"
     )
 
@@ -770,6 +771,7 @@ phase2_setup_and_start() {
     DB_PASS=$(gen_url_safe_password 32)
     JWT_SECRET=$(gen_hex_secret 64)
     CTRL_SECRET=$(gen_hex_secret 64)
+    MASTER_SECRET=$(gen_hex_secret 64)
 
     ok "Chaves geradas com entropia local"
 
@@ -780,6 +782,12 @@ phase2_setup_and_start() {
         sed -i "s|^DB_NAME=.*|DB_NAME=${DB_NAME}|" .env
         sed -i "s|^SYSTEM_JWT_SECRET=.*|SYSTEM_JWT_SECRET=${JWT_SECRET}|" .env
         sed -i "s|^INTERNAL_CTRL_SECRET=.*|INTERNAL_CTRL_SECRET=${CTRL_SECRET}|" .env
+        # Adicionar se não existir via grep/echo ou substituir se existir
+        if grep -q "CASCATA_MASTER_SECRET" .env; then
+            sed -i "s|^CASCATA_MASTER_SECRET=.*|CASCATA_MASTER_SECRET=${MASTER_SECRET}|" .env
+        else
+            echo "CASCATA_MASTER_SECRET=${MASTER_SECRET}" >> .env
+        fi
         ok ".env configurado com segredos únicos desta VPS"
     else
         warn ".env não encontrado — verifique o repositório clonado."

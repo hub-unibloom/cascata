@@ -361,22 +361,29 @@ export class RateLimitService {
 
         // Fase 3: High-I/O Penalty (Fallback pro Banco de Dados, custa conexão e trava Node)
         try {
-            const sysSecret = process.env.SYSTEM_JWT_SECRET || '';
             const query = slugResolver
                 ? `SELECT id, name, slug, db_name, custom_domain, ssl_certificate_source, blocklist, metadata, status,
-                          pgp_sym_decrypt(jwt_secret::bytea, $1::text) as jwt_secret,
-                          pgp_sym_decrypt(anon_key::bytea, $1::text) as anon_key,
-                          pgp_sym_decrypt(service_key::bytea, $1::text) as service_key
-                   FROM system.projects WHERE slug = $2`
+                          jwt_secret, anon_key, service_key
+                   FROM system.projects WHERE slug = $1`
                 : `SELECT id, name, slug, db_name, custom_domain, ssl_certificate_source, blocklist, metadata, status,
-                          pgp_sym_decrypt(jwt_secret::bytea, $1::text) as jwt_secret,
-                          pgp_sym_decrypt(anon_key::bytea, $1::text) as anon_key,
-                          pgp_sym_decrypt(service_key::bytea, $1::text) as service_key
-                   FROM system.projects WHERE custom_domain = $2`;
+                          jwt_secret, anon_key, service_key
+                   FROM system.projects WHERE custom_domain = $1`;
             const val = slugResolver ? slugResolver : domainResolver;
 
-            const res = await systemPool.query(query, [sysSecret, val]);
+            const res = await systemPool.query(query, [val]);
             if (res.rows.length > 0) {
+                // Decrypt keys via Crypto Engine
+                const { CryptoService } = await import('./CryptoService.js');
+                try {
+                    const [jwtSecret, anonKey, serviceKey] = await CryptoService.decryptBatch([
+                        res.rows[0].jwt_secret, res.rows[0].anon_key, res.rows[0].service_key
+                    ]);
+                    res.rows[0].jwt_secret = jwtSecret;
+                    res.rows[0].anon_key = anonKey;
+                    res.rows[0].service_key = serviceKey;
+                } catch (cryptoErr) {
+                    console.error('[RateLimitService] Crypto Engine decrypt failed:', cryptoErr);
+                }
                 let projectConfig = {};
                 try {
                     const confRes = await systemPool.query("SELECT * FROM system.project_configs WHERE project_id = $1", [res.rows[0].id]);
