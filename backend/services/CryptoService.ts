@@ -20,15 +20,23 @@ export class CryptoService {
      * Encrypt plaintext string
      * @returns Ciphertext in cse:v1 format
      */
-    static async encrypt(keyName: string, plaintext: string): Promise<string> {
-        try {
-            const b64 = Buffer.from(plaintext).toString('base64');
-            const res = await this.client.post('/v1/encrypt', { key: keyName, plaintext: b64 });
-            return res.data.ciphertext;
-        } catch (e: any) {
-            console.error(`[CryptoService] Encryption failed for key ${keyName}:`, e.message);
-            throw new Error(`Crypto Engine Error: ${e.response?.data || e.message}`);
+    static async encrypt(keyName: string, plaintext: string, retries = 3): Promise<string> {
+        const b64 = Buffer.from(plaintext).toString('base64');
+        
+        for (let i = 0; i < retries; i++) {
+            try {
+                const res = await this.client.post('/v1/encrypt', { key: keyName, plaintext: b64 });
+                return res.data.ciphertext;
+            } catch (e: any) {
+                if (i === retries - 1) {
+                    console.error(`[CryptoService] Encryption failed for key ${keyName} after ${retries} attempts:`, e.message);
+                    throw new Error(`Crypto Engine Error: ${e.response?.data || e.message}`);
+                }
+                // Wait before retry (Exponential backoff)
+                await new Promise(res => setTimeout(res, 500 * (i + 1)));
+            }
         }
+        throw new Error('Retries exceeded'); // Should not reach here
     }
 
     /**

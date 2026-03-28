@@ -28,8 +28,8 @@ type DecryptRequest struct {
 }
 
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	// Middleware: Auth
-	if req.Header.Get("X-Crypto-Auth") != r.InternalSecret {
+	// Middleware: Auth (Health check is public for internal orchestration)
+	if req.URL.Path != "/v1/health" && req.Header.Get("X-Crypto-Auth") != r.InternalSecret {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -178,8 +178,19 @@ func (r *Router) decryptOne(ctStr string) ([]byte, error) {
 }
 
 func (r *Router) handleHealth(w http.ResponseWriter, req *http.Request) {
+	// Pro-grade: Verificar se o manager está respondendo
+	if r.Manager == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"status": "error", "message": "Manager not initialized"})
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"ok"}`))
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "ok",
+		"version": "1.0.0",
+		"engine":  "go-cse-v1",
+	})
 }
 
 type RotateKeyRequest struct {
