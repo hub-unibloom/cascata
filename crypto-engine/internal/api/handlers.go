@@ -15,6 +15,27 @@ type Router struct {
 	Manager        *keystore.Manager
 	InternalSecret string
 	Tarpit         *crypto.Tarpit
+	mux            *http.ServeMux
+}
+
+func NewRouter(manager *keystore.Manager, internalSecret string, tarpit *crypto.Tarpit) *Router {
+	r := &Router{
+		Manager:        manager,
+		InternalSecret: internalSecret,
+		Tarpit:         tarpit,
+		mux:            http.NewServeMux(),
+	}
+
+	r.mux.HandleFunc("/v1/encrypt", r.handleEncrypt)
+	r.mux.HandleFunc("/v1/decrypt", r.handleDecrypt)
+	r.mux.HandleFunc("/v1/encrypt-batch", r.handleEncryptBatch)
+	r.mux.HandleFunc("/v1/decrypt-batch", r.handleDecryptBatch)
+	r.mux.HandleFunc("/v1/keys/rotate", r.handleRotateKey)
+	r.mux.HandleFunc("/v1/sys/status", r.handleStatus)
+	r.mux.HandleFunc("/v1/sys/unseal", r.handleUnseal)
+	r.mux.HandleFunc("/v1/health", r.handleHealth)
+
+	return r
 }
 
 type EncryptRequest struct {
@@ -29,23 +50,13 @@ type DecryptRequest struct {
 }
 
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	// Middleware: Auth (Health check is public for internal orchestration)
+	// Middleware: Auth (Health check is public para orquestração interna)
 	if req.URL.Path != "/v1/health" && req.Header.Get("X-Crypto-Auth") != r.InternalSecret {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/encrypt", r.handleEncrypt)
-	mux.HandleFunc("/v1/decrypt", r.handleDecrypt)
-	mux.HandleFunc("/v1/encrypt-batch", r.handleEncryptBatch)
-	mux.HandleFunc("/v1/decrypt-batch", r.handleDecryptBatch)
-	mux.HandleFunc("/v1/keys/rotate", r.handleRotateKey)
-	mux.HandleFunc("/v1/sys/status", r.handleStatus)
-	mux.HandleFunc("/v1/sys/unseal", r.handleUnseal)
-	mux.HandleFunc("/v1/health", r.handleHealth)
-	
-	mux.ServeHTTP(w, req)
+	r.mux.ServeHTTP(w, req)
 }
 
 func (r *Router) handleEncrypt(w http.ResponseWriter, req *http.Request) {
@@ -55,7 +66,7 @@ func (r *Router) handleEncrypt(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if r.Manager.Sealed {
+	if r.Manager.IsSealed() {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]string{"error": "engine_sealed"})
 		return
@@ -91,7 +102,14 @@ func (r *Router) handleEncrypt(w http.ResponseWriter, req *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"ciphertext": final})
 }
 
-	if r.Manager.Sealed {
+func (r *Router) handleDecrypt(w http.ResponseWriter, req *http.Request) {
+	var body DecryptRequest
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		http.Error(w, "Invalid body", http.StatusBadRequest)
+		return
+	}
+
+	if r.Manager.IsSealed() {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]string{"error": "engine_sealed"})
 		return
@@ -113,6 +131,12 @@ func (r *Router) handleEncryptBatch(w http.ResponseWriter, req *http.Request) {
 	var body EncryptRequest
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 		http.Error(w, "Invalid body", http.StatusBadRequest)
+		return
+	}
+
+	if r.Manager.IsSealed() {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"error": "engine_sealed"})
 		return
 	}
 	
@@ -150,7 +174,14 @@ func (r *Router) handleEncryptBatch(w http.ResponseWriter, req *http.Request) {
 	json.NewEncoder(w).Encode(map[string][]string{"items": results})
 }
 
-	if r.Manager.Sealed {
+func (r *Router) handleDecryptBatch(w http.ResponseWriter, req *http.Request) {
+	var body DecryptRequest
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		http.Error(w, "Invalid body", http.StatusBadRequest)
+		return
+	}
+
+	if r.Manager.IsSealed() {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]string{"error": "engine_sealed"})
 		return
@@ -219,6 +250,12 @@ func (r *Router) handleRotateKey(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if r.Manager.IsSealed() {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"error": "engine_sealed"})
+		return
+	}
+
 	newVersion, err := r.Manager.GenerateKey(body.Key)
 	if err != nil {
 		http.Error(w, "Key rotation failed: "+err.Error(), http.StatusInternalServerError)
@@ -230,7 +267,7 @@ func (r *Router) handleRotateKey(w http.ResponseWriter, req *http.Request) {
 
 func (r *Router) handleStatus(w http.ResponseWriter, req *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"sealed":  r.Manager.Sealed,
+		"sealed":  r.Manager.IsSealed(),
 		"version": "1.0.0",
 		"engine":  "go-cse-v1-sovereign",
 	})

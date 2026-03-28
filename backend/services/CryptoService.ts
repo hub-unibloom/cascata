@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { Buffer } from 'node:buffer';
 import { CRYPTO_ENGINE_URL, INTERNAL_CTRL_SECRET } from '../src/config/main.js';
 
 /**
@@ -74,6 +75,9 @@ export class CryptoService {
             const res = await this.client.post('/v1/encrypt-batch', { key: keyName, items: b64Items });
             return res.data.items;
         } catch (e: any) {
+            if (e.response?.status === 503 || e.response?.data?.error === 'engine_sealed') {
+                throw new Error('ENGINE_SEALED');
+            }
             throw new Error(`Crypto Batch Encrypt Error: ${e.message}`);
         }
     }
@@ -93,6 +97,9 @@ export class CryptoService {
                 return Buffer.from(b64, 'base64').toString('utf8');
             });
         } catch (e: any) {
+            if (e.response?.status === 503 || e.response?.data?.error === 'engine_sealed') {
+                throw new Error('ENGINE_SEALED');
+            }
             throw new Error(`Crypto Batch Decrypt Error: ${e.message}`);
         }
     }
@@ -104,6 +111,9 @@ export class CryptoService {
         try {
             await this.client.post('/v1/keys/rotate', { key: keyName });
         } catch (e: any) {
+            if (e.response?.status === 503 || e.response?.data?.error === 'engine_sealed') {
+                throw new Error('ENGINE_SEALED');
+            }
             throw new Error(`Crypto Rotation Error: ${e.message}`);
         }
     }

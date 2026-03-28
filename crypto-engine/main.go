@@ -68,11 +68,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	router := &api.Router{
-		Manager:        manager,
-		InternalSecret: internalSecret,
-		Tarpit:         crypto.NewTarpit(50), // 50 reqs/sec threshold
-	}
+	router := api.NewRouter(manager, internalSecret, crypto.NewTarpit(50))
 
 	port := os.Getenv("PORT")
 	if port == "" {

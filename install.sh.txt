@@ -785,25 +785,36 @@ phase2_setup_and_start() {
     # OTP_SECRET será gerado apenas se habilitado na Fase 2.3
     OTP_ENABLED="false" 
 
-    echo -e "  ${BOLD}Escolha o Nível de Soberania Digital:${NC}"
-    echo -e "  1) ${CYAN}Standard${NC} (Chave Mestra salva no .env — Conveniência)"
-    echo -e "  2) ${BOLD}${RED}Sovereign Elite${NC} (Chave Mestra APENAS na RAM — Segurança Máxima)"
-    echo ""
-    read -rp "  Sua escolha [1/2]: " SOV_CHOICE
+    # Detecção de Estado Soberano Existente (Idempotência)
+    EXISTING_ELITE=false
+    if [ -f ".env" ] && ! grep -q "CASCATA_MASTER_SECRET=" .env && grep -q "DB_PASS=" .env; then
+        EXISTING_ELITE=true
+        SOV_CHOICE="2"
+        info "Sistema Sovereign Elite detectado. Preservando estado de memória volátil."
+    else
+        echo -e "  ${BOLD}Escolha o Nível de Soberania Digital:${NC}"
+        echo -e "  1) ${CYAN}Standard${NC} (Chave Mestra salva no .env — Conveniência)"
+        echo -e "  2) ${BOLD}${RED}Sovereign Elite${NC} (Chave Mestra APENAS na RAM — Segurança Máxima)"
+        echo ""
+        read -rp "  Sua escolha [1/2]: " SOV_CHOICE
+    fi
     
     IS_ELITE=false
     if [ "$SOV_CHOICE" == "2" ]; then
         IS_ELITE=true
-        section "ALERTA DE SEGURANÇA MÁXIMA — SOVEREIGN ELITE"
-        warn "A Chave Mestre NÃO será salva no arquivo .env."
-        warn "Você precisará informar esta chave manualmente após cada REBOOT do servidor."
-        echo ""
-        echo -e "  ${BOLD}${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "  ${BOLD}${NC}  SUA CASCATA MASTER SECRET (SALVE AGORA EM LOCAL OFFLINE):${NC}"
-        echo -e "  ${BOLD}${YELLOW}  ${MASTER_SECRET}${NC}"
-        echo -e "  ${BOLD}${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo ""
-        confirm "Eu salvei a chave em local seguro e entendo que sem ela perderei os dados."
+        # Só mostra o alerta de segurança se for uma instalação nova (não detectado elite existente)
+        if [ "$EXISTING_ELITE" = false ]; then
+            section "ALERTA DE SEGURANÇA MÁXIMA — SOVEREIGN ELITE"
+            warn "A Chave Mestre NÃO será salva no arquivo .env."
+            warn "Você precisará informar esta chave manualmente após cada REBOOT do servidor."
+            echo ""
+            echo -e "  ${BOLD}${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "  ${BOLD}${NC}  SUA CASCATA MASTER SECRET (SALVE AGORA EM LOCAL OFFLINE):${NC}"
+            echo -e "  ${BOLD}${YELLOW}  ${MASTER_SECRET}${NC}"
+            echo -e "  ${BOLD}${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo ""
+            confirm "Eu salvei a chave em local seguro e entendo que sem ela perderei os dados."
+        fi
     fi
 
     ok "Chaves geradas com entropia local"

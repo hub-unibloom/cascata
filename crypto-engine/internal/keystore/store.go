@@ -29,6 +29,12 @@ type Manager struct {
 	Sealed    bool
 }
 
+func (m *Manager) IsSealed() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.Sealed
+}
+
 func NewManager(path string, kek []byte) (*Manager, error) {
 	m := &Manager{
 		storePath: path,
@@ -69,30 +75,34 @@ func (m *Manager) Unlock(masterSecret string) error {
 		return fmt.Errorf("failed to derive KEK from provided secret: %w", err)
 	}
 
+	// Tentativa de carregar a store com a nova chave
+	oldKek := m.kek
 	m.kek = kekBytes
-	m.Sealed = false // Temporário para permitir o load()
-
+	
 	err = m.load()
 	if err != nil {
+		m.kek = oldKek // Reverte a KEK em caso de erro
 		if os.IsNotExist(err) {
 			// Se não existir, inicializamos agora que temos a KEK
-			return m.initDefaults()
+			err = m.initDefaults()
+			if err == nil {
+				m.Sealed = false
+			}
+			return err
 		}
-		// Se falhou o load (senha errada talvez), voltamos ao estado selado
-		m.kek = nil
-		m.Sealed = true
-		return err
+		return fmt.Errorf("falha ao abrir KeyStore (Chave Mestra incorreta?): %w", err)
 	}
 
+	m.Sealed = false
 	return nil
 }
 
 func (m *Manager) initDefaults() error {
-	_, err := m.GenerateKey("system")
+	_, err := m.generateKeyNoLock("system")
 	if err != nil {
 		return err
 	}
-	_, err = m.GenerateKey("backup")
+	_, err = m.generateKeyNoLock("backup")
 	return err
 }
 
@@ -105,7 +115,7 @@ func (m *Manager) GetKey(name string, version int) ([]byte, error) {
 	}
 
 	entries, ok := m.store.Keys[name]
-	if !ok {
+	if !ok || len(entries) == 0 {
 		return nil, fmt.Errorf("key '%s' not found", name)
 	}
 
@@ -126,8 +136,13 @@ func (m *Manager) GetKey(name string, version int) ([]byte, error) {
 func (m *Manager) GetLatestVersion(name string) int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
+	if m.Sealed {
+		return 0
+	}
+
 	entries, ok := m.store.Keys[name]
-	if !ok {
+	if !ok || len(entries) == 0 {
 		return 0
 	}
 	return entries[len(entries)-1].Version
@@ -141,6 +156,10 @@ func (m *Manager) GenerateKey(name string) (int, error) {
 		return 0, fmt.Errorf("operation forbidden: KeyStore is currently SEALED")
 	}
 
+	return m.generateKeyNoLock(name)
+}
+
+func (m *Manager) generateKeyNoLock(name string) (int, error) {
 	newKey := make([]byte, 32)
 	if _, err := io.ReadFull(rand.Reader, newKey); err != nil {
 		return 0, err

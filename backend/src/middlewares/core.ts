@@ -6,6 +6,7 @@ import { CascataRequest } from '../types.js';
 import { systemPool, SYS_SECRET } from '../config/main.js';
 import { PoolService } from '../../services/PoolService.js';
 import { RateLimitService } from '../../services/RateLimitService.js';
+import { CryptoService } from '../../services/CryptoService.js';
 
 /**
  * CORE MIDDLEWARE: Project Resolver & Context Initializer
@@ -20,9 +21,14 @@ export const resolveProject: RequestHandler = async (req: any, res: any, next: a
     if (req.path === '/' || req.path === '/health') return next();
 
     // 0.1 SOVEREIGN BARRIER: Bloqueio total se o motor estiver selado (Sealed)
-    const sovereignExempt = ['/auth/handshake', '/auth/sovereign/status', '/auth/sovereign/unseal'];
+    const sovereignExempt = [
+        '/auth/handshake', 
+        '/auth/login', 
+        '/auth/otp/verify', 
+        '/auth/sovereign/status', 
+        '/auth/sovereign/unseal'
+    ];
     if (!sovereignExempt.includes(req.path)) {
-        const { CryptoService } = await import('../../services/CryptoService.js');
         const status = await CryptoService.getSovereignStatus();
         if (status.sealed) {
             return res.status(503).json({ 
