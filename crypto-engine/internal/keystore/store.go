@@ -81,7 +81,12 @@ func (m *Manager) Unlock(masterSecret string) error {
 	
 	err = m.load()
 	if err != nil {
-		m.kek = oldKek // Reverte a KEK em caso de erro
+		// Só revertemos a KEK se o erro NÃO for de arquivo inexistente.
+		// Precisamos da KEK para o initDefaults() caso o arquivo não exista no primeiro boot.
+		if !os.IsNotExist(err) {
+			m.kek = oldKek
+		}
+
 		if os.IsNotExist(err) {
 			// Se não existir, inicializamos agora que temos a KEK
 			err = m.initDefaults()
