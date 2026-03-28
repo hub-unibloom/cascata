@@ -101,6 +101,15 @@ prompt_password() {
     printf -v "$var_name" "%s" "$pass"
 }
 
+confirm() {
+    local prompt="$1"
+    echo -e "  ${BOLD}${CYAN}?${NC} $prompt [S/n]: " >&2
+    read -r choice || true
+    if [[ ! "$choice" =~ ^[Ss]$ ]]; then
+        err "Confirmação necessária para prosseguir."
+    fi
+}
+
 # ---------------------------------------------------------------------------
 # BANNER
 # ---------------------------------------------------------------------------
@@ -790,7 +799,7 @@ phase2_setup_and_start() {
         warn "Você precisará informar esta chave manualmente após cada REBOOT do servidor."
         echo ""
         echo -e "  ${BOLD}${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "  ${BOLD}${WHITE}  SUA CASCATA MASTER SECRET (SALVE AGORA EM LOCAL OFFLINE):${NC}"
+        echo -e "  ${BOLD}${NC}  SUA CASCATA MASTER SECRET (SALVE AGORA EM LOCAL OFFLINE):${NC}"
         echo -e "  ${BOLD}${YELLOW}  ${MASTER_SECRET}${NC}"
         echo -e "  ${BOLD}${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""

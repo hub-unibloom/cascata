@@ -1,1 +1,82 @@
-chet
+        ORCHESTRATOR BaaS — SECURE INSTALLER v3.0
+        Enterprise Production Grade — Multi-Distro
+
+  ✓ Distro detectada: ubuntu (Pacotes: apt)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ▸  FASE 0 — Verificação de Pré-Requisitos
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ✓ Acesso sudo verificado
+  ✓ git disponível
+  ✓ Conectividade com internet verificada
+  ✓ Espaço em disco: 54GB disponível
+  ✓ RAM: ~1GB
+  ✓ systemd disponível
+  ✓ Todos os pré-requisitos atendidos!
+  ✓ Fase 1 (Docker) já concluída — pulando
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ▸  FASE 2 — Configuração e Inicialização do Cascata
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ➜ Clonando repositório Hub Unibloom/Cascata...
+  ✓ Repositório pronto em: /home/ubuntu/cascata
+  ➜ Ajustando nomenclatura de arquivos...
+  ✓   database/docker-entrypoint-cascata.sh.txt → database/docker-entrypoint-cascata.sh
+  ✓   database/phantom_linker.sh.txt → database/phantom_linker.sh
+  ✓   backend/Dockerfile.txt → backend/Dockerfile
+  ✓   .env.txt → .env
+  ✓   crypto-engine/Dockerfile.txt → crypto-engine/Dockerfile
+  ✓   .dockerignore.txt → .dockerignore
+  ✓   nginx/nginx.conf.txt → nginx/nginx.conf
+  ✓   frontend/Dockerfile.txt → frontend/Dockerfile
+  ✓   scripts/firewall-sync.sh (já existe)
+  ✓   database/Dockerfile.txt → database/Dockerfile
+  ✓   install.sh.txt → install.sh
+  ✓   frontend/nginx.conf.txt → frontend/nginx.conf
+  ✓   database/init.sql.txt → database/init.sql
+  ✓   nginx-controller/Dockerfile.txt → nginx-controller/Dockerfile
+  ✓   Migrations renomeadas
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ▸  FASE 2.1 — Configuração de Credenciais do Administrador
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Configurar email e senha do administrador do Cascata?
+  (Caso não configure, serão usados os valores padrão inseguros do .env)
+
+  Deseja configurar as credenciais de admin agora? [S/n]: n 
+  ⚡ Credenciais automáticas geradas. Anote a senha abaixo:
+  SENHA GERADA: _3uZOc)@h[/aMIPE
+  MUDE APÓS O PRIMEIRO LOGIN!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ▸  FASE 2.2 — Geração do Ambiente Seguro (.env)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ➜ Gerando chaves criptográficas exclusivas para este servidor...
+  Escolha o Nível de Soberania Digital:
+  1) Standard (Chave Mestra salva no .env — Conveniência)
+  2) Sovereign Elite (Chave Mestra APENAS na RAM — Segurança Máxima)
+
+  Sua escolha [1/2]: 2
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ▸  ALERTA DE SEGURANÇA MÁXIMA — SOVEREIGN ELITE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ⚡ A Chave Mestre NÃO será salva no arquivo .env.
+  ⚡ Você precisará informar esta chave manualmente após cada REBOOT do servidor.
+
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+./install.sh: line 793: WHITE: unbound variable
+
+  ╔══════════════════════════════════════════════════════════════╗
+  ║  INSTALAÇÃO INTERROMPIDA                                   ║
+  ╚══════════════════════════════════════════════════════════════╝
+  Exit code: 1
+  Log completo: /var/log/cascata/install.log
+  A instalação pode ser retomada rodando ./install.sh novamente.
+
+ubuntu@ip-172-26-5-177:~$ 
