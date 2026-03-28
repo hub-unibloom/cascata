@@ -67,6 +67,8 @@ if (!process.env.SYSTEM_JWT_SECRET) {
 export const SYS_SECRET = process.env.SYSTEM_JWT_SECRET;
 export const INTERNAL_CTRL_SECRET = process.env.INTERNAL_CTRL_SECRET || 'fallback-danger-internal-secret';
 export const CRYPTO_ENGINE_URL = process.env.CRYPTO_ENGINE_URL || 'http://crypto_engine:3000';
+export const OTP_ENABLED = process.env.CASCATA_OTP_ENABLED === 'true';
+export const OTP_SECRET = process.env.CASCATA_OTP_SECRET;
 
 export const MAGIC_NUMBERS: Record<string, string[]> = {
     'jpg': ['FFD8FF'],

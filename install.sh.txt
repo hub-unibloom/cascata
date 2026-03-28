@@ -768,32 +768,27 @@ phase2_setup_and_start() {
     DB_NAME="cascata_system"
     # CRÍTICO: Utiliza gerador alfanumérico estrito para evitar o ERR_INVALID_URL
     # que quebra o parse da SYSTEM_DATABASE_URL no docker-compose / pg-connection-string.
-    DB_PASS=$(gen_url_safe_password 32)
-    JWT_SECRET=$(gen_hex_secret 64)
-    CTRL_SECRET=$(gen_hex_secret 64)
-    MASTER_SECRET=$(gen_hex_secret 64)
-    OTP_SECRET=$(gen_hex_secret 64)
+    # Gerar segredos apenas se não existirem (Idempotência)
+    [ -z "${DB_PASS:-}" ] && DB_PASS=$(gen_url_safe_password 32)
+    [ -z "${JWT_SECRET:-}" ] && JWT_SECRET=$(gen_hex_secret 64)
+    [ -z "${CTRL_SECRET:-}" ] && CTRL_SECRET=$(gen_hex_secret 64)
+    [ -z "${MASTER_SECRET:-}" ] && MASTER_SECRET=$(gen_hex_secret 64)
+    # OTP_SECRET será gerado apenas se habilitado na Fase 2.3
+    OTP_ENABLED="false" 
 
     ok "Chaves geradas com entropia local"
 
     # Injetar no .env
     if [ -f ".env" ]; then
-        sed -i "s|^DB_PASS=.*|DB_PASS=${DB_PASS}|" .env
-        sed -i "s|^DB_USER=.*|DB_USER=${DB_USER}|" .env
-        sed -i "s|^DB_NAME=.*|DB_NAME=${DB_NAME}|" .env
-        sed -i "s|^SYSTEM_JWT_SECRET=.*|SYSTEM_JWT_SECRET=${JWT_SECRET}|" .env
-        sed -i "s|^INTERNAL_CTRL_SECRET=.*|INTERNAL_CTRL_SECRET=${CTRL_SECRET}|" .env
-        # Adicionar se não existir via grep/echo ou substituir se existir
-        if grep -q "CASCATA_MASTER_SECRET" .env; then
-            sed -i "s|^CASCATA_MASTER_SECRET=.*|CASCATA_MASTER_SECRET=${MASTER_SECRET}|" .env
-        else
-            echo "CASCATA_MASTER_SECRET=${MASTER_SECRET}" >> .env
-        fi
+        # Manter segredos existentes (não sobrescrever se já houver valor)
+        [ "$(grep -c "DB_PASS=" .env)" -eq 0 ] && echo "DB_PASS=${DB_PASS}" >> .env || sed -i "s|^DB_PASS=.*|DB_PASS=${DB_PASS}|" .env
+        [ "$(grep -c "SYSTEM_JWT_SECRET=" .env)" -eq 0 ] && echo "SYSTEM_JWT_SECRET=${JWT_SECRET}" >> .env || sed -i "s|^SYSTEM_JWT_SECRET=.*|SYSTEM_JWT_SECRET=${JWT_SECRET}|" .env
+        [ "$(grep -c "INTERNAL_CTRL_SECRET=" .env)" -eq 0 ] && echo "INTERNAL_CTRL_SECRET=${CTRL_SECRET}" >> .env || sed -i "s|^INTERNAL_CTRL_SECRET=.*|INTERNAL_CTRL_SECRET=${CTRL_SECRET}|" .env
+        [ "$(grep -c "CASCATA_MASTER_SECRET=" .env)" -eq 0 ] && echo "CASCATA_MASTER_SECRET=${MASTER_SECRET}" >> .env || sed -i "s|^CASCATA_MASTER_SECRET=.*|CASCATA_MASTER_SECRET=${MASTER_SECRET}|" .env
         
-        if grep -q "CASCATA_OTP_SECRET" .env; then
-            sed -i "s|^CASCATA_OTP_SECRET=.*|CASCATA_OTP_SECRET=${OTP_SECRET}|" .env
-        else
-            echo "CASCATA_OTP_SECRET=${OTP_SECRET}" >> .env
+        # Injetar FLAG de habilitado (será atualizada na Fase 2.3)
+        if ! grep -q "CASCATA_OTP_ENABLED" .env; then
+            echo "CASCATA_OTP_ENABLED=false" >> .env
         fi
         ok ".env configurado com segredos únicos desta VPS"
     else
@@ -882,14 +877,18 @@ EOSQL
             OTP_ENC="$OTP_SECRET"
         fi
 
+        OTP_ENABLED="true"
+        sed -i "s|^CASCATA_OTP_ENABLED=.*|CASCATA_OTP_ENABLED=true|" .env
         if [ -f ".env" ]; then
             # Remove linha existente e adiciona nova
-            grep -v "^CASCATA_OTP_SECRET=" .env > "${CASCATA_DIR}/.env.tmp.$$" 2>/dev/null || true
-            mv "${CASCATA_DIR}/.env.tmp.$$" .env
+            grep -v "^CASCATA_OTP_SECRET=" .env > "${CASCATA_DIR:-.}/.env.tmp.$$" 2>/dev/null || true
+            mv "${CASCATA_DIR:-.}/.env.tmp.$$" .env
             echo "CASCATA_OTP_SECRET=${OTP_ENC}" >> .env
             ok "OTP Secret salvo no .env (cifrado com INTERNAL_CTRL_SECRET)"
         fi
     else
+        OTP_ENABLED="false"
+        sed -i "s|^CASCATA_OTP_ENABLED=.*|CASCATA_OTP_ENABLED=false|" .env
         info "OTP desabilitado. Recomendamos habilitar para ambientes de produção."
     fi
 
@@ -1859,8 +1858,8 @@ main() {
 
     section "🏁 TUDO CONCLUÍDO!"
     PUBLIC_IP=$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}' || echo 'SEU_IP')
-    echo -e "  Painel: ${CYAN}https://${PUBLIC_IP}${NC}"
-    echo -e "  SSH:    ${CYAN}ssh -p ${SSH_PORT:-22} $(whoami)@${PUBLIC_IP}${NC}  + OTP"
+    echo -e "  Painel: ${CYAN}https://${PUBLIC_IP}${NC} $([ "$OTP_ENABLED" = "true" ] && echo "+ OTP")"
+    echo -e "  SSH:    ${CYAN}ssh -p ${SSH_PORT:-22} $(whoami)@${PUBLIC_IP}${NC} $([ "$DO_HARDEN" = "S" ] && echo "+ OTP")"
     echo ""
 }
 

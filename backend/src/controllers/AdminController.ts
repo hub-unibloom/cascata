@@ -172,8 +172,10 @@ export class AdminController {
             if (!isValid) return res.status(401).json({ error: 'Invalid credentials' });
 
             // ── OTP / TOTP VALIDATION (SE CONFIGURADO) ───────────────────────────
+            const otpEnabled = process.env.CASCATA_OTP_ENABLED === 'true';
             const otpSecret = process.env.CASCATA_OTP_SECRET;
-            if (otpSecret) {
+            
+            if (otpEnabled && otpSecret) {
                 // Se tem segredo OTP, o campo otp_code é obrigatório
                 let otpCode: string | undefined = parsedOtpCode;
 
