@@ -5,12 +5,14 @@ RUN apk add --no-cache gcc musl-dev
 
 WORKDIR /app
 
-# Copy mod files and resolve dependencies
+# 1. Copiar definições de módulos
 COPY go.mod ./
-RUN go mod tidy
 
-# Copy source
+# 2. Copiar todo o código-fonte (necessário para que o go mod tidy saiba o que deve baixar/limpar)
 COPY . .
+
+# 3. Agora sim, realizar a análise semântica e resolver dependências externas (como argon2)
+RUN go mod tidy
 
 # Build main binary
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o cascata-crypto-engine main.go
