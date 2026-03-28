@@ -8,7 +8,7 @@ import { CRYPTO_ENGINE_URL, INTERNAL_CTRL_SECRET } from '../src/config/main.js';
 export class CryptoService {
     
     private static client = axios.create({
-        baseURL: CRYPTO_ENGINE_URL || 'http://crypto_engine:50051',
+        baseURL: CRYPTO_ENGINE_URL || 'http://crypto_engine:3000',
         headers: {
             'X-Crypto-Auth': INTERNAL_CTRL_SECRET,
             'Content-Type': 'application/json'

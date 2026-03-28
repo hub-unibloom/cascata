@@ -3,12 +3,12 @@ package keystore
 import (
 	"crypto/rand"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"github.com/hub-unibloom/cascata/crypto-engine/internal/crypto"
 	"io"
 	"os"
 	"sync"
+
+	"github.com/hub-unibloom/cascata/crypto-engine/internal/crypto"
 )
 
 type KeyEntry struct {
