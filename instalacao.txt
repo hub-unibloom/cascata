@@ -136,11 +136,14 @@ mv scripts/firewall-sync.sh.txt scripts/firewall-sync.sh
 nano .env
 
 # Criar diretórios de dados (modo produção correto)
-sudo mkdir -p /cascata-data/{pg,qdrant,dragonfly,storage,certs,acme_challenge,nginx_dynamic}
+sudo mkdir -p /cascata-data/{pg,qdrant,dragonfly,storage,certs,acme_challenge,nginx_dynamic,crypto}
 
 # Dar permissão ao usuário atual
 sudo chown -R $USER:$USER /cascata-data
-sudo chmod -R 755 /cascata-data
+sudo chmod 711 /cascata-data
+
+# Permissão específica para o motor de criptografia (non-root distroless)
+sudo chown -R 65532:65532 /cascata-data/crypto
 
 Aqui eu pergunta se ele quer configurar o email e senha que devem ser injetados no códdigo SQL do banco de dados sibitituino o padrão
 

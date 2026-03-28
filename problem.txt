@@ -1,7 +1,3 @@
-
-        ORCHESTRATOR BaaS — SECURE INSTALLER v3.0
-        Enterprise Production Grade — Multi-Distro
-
   ✓ Distro detectada: ubuntu (Pacotes: apt)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -49,7 +45,7 @@
 
   Deseja configurar as credenciais de admin agora? [S/n]: n
   ⚡ Credenciais automáticas geradas. Anote a senha abaixo:
-  SENHA GERADA: bJoWKUHm7DZekIeW
+  SENHA GERADA: j*<<>KImEcEWk
   MUDE APÓS O PRIMEIRO LOGIN!
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -95,32 +91,40 @@
 
   ➜ Construindo e subindo os containers Docker...
 
-time="2026-03-28T16:37:47Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variable is not set. Defaulting to a blank string."
-time="2026-03-28T16:37:47Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variable is not set. Defaulting to a blank string."
-time="2026-03-28T16:37:47Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variable is not set. Defaulting to a blank string."
  Image docker.dragonflydb.io/dragonflydb/dragonfly Pulling 
  Image edoburu/pgbouncer:latest Pulling 
  Image nginx:alpine Pulling 
  Image qdrant/qdrant:latest Pulling 
+ b01b2dd70db7 Pulling fs layer 0B
+ 1b602aed16db Pulling fs layer 0B
+ 2d35ebdb57d9 Pulling fs layer 0B
+ a2c0d92449c9 Pulling fs layer 0B
+ 7c0969dcb2e2 Pulling fs layer 0B
+ c0799cf6173a Pulling fs layer 0B
  e172768c8220 Pulling fs layer 0B
- 96c832531c38 Pulling fs layer 0B
- 7cc4a5986de8 Pulling fs layer 0B
- f73ae59d2b60 Pulling fs layer 0B
  3b4b1384f94c Pulling fs layer 0B
+ 96c832531c38 Pulling fs layer 0B
+ f73ae59d2b60 Pulling fs layer 0B
+ 7cc4a5986de8 Pulling fs layer 0B
  4f4fb700ef54 Pulling fs layer 0B
  79a8b2b41e06 Pulling fs layer 0B
  a6606b896ca3 Pulling fs layer 0B
- a2c0d92449c9 Pulling fs layer 0B
- c0799cf6173a Pulling fs layer 0B
- 2d35ebdb57d9 Pulling fs layer 0B
- 1b602aed16db Pulling fs layer 0B
- 7c0969dcb2e2 Pulling fs layer 0B
- b01b2dd70db7 Pulling fs layer 0B
- 96c832531c38 Downloading 2.097MB
- 7cc4a5986de8 Downloading 1.67kB
+ 3370263bc02a Pulling fs layer 0B
+ 589002ba0eae Pulling fs layer 0B
+ 3f4ad4352d4f Pulling fs layer 0B
+ c2bd5ab17727 Pulling fs layer 0B
+ 4d9d41f3822d Pulling fs layer 0B
+ cf1159c696ee Pulling fs layer 0B
+ 8892f80f46a0 Pulling fs layer 0B
+ 91d1c9c22f2c Pulling fs layer 0B
  3b4b1384f94c Downloading 97B
- 4f4fb700ef54 Downloading 32B
- a6606b896ca3 Downloading 852B
+ 7c0969dcb2e2 Downloading 215B
+ b01b2dd70db7 Downloading 3.12kB
+ c0799cf6173a Download complete 0B
+ 1b602aed16db Downloading 4.44kB
+ 2d35ebdb57d9 Downloading 3.802MB
+ 926abe5069a4 Download complete 0B
+ e172768c8220 Downloading 1.049MB
  4f4fb700ef54 Pulling fs layer 0B
  ec781dee3f47 Pulling fs layer 0B
  4f4fb700ef54 Pulling fs layer 0B
@@ -135,292 +139,254 @@ time="2026-03-28T16:37:47Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variab
  4b01f989bd9b Pulling fs layer 0B
  be9ea85b506c Pulling fs layer 0B
  e7b33762354c Pulling fs layer 0B
- c0799cf6173a Downloading 234kB
- 2d35ebdb57d9 Downloading 2.097MB
- 7c0969dcb2e2 Downloading 215B
- 3b4b1384f94c Download complete 0B
- 4f4fb700ef54 Download complete 0B
- 79a8b2b41e06 Downloading 737B
- a6606b896ca3 Download complete 0B
- f73ae59d2b60 Downloading 1.049MB
- 96c832531c38 Downloading 5.243MB
- 4f4fb700ef54 Download complete 0B
- 7cc4a5986de8 Download complete 0B
- c0799cf6173a Downloading 234kB
- f73ae59d2b60 Downloading 2.097MB
- e172768c8220 Downloading 2.097MB
- 2d35ebdb57d9 Downloading 3.802MB
- 96c832531c38 Downloading 7.34MB
- 1b602aed16db Downloading 4.44kB
- a2c0d92449c9 Downloading 2.585MB
- 7c0969dcb2e2 Downloading 215B
- b01b2dd70db7 Downloading 3.12kB
- 79a8b2b41e06 Download complete 0B
- 3370263bc02a Pulling fs layer 0B
- 589002ba0eae Pulling fs layer 0B
- 8892f80f46a0 Pulling fs layer 0B
- 91d1c9c22f2c Pulling fs layer 0B
- cf1159c696ee Pulling fs layer 0B
- 3f4ad4352d4f Pulling fs layer 0B
- c2bd5ab17727 Pulling fs layer 0B
- 4d9d41f3822d Pulling fs layer 0B
- f73ae59d2b60 Downloading 5.14MB
- e172768c8220 Downloading 4.194MB
- 96c832531c38 Downloading 9.437MB
- 1b602aed16db Downloading 4.44kB
- a2c0d92449c9 Downloading 2.585MB
- 7c0969dcb2e2 Download complete 0B
- b01b2dd70db7 Downloading 3.12kB
- ec781dee3f47 Downloading 2.097MB
- ecadb5c5abda Downloading 877.9kB
- 37d19898a8e4 Downloading 85.58kB
- 4b01f989bd9b Downloading 5.627kB
- c0799cf6173a Download complete 0B
- 2d35ebdb57d9 Downloading 3.802MB
- a2c0d92449c9 Downloading 2.585MB
- f73ae59d2b60 Downloading 5.14MB
- e172768c8220 Downloading 8.389MB
- 96c832531c38 Downloading 13.63MB
- b01b2dd70db7 Download complete 0B
- ec781dee3f47 Downloading 5.243MB
- ecadb5c5abda Downloading 877.9kB
- 37d19898a8e4 Downloading 85.58kB
- 4b01f989bd9b Downloading 5.627kB
- a83886f317bf Downloading 2.086kB
- 46d6a2dfacae Downloading 1.049MB
- be9ea85b506c Downloading 910B
- 2d35ebdb57d9 Download complete 0B
  1b602aed16db Download complete 0B
- 2d35ebdb57d9 Extracting 1B
- f73ae59d2b60 Downloading 5.14MB
- e172768c8220 Downloading 10.49MB
- 96c832531c38 Downloading 15.73MB
- a2c0d92449c9 Download complete 0B
- be9ea85b506c Downloading 910B
- e7b33762354c Downloading 1.049MB
- ec781dee3f47 Downloading 8.389MB
- ecadb5c5abda Download complete 0B
- 37d19898a8e4 Download complete 0B
- 4b01f989bd9b Downloading 5.627kB
- a83886f317bf Downloading 2.086kB
- 46d6a2dfacae Downloading 2.097MB
- 2d35ebdb57d9 Extracting 1B
- 926abe5069a4 Downloading 1.173kB
- a83886f317bf Downloading 2.086kB
- f73ae59d2b60 Download complete 0B
- e172768c8220 Downloading 12.58MB
- 96c832531c38 Downloading 17.83MB
- 46d6a2dfacae Downloading 4.194MB
- be9ea85b506c Downloading 910B
- e7b33762354c Downloading 3.146MB
- ec781dee3f47 Downloading 9.437MB
- cf1159c696ee Downloading 953B
- 589002ba0eae Downloading 1.049MB
- 4b01f989bd9b Download complete 0B
- 2d35ebdb57d9 Extracting 1B
- 926abe5069a4 Downloading 1.173kB
- 96c832531c38 Downloading 18.87MB
- e172768c8220 Downloading 14.68MB
+ 3b4b1384f94c Download complete 0B
+ 96c832531c38 Downloading 2.097MB
+ f73ae59d2b60 Downloading 1.049MB
+ 2d35ebdb57d9 Download complete 0B
+ a2c0d92449c9 Downloading 2.097MB
+ 7cc4a5986de8 Download complete 0B
+ 4f4fb700ef54 Downloading 32B
+ 79a8b2b41e06 Download complete 0B
+ a6606b896ca3 Downloading 852B
+ 7c0969dcb2e2 Download complete 0B
+ b01b2dd70db7 Download complete 0B
  4d9d41f3822d Downloading 1.397kB
- a83886f317bf Download complete 0B
- 46d6a2dfacae Downloading 5.243MB
- be9ea85b506c Download complete 0B
- e7b33762354c Downloading 4.194MB
- 6c998556d346 Downloading 1.049MB
- ec781dee3f47 Downloading 10.49MB
- 3370263bc02a Downloading 1.049MB
- 8892f80f46a0 Downloading 1.049MB
- 91d1c9c22f2c Downloading 626B
+ 589002ba0eae Downloading 1.049MB
+ cf1159c696ee Downloading 953B
  3f4ad4352d4f Downloading 402B
  c2bd5ab17727 Downloading 1.207kB
- 589002ba0eae Downloading 2.097MB
- cf1159c696ee Downloading 953B
+ 91d1c9c22f2c Downloading 626B
+ 96c832531c38 Downloading 3.146MB
+ f73ae59d2b60 Downloading 2.097MB
  2d35ebdb57d9 Extracting 1B
- ec781dee3f47 Downloading 12.58MB
- 46d6a2dfacae Downloading 7.34MB
- e7b33762354c Downloading 5.243MB
- 6c998556d346 Downloading 3.146MB
- e172768c8220 Downloading 15.73MB
- 96c832531c38 Downloading 19.92MB
- 91d1c9c22f2c Download complete 0B
- 926abe5069a4 Download complete 0B
+ 4f4fb700ef54 Download complete 0B
+ 4f4fb700ef54 Download complete 0B
+ cf1159c696ee Download complete 0B
+ a6606b896ca3 Download complete 0B
+ e172768c8220 Downloading 1.049MB
  3f4ad4352d4f Download complete 0B
  c2bd5ab17727 Download complete 0B
- 589002ba0eae Downloading 3.146MB
- cf1159c696ee Download complete 0B
- 4d9d41f3822d Downloading 1.397kB
- 2d35ebdb57d9 Extracting 1B
- 3370263bc02a Downloading 2.097MB
- 8892f80f46a0 Downloading 1.87MB
- 6c998556d346 Downloading 3.146MB
- ec781dee3f47 Downloading 13.63MB
- 46d6a2dfacae Downloading 8.389MB
- e7b33762354c Downloading 6.291MB
- e172768c8220 Downloading 16.78MB
- 96c832531c38 Downloading 20.97MB
- 3370263bc02a Downloading 4.194MB
- 2d35ebdb57d9 Extracting 1B
- 8892f80f46a0 Download complete 0B
- 46d6a2dfacae Downloading 9.437MB
- 589002ba0eae Download complete 0B
+ 91d1c9c22f2c Download complete 0B
+ ec781dee3f47 Downloading 1.049MB
+ a2c0d92449c9 Download complete 0B
  4d9d41f3822d Download complete 0B
- e7b33762354c Download complete 0B
- 6c998556d346 Downloading 4.981MB
- ec781dee3f47 Downloading 14.68MB
- 8f32d6edf6d2 Download complete 0B
- e172768c8220 Downloading 18.31MB
- 96c832531c38 Downloading 23.07MB
- 2d35ebdb57d9 Extracting 1B
- 96c832531c38 Downloading 24.12MB
- ec781dee3f47 Downloading 16.78MB
- 46d6a2dfacae Downloading 12.58MB
- 589002ba0eae Extracting 1B
- e172768c8220 Download complete 0B
- 6c998556d346 Download complete 0B
- fff052d01291 Download complete 0B
- 3370263bc02a Downloading 7.34MB
- 46d6a2dfacae Downloading 16.78MB
- ec781dee3f47 Downloading 22.02MB
+ 589002ba0eae Downloading 1.049MB
+ 37d19898a8e4 Download complete 0B
+ a83886f317bf Downloading 2.086kB
+ 4b01f989bd9b Download complete 0B
+ be9ea85b506c Downloading 910B
+ e172768c8220 Downloading 3.146MB
+ 96c832531c38 Downloading 4.194MB
+ f73ae59d2b60 Downloading 3.146MB
  2d35ebdb57d9 Pull complete 0B
+ ec781dee3f47 Downloading 1.049MB
+ a2c0d92449c9 Extracting 1B
+ a83886f317bf Download complete 0B
+ ecadb5c5abda Download complete 0B
+ be9ea85b506c Download complete 0B
+ 96c832531c38 Downloading 6.291MB
+ f73ae59d2b60 Downloading 5.14MB
+ e172768c8220 Downloading 4.194MB
+ 8892f80f46a0 Download complete 0B
+ fff052d01291 Download complete 0B
+ a2c0d92449c9 Extracting 1B
+ 3370263bc02a Downloading 3.146MB
+ 8f32d6edf6d2 Download complete 0B
+ 589002ba0eae Download complete 0B
+ 96c832531c38 Downloading 6.291MB
+ ec781dee3f47 Downloading 3.146MB
+ 46d6a2dfacae Downloading 1.049MB
+ e7b33762354c Downloading 1.049MB
+ 6c998556d346 Downloading 2.097MB
+ f73ae59d2b60 Download complete 0B
+ e172768c8220 Downloading 4.194MB
+ a2c0d92449c9 Extracting 1B
  589002ba0eae Extracting 1B
+ 3370263bc02a Downloading 6.291MB
+ e7b33762354c Downloading 3.146MB
+ 6c998556d346 Downloading 4.194MB
+ ec781dee3f47 Downloading 4.194MB
+ 46d6a2dfacae Downloading 3.146MB
+ 96c832531c38 Downloading 8.389MB
+ e172768c8220 Downloading 7.34MB
  a2c0d92449c9 Extracting 1B
- 96c832531c38 Downloading 28.31MB
- 3370263bc02a Downloading 11.53MB
- 46d6a2dfacae Downloading 20.97MB
- ec781dee3f47 Downloading 25.17MB
- a2c0d92449c9 Extracting 1B
- 589002ba0eae Pull complete 0B
- 96c832531c38 Download complete 0B
- 3370263bc02a Downloading 13.63MB
- ec781dee3f47 Downloading 28.31MB
- 46d6a2dfacae Downloading 23.07MB
- 8892f80f46a0 Extracting 1B
- a2c0d92449c9 Extracting 1B
- 3370263bc02a Downloading 16.78MB
- 96c832531c38 Extracting 1B
+ ec781dee3f47 Downloading 5.243MB
+ 46d6a2dfacae Downloading 4.194MB
+ e7b33762354c Downloading 4.194MB
+ 6c998556d346 Download complete 0B
+ 589002ba0eae Extracting 1B
+ 3370263bc02a Downloading 7.34MB
+ e172768c8220 Downloading 8.389MB
+ 96c832531c38 Downloading 10.49MB
  a2c0d92449c9 Pull complete 0B
- 46d6a2dfacae Downloading 26.21MB
- ec781dee3f47 Downloading 29.78MB
+ e7b33762354c Downloading 6.291MB
+ ec781dee3f47 Downloading 7.34MB
+ 46d6a2dfacae Downloading 6.291MB
+ b01b2dd70db7 Pull complete 0B
+ e172768c8220 Downloading 12.58MB
+ 96c832531c38 Downloading 14.68MB
+ 589002ba0eae Extracting 1B
+ 3370263bc02a Downloading 10.49MB
+ e7b33762354c Download complete 0B
+ ec781dee3f47 Downloading 10.49MB
+ 46d6a2dfacae Downloading 9.437MB
+ c0799cf6173a Pull complete 0B
+ e172768c8220 Downloading 14.68MB
+ 96c832531c38 Downloading 16.78MB
+ 589002ba0eae Extracting 1B
+ 3370263bc02a Downloading 12.58MB
+ ec781dee3f47 Downloading 11.53MB
+ 46d6a2dfacae Downloading 10.49MB
+ 1b602aed16db Pull complete 0B
+ 96c832531c38 Downloading 18.87MB
+ e172768c8220 Downloading 16.78MB
+ 589002ba0eae Pull complete 0B
+ 3370263bc02a Downloading 13.63MB
+ ec781dee3f47 Downloading 12.58MB
+ 46d6a2dfacae Downloading 11.53MB
  8892f80f46a0 Extracting 1B
+ e172768c8220 Downloading 18.31MB
+ 96c832531c38 Downloading 20.97MB
+ 3370263bc02a Downloading 15.73MB
+ 7c0969dcb2e2 Pull complete 0B
+ ec781dee3f47 Downloading 15.73MB
+ 46d6a2dfacae Downloading 14.68MB
+ 8892f80f46a0 Extracting 1B
+ 3370263bc02a Downloading 18.87MB
+ ec781dee3f47 Downloading 18.87MB
+ e172768c8220 Download complete 0B
+ 96c832531c38 Downloading 23.07MB
+ 46d6a2dfacae Downloading 16.78MB
+ 8892f80f46a0 Extracting 1B
+ ec781dee3f47 Downloading 20.97MB
+ 46d6a2dfacae Downloading 18.87MB
  3370263bc02a Downloading 20.25MB
- 46d6a2dfacae Downloading 28.31MB
- 96c832531c38 Extracting 1B
- 8892f80f46a0 Extracting 1B
+ 96c832531c38 Downloading 27.26MB
+ ec781dee3f47 Downloading 24.12MB
+ 46d6a2dfacae Downloading 22.02MB
+ 8892f80f46a0 Pull complete 0B
+ 96c832531c38 Downloading 29.54MB
  3370263bc02a Download complete 0B
+ 91d1c9c22f2c Extracting 1B
+ Image edoburu/pgbouncer:latest Pulled 
+ ec781dee3f47 Downloading 29.78MB
+ 46d6a2dfacae Downloading 28.31MB
+ 96c832531c38 Download complete 0B
+ 91d1c9c22f2c Pull complete 0B
  96c832531c38 Extracting 1B
  ec781dee3f47 Download complete 0B
  46d6a2dfacae Downloading 32.51MB
- 8892f80f46a0 Extracting 1B
- ec781dee3f47 Extracting 1B
- 96c832531c38 Extracting 1B
- 46d6a2dfacae Downloading 35.65MB
- c0799cf6173a Extracting 1B
- b01b2dd70db7 Pull complete 0B
- 8892f80f46a0 Extracting 1B
+ cf1159c696ee Pull complete 0B
+ 3f4ad4352d4f Extracting 1B
  ec781dee3f47 Extracting 1B
  96c832531c38 Extracting 1B
  46d6a2dfacae Downloading 36.4MB
- 8892f80f46a0 Extracting 1B
- 96c832531c38 Extracting 1B
- ec781dee3f47 Extracting 1B
- c0799cf6173a Pull complete 0B
- 1b602aed16db Pull complete 0B
- 91d1c9c22f2c Pull complete 0B
- 46d6a2dfacae Download complete 0B
- cf1159c696ee Extracting 1B
- 8892f80f46a0 Pull complete 0B
- 96c832531c38 Extracting 1B
- ec781dee3f47 Extracting 1B
- 7c0969dcb2e2 Pull complete 0B
  3f4ad4352d4f Pull complete 0B
- c2bd5ab17727 Extracting 1B
- cf1159c696ee Pull complete 0B
- 96c832531c38 Extracting 1B
  ec781dee3f47 Extracting 1B
- Image edoburu/pgbouncer:latest Pulled 
+ 96c832531c38 Extracting 1B
+ 46d6a2dfacae Download complete 0B
  c2bd5ab17727 Pull complete 0B
  4d9d41f3822d Pull complete 0B
- 3370263bc02a Extracting 1B
- 96c832531c38 Extracting 1B
- ec781dee3f47 Extracting 1B
- 3370263bc02a Extracting 1B
  ec781dee3f47 Extracting 1B
  96c832531c38 Extracting 1B
  3370263bc02a Extracting 1B
  ec781dee3f47 Extracting 1B
  96c832531c38 Extracting 1B
  3370263bc02a Extracting 1B
+ ec781dee3f47 Extracting 1B
  96c832531c38 Extracting 1B
+ 3370263bc02a Extracting 1B
  ec781dee3f47 Extracting 1B
+ 96c832531c38 Extracting 1B
  3370263bc02a Extracting 1B
- 96c832531c38 Extracting 2B
  ec781dee3f47 Extracting 1B
+ 96c832531c38 Extracting 1B
  3370263bc02a Extracting 1B
- 96c832531c38 Extracting 2B
  ec781dee3f47 Extracting 1B
+ 96c832531c38 Extracting 1B
  3370263bc02a Extracting 1B
- 96c832531c38 Extracting 2B
- ec781dee3f47 Extracting 2B
+ ec781dee3f47 Extracting 1B
+ 96c832531c38 Extracting 1B
  3370263bc02a Extracting 1B
- 96c832531c38 Extracting 2B
- ec781dee3f47 Extracting 2B
+ ec781dee3f47 Extracting 1B
+ 96c832531c38 Extracting 1B
  3370263bc02a Extracting 1B
+ ec781dee3f47 Extracting 1B
  96c832531c38 Extracting 2B
- ec781dee3f47 Extracting 2B
- 3370263bc02a Extracting 1B
- 96c832531c38 Extracting 2B
- ec781dee3f47 Extracting 2B
  3370263bc02a Extracting 1B
  ec781dee3f47 Extracting 2B
  96c832531c38 Extracting 2B
- 3370263bc02a Extracting 2B
- 96c832531c38 Extracting 2B
+ 3370263bc02a Extracting 1B
  ec781dee3f47 Extracting 2B
- 3370263bc02a Extracting 2B
  96c832531c38 Extracting 2B
- ec781dee3f47 Extracting 2B
  3370263bc02a Extracting 2B
  ec781dee3f47 Extracting 2B
  96c832531c38 Extracting 2B
  3370263bc02a Extracting 2B
- 96c832531c38 Extracting 3B
  ec781dee3f47 Extracting 2B
+ 96c832531c38 Extracting 2B
  3370263bc02a Extracting 2B
- 96c832531c38 Extracting 3B
- ec781dee3f47 Extracting 3B
+ ec781dee3f47 Extracting 2B
+ 96c832531c38 Extracting 2B
  3370263bc02a Extracting 2B
- 96c832531c38 Extracting 3B
- ec781dee3f47 Extracting 3B
+ ec781dee3f47 Extracting 2B
+ 96c832531c38 Extracting 2B
+ 3370263bc02a Extracting 2B
+ ec781dee3f47 Extracting 2B
+ 96c832531c38 Extracting 2B
+ 3370263bc02a Extracting 2B
+ ec781dee3f47 Extracting 2B
+ 96c832531c38 Extracting 2B
+ 3370263bc02a Extracting 2B
+ 96c832531c38 Extracting 2B
+ ec781dee3f47 Extracting 2B
  3370263bc02a Pull complete 0B
  96c832531c38 Extracting 3B
+ ec781dee3f47 Extracting 2B
  ec781dee3f47 Extracting 3B
  96c832531c38 Extracting 3B
- ec781dee3f47 Extracting 3B
  Image nginx:alpine Pulled 
  ec781dee3f47 Extracting 3B
  96c832531c38 Extracting 3B
  ec781dee3f47 Extracting 3B
  96c832531c38 Extracting 3B
+ ec781dee3f47 Extracting 3B
+ 96c832531c38 Extracting 3B
  96c832531c38 Extracting 3B
  ec781dee3f47 Extracting 3B
- f73ae59d2b60 Extracting 1B
- 96c832531c38 Pull complete 0B
+ 96c832531c38 Extracting 3B
  ec781dee3f47 Extracting 3B
- f73ae59d2b60 Extracting 1B
+ 96c832531c38 Extracting 4B
  ec781dee3f47 Extracting 3B
- f73ae59d2b60 Extracting 1B
- ec781dee3f47 Extracting 3B
- ecadb5c5abda Extracting 1B
+ 96c832531c38 Extracting 4B
+ ec781dee3f47 Extracting 4B
+ 96c832531c38 Extracting 4B
+ ec781dee3f47 Extracting 4B
+ 96c832531c38 Extracting 4B
+ ec781dee3f47 Extracting 4B
+ ec781dee3f47 Extracting 4B
+ 96c832531c38 Extracting 4B
+ ec781dee3f47 Extracting 4B
+ 96c832531c38 Extracting 4B
+ ec781dee3f47 Extracting 4B
+ 96c832531c38 Extracting 4B
+ ec781dee3f47 Extracting 4B
+ 96c832531c38 Extracting 4B
  f73ae59d2b60 Extracting 1B
  ec781dee3f47 Pull complete 0B
- 3b4b1384f94c Extracting 1B
+ 96c832531c38 Pull complete 0B
+ ecadb5c5abda Extracting 1B
+ f73ae59d2b60 Extracting 1B
  ecadb5c5abda Pull complete 0B
+ f73ae59d2b60 Extracting 1B
  7cc4a5986de8 Pull complete 0B
+ 46d6a2dfacae Extracting 1B
  f73ae59d2b60 Pull complete 0B
  3b4b1384f94c Pull complete 0B
+ 79a8b2b41e06 Pull complete 0B
  4f4fb700ef54 Pull complete 0B
  a6606b896ca3 Pull complete 0B
- 79a8b2b41e06 Pull complete 0B
  e172768c8220 Extracting 1B
  46d6a2dfacae Extracting 1B
  e172768c8220 Extracting 1B
@@ -436,30 +402,28 @@ time="2026-03-28T16:37:47Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variab
  e172768c8220 Extracting 1B
  46d6a2dfacae Extracting 1B
  e172768c8220 Pull complete 0B
+ 46d6a2dfacae Extracting 1B
  Image docker.dragonflydb.io/dragonflydb/dragonfly Pulled 
  46d6a2dfacae Extracting 1B
  46d6a2dfacae Extracting 1B
- 46d6a2dfacae Extracting 1B
- 46d6a2dfacae Extracting 1B
  46d6a2dfacae Extracting 2B
  46d6a2dfacae Extracting 2B
+ 46d6a2dfacae Pull complete 0B
  37d19898a8e4 Pull complete 0B
  4b01f989bd9b Pull complete 0B
  be9ea85b506c Pull complete 0B
  e7b33762354c Extracting 1B
- 46d6a2dfacae Pull complete 0B
  e7b33762354c Extracting 1B
- 4f4fb700ef54 Extracting 1B
- e7b33762354c Pull complete 0B
  4f4fb700ef54 Pull complete 0B
+ e7b33762354c Pull complete 0B
  Image qdrant/qdrant:latest Pulled 
- Image cascata-frontend Building 
- Image cascata-backend_engine Building 
+ Image cascata-db Building 
  Image cascata-nginx_controller Building 
  Image cascata-crypto_engine Building 
- Image cascata-backend_data Building 
- Image cascata-db Building 
  Image cascata-backend_control Building 
+ Image cascata-backend_engine Building 
+ Image cascata-frontend Building 
+ Image cascata-backend_data Building 
 #1 [internal] load local bake definitions
 #1 reading from stdin 3.22kB done
 #1 DONE 0.0s
@@ -468,718 +432,1037 @@ time="2026-03-28T16:37:47Z" level=warning msg="The \"CASCATA_OTP_SECRET\" variab
 #2 transferring dockerfile: 259B done
 #2 DONE 0.1s
 
-#3 [crypto_engine internal] load build definition from Dockerfile
-#3 transferring dockerfile: 1.16kB done
+#3 [frontend internal] load build definition from Dockerfile
+#3 transferring dockerfile: 438B done
 #3 DONE 0.1s
 
-#4 [frontend internal] load build definition from Dockerfile
-#4 transferring dockerfile: 438B done
+#4 [db internal] load build definition from Dockerfile
+#4 transferring dockerfile: 3.26kB done
 #4 DONE 0.1s
 
-#5 [backend_engine internal] load build definition from Dockerfile
+#5 [backend_control internal] load build definition from Dockerfile
 #5 transferring dockerfile: 688B done
 #5 DONE 0.1s
 
-#6 [backend_control internal] load metadata for docker.io/library/node:20-alpine
-#6 ...
+#6 [crypto_engine internal] load build definition from Dockerfile
+#6 transferring dockerfile: 1.16kB done
+#6 DONE 0.1s
 
-#7 [db internal] load build definition from Dockerfile
-#7 transferring dockerfile: 3.26kB done
+#7 [frontend internal] load metadata for docker.io/library/nginx:alpine
 #7 DONE 0.1s
 
-#8 [frontend internal] load metadata for docker.io/library/nginx:alpine
-#8 DONE 0.0s
+#8 [backend_control internal] load metadata for docker.io/library/node:20-alpine
+#8 DONE 0.4s
 
-#6 [backend_data internal] load metadata for docker.io/library/node:20-alpine
-#6 ...
-
-#9 [db internal] load metadata for docker.io/library/postgres:18-alpine
+#9 [crypto_engine internal] load metadata for docker.io/library/golang:1.22-alpine
 #9 DONE 0.4s
 
-#10 [crypto_engine internal] load metadata for docker.io/library/golang:1.22-alpine
+#10 [db internal] load metadata for docker.io/library/postgres:18-alpine
 #10 DONE 0.4s
 
-#11 [db internal] load .dockerignore
+#11 [nginx_controller internal] load .dockerignore
 #11 transferring context: 2B done
 #11 DONE 0.0s
 
-#6 [backend_control internal] load metadata for docker.io/library/node:20-alpine
-#6 DONE 0.4s
-
-#12 [nginx_controller internal] load .dockerignore
+#12 [frontend internal] load .dockerignore
 #12 transferring context: 2B done
-#12 DONE 0.0s
+#12 DONE 0.1s
 
 #13 [backend_engine internal] load .dockerignore
-#13 transferring context: 2B done
+#13 transferring context: 2B 0.0s done
 #13 DONE 0.1s
 
-#14 [frontend internal] load .dockerignore
+#14 [db internal] load .dockerignore
 #14 transferring context: 2B done
 #14 DONE 0.1s
 
-#15 [frontend stage-1 1/3] FROM docker.io/library/nginx:alpine@sha256:e7257f1ef28ba17cf7c248cb8ccf6f0c6e0228ab9c315c152f9c203cd34cf6d1
-#15 resolve docker.io/library/nginx:alpine@sha256:e7257f1ef28ba17cf7c248cb8ccf6f0c6e0228ab9c315c152f9c203cd34cf6d1 0.1s done
-#15 DONE 0.1s
+#15 [backend_engine 1/6] FROM docker.io/library/node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c
+#15 resolve docker.io/library/node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c
+#15 ...
 
-#16 [backend_engine 1/6] FROM docker.io/library/node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c
-#16 resolve docker.io/library/node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c 0.1s done
-#16 ...
+#16 [nginx_controller internal] load build context
+#16 transferring context: 1.71kB done
+#16 DONE 0.1s
 
-#17 [nginx_controller internal] load build context
-#17 transferring context: 1.71kB done
+#17 [db internal] load build context
+#17 DONE 0.0s
+
+#18 [frontend internal] load build context
+#18 transferring context: 1.65MB 0.0s done
+#18 DONE 0.1s
+
+#15 [frontend 1/6] FROM docker.io/library/node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c
+#15 resolve docker.io/library/node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c 0.1s done
+#15 ...
+
+#19 [crypto_engine internal] load metadata for gcr.io/distroless/static:nonroot
+#19 DONE 0.6s
+
+#20 [backend_engine internal] load build context
+#20 transferring context: 928.88kB 0.0s done
+#20 DONE 0.1s
+
+#17 [db internal] load build context
+#17 transferring context: 7.49kB done
 #17 DONE 0.1s
 
-#18 [crypto_engine internal] load metadata for gcr.io/distroless/static:nonroot
-#18 DONE 0.7s
+#21 [crypto_engine internal] load .dockerignore
+#21 transferring context: 2B done
+#21 DONE 0.1s
 
-#19 [frontend internal] load build context
-#19 transferring context: 1.65MB 0.1s done
-#19 DONE 0.2s
+#15 [backend_data 1/6] FROM docker.io/library/node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c
+#15 sha256:c7734204880fafbd6297ce1844e07c137d82ee814ac8b5fa6ac1a3659101d503 446B / 446B 0.0s done
+#15 sha256:c7734204880fafbd6297ce1844e07c137d82ee814ac8b5fa6ac1a3659101d503 446B / 446B 0.0s done
+#15 sha256:62e0e1181d88da8ed0e2fda221e9446ad0f09a004a375193ad7a38e31ec4eab4 1.26MB / 1.26MB 0.1s done
+#15 sha256:d7f6aca05b78f475975eeac3898b7ef0a618937174c469650e05e81cbf8c5f46 7.34MB / 43.23MB 0.2s
+#15 ...
 
-#20 [db internal] load build context
-#20 transferring context: 7.49kB 0.0s done
-#20 DONE 0.2s
+#22 [crypto_engine internal] load build context
+#22 transferring context: 16.45kB done
+#22 DONE 0.2s
 
-#21 [backend_control internal] load build context
-#21 transferring context: 928.70kB 0.1s done
-#21 DONE 0.2s
+#15 [backend_data 1/6] FROM docker.io/library/node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c
+#15 sha256:d7f6aca05b78f475975eeac3898b7ef0a618937174c469650e05e81cbf8c5f46 23.07MB / 43.23MB 0.3s
+#15 sha256:d7f6aca05b78f475975eeac3898b7ef0a618937174c469650e05e81cbf8c5f46 38.80MB / 43.23MB 0.5s
+#15 sha256:d7f6aca05b78f475975eeac3898b7ef0a618937174c469650e05e81cbf8c5f46 43.23MB / 43.23MB 0.6s
+#15 ...
 
-#22 [crypto_engine internal] load .dockerignore
-#22 transferring context: 2B done
-#22 DONE 0.1s
+#23 [frontend stage-1 1/3] FROM docker.io/library/nginx:alpine@sha256:e7257f1ef28ba17cf7c248cb8ccf6f0c6e0228ab9c315c152f9c203cd34cf6d1
+#23 resolve docker.io/library/nginx:alpine@sha256:e7257f1ef28ba17cf7c248cb8ccf6f0c6e0228ab9c315c152f9c203cd34cf6d1 0.1s done
+#23 DONE 1.0s
 
-#23 [crypto_engine internal] load build context
-#23 DONE 0.0s
+#15 [frontend 1/6] FROM docker.io/library/node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c
+#15 sha256:d7f6aca05b78f475975eeac3898b7ef0a618937174c469650e05e81cbf8c5f46 43.23MB / 43.23MB 0.6s done
+#15 extracting sha256:d7f6aca05b78f475975eeac3898b7ef0a618937174c469650e05e81cbf8c5f46
+#15 ...
 
-#16 [backend_control 1/6] FROM docker.io/library/node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c
-#16 sha256:c7734204880fafbd6297ce1844e07c137d82ee814ac8b5fa6ac1a3659101d503 446B / 446B 0.0s done
-#16 sha256:62e0e1181d88da8ed0e2fda221e9446ad0f09a004a375193ad7a38e31ec4eab4 1.26MB / 1.26MB 0.1s done
-#16 ...
+#24 [crypto_engine stage-1 1/4] FROM gcr.io/distroless/static:nonroot@sha256:e3f945647ffb95b5839c07038d64f9811adf17308b9121d8a2b87b6a22a80a39
+#24 resolve gcr.io/distroless/static:nonroot@sha256:e3f945647ffb95b5839c07038d64f9811adf17308b9121d8a2b87b6a22a80a39 0.0s done
+#24 DONE 1.8s
 
-#23 [crypto_engine internal] load build context
-#23 transferring context: 16.46kB done
-#23 DONE 0.1s
-
-#16 [backend_data 1/6] FROM docker.io/library/node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c
-#16 sha256:62e0e1181d88da8ed0e2fda221e9446ad0f09a004a375193ad7a38e31ec4eab4 1.26MB / 1.26MB 0.1s done
-#16 sha256:d7f6aca05b78f475975eeac3898b7ef0a618937174c469650e05e81cbf8c5f46 6.29MB / 43.23MB 0.2s
-#16 sha256:d7f6aca05b78f475975eeac3898b7ef0a618937174c469650e05e81cbf8c5f46 23.07MB / 43.23MB 0.3s
-#16 sha256:d7f6aca05b78f475975eeac3898b7ef0a618937174c469650e05e81cbf8c5f46 38.80MB / 43.23MB 0.5s
-#16 sha256:d7f6aca05b78f475975eeac3898b7ef0a618937174c469650e05e81cbf8c5f46 43.23MB / 43.23MB 0.6s done
-#16 extracting sha256:d7f6aca05b78f475975eeac3898b7ef0a618937174c469650e05e81cbf8c5f46
-#16 ...
-
-#15 [frontend stage-1 1/3] FROM docker.io/library/nginx:alpine@sha256:e7257f1ef28ba17cf7c248cb8ccf6f0c6e0228ab9c315c152f9c203cd34cf6d1
-#15 DONE 1.1s
-
-#24 [crypto_engine builder 1/9] FROM docker.io/library/golang:1.22-alpine@sha256:1699c10032ca2582ec89a24a1312d986a3f094aed3d5c1147b19880afe40e052
-#24 resolve docker.io/library/golang:1.22-alpine@sha256:1699c10032ca2582ec89a24a1312d986a3f094aed3d5c1147b19880afe40e052 0.0s done
-#24 DONE 0.9s
+#24 [crypto_engine stage-1 1/4] FROM gcr.io/distroless/static:nonroot@sha256:e3f945647ffb95b5839c07038d64f9811adf17308b9121d8a2b87b6a22a80a39
+#24 sha256:dd64bf2dd177757451a98fcdc999a339c35dee5d9872d8f4dc69c8f3c4dd0112 80B / 80B 0.2s done
+#24 sha256:ebddc55facdc6b1f7e0f30816a5fc7cc62f38abdf76c0a8b0a0ce52085754795 0B / 311B 0.2s
+#24 sha256:bdfd7f7e5bf6fc27e70b59101db21c3d8284d283884419dd5fe7020583bb79ca 0B / 136.99kB 0.2s
+#24 sha256:b839dfae01f66e15c6a8b63520557ed315bdfe036342fa7a0c537259f10d7a9a 0B / 351B 0.2s
+#24 sha256:ebddc55facdc6b1f7e0f30816a5fc7cc62f38abdf76c0a8b0a0ce52085754795 311B / 311B 0.2s done
+#24 sha256:bdfd7f7e5bf6fc27e70b59101db21c3d8284d283884419dd5fe7020583bb79ca 136.99kB / 136.99kB 0.2s done
+#24 sha256:b839dfae01f66e15c6a8b63520557ed315bdfe036342fa7a0c537259f10d7a9a 351B / 351B 0.2s done
+#24 sha256:3214acf345c0cc6bbdb56b698a41ccdefc624a09d6beb0d38b5de0b2303ecaf4 0B / 123B 0.2s
+#24 sha256:7c12895b777bcaa8ccae0605b4de635b68fc32d60fa08f421dc3818bf55ee212 0B / 188B 0.2s
+#24 sha256:52630fc75a18675c530ed9eba5f55eca09b03e91bd5bc15307918bbc1a7e7296 162B / 162B 0.2s
+#24 sha256:3214acf345c0cc6bbdb56b698a41ccdefc624a09d6beb0d38b5de0b2303ecaf4 123B / 123B 0.2s done
+#24 sha256:7c12895b777bcaa8ccae0605b4de635b68fc32d60fa08f421dc3818bf55ee212 188B / 188B 0.2s done
+#24 sha256:52630fc75a18675c530ed9eba5f55eca09b03e91bd5bc15307918bbc1a7e7296 162B / 162B 0.2s done
+#24 sha256:2780920e5dbfbe103d03a583ed75345306e572ec5a48cb10361f046767d9f29a 67B / 67B 0.2s done
+#24 sha256:b4242723c53fe4e094eb78569a2c15b6aafb8eb42aa9c3c2666130654a316ae2 254.10kB / 254.10kB 0.2s done
+#24 sha256:fa8ae93e2b3a7478248483e942ff665efa7219c6cd72d7a03c775372076e98dc 85.84kB / 85.84kB 0.2s
+#24 sha256:d6b1b89eccacc15c2420b2776d72c1dae334a00805ed9af54bf2f71e4d536f28 32.09kB / 32.09kB 0.2s
+#24 sha256:fa8ae93e2b3a7478248483e942ff665efa7219c6cd72d7a03c775372076e98dc 85.84kB / 85.84kB 0.2s done
+#24 sha256:d6b1b89eccacc15c2420b2776d72c1dae334a00805ed9af54bf2f71e4d536f28 32.09kB / 32.09kB 0.2s done
+#24 sha256:b4e6f1bfce0a1fba2b5421041552f4a897aada9cd5680926580f9e2c6247a7ae 288.21kB / 288.21kB 0.2s done
+#24 extracting sha256:fa8ae93e2b3a7478248483e942ff665efa7219c6cd72d7a03c775372076e98dc
+#24 sha256:c172f21841dff4c8cf45cde46589c1c2616cefe7e819965e92e6d3475c428aa0 12.68kB / 12.68kB 0.2s
+#24 extracting sha256:fa8ae93e2b3a7478248483e942ff665efa7219c6cd72d7a03c775372076e98dc 0.2s done
+#24 DONE 2.9s
 
 #25 [db builder 1/3] FROM docker.io/library/postgres:18-alpine@sha256:4da1a4828be12604092fa55311276f08f9224a74a62dcb4708bd7439e2a03911
-#25 resolve docker.io/library/postgres:18-alpine@sha256:4da1a4828be12604092fa55311276f08f9224a74a62dcb4708bd7439e2a03911 0.0s done
-#25 sha256:51718cc743bc4f2fa661a5e8b4da6b2774cedf6da22ed5d603310b96535e6d80 183B / 183B 0.2s done
-#25 sha256:7fb0a4f2ca3fbae2494c927aa569c6a03c5512a3d841cd778e954241b4cf746f 128B / 128B 0.2s done
-#25 sha256:946b644975333eb932287f90b22e1e62a25196280c664341f954eef3835a78f1 18.92kB / 18.92kB 0.2s done
+#25 resolve docker.io/library/postgres:18-alpine@sha256:4da1a4828be12604092fa55311276f08f9224a74a62dcb4708bd7439e2a03911 0.1s done
 #25 sha256:b88294e2a4c68807ab3e3e1fd19d695a553845024fba8a8e2cded6b591198d50 5.84kB / 5.84kB 0.1s done
+#25 sha256:51718cc743bc4f2fa661a5e8b4da6b2774cedf6da22ed5d603310b96535e6d80 183B / 183B 0.1s done
+#25 sha256:455d094c943c166f228c5d803c9eaf5bc96dbfdc6a3dbf85e2fe7ecb12806ea3 116B / 116B 0.0s done
+#25 sha256:7fb0a4f2ca3fbae2494c927aa569c6a03c5512a3d841cd778e954241b4cf746f 128B / 128B 0.1s done
+#25 sha256:946b644975333eb932287f90b22e1e62a25196280c664341f954eef3835a78f1 18.92kB / 18.92kB 0.1s done
 #25 sha256:a92c4c6bf7bfc70c5335bec44f9819c1ac817a9aef5d56879780f390f725ad5c 970B / 970B 0.1s done
-#25 sha256:455d094c943c166f228c5d803c9eaf5bc96dbfdc6a3dbf85e2fe7ecb12806ea3 116B / 116B 0.1s done
-#25 extracting sha256:a92c4c6bf7bfc70c5335bec44f9819c1ac817a9aef5d56879780f390f725ad5c 0.1s done
 #25 sha256:36af16c7d2ceaaa58c208f3ef136a6bbe2b0dac1994ef8075d8b3840b6bc7c9c 922.94kB / 922.94kB 0.1s done
-#25 sha256:eb134dfb2af4a2e957ba132c05c9611ee61bed62bef6bc65aaaf612b4a1175a9 5.24MB / 109.19MB 0.2s
-#25 extracting sha256:36af16c7d2ceaaa58c208f3ef136a6bbe2b0dac1994ef8075d8b3840b6bc7c9c 0.1s done
-#25 sha256:eb134dfb2af4a2e957ba132c05c9611ee61bed62bef6bc65aaaf612b4a1175a9 11.53MB / 109.19MB 0.3s
+#25 sha256:eb134dfb2af4a2e957ba132c05c9611ee61bed62bef6bc65aaaf612b4a1175a9 63.96MB / 109.19MB 1.8s
+#25 extracting sha256:a92c4c6bf7bfc70c5335bec44f9819c1ac817a9aef5d56879780f390f725ad5c 0.2s done
+#25 extracting sha256:36af16c7d2ceaaa58c208f3ef136a6bbe2b0dac1994ef8075d8b3840b6bc7c9c 0.2s done
 #25 extracting sha256:455d094c943c166f228c5d803c9eaf5bc96dbfdc6a3dbf85e2fe7ecb12806ea3 0.1s done
-#25 sha256:eb134dfb2af4a2e957ba132c05c9611ee61bed62bef6bc65aaaf612b4a1175a9 18.87MB / 109.19MB 0.5s
-#25 sha256:eb134dfb2af4a2e957ba132c05c9611ee61bed62bef6bc65aaaf612b4a1175a9 30.41MB / 109.19MB 0.8s
-#25 sha256:eb134dfb2af4a2e957ba132c05c9611ee61bed62bef6bc65aaaf612b4a1175a9 40.89MB / 109.19MB 1.1s
-#25 sha256:eb134dfb2af4a2e957ba132c05c9611ee61bed62bef6bc65aaaf612b4a1175a9 49.28MB / 109.19MB 1.4s
-#25 sha256:eb134dfb2af4a2e957ba132c05c9611ee61bed62bef6bc65aaaf612b4a1175a9 60.82MB / 109.19MB 1.7s
-#25 sha256:eb134dfb2af4a2e957ba132c05c9611ee61bed62bef6bc65aaaf612b4a1175a9 68.16MB / 109.19MB 1.8s
-#25 sha256:eb134dfb2af4a2e957ba132c05c9611ee61bed62bef6bc65aaaf612b4a1175a9 78.64MB / 109.19MB 2.1s
-#25 sha256:eb134dfb2af4a2e957ba132c05c9611ee61bed62bef6bc65aaaf612b4a1175a9 85.98MB / 109.19MB 2.3s
+#25 sha256:eb134dfb2af4a2e957ba132c05c9611ee61bed62bef6bc65aaaf612b4a1175a9 83.89MB / 109.19MB 2.1s
+#25 sha256:eb134dfb2af4a2e957ba132c05c9611ee61bed62bef6bc65aaaf612b4a1175a9 92.27MB / 109.19MB 2.3s
+#25 sha256:eb134dfb2af4a2e957ba132c05c9611ee61bed62bef6bc65aaaf612b4a1175a9 101.71MB / 109.19MB 2.4s
 #25 ...
 
-#26 [crypto_engine stage-1 1/4] FROM gcr.io/distroless/static:nonroot@sha256:e3f945647ffb95b5839c07038d64f9811adf17308b9121d8a2b87b6a22a80a39
-#26 resolve gcr.io/distroless/static:nonroot@sha256:e3f945647ffb95b5839c07038d64f9811adf17308b9121d8a2b87b6a22a80a39 0.0s done
-#26 sha256:bdfd7f7e5bf6fc27e70b59101db21c3d8284d283884419dd5fe7020583bb79ca 136.99kB / 136.99kB 0.2s done
-#26 sha256:ebddc55facdc6b1f7e0f30816a5fc7cc62f38abdf76c0a8b0a0ce52085754795 311B / 311B 0.2s done
-#26 sha256:b839dfae01f66e15c6a8b63520557ed315bdfe036342fa7a0c537259f10d7a9a 351B / 351B 0.2s done
-#26 sha256:dd64bf2dd177757451a98fcdc999a339c35dee5d9872d8f4dc69c8f3c4dd0112 80B / 80B 0.2s done
-#26 sha256:7c12895b777bcaa8ccae0605b4de635b68fc32d60fa08f421dc3818bf55ee212 188B / 188B 0.2s done
-#26 sha256:52630fc75a18675c530ed9eba5f55eca09b03e91bd5bc15307918bbc1a7e7296 162B / 162B 0.2s done
-#26 sha256:3214acf345c0cc6bbdb56b698a41ccdefc624a09d6beb0d38b5de0b2303ecaf4 123B / 123B 0.2s done
-#26 sha256:2780920e5dbfbe103d03a583ed75345306e572ec5a48cb10361f046767d9f29a 67B / 67B 0.2s done
-#26 sha256:b4242723c53fe4e094eb78569a2c15b6aafb8eb42aa9c3c2666130654a316ae2 254.10kB / 254.10kB 0.2s done
-#26 sha256:d6b1b89eccacc15c2420b2776d72c1dae334a00805ed9af54bf2f71e4d536f28 32.09kB / 32.09kB 0.2s done
-#26 sha256:b4e6f1bfce0a1fba2b5421041552f4a897aada9cd5680926580f9e2c6247a7ae 288.21kB / 288.21kB 0.2s done
-#26 sha256:fa8ae93e2b3a7478248483e942ff665efa7219c6cd72d7a03c775372076e98dc 85.84kB / 85.84kB 0.2s done
-#26 extracting sha256:fa8ae93e2b3a7478248483e942ff665efa7219c6cd72d7a03c775372076e98dc 0.1s done
-#26 sha256:c172f21841dff4c8cf45cde46589c1c2616cefe7e819965e92e6d3475c428aa0 12.68kB / 12.68kB 0.2s done
-#26 extracting sha256:c172f21841dff4c8cf45cde46589c1c2616cefe7e819965e92e6d3475c428aa0 0.1s done
-#26 extracting sha256:b4e6f1bfce0a1fba2b5421041552f4a897aada9cd5680926580f9e2c6247a7ae 0.2s done
-#26 extracting sha256:b4242723c53fe4e094eb78569a2c15b6aafb8eb42aa9c3c2666130654a316ae2 0.2s done
-#26 extracting sha256:d6b1b89eccacc15c2420b2776d72c1dae334a00805ed9af54bf2f71e4d536f28 0.0s done
-#26 extracting sha256:2780920e5dbfbe103d03a583ed75345306e572ec5a48cb10361f046767d9f29a 0.0s done
-#26 extracting sha256:7c12895b777bcaa8ccae0605b4de635b68fc32d60fa08f421dc3818bf55ee212 0.0s done
-#26 DONE 3.1s
+#24 [crypto_engine stage-1 1/4] FROM gcr.io/distroless/static:nonroot@sha256:e3f945647ffb95b5839c07038d64f9811adf17308b9121d8a2b87b6a22a80a39
+#24 extracting sha256:c172f21841dff4c8cf45cde46589c1c2616cefe7e819965e92e6d3475c428aa0 0.0s done
+#24 extracting sha256:b4e6f1bfce0a1fba2b5421041552f4a897aada9cd5680926580f9e2c6247a7ae 0.2s done
+#24 extracting sha256:b4242723c53fe4e094eb78569a2c15b6aafb8eb42aa9c3c2666130654a316ae2 0.2s done
+#24 extracting sha256:d6b1b89eccacc15c2420b2776d72c1dae334a00805ed9af54bf2f71e4d536f28 0.1s done
+#24 DONE 3.5s
+
+#24 [crypto_engine stage-1 1/4] FROM gcr.io/distroless/static:nonroot@sha256:e3f945647ffb95b5839c07038d64f9811adf17308b9121d8a2b87b6a22a80a39
+#24 extracting sha256:2780920e5dbfbe103d03a583ed75345306e572ec5a48cb10361f046767d9f29a 0.0s done
+#24 extracting sha256:7c12895b777bcaa8ccae0605b4de635b68fc32d60fa08f421dc3818bf55ee212 0.1s done
+#24 extracting sha256:3214acf345c0cc6bbdb56b698a41ccdefc624a09d6beb0d38b5de0b2303ecaf4
+#24 extracting sha256:3214acf345c0cc6bbdb56b698a41ccdefc624a09d6beb0d38b5de0b2303ecaf4 0.0s done
+#24 extracting sha256:52630fc75a18675c530ed9eba5f55eca09b03e91bd5bc15307918bbc1a7e7296 0.0s done
+#24 extracting sha256:dd64bf2dd177757451a98fcdc999a339c35dee5d9872d8f4dc69c8f3c4dd0112 0.0s done
+#24 DONE 3.7s
 
 #25 [db builder 1/3] FROM docker.io/library/postgres:18-alpine@sha256:4da1a4828be12604092fa55311276f08f9224a74a62dcb4708bd7439e2a03911
-#25 ...
-
-#26 [crypto_engine stage-1 1/4] FROM gcr.io/distroless/static:nonroot@sha256:e3f945647ffb95b5839c07038d64f9811adf17308b9121d8a2b87b6a22a80a39
-#26 extracting sha256:3214acf345c0cc6bbdb56b698a41ccdefc624a09d6beb0d38b5de0b2303ecaf4 0.1s done
-#26 extracting sha256:52630fc75a18675c530ed9eba5f55eca09b03e91bd5bc15307918bbc1a7e7296 0.1s done
-#26 DONE 3.2s
-
-#25 [db builder 1/3] FROM docker.io/library/postgres:18-alpine@sha256:4da1a4828be12604092fa55311276f08f9224a74a62dcb4708bd7439e2a03911
-#25 sha256:eb134dfb2af4a2e957ba132c05c9611ee61bed62bef6bc65aaaf612b4a1175a9 98.57MB / 109.19MB 2.6s
-#25 ...
-
-#26 [crypto_engine stage-1 1/4] FROM gcr.io/distroless/static:nonroot@sha256:e3f945647ffb95b5839c07038d64f9811adf17308b9121d8a2b87b6a22a80a39
-#26 extracting sha256:dd64bf2dd177757451a98fcdc999a339c35dee5d9872d8f4dc69c8f3c4dd0112 0.1s done
-#26 extracting sha256:b839dfae01f66e15c6a8b63520557ed315bdfe036342fa7a0c537259f10d7a9a 0.1s done
-#26 DONE 3.3s
-
-#25 [db builder 1/3] FROM docker.io/library/postgres:18-alpine@sha256:4da1a4828be12604092fa55311276f08f9224a74a62dcb4708bd7439e2a03911
-#25 sha256:eb134dfb2af4a2e957ba132c05c9611ee61bed62bef6bc65aaaf612b4a1175a9 109.19MB / 109.19MB 2.9s
-#25 ...
-
-#26 [crypto_engine stage-1 1/4] FROM gcr.io/distroless/static:nonroot@sha256:e3f945647ffb95b5839c07038d64f9811adf17308b9121d8a2b87b6a22a80a39
-#26 extracting sha256:ebddc55facdc6b1f7e0f30816a5fc7cc62f38abdf76c0a8b0a0ce52085754795 0.0s done
-#26 extracting sha256:bdfd7f7e5bf6fc27e70b59101db21c3d8284d283884419dd5fe7020583bb79ca 0.1s done
-#26 DONE 3.5s
-
-#25 [db builder 1/3] FROM docker.io/library/postgres:18-alpine@sha256:4da1a4828be12604092fa55311276f08f9224a74a62dcb4708bd7439e2a03911
-#25 sha256:eb134dfb2af4a2e957ba132c05c9611ee61bed62bef6bc65aaaf612b4a1175a9 109.19MB / 109.19MB 3.0s done
+#25 sha256:eb134dfb2af4a2e957ba132c05c9611ee61bed62bef6bc65aaaf612b4a1175a9 109.19MB / 109.19MB 2.6s done
 #25 extracting sha256:eb134dfb2af4a2e957ba132c05c9611ee61bed62bef6bc65aaaf612b4a1175a9
 #25 ...
 
-#16 [backend_control 1/6] FROM docker.io/library/node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c
-#16 extracting sha256:d7f6aca05b78f475975eeac3898b7ef0a618937174c469650e05e81cbf8c5f46 4.3s done
-#16 extracting sha256:62e0e1181d88da8ed0e2fda221e9446ad0f09a004a375193ad7a38e31ec4eab4 0.2s done
-#16 extracting sha256:c7734204880fafbd6297ce1844e07c137d82ee814ac8b5fa6ac1a3659101d503 0.0s done
-#16 DONE 5.5s
+#24 [crypto_engine stage-1 1/4] FROM gcr.io/distroless/static:nonroot@sha256:e3f945647ffb95b5839c07038d64f9811adf17308b9121d8a2b87b6a22a80a39
+#24 extracting sha256:b839dfae01f66e15c6a8b63520557ed315bdfe036342fa7a0c537259f10d7a9a 0.0s done
+#24 extracting sha256:ebddc55facdc6b1f7e0f30816a5fc7cc62f38abdf76c0a8b0a0ce52085754795 0.0s done
+#24 extracting sha256:bdfd7f7e5bf6fc27e70b59101db21c3d8284d283884419dd5fe7020583bb79ca 0.0s done
+#24 DONE 3.8s
+
+#26 [crypto_engine builder 1/9] FROM docker.io/library/golang:1.22-alpine@sha256:1699c10032ca2582ec89a24a1312d986a3f094aed3d5c1147b19880afe40e052
+#26 resolve docker.io/library/golang:1.22-alpine@sha256:1699c10032ca2582ec89a24a1312d986a3f094aed3d5c1147b19880afe40e052 0.0s done
+#26 sha256:5f837c998576dcb54bc285997f33fcc2166dff6aa48fe3a374da92474efd5fe8 126B / 126B 0.0s done
+#26 sha256:4d75fd4b73869ed224045c010cdec78756eefb6752a5a8e4804294009eac11e9 294.90kB / 294.90kB 0.1s done
+#26 sha256:afa154b433c7f72db064d19e1bcfa84ee196ad29120328f6bdb2c5fbd7b8eeac 67.11MB / 69.36MB 1.7s
+#26 sha256:1f3e46996e2966e4faa5846e56e76e3748b7315e2ded61476c24403d592134f0 3.64MB / 3.64MB 0.2s done
+#26 extracting sha256:1f3e46996e2966e4faa5846e56e76e3748b7315e2ded61476c24403d592134f0 0.5s done
+#26 extracting sha256:4d75fd4b73869ed224045c010cdec78756eefb6752a5a8e4804294009eac11e9 0.2s done
+#26 extracting sha256:afa154b433c7f72db064d19e1bcfa84ee196ad29120328f6bdb2c5fbd7b8eeac
+#26 ...
+
+#15 [backend_control 1/6] FROM docker.io/library/node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c
+#15 extracting sha256:d7f6aca05b78f475975eeac3898b7ef0a618937174c469650e05e81cbf8c5f46 4.4s done
+#15 extracting sha256:d7f6aca05b78f475975eeac3898b7ef0a618937174c469650e05e81cbf8c5f46 4.4s done
+#15 extracting sha256:62e0e1181d88da8ed0e2fda221e9446ad0f09a004a375193ad7a38e31ec4eab4 0.2s done
+#15 extracting sha256:62e0e1181d88da8ed0e2fda221e9446ad0f09a004a375193ad7a38e31ec4eab4 0.2s done
+#15 extracting sha256:c7734204880fafbd6297ce1844e07c137d82ee814ac8b5fa6ac1a3659101d503 0.0s done
+#15 DONE 5.6s
 
 #27 [backend_engine 2/6] WORKDIR /app
 #27 DONE 0.5s
 
-#28 [backend_data 3/7] RUN apk add --no-cache certbot openssl docker-cli postgresql-client python3 make g++ tzdata zip unzip
+#28 [backend_control 3/7] RUN apk add --no-cache certbot openssl docker-cli postgresql-client python3 make g++ tzdata zip unzip
 #28 ...
 
 #29 [frontend build 3/6] COPY package*.json ./
-#29 DONE 0.2s
+#29 DONE 0.5s
 
 #30 [frontend build 4/6] RUN npm install
 #30 ...
 
-#24 [crypto_engine builder 1/9] FROM docker.io/library/golang:1.22-alpine@sha256:1699c10032ca2582ec89a24a1312d986a3f094aed3d5c1147b19880afe40e052
-#24 sha256:5f837c998576dcb54bc285997f33fcc2166dff6aa48fe3a374da92474efd5fe8 126B / 126B 0.1s done
-#24 sha256:4d75fd4b73869ed224045c010cdec78756eefb6752a5a8e4804294009eac11e9 294.90kB / 294.90kB 0.1s done
-#24 sha256:afa154b433c7f72db064d19e1bcfa84ee196ad29120328f6bdb2c5fbd7b8eeac 69.36MB / 69.36MB 1.9s done
-#24 extracting sha256:1f3e46996e2966e4faa5846e56e76e3748b7315e2ded61476c24403d592134f0 0.4s done
-#24 extracting sha256:4d75fd4b73869ed224045c010cdec78756eefb6752a5a8e4804294009eac11e9 0.2s done
-#24 extracting sha256:afa154b433c7f72db064d19e1bcfa84ee196ad29120328f6bdb2c5fbd7b8eeac
-#24 ...
-
-#28 [backend_data 3/7] RUN apk add --no-cache certbot openssl docker-cli postgresql-client python3 make g++ tzdata zip unzip
-#28 4.998 ( 1/87) Installing libbz2 (1.0.8-r6)
-#28 5.094 ( 2/87) Installing libexpat (2.7.5-r0)
-#28 5.094 ( 3/87) Installing libffi (3.5.2-r0)
-#28 5.094 ( 4/87) Installing gdbm (1.26-r0)
-#28 5.094 ( 5/87) Installing xz-libs (5.8.2-r0)
-#28 5.108 ( 6/87) Installing mpdecimal (4.0.1-r0)
-#28 5.127 ( 7/87) Installing ncurses-terminfo-base (6.5_p20251123-r0)
-#28 5.171 ( 8/87) Installing libncursesw (6.5_p20251123-r0)
-#28 5.230 ( 9/87) Installing libpanelw (6.5_p20251123-r0)
-#28 5.235 (10/87) Installing readline (8.3.1-r0)
-#28 5.273 (11/87) Installing sqlite-libs (3.51.2-r0)
-#28 5.664 (12/87) Installing python3 (3.12.12-r0)
+#28 [backend_control 3/7] RUN apk add --no-cache certbot openssl docker-cli postgresql-client python3 make g++ tzdata zip unzip
+#28 4.480 ( 1/87) Installing libbz2 (1.0.8-r6)
+#28 4.519 ( 2/87) Installing libexpat (2.7.5-r0)
+#28 4.537 ( 3/87) Installing libffi (3.5.2-r0)
+#28 4.537 ( 4/87) Installing gdbm (1.26-r0)
+#28 4.537 ( 5/87) Installing xz-libs (5.8.2-r0)
+#28 4.543 ( 6/87) Installing mpdecimal (4.0.1-r0)
+#28 4.620 ( 7/87) Installing ncurses-terminfo-base (6.5_p20251123-r0)
+#28 4.620 ( 8/87) Installing libncursesw (6.5_p20251123-r0)
+#28 4.620 ( 9/87) Installing libpanelw (6.5_p20251123-r0)
+#28 4.620 (10/87) Installing readline (8.3.1-r0)
+#28 4.620 (11/87) Installing sqlite-libs (3.51.2-r0)
+#28 4.654 (12/87) Installing python3 (3.12.12-r0)
+#28 5.555 (13/87) Installing python3-pycache-pyc0 (3.12.12-r0)
 #28 ...
 
 #25 [db builder 1/3] FROM docker.io/library/postgres:18-alpine@sha256:4da1a4828be12604092fa55311276f08f9224a74a62dcb4708bd7439e2a03911
-#25 extracting sha256:eb134dfb2af4a2e957ba132c05c9611ee61bed62bef6bc65aaaf612b4a1175a9 7.9s done
+#25 extracting sha256:eb134dfb2af4a2e957ba132c05c9611ee61bed62bef6bc65aaaf612b4a1175a9 8.0s done
 #25 DONE 11.9s
 
 #25 [db builder 1/3] FROM docker.io/library/postgres:18-alpine@sha256:4da1a4828be12604092fa55311276f08f9224a74a62dcb4708bd7439e2a03911
-#25 extracting sha256:946b644975333eb932287f90b22e1e62a25196280c664341f954eef3835a78f1
-#25 extracting sha256:946b644975333eb932287f90b22e1e62a25196280c664341f954eef3835a78f1 0.1s done
-#25 extracting sha256:7fb0a4f2ca3fbae2494c927aa569c6a03c5512a3d841cd778e954241b4cf746f 0.0s done
+#25 extracting sha256:946b644975333eb932287f90b22e1e62a25196280c664341f954eef3835a78f1 0.0s done
+#25 extracting sha256:7fb0a4f2ca3fbae2494c927aa569c6a03c5512a3d841cd778e954241b4cf746f 0.1s done
 #25 extracting sha256:b88294e2a4c68807ab3e3e1fd19d695a553845024fba8a8e2cded6b591198d50
-#25 extracting sha256:b88294e2a4c68807ab3e3e1fd19d695a553845024fba8a8e2cded6b591198d50 0.1s done
+#25 extracting sha256:b88294e2a4c68807ab3e3e1fd19d695a553845024fba8a8e2cded6b591198d50 0.0s done
 #25 extracting sha256:51718cc743bc4f2fa661a5e8b4da6b2774cedf6da22ed5d603310b96535e6d80 0.0s done
-#25 DONE 12.2s
+#25 DONE 12.0s
 
-#31 [db builder 2/3] RUN apk add --no-cache     git     gcc     make     musl-dev     clang19     llvm19     llvm19-dev     postgresql-dev     && ln -s /usr/bin/clang-19 /usr/bin/clang || true     && ln -s /usr/bin/clang++-19 /usr/bin/clang++ || true     && mkdir -p /usr/lib/llvm19/bin     && ln -s /usr/bin/llvm-lto-19 /usr/lib/llvm19/bin/llvm-lto || true
+#31 [db stage-1 2/9] RUN apk add --no-cache inotify-tools
 #31 ...
 
+#26 [crypto_engine builder 1/9] FROM docker.io/library/golang:1.22-alpine@sha256:1699c10032ca2582ec89a24a1312d986a3f094aed3d5c1147b19880afe40e052
+#26 extracting sha256:afa154b433c7f72db064d19e1bcfa84ee196ad29120328f6bdb2c5fbd7b8eeac 11.2s done
+#26 extracting sha256:5f837c998576dcb54bc285997f33fcc2166dff6aa48fe3a374da92474efd5fe8 0.0s done
+#26 extracting sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1 0.0s done
+#26 DONE 13.8s
+
 #32 [nginx_controller 3/6] RUN apk add --no-cache docker-cli
-#32 4.341 (1/2) Installing ca-certificates (20251003-r0)
-#32 4.434 (2/2) Installing docker-cli (29.1.3-r3)
-#32 5.999 Executing busybox-1.37.0-r30.trigger
-#32 5.999 Executing ca-certificates-20251003-r0.trigger
-#32 6.160 OK: 41.0 MiB in 20 packages
-#32 DONE 7.2s
+#32 5.686 (1/2) Installing ca-certificates (20251003-r0)
+#32 5.756 (2/2) Installing docker-cli (29.1.3-r3)
+#32 7.214 Executing busybox-1.37.0-r30.trigger
+#32 7.226 Executing ca-certificates-20251003-r0.trigger
+#32 7.386 OK: 41.0 MiB in 20 packages
+#32 DONE 8.1s
+
+#28 [backend_control 3/7] RUN apk add --no-cache certbot openssl docker-cli postgresql-client python3 make g++ tzdata zip unzip
+#28 6.276 (14/87) Installing pyc (3.12.12-r0)
+#28 6.276 (15/87) Installing certbot-pyc (5.1.0-r0)
+#28 6.384 (16/87) Installing py3-acme-pyc (5.2.0-r0)
+#28 6.420 (17/87) Installing py3-cryptography-pyc (46.0.5-r0)
+#28 6.518 (18/87) Installing python3-pyc (3.12.12-r0)
+#28 6.526 (19/87) Installing py3-cparser (2.22-r1)
+#28 6.568 (20/87) Installing py3-cparser-pyc (2.22-r1)
+#28 6.625 (21/87) Installing py3-cffi (1.17.1-r1)
+#28 6.719 (22/87) Installing py3-cffi-pyc (1.17.1-r1)
+#28 6.719 (23/87) Installing py3-cryptography (46.0.5-r0)
+#28 6.874 (24/87) Installing py3-typing-extensions (4.15.0-r0)
+#28 6.882 (25/87) Installing py3-typing-extensions-pyc (4.15.0-r0)
+#28 6.890 (26/87) Installing py3-openssl (25.3.0-r0)
+#28 6.899 (27/87) Installing py3-openssl-pyc (25.3.0-r0)
+#28 6.916 (28/87) Installing py3-josepy (2.1.0-r0)
+#28 6.929 (29/87) Installing py3-josepy-pyc (2.1.0-r0)
+#28 6.944 (30/87) Installing py3-tz (2025.2-r0)
+#28 7.273 (31/87) Installing py3-tz-pyc (2025.2-r0)
+#28 7.281 (32/87) Installing py3-pyrfc3339 (1.1-r10)
+#28 7.287 (33/87) Installing py3-pyrfc3339-pyc (1.1-r10)
+#28 7.290 (34/87) Installing py3-certifi (2025.11.12-r0)
+#28 7.295 (35/87) Installing py3-certifi-pyc (2025.11.12-r0)
+#28 7.298 (36/87) Installing py3-charset-normalizer (3.4.4-r0)
+#28 7.309 (37/87) Installing py3-charset-normalizer-pyc (3.4.4-r0)
+#28 7.330 (38/87) Installing py3-idna (3.11-r0)
+#28 7.330 (39/87) Installing py3-idna-pyc (3.11-r0)
+#28 7.340 (40/87) Installing py3-urllib3 (2.6.3-r0)
+#28 7.354 (41/87) Installing py3-urllib3-pyc (2.6.3-r0)
+#28 7.409 (42/87) Installing py3-requests (2.32.5-r0)
+#28 7.439 (43/87) Installing py3-requests-pyc (2.32.5-r0)
+#28 7.467 (44/87) Installing py3-parsing (3.2.5-r0)
+#28 7.492 (45/87) Installing py3-parsing-pyc (3.2.5-r0)
+#28 7.521 (46/87) Installing py3-packaging (25.0-r0)
+#28 7.540 (47/87) Installing py3-packaging-pyc (25.0-r0)
+#28 7.555 (48/87) Installing py3-setuptools (80.9.0-r2)
+#28 7.901 (49/87) Installing py3-setuptools-pyc (80.9.0-r2)
+#28 ...
 
 #33 [nginx_controller 4/6] COPY package.json .
 #33 DONE 0.1s
 
-#28 [backend_data 3/7] RUN apk add --no-cache certbot openssl docker-cli postgresql-client python3 make g++ tzdata zip unzip
-#28 7.241 (13/87) Installing python3-pycache-pyc0 (3.12.12-r0)
+#28 [backend_control 3/7] RUN apk add --no-cache certbot openssl docker-cli postgresql-client python3 make g++ tzdata zip unzip
+#28 8.279 (50/87) Installing py3-acme (5.2.0-r0)
+#28 8.316 (51/87) Installing py3-configargparse (1.7-r2)
+#28 8.325 (52/87) Installing py3-configargparse-pyc (1.7-r2)
+#28 8.326 (53/87) Installing py3-configobj (5.0.9-r1)
+#28 8.334 (54/87) Installing py3-configobj-pyc (5.0.9-r1)
+#28 8.361 (55/87) Installing py3-distro (1.9.0-r2)
+#28 8.381 (56/87) Installing py3-distro-pyc (1.9.0-r2)
+#28 8.392 (57/87) Installing py3-distutils-extra (2.47-r3)
+#28 8.417 (58/87) Installing py3-distutils-extra-pyc (2.47-r3)
+#28 8.432 (59/87) Installing py3-future (1.0.0-r1)
+#28 8.581 (60/87) Installing py3-future-pyc (1.0.0-r1)
+#28 8.718 (61/87) Installing py3-parsedatetime (2.6-r7)
+#28 8.740 (62/87) Installing py3-parsedatetime-pyc (2.6-r7)
+#28 8.752 (63/87) Installing certbot (5.1.0-r0)
+#28 8.850 (64/87) Installing ca-certificates (20251003-r0)
+#28 8.959 (65/87) Installing docker-cli (29.1.3-r3)
+#28 9.886 (66/87) Installing libstdc++-dev (15.2.0-r2)
 #28 ...
 
-#24 [crypto_engine builder 1/9] FROM docker.io/library/golang:1.22-alpine@sha256:1699c10032ca2582ec89a24a1312d986a3f094aed3d5c1147b19880afe40e052
-#24 extracting sha256:afa154b433c7f72db064d19e1bcfa84ee196ad29120328f6bdb2c5fbd7b8eeac 10.7s done
-#24 extracting sha256:5f837c998576dcb54bc285997f33fcc2166dff6aa48fe3a374da92474efd5fe8 0.0s done
-#24 extracting sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1 0.0s done
-#24 DONE 13.6s
+#31 [db stage-1 2/9] RUN apk add --no-cache inotify-tools
+#31 3.648 (1/2) Installing inotify-tools-libs (4.23.9.0-r0)
+#31 3.665 (2/2) Installing inotify-tools (4.23.9.0-r0)
+#31 3.680 Executing busybox-1.37.0-r30.trigger
+#31 3.730 OK: 211.8 MiB in 56 packages
+#31 DONE 4.2s
 
 #34 [crypto_engine builder 2/9] RUN apk add --no-cache gcc musl-dev
-#34 0.571 fetch https://dl-cdn.alpinelinux.org/alpine/v3.21/main/x86_64/APKINDEX.tar.gz
-#34 1.034 fetch https://dl-cdn.alpinelinux.org/alpine/v3.21/community/x86_64/APKINDEX.tar.gz
+#34 0.744 fetch https://dl-cdn.alpinelinux.org/alpine/v3.21/main/x86_64/APKINDEX.tar.gz
+#34 1.040 fetch https://dl-cdn.alpinelinux.org/alpine/v3.21/community/x86_64/APKINDEX.tar.gz
+#34 2.826 (1/14) Upgrading musl (1.2.5-r8 -> 1.2.5-r9)
+#34 2.866 (2/14) Installing libgcc (14.2.0-r4)
+#34 2.883 (3/14) Installing jansson (2.14-r4)
+#34 2.891 (4/14) Installing libstdc++ (14.2.0-r4)
+#34 2.983 (5/14) Installing zstd-libs (1.5.6-r2)
+#34 3.013 (6/14) Installing binutils (2.43.1-r3)
+#34 3.269 (7/14) Installing libgomp (14.2.0-r4)
+#34 3.288 (8/14) Installing libatomic (14.2.0-r4)
+#34 3.293 (9/14) Installing gmp (6.3.0-r2)
+#34 3.317 (10/14) Installing isl26 (0.26-r1)
+#34 3.390 (11/14) Installing mpfr4 (4.2.1-r0)
+#34 3.414 (12/14) Installing mpc1 (1.3.1-r1)
+#34 3.423 (13/14) Installing gcc (14.2.0-r4)
+#34 7.852 (14/14) Installing musl-dev (1.2.5-r9)
 #34 ...
 
-#35 [db stage-1 2/9] RUN apk add --no-cache inotify-tools
-#35 3.940 (1/2) Installing inotify-tools-libs (4.23.9.0-r0)
-#35 3.964 (2/2) Installing inotify-tools (4.23.9.0-r0)
-#35 3.976 Executing busybox-1.37.0-r30.trigger
-#35 4.013 OK: 211.8 MiB in 56 packages
-#35 DONE 4.6s
-
-#34 [crypto_engine builder 2/9] RUN apk add --no-cache gcc musl-dev
-#34 3.016 (1/14) Upgrading musl (1.2.5-r8 -> 1.2.5-r9)
-#34 3.041 (2/14) Installing libgcc (14.2.0-r4)
-#34 3.053 (3/14) Installing jansson (2.14-r4)
-#34 3.060 (4/14) Installing libstdc++ (14.2.0-r4)
-#34 3.127 (5/14) Installing zstd-libs (1.5.6-r2)
-#34 3.165 (6/14) Installing binutils (2.43.1-r3)
-#34 3.457 (7/14) Installing libgomp (14.2.0-r4)
-#34 3.481 (8/14) Installing libatomic (14.2.0-r4)
-#34 3.486 (9/14) Installing gmp (6.3.0-r2)
-#34 3.503 (10/14) Installing isl26 (0.26-r1)
-#34 3.595 (11/14) Installing mpfr4 (4.2.1-r0)
-#34 3.623 (12/14) Installing mpc1 (1.3.1-r1)
-#34 3.635 (13/14) Installing gcc (14.2.0-r4)
-#34 7.924 (14/14) Installing musl-dev (1.2.5-r9)
-#34 8.319 Executing busybox-1.37.0-r9.trigger
-#34 8.384 OK: 171 MiB in 29 packages
-#34 DONE 9.0s
-
-#28 [backend_data 3/7] RUN apk add --no-cache certbot openssl docker-cli postgresql-client python3 make g++ tzdata zip unzip
-#28 8.226 (14/87) Installing pyc (3.12.12-r0)
-#28 8.227 (15/87) Installing certbot-pyc (5.1.0-r0)
-#28 8.373 (16/87) Installing py3-acme-pyc (5.2.0-r0)
-#28 8.397 (17/87) Installing py3-cryptography-pyc (46.0.5-r0)
-#28 8.445 (18/87) Installing python3-pyc (3.12.12-r0)
-#28 8.449 (19/87) Installing py3-cparser (2.22-r1)
-#28 8.478 (20/87) Installing py3-cparser-pyc (2.22-r1)
-#28 8.494 (21/87) Installing py3-cffi (1.17.1-r1)
-#28 8.517 (22/87) Installing py3-cffi-pyc (1.17.1-r1)
-#28 8.538 (23/87) Installing py3-cryptography (46.0.5-r0)
-#28 8.664 (24/87) Installing py3-typing-extensions (4.15.0-r0)
-#28 8.676 (25/87) Installing py3-typing-extensions-pyc (4.15.0-r0)
-#28 8.689 (26/87) Installing py3-openssl (25.3.0-r0)
-#28 8.701 (27/87) Installing py3-openssl-pyc (25.3.0-r0)
-#28 8.717 (28/87) Installing py3-josepy (2.1.0-r0)
-#28 8.735 (29/87) Installing py3-josepy-pyc (2.1.0-r0)
-#28 8.747 (30/87) Installing py3-tz (2025.2-r0)
-#28 8.974 (31/87) Installing py3-tz-pyc (2025.2-r0)
-#28 8.982 (32/87) Installing py3-pyrfc3339 (1.1-r10)
-#28 8.993 (33/87) Installing py3-pyrfc3339-pyc (1.1-r10)
-#28 9.001 (34/87) Installing py3-certifi (2025.11.12-r0)
-#28 9.010 (35/87) Installing py3-certifi-pyc (2025.11.12-r0)
-#28 9.016 (36/87) Installing py3-charset-normalizer (3.4.4-r0)
-#28 9.037 (37/87) Installing py3-charset-normalizer-pyc (3.4.4-r0)
-#28 9.049 (38/87) Installing py3-idna (3.11-r0)
-#28 9.063 (39/87) Installing py3-idna-pyc (3.11-r0)
-#28 9.080 (40/87) Installing py3-urllib3 (2.6.3-r0)
-#28 9.107 (41/87) Installing py3-urllib3-pyc (2.6.3-r0)
-#28 9.145 (42/87) Installing py3-requests (2.32.5-r0)
-#28 9.162 (43/87) Installing py3-requests-pyc (2.32.5-r0)
-#28 9.181 (44/87) Installing py3-parsing (3.2.5-r0)
-#28 9.204 (45/87) Installing py3-parsing-pyc (3.2.5-r0)
-#28 9.240 (46/87) Installing py3-packaging (25.0-r0)
-#28 9.270 (47/87) Installing py3-packaging-pyc (25.0-r0)
-#28 9.300 (48/87) Installing py3-setuptools (80.9.0-r2)
-#28 9.617 (49/87) Installing py3-setuptools-pyc (80.9.0-r2)
-#28 9.880 (50/87) Installing py3-acme (5.2.0-r0)
-#28 9.908 (51/87) Installing py3-configargparse (1.7-r2)
-#28 9.918 (52/87) Installing py3-configargparse-pyc (1.7-r2)
-#28 9.928 (53/87) Installing py3-configobj (5.0.9-r1)
-#28 9.938 (54/87) Installing py3-configobj-pyc (5.0.9-r1)
-#28 9.947 (55/87) Installing py3-distro (1.9.0-r2)
-#28 9.961 (56/87) Installing py3-distro-pyc (1.9.0-r2)
-#28 9.966 (57/87) Installing py3-distutils-extra (2.47-r3)
-#28 9.976 (58/87) Installing py3-distutils-extra-pyc (2.47-r3)
-#28 9.986 (59/87) Installing py3-future (1.0.0-r1)
-#28 10.10 (60/87) Installing py3-future-pyc (1.0.0-r1)
-#28 10.23 (61/87) Installing py3-parsedatetime (2.6-r7)
-#28 10.25 (62/87) Installing py3-parsedatetime-pyc (2.6-r7)
-#28 10.26 (63/87) Installing certbot (5.1.0-r0)
-#28 10.35 (64/87) Installing ca-certificates (20251003-r0)
-#28 10.42 (65/87) Installing docker-cli (29.1.3-r3)
-#28 11.37 (66/87) Installing libstdc++-dev (15.2.0-r2)
-#28 12.01 (67/87) Installing jansson (2.14.1-r0)
-#28 12.02 (68/87) Installing zstd-libs (1.5.7-r2)
-#28 12.05 (69/87) Installing binutils (2.45.1-r0)
-#28 12.39 (70/87) Installing libgomp (15.2.0-r2)
-#28 12.41 (71/87) Installing libatomic (15.2.0-r2)
-#28 12.41 (72/87) Installing gmp (6.3.0-r4)
-#28 12.43 (73/87) Installing isl26 (0.26-r1)
-#28 12.52 (74/87) Installing mpfr4 (4.2.2-r0)
-#28 12.56 (75/87) Installing mpc1 (1.3.1-r1)
-#28 12.57 (76/87) Installing gcc (15.2.0-r2)
-#28 ...
-
-#36 [crypto_engine builder 3/9] WORKDIR /app
-#36 DONE 0.1s
-
-#31 [db builder 2/3] RUN apk add --no-cache     git     gcc     make     musl-dev     clang19     llvm19     llvm19-dev     postgresql-dev     && ln -s /usr/bin/clang-19 /usr/bin/clang || true     && ln -s /usr/bin/clang++-19 /usr/bin/clang++ || true     && mkdir -p /usr/lib/llvm19/bin     && ln -s /usr/bin/llvm-lto-19 /usr/lib/llvm19/bin/llvm-lto || true
-#31 3.712 ( 1/54) Upgrading zlib (1.3.1-r2 -> 1.3.2-r0)
-#31 3.725 ( 2/54) Installing llvm19-linker-tools (19.1.7-r7)
-#31 3.739 ( 3/54) Installing clang19-headers (19.1.7-r7)
-#31 3.986 ( 4/54) Installing clang19-libs (19.1.7-r7)
-#31 6.866 ( 5/54) Installing fortify-headers (1.1-r5)
-#31 6.877 ( 6/54) Installing jansson (2.14.1-r0)
-#31 6.883 ( 7/54) Installing binutils (2.45.1-r0)
-#31 7.249 ( 8/54) Installing libgomp (15.2.0-r2)
-#31 7.276 ( 9/54) Installing libatomic (15.2.0-r2)
-#31 7.276 (10/54) Installing gmp (6.3.0-r4)
-#31 7.294 (11/54) Installing isl26 (0.26-r1)
-#31 7.391 (12/54) Installing mpfr4 (4.2.2-r0)
-#31 7.417 (13/54) Installing mpc1 (1.3.1-r1)
-#31 7.417 (14/54) Installing gcc (15.2.0-r2)
-#31 ...
-
-#37 [crypto_engine builder 4/9] COPY go.mod ./
-#37 DONE 0.1s
-
-#38 [crypto_engine builder 5/9] COPY . .
-#38 DONE 0.1s
-
-#39 [nginx_controller 5/6] RUN npm install
-#39 ...
-
-#40 [crypto_engine builder 6/9] RUN go mod tidy
-#40 1.727 go: downloading golang.org/x/crypto v0.21.0
-#40 ...
+#35 [db builder 2/3] RUN apk add --no-cache     git     gcc     make     musl-dev     clang19     llvm19     llvm19-dev     postgresql-dev     && ln -s /usr/bin/clang-19 /usr/bin/clang || true     && ln -s /usr/bin/clang++-19 /usr/bin/clang++ || true     && mkdir -p /usr/lib/llvm19/bin     && ln -s /usr/bin/llvm-lto-19 /usr/lib/llvm19/bin/llvm-lto || true
+#35 3.849 ( 1/54) Upgrading zlib (1.3.1-r2 -> 1.3.2-r0)
+#35 3.864 ( 2/54) Installing llvm19-linker-tools (19.1.7-r7)
+#35 3.883 ( 3/54) Installing clang19-headers (19.1.7-r7)
+#35 4.123 ( 4/54) Installing clang19-libs (19.1.7-r7)
+#35 7.165 ( 5/54) Installing fortify-headers (1.1-r5)
+#35 7.173 ( 6/54) Installing jansson (2.14.1-r0)
+#35 7.182 ( 7/54) Installing binutils (2.45.1-r0)
+#35 7.718 ( 8/54) Installing libgomp (15.2.0-r2)
+#35 7.738 ( 9/54) Installing libatomic (15.2.0-r2)
+#35 7.750 (10/54) Installing gmp (6.3.0-r4)
+#35 7.769 (11/54) Installing isl26 (0.26-r1)
+#35 7.835 (12/54) Installing mpfr4 (4.2.2-r0)
+#35 7.886 (13/54) Installing mpc1 (1.3.1-r1)
+#35 7.895 (14/54) Installing gcc (15.2.0-r2)
+#35 ...
 
 #28 [backend_control 3/7] RUN apk add --no-cache certbot openssl docker-cli postgresql-client python3 make g++ tzdata zip unzip
-#28 18.07 (77/87) Installing musl-dev (1.2.5-r21)
-#28 18.28 (78/87) Installing g++ (15.2.0-r2)
-#28 19.37 (79/87) Installing make (4.4.1-r3)
-#28 19.42 (80/87) Installing openssl (3.5.5-r0)
-#28 19.46 (81/87) Installing postgresql-common (1.2-r2)
-#28 19.46   Executing postgresql-common-1.2-r2.pre-install
-#28 19.52 (82/87) Installing lz4-libs (1.10.0-r0)
-#28 19.53 (83/87) Installing libpq (18.3-r0)
-#28 19.55 (84/87) Installing postgresql18-client (18.3-r0)
-#28 19.68 (85/87) Installing tzdata (2026a-r0)
-#28 19.90 (86/87) Installing unzip (6.0-r16)
-#28 19.91 (87/87) Installing zip (3.0-r13)
-#28 19.94 Executing busybox-1.37.0-r30.trigger
-#28 19.97 Executing ca-certificates-20251003-r0.trigger
-#28 20.24 Executing postgresql-common-1.2-r2.trigger
-#28 20.26 * Setting postgresql18 as the default version
-#28 20.48 * WARNING: opening from cache https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/APKINDEX.tar.gz: No such file or directory
-#28 20.51 * WARNING: opening from cache https://dl-cdn.alpinelinux.org/alpine/v3.23/community/x86_64/APKINDEX.tar.gz: No such file or directory
-#28 20.54 OK: 363.8 MiB in 105 packages
-#28 DONE 21.3s
+#28 10.70 (67/87) Installing jansson (2.14.1-r0)
+#28 10.71 (68/87) Installing zstd-libs (1.5.7-r2)
+#28 10.74 (69/87) Installing binutils (2.45.1-r0)
+#28 11.02 (70/87) Installing libgomp (15.2.0-r2)
+#28 11.03 (71/87) Installing libatomic (15.2.0-r2)
+#28 11.04 (72/87) Installing gmp (6.3.0-r4)
+#28 11.06 (73/87) Installing isl26 (0.26-r1)
+#28 11.16 (74/87) Installing mpfr4 (4.2.2-r0)
+#28 11.19 (75/87) Installing mpc1 (1.3.1-r1)
+#28 11.20 (76/87) Installing gcc (15.2.0-r2)
+#28 15.78 (77/87) Installing musl-dev (1.2.5-r21)
+#28 16.15 (78/87) Installing g++ (15.2.0-r2)
+#28 ...
 
-#41 [backend_control 4/7] COPY package*.json ./
-#41 DONE 0.3s
+#34 [crypto_engine builder 2/9] RUN apk add --no-cache gcc musl-dev
+#34 8.250 Executing busybox-1.37.0-r9.trigger
+#34 8.284 OK: 171 MiB in 29 packages
+#34 DONE 8.9s
 
-#42 [backend_engine 5/7] RUN npm install
-#42 ...
+#36 [nginx_controller 5/6] RUN npm install
+#36 ...
 
-#39 [nginx_controller 5/6] RUN npm install
-#39 15.02 
-#39 15.02 added 68 packages, and audited 69 packages in 14s
-#39 15.02 
-#39 15.02 15 packages are looking for funding
-#39 15.02   run `npm fund` for details
-#39 15.03 
-#39 15.03 found 0 vulnerabilities
-#39 15.03 npm notice
-#39 15.03 npm notice New major version of npm available! 10.8.2 -> 11.12.1
-#39 15.03 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.12.1
-#39 15.03 npm notice To update run: npm install -g npm@11.12.1
-#39 15.03 npm notice
-#39 DONE 15.2s
+#37 [crypto_engine builder 3/9] WORKDIR /app
+#37 DONE 0.1s
 
-#43 [nginx_controller 6/6] COPY index.js .
-#43 DONE 0.1s
+#38 [crypto_engine builder 4/9] COPY go.mod ./
+#38 DONE 0.1s
+
+#39 [crypto_engine builder 5/9] COPY . .
+#39 DONE 0.1s
+
+#30 [frontend build 4/6] RUN npm install
+#30 ...
 
 #40 [crypto_engine builder 6/9] RUN go mod tidy
-#40 5.547 go: downloading golang.org/x/sys v0.18.0
-#40 DONE 7.6s
+#40 0.801 go: downloading golang.org/x/crypto v0.21.0
+#40 ...
 
-#31 [db builder 2/3] RUN apk add --no-cache     git     gcc     make     musl-dev     clang19     llvm19     llvm19-dev     postgresql-dev     && ln -s /usr/bin/clang-19 /usr/bin/clang || true     && ln -s /usr/bin/clang++-19 /usr/bin/clang++ || true     && mkdir -p /usr/lib/llvm19/bin     && ln -s /usr/bin/llvm-lto-19 /usr/lib/llvm19/bin/llvm-lto || true
-#31 12.42 (15/54) Installing libstdc++-dev (15.2.0-r2)
-#31 13.09 (16/54) Installing musl-dev (1.2.5-r21)
-#31 13.37 (17/54) Installing clang19 (19.1.7-r7)
-#31 13.46 (18/54) Installing libexpat (2.7.5-r0)
-#31 13.47 (19/54) Installing pcre2 (10.47-r0)
-#31 13.49 (20/54) Installing git (2.52.0-r0)
-#31 13.75 (21/54) Installing git-init-template (2.52.0-r0)
-#31 13.77 (22/54) Installing llvm19 (19.1.7-r7)
-#31 16.35 (23/54) Installing brotli (1.2.0-r0)
-#31 16.36 (24/54) Installing pkgconf (2.5.1-r0)
-#31 16.39 (25/54) Installing brotli-dev (1.2.0-r0)
-#31 16.40 (26/54) Installing c-ares-dev (1.34.6-r0)
-#31 16.45 (27/54) Installing libidn2-dev (2.3.8-r0)
-#31 16.45 (28/54) Installing libpsl-utils (0.21.5-r3)
-#31 16.46 (29/54) Installing libpsl-dev (0.21.5-r3)
-#31 16.47 (30/54) Installing nghttp2-dev (1.68.0-r0)
-#31 16.48 (31/54) Installing nghttp3-dev (1.13.1-r0)
-#31 16.49 (32/54) Installing openssl-dev (3.5.5-r0)
-#31 16.60 (33/54) Installing zlib-dev (1.3.2-r0)
-#31 16.62 (34/54) Installing zstd-dev (1.5.7-r2)
-#31 16.63 (35/54) Installing curl-dev (8.17.0-r1)
-#31 16.65 (36/54) Installing linux-headers (6.16.12-r0)
-#31 17.15 (37/54) Installing libffi-dev (3.5.2-r0)
-#31 17.16 (38/54) Installing llvm19-test-utils (19.1.7-r7)
-#31 17.20 (39/54) Installing llvm19-dev (19.1.7-r7)
-#31 18.22 (40/54) Installing make (4.4.1-r3)
-#31 18.24 (41/54) Installing libpq (18.3-r0)
-#31 18.25 (42/54) Installing libpq-dev (18.3-r0)
-#31 18.33 (43/54) Installing libecpg (18.3-r0)
-#31 18.33 (44/54) Installing libecpg-dev (18.3-r0)
-#31 18.37 (45/54) Installing clang20-headers (20.1.8-r1)
-#31 18.75 (46/54) Installing llvm20-libs (20.1.8-r0)
-#31 23.43 (47/54) Installing clang20-libs (20.1.8-r1)
-#31 ...
+#28 [backend_engine 3/7] RUN apk add --no-cache certbot openssl docker-cli postgresql-client python3 make g++ tzdata zip unzip
+#28 17.63 (79/87) Installing make (4.4.1-r3)
+#28 17.65 (80/87) Installing openssl (3.5.5-r0)
+#28 17.67 (81/87) Installing postgresql-common (1.2-r2)
+#28 17.68   Executing postgresql-common-1.2-r2.pre-install
+#28 17.71 (82/87) Installing lz4-libs (1.10.0-r0)
+#28 17.72 (83/87) Installing libpq (18.3-r0)
+#28 17.72 (84/87) Installing postgresql18-client (18.3-r0)
+#28 17.83 (85/87) Installing tzdata (2026a-r0)
+#28 17.98 (86/87) Installing unzip (6.0-r16)
+#28 18.00 (87/87) Installing zip (3.0-r13)
+#28 18.02 Executing busybox-1.37.0-r30.trigger
+#28 18.04 Executing ca-certificates-20251003-r0.trigger
+#28 18.42 Executing postgresql-common-1.2-r2.trigger
+#28 18.44 * Setting postgresql18 as the default version
+#28 18.62 * WARNING: opening from cache https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/APKINDEX.tar.gz: No such file or directory
+#28 18.62 * WARNING: opening from cache https://dl-cdn.alpinelinux.org/alpine/v3.23/community/x86_64/APKINDEX.tar.gz: No such file or directory
+#28 18.69 OK: 363.8 MiB in 105 packages
+#28 DONE 19.3s
 
-#44 [nginx_controller] exporting to image
-#44 exporting layers 8.6s done
-#44 exporting manifest sha256:9c3392346b40e86d751f808b9e8af08c5df978e2427aa0d8791cb1d8dd20737a 0.0s done
-#44 exporting config sha256:12109a74f92d95070e433c919f723a8517853271e20aa4cfd8631fad7515ab86 0.0s done
-#44 exporting attestation manifest sha256:41591584d7d18b05317e1d897f900eefe87b89cd297d50f4a3b6b56877abde56 0.1s done
-#44 exporting manifest list sha256:422ba5ecc8ba7111e45c17aca9f2cc26dd6e710f9f9642cfa21f1c643d7629c0 0.0s done
-#44 naming to docker.io/library/cascata-nginx_controller:latest done
-#44 unpacking to docker.io/library/cascata-nginx_controller:latest 1.3s done
-#44 DONE 10.1s
+#41 [backend_control 4/7] COPY package*.json ./
+#41 DONE 0.4s
 
-#31 [db builder 2/3] RUN apk add --no-cache     git     gcc     make     musl-dev     clang19     llvm19     llvm19-dev     postgresql-dev     && ln -s /usr/bin/clang-19 /usr/bin/clang || true     && ln -s /usr/bin/clang++-19 /usr/bin/clang++ || true     && mkdir -p /usr/lib/llvm19/bin     && ln -s /usr/bin/llvm-lto-19 /usr/lib/llvm19/bin/llvm-lto || true
-#31 26.55 (48/54) Installing llvm20-linker-tools (20.1.8-r0)
-#31 26.56 (49/54) Installing clang20 (20.1.8-r1)
-#31 26.63 (50/54) Installing icu (76.1-r1)
-#31 26.66 (51/54) Installing icu-dev (76.1-r1)
-#31 ...
+#42 [backend_control 5/7] RUN npm install
+#42 ...
 
-#45 [nginx_controller] resolving provenance for metadata file
-#45 DONE 0.0s
+#40 [crypto_engine builder 6/9] RUN go mod tidy
+#40 3.017 go: downloading golang.org/x/sys v0.18.0
+#40 DONE 4.3s
 
-#31 [db builder 2/3] RUN apk add --no-cache     git     gcc     make     musl-dev     clang19     llvm19     llvm19-dev     postgresql-dev     && ln -s /usr/bin/clang-19 /usr/bin/clang || true     && ln -s /usr/bin/clang++-19 /usr/bin/clang++ || true     && mkdir -p /usr/lib/llvm19/bin     && ln -s /usr/bin/llvm-lto-19 /usr/lib/llvm19/bin/llvm-lto || true
-#31 26.89 (52/54) Installing llvm20 (20.1.8-r0)
-#31 ...
+#43 [crypto_engine builder 7/9] RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o cascata-crypto-engine main.go
+#43 ...
 
-#46 [crypto_engine builder 7/9] RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o cascata-crypto-engine main.go
-#46 ...
+#36 [nginx_controller 5/6] RUN npm install
+#36 15.03 
+#36 15.03 added 68 packages, and audited 69 packages in 14s
+#36 15.03 
+#36 15.04 15 packages are looking for funding
+#36 15.04   run `npm fund` for details
+#36 15.04 
+#36 15.04 found 0 vulnerabilities
+#36 15.05 npm notice
+#36 15.05 npm notice New major version of npm available! 10.8.2 -> 11.12.1
+#36 15.05 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.12.1
+#36 15.05 npm notice To update run: npm install -g npm@11.12.1
+#36 15.05 npm notice
+#36 DONE 15.4s
 
-#31 [db builder 2/3] RUN apk add --no-cache     git     gcc     make     musl-dev     clang19     llvm19     llvm19-dev     postgresql-dev     && ln -s /usr/bin/clang-19 /usr/bin/clang || true     && ln -s /usr/bin/clang++-19 /usr/bin/clang++ || true     && mkdir -p /usr/lib/llvm19/bin     && ln -s /usr/bin/llvm-lto-19 /usr/lib/llvm19/bin/llvm-lto || true
-#31 29.27 (53/54) Installing lz4-dev (1.10.0-r0)
-#31 29.28 (54/54) Installing postgresql18-dev (18.3-r0)
-#31 29.54 Executing busybox-1.37.0-r30.trigger
-#31 29.59 OK: 1065.8 MiB in 107 packages
-#31 29.77 ln: /usr/lib/llvm19/bin/llvm-lto: File exists
-#31 DONE 30.0s
+#44 [nginx_controller 6/6] COPY index.js .
+#44 DONE 0.1s
+
+#35 [db builder 2/3] RUN apk add --no-cache     git     gcc     make     musl-dev     clang19     llvm19     llvm19-dev     postgresql-dev     && ln -s /usr/bin/clang-19 /usr/bin/clang || true     && ln -s /usr/bin/clang++-19 /usr/bin/clang++ || true     && mkdir -p /usr/lib/llvm19/bin     && ln -s /usr/bin/llvm-lto-19 /usr/lib/llvm19/bin/llvm-lto || true
+#35 12.47 (15/54) Installing libstdc++-dev (15.2.0-r2)
+#35 13.20 (16/54) Installing musl-dev (1.2.5-r21)
+#35 13.52 (17/54) Installing clang19 (19.1.7-r7)
+#35 13.69 (18/54) Installing libexpat (2.7.5-r0)
+#35 13.69 (19/54) Installing pcre2 (10.47-r0)
+#35 13.72 (20/54) Installing git (2.52.0-r0)
+#35 14.34 (21/54) Installing git-init-template (2.52.0-r0)
+#35 14.34 (22/54) Installing llvm19 (19.1.7-r7)
+#35 17.16 (23/54) Installing brotli (1.2.0-r0)
+#35 17.16 (24/54) Installing pkgconf (2.5.1-r0)
+#35 17.18 (25/54) Installing brotli-dev (1.2.0-r0)
+#35 17.20 (26/54) Installing c-ares-dev (1.34.6-r0)
+#35 17.26 (27/54) Installing libidn2-dev (2.3.8-r0)
+#35 17.27 (28/54) Installing libpsl-utils (0.21.5-r3)
+#35 17.28 (29/54) Installing libpsl-dev (0.21.5-r3)
+#35 17.28 (30/54) Installing nghttp2-dev (1.68.0-r0)
+#35 17.30 (31/54) Installing nghttp3-dev (1.13.1-r0)
+#35 17.31 (32/54) Installing openssl-dev (3.5.5-r0)
+#35 17.42 (33/54) Installing zlib-dev (1.3.2-r0)
+#35 17.43 (34/54) Installing zstd-dev (1.5.7-r2)
+#35 17.44 (35/54) Installing curl-dev (8.17.0-r1)
+#35 17.45 (36/54) Installing linux-headers (6.16.12-r0)
+#35 18.25 (37/54) Installing libffi-dev (3.5.2-r0)
+#35 18.25 (38/54) Installing llvm19-test-utils (19.1.7-r7)
+#35 18.29 (39/54) Installing llvm19-dev (19.1.7-r7)
+#35 19.49 (40/54) Installing make (4.4.1-r3)
+#35 19.52 (41/54) Installing libpq (18.3-r0)
+#35 19.57 (42/54) Installing libpq-dev (18.3-r0)
+#35 19.60 (43/54) Installing libecpg (18.3-r0)
+#35 19.61 (44/54) Installing libecpg-dev (18.3-r0)
+#35 19.65 (45/54) Installing clang20-headers (20.1.8-r1)
+#35 19.85 (46/54) Installing llvm20-libs (20.1.8-r0)
+#35 24.77 (47/54) Installing clang20-libs (20.1.8-r1)
+#35 27.07 (48/54) Installing llvm20-linker-tools (20.1.8-r0)
+#35 27.08 (49/54) Installing clang20 (20.1.8-r1)
+#35 27.13 (50/54) Installing icu (76.1-r1)
+#35 27.16 (51/54) Installing icu-dev (76.1-r1)
+#35 ...
+
+#45 [nginx_controller] exporting to image
+#45 exporting layers 8.0s done
+#45 exporting manifest sha256:cab477d225aa71643f0dfd2ade475ff9f158c037158f20447a1762446ec85d1e 0.0s done
+#45 exporting config sha256:ce5962a88fd2c1e56d44c3b3853cb32f013c8f68f847448c181af951a31cc2dc 0.0s done
+#45 exporting attestation manifest sha256:d0e87e80a916e39eb1a46951c1e521ff43c288ffa34fdc9e82f85c7a52bc1b72 0.0s done
+#45 exporting manifest list sha256:1ac0198afcb47d22805e56ad34af0c1bf13f9ac3f6fa6cdd2883c742fc944516 0.1s done
+#45 naming to docker.io/library/cascata-nginx_controller:latest done
+#45 unpacking to docker.io/library/cascata-nginx_controller:latest 1.1s done
+#45 DONE 9.4s
+
+#35 [db builder 2/3] RUN apk add --no-cache     git     gcc     make     musl-dev     clang19     llvm19     llvm19-dev     postgresql-dev     && ln -s /usr/bin/clang-19 /usr/bin/clang || true     && ln -s /usr/bin/clang++-19 /usr/bin/clang++ || true     && mkdir -p /usr/lib/llvm19/bin     && ln -s /usr/bin/llvm-lto-19 /usr/lib/llvm19/bin/llvm-lto || true
+#35 27.26 (52/54) Installing llvm20 (20.1.8-r0)
+#35 ...
+
+#46 [nginx_controller] resolving provenance for metadata file
+#46 DONE 0.0s
 
 #30 [frontend build 4/6] RUN npm install
 #30 ...
+
+#35 [db builder 2/3] RUN apk add --no-cache     git     gcc     make     musl-dev     clang19     llvm19     llvm19-dev     postgresql-dev     && ln -s /usr/bin/clang-19 /usr/bin/clang || true     && ln -s /usr/bin/clang++-19 /usr/bin/clang++ || true     && mkdir -p /usr/lib/llvm19/bin     && ln -s /usr/bin/llvm-lto-19 /usr/lib/llvm19/bin/llvm-lto || true
+#35 29.34 (53/54) Installing lz4-dev (1.10.0-r0)
+#35 29.35 (54/54) Installing postgresql18-dev (18.3-r0)
+#35 29.64 Executing busybox-1.37.0-r30.trigger
+#35 29.71 OK: 1065.8 MiB in 107 packages
+#35 29.91 ln: /usr/lib/llvm19/bin/llvm-lto: File exists
+#35 DONE 30.2s
+
+#42 [backend_control 5/7] RUN npm install
+#42 ...
 
 #47 [db builder 3/3] RUN git clone --branch v1.6.7 --depth 1     https://github.com/citusdata/pg_cron.git /tmp/pg_cron     && cd /tmp/pg_cron     && USE_PGXS=1 make -j$(nproc)     && USE_PGXS=1 make install
-#47 0.502 Cloning into '/tmp/pg_cron'...
-#47 1.050 Note: switching to '465b38c737f584d520229f5a1d69d1d44649e4e5'.
-#47 1.050 
-#47 1.050 You are in 'detached HEAD' state. You can look around, make experimental
-#47 1.050 changes and commit them, and you can discard any commits you make in this
-#47 1.050 state without impacting any branches by switching back to a branch.
-#47 1.050 
-#47 1.050 If you want to create a new branch to retain commits you create, you may
-#47 1.050 do so (now or later) by using -c with the switch command. Example:
-#47 1.050 
-#47 1.050   git switch -c <new-branch-name>
-#47 1.050 
-#47 1.050 Or undo this operation with:
-#47 1.050 
-#47 1.050   git switch -
-#47 1.050 
-#47 1.050 Turn off this advice by setting config variable advice.detachedHead to false
-#47 1.050 
-#47 1.200 gcc -Wall -Wmissing-prototypes -Wpointer-arith -Wdeclaration-after-statement -Werror=vla -Wendif-labels -Wmissing-format-attribute -Wimplicit-fallthrough=3 -Wcast-function-type -Wshadow=compatible-local -Wformat-security -Wmissing-variable-declarations -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-format-truncation -Wno-stringop-truncation -O2 -fPIC -fvisibility=hidden -std=c99 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Iinclude -I/usr/local/include -I. -I./ -I/usr/local/include/postgresql/server -I/usr/local/include/postgresql/internal -D_GNU_SOURCE  -I/usr/include/libxml2     -c -o src/entry.o src/entry.c
-#47 1.203 gcc -Wall -Wmissing-prototypes -Wpointer-arith -Wdeclaration-after-statement -Werror=vla -Wendif-labels -Wmissing-format-attribute -Wimplicit-fallthrough=3 -Wcast-function-type -Wshadow=compatible-local -Wformat-security -Wmissing-variable-declarations -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-format-truncation -Wno-stringop-truncation -O2 -fPIC -fvisibility=hidden -std=c99 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Iinclude -I/usr/local/include -I. -I./ -I/usr/local/include/postgresql/server -I/usr/local/include/postgresql/internal -D_GNU_SOURCE  -I/usr/include/libxml2     -c -o src/job_metadata.o src/job_metadata.c
-#47 3.284 gcc -Wall -Wmissing-prototypes -Wpointer-arith -Wdeclaration-after-statement -Werror=vla -Wendif-labels -Wmissing-format-attribute -Wimplicit-fallthrough=3 -Wcast-function-type -Wshadow=compatible-local -Wformat-security -Wmissing-variable-declarations -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-format-truncation -Wno-stringop-truncation -O2 -fPIC -fvisibility=hidden -std=c99 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Iinclude -I/usr/local/include -I. -I./ -I/usr/local/include/postgresql/server -I/usr/local/include/postgresql/internal -D_GNU_SOURCE  -I/usr/include/libxml2     -c -o src/misc.o src/misc.c
-#47 3.971 gcc -Wall -Wmissing-prototypes -Wpointer-arith -Wdeclaration-after-statement -Werror=vla -Wendif-labels -Wmissing-format-attribute -Wimplicit-fallthrough=3 -Wcast-function-type -Wshadow=compatible-local -Wformat-security -Wmissing-variable-declarations -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-format-truncation -Wno-stringop-truncation -O2 -fPIC -fvisibility=hidden -std=c99 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Iinclude -I/usr/local/include -I. -I./ -I/usr/local/include/postgresql/server -I/usr/local/include/postgresql/internal -D_GNU_SOURCE  -I/usr/include/libxml2     -c -o src/pg_cron.o src/pg_cron.c
-#47 5.623 gcc -Wall -Wmissing-prototypes -Wpointer-arith -Wdeclaration-after-statement -Werror=vla -Wendif-labels -Wmissing-format-attribute -Wimplicit-fallthrough=3 -Wcast-function-type -Wshadow=compatible-local -Wformat-security -Wmissing-variable-declarations -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-format-truncation -Wno-stringop-truncation -O2 -fPIC -fvisibility=hidden -std=c99 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Iinclude -I/usr/local/include -I. -I./ -I/usr/local/include/postgresql/server -I/usr/local/include/postgresql/internal -D_GNU_SOURCE  -I/usr/include/libxml2     -c -o src/task_states.o src/task_states.c
-#47 6.221 cat pg_cron.sql > pg_cron--1.0.sql
-#47 6.230 clang-19 -Wno-ignored-attributes -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-unused-command-line-argument -Wno-compound-token-split-by-macro -Wno-format-truncation -O2  -std=c99 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Iinclude -I/usr/local/include -I. -I./ -I/usr/local/include/postgresql/server -I/usr/local/include/postgresql/internal -D_GNU_SOURCE  -I/usr/include/libxml2    -flto=thin -emit-llvm -c -o src/entry.bc src/entry.c
-#47 6.909 clang-19 -Wno-ignored-attributes -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-unused-command-line-argument -Wno-compound-token-split-by-macro -Wno-format-truncation -O2  -std=c99 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Iinclude -I/usr/local/include -I. -I./ -I/usr/local/include/postgresql/server -I/usr/local/include/postgresql/internal -D_GNU_SOURCE  -I/usr/include/libxml2    -flto=thin -emit-llvm -c -o src/job_metadata.bc src/job_metadata.c
-#47 8.815 clang-19 -Wno-ignored-attributes -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-unused-command-line-argument -Wno-compound-token-split-by-macro -Wno-format-truncation -O2  -std=c99 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Iinclude -I/usr/local/include -I. -I./ -I/usr/local/include/postgresql/server -I/usr/local/include/postgresql/internal -D_GNU_SOURCE  -I/usr/include/libxml2    -flto=thin -emit-llvm -c -o src/misc.bc src/misc.c
-#47 9.175 clang-19 -Wno-ignored-attributes -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-unused-command-line-argument -Wno-compound-token-split-by-macro -Wno-format-truncation -O2  -std=c99 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Iinclude -I/usr/local/include -I. -I./ -I/usr/local/include/postgresql/server -I/usr/local/include/postgresql/internal -D_GNU_SOURCE  -I/usr/include/libxml2    -flto=thin -emit-llvm -c -o src/pg_cron.bc src/pg_cron.c
-#47 9.630 clang-19 -Wno-ignored-attributes -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-unused-command-line-argument -Wno-compound-token-split-by-macro -Wno-format-truncation -O2  -std=c99 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Iinclude -I/usr/local/include -I. -I./ -I/usr/local/include/postgresql/server -I/usr/local/include/postgresql/internal -D_GNU_SOURCE  -I/usr/include/libxml2    -flto=thin -emit-llvm -c -o src/task_states.bc src/task_states.c
-#47 10.95 gcc -Wall -Wmissing-prototypes -Wpointer-arith -Wdeclaration-after-statement -Werror=vla -Wendif-labels -Wmissing-format-attribute -Wimplicit-fallthrough=3 -Wcast-function-type -Wshadow=compatible-local -Wformat-security -Wmissing-variable-declarations -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-format-truncation -Wno-stringop-truncation -O2 -fPIC -fvisibility=hidden -shared -o pg_cron.so src/entry.o src/job_metadata.o src/misc.o src/pg_cron.o src/task_states.o -L/usr/local/lib    -L/usr/local/lib -Wl,--as-needed -fvisibility=hidden -L/usr/local/lib -lpq 
-#47 11.87 /bin/mkdir -p '/usr/local/lib/postgresql'
-#47 11.88 /bin/mkdir -p '/usr/local/share/postgresql/extension'
-#47 11.88 /bin/mkdir -p '/usr/local/share/postgresql/extension'
-#47 11.88 /usr/bin/install -c -m 755  pg_cron.so '/usr/local/lib/postgresql/pg_cron.so'
-#47 11.90 /usr/bin/install -c -m 644 .//pg_cron.control '/usr/local/share/postgresql/extension/'
-#47 11.92 /usr/bin/install -c -m 644 .//pg_cron--1.0--1.1.sql .//pg_cron--1.1--1.2.sql .//pg_cron--1.2--1.3.sql .//pg_cron--1.3--1.4.sql .//pg_cron--1.4--1.4-1.sql .//pg_cron--1.4-1--1.5.sql .//pg_cron--1.5--1.6.sql pg_cron--1.0.sql '/usr/local/share/postgresql/extension/'
-#47 11.92 /bin/mkdir -p '/usr/local/lib/postgresql/bitcode/pg_cron'
-#47 11.94 /bin/mkdir -p '/usr/local/lib/postgresql/bitcode'/pg_cron/src/
-#47 11.94 /usr/bin/install -c -m 644 src/entry.bc '/usr/local/lib/postgresql/bitcode'/pg_cron/src/
-#47 11.94 /usr/bin/install -c -m 644 src/job_metadata.bc '/usr/local/lib/postgresql/bitcode'/pg_cron/src/
-#47 11.95 /usr/bin/install -c -m 644 src/misc.bc '/usr/local/lib/postgresql/bitcode'/pg_cron/src/
-#47 11.95 /usr/bin/install -c -m 644 src/pg_cron.bc '/usr/local/lib/postgresql/bitcode'/pg_cron/src/
-#47 11.95 /usr/bin/install -c -m 644 src/task_states.bc '/usr/local/lib/postgresql/bitcode'/pg_cron/src/
-#47 11.95 cd '/usr/local/lib/postgresql/bitcode' && /usr/lib/llvm19/bin/llvm-lto -thinlto -thinlto-action=thinlink -o pg_cron.index.bc pg_cron/src/entry.bc pg_cron/src/job_metadata.bc pg_cron/src/misc.bc pg_cron/src/pg_cron.bc pg_cron/src/task_states.bc
-#47 DONE 12.2s
+#47 0.603 Cloning into '/tmp/pg_cron'...
+#47 0.903 Note: switching to '465b38c737f584d520229f5a1d69d1d44649e4e5'.
+#47 0.903 
+#47 0.903 You are in 'detached HEAD' state. You can look around, make experimental
+#47 0.903 changes and commit them, and you can discard any commits you make in this
+#47 0.903 state without impacting any branches by switching back to a branch.
+#47 0.903 
+#47 0.903 If you want to create a new branch to retain commits you create, you may
+#47 0.903 do so (now or later) by using -c with the switch command. Example:
+#47 0.903 
+#47 0.903   git switch -c <new-branch-name>
+#47 0.903 
+#47 0.903 Or undo this operation with:
+#47 0.903 
+#47 0.903   git switch -
+#47 0.903 
+#47 0.903 Turn off this advice by setting config variable advice.detachedHead to false
+#47 0.903 
+#47 0.956 gcc -Wall -Wmissing-prototypes -Wpointer-arith -Wdeclaration-after-statement -Werror=vla -Wendif-labels -Wmissing-format-attribute -Wimplicit-fallthrough=3 -Wcast-function-type -Wshadow=compatible-local -Wformat-security -Wmissing-variable-declarations -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-format-truncation -Wno-stringop-truncation -O2 -fPIC -fvisibility=hidden -std=c99 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Iinclude -I/usr/local/include -I. -I./ -I/usr/local/include/postgresql/server -I/usr/local/include/postgresql/internal -D_GNU_SOURCE  -I/usr/include/libxml2     -c -o src/entry.o src/entry.c
+#47 0.956 gcc -Wall -Wmissing-prototypes -Wpointer-arith -Wdeclaration-after-statement -Werror=vla -Wendif-labels -Wmissing-format-attribute -Wimplicit-fallthrough=3 -Wcast-function-type -Wshadow=compatible-local -Wformat-security -Wmissing-variable-declarations -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-format-truncation -Wno-stringop-truncation -O2 -fPIC -fvisibility=hidden -std=c99 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Iinclude -I/usr/local/include -I. -I./ -I/usr/local/include/postgresql/server -I/usr/local/include/postgresql/internal -D_GNU_SOURCE  -I/usr/include/libxml2     -c -o src/job_metadata.o src/job_metadata.c
+#47 3.022 gcc -Wall -Wmissing-prototypes -Wpointer-arith -Wdeclaration-after-statement -Werror=vla -Wendif-labels -Wmissing-format-attribute -Wimplicit-fallthrough=3 -Wcast-function-type -Wshadow=compatible-local -Wformat-security -Wmissing-variable-declarations -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-format-truncation -Wno-stringop-truncation -O2 -fPIC -fvisibility=hidden -std=c99 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Iinclude -I/usr/local/include -I. -I./ -I/usr/local/include/postgresql/server -I/usr/local/include/postgresql/internal -D_GNU_SOURCE  -I/usr/include/libxml2     -c -o src/misc.o src/misc.c
+#47 3.693 gcc -Wall -Wmissing-prototypes -Wpointer-arith -Wdeclaration-after-statement -Werror=vla -Wendif-labels -Wmissing-format-attribute -Wimplicit-fallthrough=3 -Wcast-function-type -Wshadow=compatible-local -Wformat-security -Wmissing-variable-declarations -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-format-truncation -Wno-stringop-truncation -O2 -fPIC -fvisibility=hidden -std=c99 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Iinclude -I/usr/local/include -I. -I./ -I/usr/local/include/postgresql/server -I/usr/local/include/postgresql/internal -D_GNU_SOURCE  -I/usr/include/libxml2     -c -o src/pg_cron.o src/pg_cron.c
+#47 5.063 gcc -Wall -Wmissing-prototypes -Wpointer-arith -Wdeclaration-after-statement -Werror=vla -Wendif-labels -Wmissing-format-attribute -Wimplicit-fallthrough=3 -Wcast-function-type -Wshadow=compatible-local -Wformat-security -Wmissing-variable-declarations -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-format-truncation -Wno-stringop-truncation -O2 -fPIC -fvisibility=hidden -std=c99 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Iinclude -I/usr/local/include -I. -I./ -I/usr/local/include/postgresql/server -I/usr/local/include/postgresql/internal -D_GNU_SOURCE  -I/usr/include/libxml2     -c -o src/task_states.o src/task_states.c
+#47 5.628 cat pg_cron.sql > pg_cron--1.0.sql
+#47 5.634 clang-19 -Wno-ignored-attributes -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-unused-command-line-argument -Wno-compound-token-split-by-macro -Wno-format-truncation -O2  -std=c99 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Iinclude -I/usr/local/include -I. -I./ -I/usr/local/include/postgresql/server -I/usr/local/include/postgresql/internal -D_GNU_SOURCE  -I/usr/include/libxml2    -flto=thin -emit-llvm -c -o src/entry.bc src/entry.c
+#47 6.474 clang-19 -Wno-ignored-attributes -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-unused-command-line-argument -Wno-compound-token-split-by-macro -Wno-format-truncation -O2  -std=c99 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Iinclude -I/usr/local/include -I. -I./ -I/usr/local/include/postgresql/server -I/usr/local/include/postgresql/internal -D_GNU_SOURCE  -I/usr/include/libxml2    -flto=thin -emit-llvm -c -o src/job_metadata.bc src/job_metadata.c
+#47 8.187 clang-19 -Wno-ignored-attributes -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-unused-command-line-argument -Wno-compound-token-split-by-macro -Wno-format-truncation -O2  -std=c99 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Iinclude -I/usr/local/include -I. -I./ -I/usr/local/include/postgresql/server -I/usr/local/include/postgresql/internal -D_GNU_SOURCE  -I/usr/include/libxml2    -flto=thin -emit-llvm -c -o src/misc.bc src/misc.c
+#47 8.647 clang-19 -Wno-ignored-attributes -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-unused-command-line-argument -Wno-compound-token-split-by-macro -Wno-format-truncation -O2  -std=c99 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Iinclude -I/usr/local/include -I. -I./ -I/usr/local/include/postgresql/server -I/usr/local/include/postgresql/internal -D_GNU_SOURCE  -I/usr/include/libxml2    -flto=thin -emit-llvm -c -o src/pg_cron.bc src/pg_cron.c
+#47 8.655 clang-19 -Wno-ignored-attributes -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-unused-command-line-argument -Wno-compound-token-split-by-macro -Wno-format-truncation -O2  -std=c99 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Iinclude -I/usr/local/include -I. -I./ -I/usr/local/include/postgresql/server -I/usr/local/include/postgresql/internal -D_GNU_SOURCE  -I/usr/include/libxml2    -flto=thin -emit-llvm -c -o src/task_states.bc src/task_states.c
+#47 9.463 gcc -Wall -Wmissing-prototypes -Wpointer-arith -Wdeclaration-after-statement -Werror=vla -Wendif-labels -Wmissing-format-attribute -Wimplicit-fallthrough=3 -Wcast-function-type -Wshadow=compatible-local -Wformat-security -Wmissing-variable-declarations -fno-strict-aliasing -fwrapv -fexcess-precision=standard -Wno-format-truncation -Wno-stringop-truncation -O2 -fPIC -fvisibility=hidden -shared -o pg_cron.so src/entry.o src/job_metadata.o src/misc.o src/pg_cron.o src/task_states.o -L/usr/local/lib    -L/usr/local/lib -Wl,--as-needed -fvisibility=hidden -L/usr/local/lib -lpq 
+#47 10.22 /bin/mkdir -p '/usr/local/lib/postgresql'
+#47 10.22 /bin/mkdir -p '/usr/local/share/postgresql/extension'
+#47 10.23 /bin/mkdir -p '/usr/local/share/postgresql/extension'
+#47 10.23 /usr/bin/install -c -m 755  pg_cron.so '/usr/local/lib/postgresql/pg_cron.so'
+#47 10.24 /usr/bin/install -c -m 644 .//pg_cron.control '/usr/local/share/postgresql/extension/'
+#47 10.25 /usr/bin/install -c -m 644 .//pg_cron--1.0--1.1.sql .//pg_cron--1.1--1.2.sql .//pg_cron--1.2--1.3.sql .//pg_cron--1.3--1.4.sql .//pg_cron--1.4--1.4-1.sql .//pg_cron--1.4-1--1.5.sql .//pg_cron--1.5--1.6.sql pg_cron--1.0.sql '/usr/local/share/postgresql/extension/'
+#47 10.25 /bin/mkdir -p '/usr/local/lib/postgresql/bitcode/pg_cron'
+#47 10.25 /bin/mkdir -p '/usr/local/lib/postgresql/bitcode'/pg_cron/src/
+#47 10.25 /usr/bin/install -c -m 644 src/entry.bc '/usr/local/lib/postgresql/bitcode'/pg_cron/src/
+#47 10.25 /usr/bin/install -c -m 644 src/job_metadata.bc '/usr/local/lib/postgresql/bitcode'/pg_cron/src/
+#47 10.26 /usr/bin/install -c -m 644 src/misc.bc '/usr/local/lib/postgresql/bitcode'/pg_cron/src/
+#47 10.26 /usr/bin/install -c -m 644 src/pg_cron.bc '/usr/local/lib/postgresql/bitcode'/pg_cron/src/
+#47 10.26 /usr/bin/install -c -m 644 src/task_states.bc '/usr/local/lib/postgresql/bitcode'/pg_cron/src/
+#47 10.26 cd '/usr/local/lib/postgresql/bitcode' && /usr/lib/llvm19/bin/llvm-lto -thinlto -thinlto-action=thinlink -o pg_cron.index.bc pg_cron/src/entry.bc pg_cron/src/job_metadata.bc pg_cron/src/misc.bc pg_cron/src/pg_cron.bc pg_cron/src/task_states.bc
+#47 DONE 10.5s
 
-#30 [frontend build 4/6] RUN npm install
-#30 ...
+#43 [crypto_engine builder 7/9] RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o cascata-crypto-engine main.go
+#43 ...
 
 #48 [db stage-1 3/9] COPY --from=builder /usr/local/lib/postgresql/pg_cron.so     /usr/local/lib/postgresql/pg_cron.so
-#48 DONE 0.2s
-
-#42 [backend_engine 5/7] RUN npm install
-#42 ...
+#48 DONE 0.1s
 
 #49 [db stage-1 4/9] COPY --from=builder /usr/local/share/postgresql/extension/pg_cron*     /usr/local/share/postgresql/extension/
 #49 DONE 0.1s
 
-#30 [frontend build 4/6] RUN npm install
-#30 ...
+#43 [crypto_engine builder 7/9] RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o cascata-crypto-engine main.go
+#43 ...
 
 #50 [db stage-1 5/9] COPY --from=builder /usr/local/lib/postgresql/bitcode/pg_cron*     /usr/local/lib/postgresql/bitcode/
-#50 DONE 0.1s
-
-#51 [db stage-1 6/9] RUN mkdir -p /cascata_extensions/lib /cascata_extensions/share
-#51 DONE 0.7s
-
-#46 [crypto_engine builder 7/9] RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o cascata-crypto-engine main.go
-#46 ...
-
-#52 [db stage-1 7/9] COPY docker-entrypoint-cascata.sh /usr/local/bin/docker-entrypoint-cascata.sh
-#52 DONE 0.2s
-
-#42 [backend_engine 5/7] RUN npm install
-#42 ...
-
-#53 [db stage-1 8/9] COPY phantom_linker.sh /usr/local/bin/phantom_linker.sh
-#53 DONE 0.2s
-
-#54 [db stage-1 9/9] RUN chmod +x /usr/local/bin/docker-entrypoint-cascata.sh     /usr/local/bin/phantom_linker.sh
-#54 DONE 0.4s
+#50 DONE 0.2s
 
 #30 [frontend build 4/6] RUN npm install
 #30 ...
+
+#51 [db stage-1 6/9] RUN mkdir -p /cascata_extensions/lib /cascata_extensions/share
+#51 DONE 0.6s
+
+#43 [crypto_engine builder 7/9] RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o cascata-crypto-engine main.go
+#43 ...
+
+#52 [db stage-1 7/9] COPY docker-entrypoint-cascata.sh /usr/local/bin/docker-entrypoint-cascata.sh
+#52 DONE 0.1s
+
+#53 [db stage-1 8/9] COPY phantom_linker.sh /usr/local/bin/phantom_linker.sh
+#53 DONE 0.1s
+
+#30 [frontend build 4/6] RUN npm install
+#30 ...
+
+#54 [db stage-1 9/9] RUN chmod +x /usr/local/bin/docker-entrypoint-cascata.sh     /usr/local/bin/phantom_linker.sh
+#54 DONE 0.7s
+
+#43 [crypto_engine builder 7/9] RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o cascata-crypto-engine main.go
+#43 ...
 
 #55 [db] exporting to image
 #55 exporting layers
-#55 exporting layers 0.7s done
-#55 exporting manifest sha256:332ee291a1c49a199cd721a29964b8ec8ed4079cafb3f4e43ca61112ab8fa964 0.0s done
-#55 exporting config sha256:21d8332e78471343203837f93aabe36ef4ecf174d170098d421694e4a4e785c7 0.1s done
-#55 exporting attestation manifest sha256:02661ed598fe55c64264a927283b74a6902a4c9673043083ece4da18acd1c440 0.0s done
-#55 exporting manifest list sha256:a16ad8b2e6d42821bd2f11eb3b6663cd4f78484033aa57010f9871bb14e38b4e 0.0s done
-#55 naming to docker.io/library/cascata-db:latest
+#55 exporting layers 0.5s done
+#55 exporting manifest sha256:01f452725716014aa8c15575668ea65bdf3838c3c9c8db2a9288f41f08a8c304 0.0s done
+#55 exporting config sha256:ddaff4f95665fa42f016fc8406698b84fea1c0dcbaaf71618f0c9a4ea76a3327 0.0s done
+#55 exporting attestation manifest sha256:5d14956b16c857a1c98d150df97abb4aafc6e2fabf0dbbc4501d026b12effc48 0.0s done
+#55 exporting manifest list sha256:6522639b579362c90e95ff015ba9f01739c37e2754c0db5bebcb5c1fc3c4255a 0.0s done
 #55 naming to docker.io/library/cascata-db:latest done
 #55 unpacking to docker.io/library/cascata-db:latest
-#55 unpacking to docker.io/library/cascata-db:latest 0.3s done
-#55 DONE 1.3s
+#55 unpacking to docker.io/library/cascata-db:latest 0.2s done
+#55 DONE 0.9s
 
-#46 [crypto_engine builder 7/9] RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o cascata-crypto-engine main.go
-#46 ...
+#30 [frontend build 4/6] RUN npm install
+#30 ...
 
 #56 [db] resolving provenance for metadata file
 #56 DONE 0.0s
 
 #30 [frontend build 4/6] RUN npm install
-#30 ...
+#30 65.28 
+#30 65.28 added 195 packages, and audited 196 packages in 1m
+#30 65.29 
+#30 65.29 27 packages are looking for funding
+#30 65.29   run `npm fund` for details
+#30 65.35 
+#30 65.35 5 vulnerabilities (3 moderate, 1 high, 1 critical)
+#30 65.35 
+#30 65.35 To address all issues (including breaking changes), run:
+#30 65.35   npm audit fix --force
+#30 65.35 
+#30 65.35 Run `npm audit` for details.
+#30 65.36 npm notice
+#30 65.36 npm notice New major version of npm available! 10.8.2 -> 11.12.1
+#30 65.36 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.12.1
+#30 65.36 npm notice To update run: npm install -g npm@11.12.1
+#30 65.36 npm notice
+#30 DONE 65.8s
 
-#46 [crypto_engine builder 7/9] RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o cascata-crypto-engine main.go
-#46 35.70 # github.com/hub-unibloom/cascata/crypto-engine/internal/keystore
-#46 35.70 internal/keystore/store.go:6:2: "errors" imported and not used
-#46 ...
-
-#30 [frontend build 4/6] RUN npm install
-#30 64.77 
-#30 64.77 added 195 packages, and audited 196 packages in 1m
-#30 64.78 
-#30 64.78 27 packages are looking for funding
-#30 64.78   run `npm fund` for details
-#30 64.87 
-#30 64.87 5 vulnerabilities (3 moderate, 1 high, 1 critical)
-#30 64.87 
-#30 64.87 To address all issues (including breaking changes), run:
-#30 64.87   npm audit fix --force
-#30 64.87 
-#30 64.87 Run `npm audit` for details.
-#30 64.88 npm notice
-#30 64.88 npm notice New major version of npm available! 10.8.2 -> 11.12.1
-#30 64.88 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.12.1
-#30 64.88 npm notice To update run: npm install -g npm@11.12.1
-#30 64.88 npm notice
-#30 DONE 65.3s
+#43 [crypto_engine builder 7/9] RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o cascata-crypto-engine main.go
+#43 ...
 
 #57 [frontend build 5/6] COPY . .
 #57 DONE 0.4s
 
-#42 [backend_engine 5/7] RUN npm install
+#42 [backend_control 5/7] RUN npm install
 #42 ...
 
 #58 [frontend build 6/6] RUN npm run build
-#58 0.796 
-#58 0.796 > cascata-frontend@1.0.0 build
-#58 0.796 > vite build
-#58 0.796 
-#58 1.713 vite v5.4.21 building for production...
-#58 3.288 transforming...
+#58 1.061 
+#58 1.061 > cascata-frontend@1.0.0 build
+#58 1.061 > vite build
+#58 1.061 
+#58 1.989 vite v5.4.21 building for production...
+#58 3.609 transforming...
 #58 ...
 
-#42 [backend_engine 5/7] RUN npm install
-#42 58.73 npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
-#42 61.36 npm warn deprecated are-we-there-yet@2.0.0: This package is no longer supported.
-#42 63.08 npm warn deprecated prebuild-install@7.1.3: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.
-#42 63.60 npm warn deprecated rimraf@3.0.2: Rimraf versions prior to v4 are no longer supported
-#42 64.72 npm warn deprecated gauge@3.0.2: This package is no longer supported.
-#42 66.49 npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
-#42 66.95 npm warn deprecated multer@1.4.5-lts.2: Multer 1.x is impacted by a number of vulnerabilities, which have been patched in 2.x. You should upgrade to the latest 2.x version.
-#42 67.00 npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
-#42 67.01 npm warn deprecated npmlog@5.0.1: This package is no longer supported.
-#42 ...
+#42 [backend_control 5/7] RUN npm install
+#42 55.18 npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+#42 57.31 npm warn deprecated are-we-there-yet@2.0.0: This package is no longer supported.
+#42 59.05 npm warn deprecated prebuild-install@7.1.3: No longer maintained. Please contact the author of the relevant native addon; alternatives are available.
+#42 60.17 npm warn deprecated rimraf@3.0.2: Rimraf versions prior to v4 are no longer supported
+#42 60.17 npm warn deprecated npmlog@5.0.1: This package is no longer supported.
+#42 61.73 npm warn deprecated gauge@3.0.2: This package is no longer supported.
+#42 62.31 npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+#42 63.11 npm warn deprecated multer@1.4.5-lts.2: Multer 1.x is impacted by a number of vulnerabilities, which have been patched in 2.x. You should upgrade to the latest 2.x version.
+#42 63.18 npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#42 63.91 npm warn deprecated tar@6.2.1: Old versions of tar are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#42 64.58 npm warn deprecated glob@10.5.0: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+#42 70.55 
+#42 70.55 added 480 packages, and audited 481 packages in 1m
+#42 70.55 
+#42 70.55 53 packages are looking for funding
+#42 70.55   run `npm fund` for details
+#42 70.58 
+#42 70.58 4 high severity vulnerabilities
+#42 70.58 
+#42 70.58 To address all issues (including breaking changes), run:
+#42 70.58   npm audit fix --force
+#42 70.58 
+#42 70.58 Run `npm audit` for details.
+#42 70.59 npm notice
+#42 70.59 npm notice New major version of npm available! 10.8.2 -> 11.12.1
+#42 70.59 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.12.1
+#42 70.59 npm notice To update run: npm install -g npm@11.12.1
+#42 70.59 npm notice
+#42 DONE 70.9s
 
-#46 [crypto_engine builder 7/9] RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o cascata-crypto-engine main.go
-#46 ERROR: process "/bin/sh -c CGO_ENABLED=0 GOOS=linux go build -ldflags=\"-s -w\" -o cascata-crypto-engine main.go" did not complete successfully: exit code: 1
+#59 [backend_control 6/7] COPY . .
+#59 DONE 1.0s
 
-#42 [backend_engine 5/7] RUN npm install
-#42 67.47 npm warn deprecated tar@6.2.1: Old versions of tar are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
-#42 ...
+#60 [backend_control 7/7] RUN npm run build
+#60 ...
+
+#43 [crypto_engine builder 7/9] RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o cascata-crypto-engine main.go
+#43 DONE 70.8s
+
+#61 [crypto_engine builder 8/9] RUN echo 'package main; import ("net/http"; "os"); func main() { resp, err := http.Get("http://localhost:3000/v1/health"); if err != nil || resp.StatusCode != 200 { os.Exit(1) } }' > healthcheck.go
+#61 DONE 0.5s
+
+#62 [crypto_engine builder 9/9] RUN CGO_ENABLED=0 GOOS=linux go build -o /cce-healthcheck healthcheck.go
+#62 DONE 2.7s
+
+#60 [backend_control 7/7] RUN npm run build
+#60 1.141 
+#60 1.141 > cascata-backend@1.1.0 build
+#60 1.141 > tsc
+#60 1.141 
+#60 ...
+
+#63 [crypto_engine stage-1 2/4] COPY --from=builder /app/cascata-crypto-engine /cascata-crypto-engine
+#63 DONE 0.1s
+
+#64 [crypto_engine stage-1 3/4] COPY --from=builder /cce-healthcheck /cce-healthcheck
+#64 DONE 0.1s
+
+#65 [crypto_engine] exporting to image
+#65 exporting layers
+#65 exporting layers 1.8s done
+#65 exporting manifest sha256:1f3bcc0971112a74319ea7a4028e5a09268b5c298fab931c42914224eaf5d83a 0.0s done
+#65 exporting config sha256:48800eebc4b2aa25074c0d81aa691b9373715a9929bd0ec1430c72eed1769e8e 0.0s done
+#65 exporting attestation manifest sha256:574bcd6054e52fde127bc9340bfd04e0d3317d0b5c8d684d4dacbcf10f1008d0 0.1s done
+#65 exporting manifest list sha256:938e19e6db8e98c18b17dd193a67d9cade26a172f13b0071e3fa6a12daf83a1b
+#65 exporting manifest list sha256:938e19e6db8e98c18b17dd193a67d9cade26a172f13b0071e3fa6a12daf83a1b 0.0s done
+#65 naming to docker.io/library/cascata-crypto_engine:latest done
+#65 unpacking to docker.io/library/cascata-crypto_engine:latest
+#65 unpacking to docker.io/library/cascata-crypto_engine:latest 0.2s done
+#65 DONE 2.2s
+
+#60 [backend_control 7/7] RUN npm run build
+#60 ...
+
+#66 [crypto_engine] resolving provenance for metadata file
+#66 DONE 0.0s
 
 #58 [frontend build 6/6] RUN npm run build
-#58 CANCELED
+#58 42.82 ✓ 2662 modules transformed.
+#58 44.59 rendering chunks...
+#58 46.17 computing gzip size...
+#58 46.30 dist/index.html                              2.92 kB │ gzip:   1.18 kB
+#58 46.30 dist/assets/index-CDyapuyh.css              94.60 kB │ gzip:  13.64 kB
+#58 46.30 dist/assets/PayloadCrypto-BAh0hKsP.js        2.40 kB │ gzip:   1.07 kB
+#58 46.30 dist/assets/purify.es-BwoZCkIS.js           22.03 kB │ gzip:   8.77 kB
+#58 46.30 dist/assets/index.es-SPM-G7lN.js           150.69 kB │ gzip:  51.55 kB
+#58 46.30 dist/assets/html2canvas.esm-CBrSDip1.js    201.42 kB │ gzip:  48.03 kB
+#58 46.30 dist/assets/index-D4NTF6Bt.js            1,888.85 kB │ gzip: 493.59 kB
+#58 46.31 
+#58 46.31 (!) Some chunks are larger than 500 kB after minification. Consider:
+#58 46.31 - Using dynamic import() to code-split the application
+#58 46.31 - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+#58 46.31 - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+#58 46.31 ✓ built in 42.87s
+#58 DONE 46.5s
 
-#42 [backend_engine 5/7] RUN npm install
-#42 CANCELED
-------
- > [crypto_engine builder 7/9] RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o cascata-crypto-engine main.go:
-35.70 # github.com/hub-unibloom/cascata/crypto-engine/internal/keystore
-35.70 internal/keystore/store.go:6:2: "errors" imported and not used
-------
-Dockerfile:18
+#60 [backend_control 7/7] RUN npm run build
+#60 ...
 
---------------------
+#67 [frontend stage-1 2/3] COPY --from=build /app/dist /usr/share/nginx/html
+#67 DONE 0.1s
 
-  16 |     
+#60 [backend_control 7/7] RUN npm run build
+#60 ...
 
-  17 |     # Build main binary
+#68 [frontend stage-1 3/3] COPY nginx.conf /etc/nginx/conf.d/default.conf
+#68 DONE 0.1s
 
-  18 | >>> RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o cascata-crypto-engine main.go
+#69 [frontend] exporting to image
+#69 exporting layers
+#69 exporting layers 0.3s done
+#69 exporting manifest sha256:6af780765042ef2be2112e4a791434b0e2d6d9fa1e08bb067ae5a570d93dc351 0.0s done
+#69 exporting config sha256:91ef93d791fe293802c6902ed5e0ff20859f3741384e6021b76623f07028e7a3 0.0s done
+#69 exporting attestation manifest sha256:c92410c39835216e35e15e5e15c12260b28c20cc2167b690329ac7a4574574c6 0.0s done
+#69 exporting manifest list sha256:9521ed835b4bb8856eed27c53f610b80e5e6f97edc34cf99d8b4619a5a929b93 0.0s done
+#69 naming to docker.io/library/cascata-frontend:latest done
+#69 unpacking to docker.io/library/cascata-frontend:latest 0.1s done
+#69 DONE 0.6s
 
-  19 |     
+#60 [backend_control 7/7] RUN npm run build
+#60 ...
 
-  20 |     # Build a tiny healthcheck binary in Go (Enterprise way for distroless)
+#70 [frontend] resolving provenance for metadata file
+#70 DONE 0.0s
 
---------------------
+#60 [backend_control 7/7] RUN npm run build
+#60 DONE 24.6s
 
-target crypto_engine: failed to solve: process "/bin/sh -c CGO_ENABLED=0 GOOS=linux go build -ldflags=\"-s -w\" -o cascata-crypto-engine main.go" did not complete successfully: exit code: 1
+#71 [backend_engine] exporting to image
+#71 ...
+
+#72 [backend_data] exporting to image
+#72 ...
+
+#73 [backend_control] exporting to image
+#73 ...
+
+#72 [backend_data] exporting to image
+#72 exporting layers 95.2s done
+#72 exporting manifest sha256:126ef8f900abfd3e937f53f3d35df24b86fc7e0934d8102ab002325884900077 0.1s done
+#72 exporting config sha256:efc9e3155299f0f4a356373ca577ea3e375a951a2f8068e89b4753c5182b2c63
+#72 exporting config sha256:efc9e3155299f0f4a356373ca577ea3e375a951a2f8068e89b4753c5182b2c63 0.1s done
+#72 exporting attestation manifest sha256:3465f2c4c4ce5173cdb537b53cb3cbccc8d54c504c49af281552d2fa598e7c34
+#72 exporting attestation manifest sha256:3465f2c4c4ce5173cdb537b53cb3cbccc8d54c504c49af281552d2fa598e7c34 0.1s done
+#72 exporting manifest list sha256:f841e5be0db4717b48658599b52ef8e4afe5cdfba1bb7c93cdf6be503476c48a 0.1s done
+#72 naming to docker.io/library/cascata-backend_data:latest 0.0s done
+#72 unpacking to docker.io/library/cascata-backend_data:latest
+#72 ...
+
+#73 [backend_control] exporting to image
+#73 exporting layers 95.2s done
+#73 exporting manifest sha256:b31dc9eb721f13c2ebe6713ed4fa16f04e2bc9402f4541b7e07b0b576517689e 0.1s done
+#73 exporting config sha256:7813286baaa7aba20f13760fc6141f2f20c4bf5db564b101a3f3c6c49c0c6fde 0.1s done
+#73 exporting attestation manifest sha256:f0cf6904e81db84c5c6645a71f733f6c095aa5f4c6629fdfbc43d4e0152cde7c 0.1s done
+#73 exporting manifest list sha256:7217ba47edd5d2b9398208d8d4fe6876e64d0478dfaffcd6fd5ffcacf4488d32 0.1s done
+#73 naming to docker.io/library/cascata-backend_control:latest 0.1s done
+#73 unpacking to docker.io/library/cascata-backend_control:latest
+#73 ...
+
+#71 [backend_engine] exporting to image
+#71 exporting layers 95.2s done
+#71 exporting manifest sha256:05cf9270b7c009cfe4d7abc3747dc0070dfc1fa2b83d706b55a0a7e0a42927ac 0.1s done
+#71 exporting config sha256:45dee1c32f00a7d0c7facd575c30df1c4c0d2453ebdd3618980d4bb3beb12b57 0.1s done
+#71 exporting attestation manifest sha256:2db7b8265b14dbe719276ae155300e3b51167c305c343c09d80198a7ee7e3bcc 0.1s done
+#71 exporting manifest list sha256:844abf7cfff3e0b5e1d193d22213cb76075cef20c7d8f80fef5bcf8651091e5a 0.1s done
+#71 naming to docker.io/library/cascata-backend_engine:latest 0.0s done
+#71 unpacking to docker.io/library/cascata-backend_engine:latest
+
+#71 ...
+
+#72 [backend_data] exporting to image
+#72 unpacking to docker.io/library/cascata-backend_data:latest 98.4s done
+#72 ...
+
+#73 [backend_control] exporting to image
+#73 unpacking to docker.io/library/cascata-backend_control:latest 98.4s done
+#73 DONE 194.2s
+
+#72 [backend_data] exporting to image
+#72 DONE 194.2s
+
+#71 [backend_engine] exporting to image
+#71 unpacking to docker.io/library/cascata-backend_engine:latest 98.5s done
+#71 DONE 194.4s
+
+#74 [backend_data] resolving provenance for metadata file
+#74 DONE 0.3s
+
+#75 [backend_control] resolving provenance for metadata file
+#75 DONE 0.2s
+
+#76 [backend_engine] resolving provenance for metadata file
+#76 DONE 0.1s
+ Image cascata-backend_data Built 
+ Image cascata-frontend Built 
+ Image cascata-nginx_controller Built 
+ Image cascata-backend_control Built 
+ Image cascata-crypto_engine Built 
+ Image cascata-db Built 
+ Image cascata-backend_engine Built 
+ Network cascata_cascata_app Creating 
+ Network cascata_cascata_app Created 
+ Network cascata_cascata_public Creating 
+ Network cascata_cascata_public Created 
+ Network cascata_cascata_data Creating 
+ Network cascata_cascata_data Created 
+ Network cascata_cascata_secure Creating 
+ Network cascata_cascata_secure Created 
+ Volume cascata_temp_data Creating 
+ Volume cascata_temp_data Created 
+ Volume cascata_extension_payloads Creating 
+ Volume cascata_extension_payloads Created 
+ Volume cascata_cascata_sockets Creating 
+ Volume cascata_cascata_sockets Created 
+ Container cascata-frontend Creating 
+ Container cascata-crypto-engine Creating 
+ Container cascata-nginx-controller Creating 
+ Container cascata-db Creating 
+ Container cascata-qdrant Creating 
+ Container cascata-dragonfly Creating 
+ Container cascata-frontend Created 
+ Container cascata-qdrant Created 
+ Container cascata-dragonfly Created 
+ Container cascata-crypto-engine Created 
+ Container cascata-db Created 
+ Container cascata-backend-engine Creating 
+ Container cascata-pgbouncer Creating 
+ Container cascata-nginx-controller Created 
+ Container cascata-backend-engine Created 
+ Container cascata-pgbouncer Created 
+ Container cascata-backend Creating 
+ Container cascata-backend-data Creating 
+ Container cascata-backend Created 
+ Container cascata-backend-data Created 
+ Container cascata-nginx Creating 
+ Container cascata-nginx Created 
+ Container cascata-frontend Starting 
+ Container cascata-dragonfly Starting 
+ Container cascata-crypto-engine Starting 
+ Container cascata-nginx-controller Starting 
+ Container cascata-qdrant Starting 
+ Container cascata-db Starting 
+ Container cascata-frontend Started 
+ Container cascata-crypto-engine Started 
+ Container cascata-qdrant Started 
+ Container cascata-dragonfly Started 
+ Container cascata-db Started 
+ Container cascata-db Waiting 
+ Container cascata-db Waiting 
+ Container cascata-dragonfly Waiting 
+ Container cascata-crypto-engine Waiting 
+ Container cascata-nginx-controller Started 
+ Container cascata-crypto-engine Error dependency crypto_engine failed to start
+ Container cascata-db Healthy 
+ Container cascata-pgbouncer Starting 
+ Container cascata-pgbouncer Started 
+dependency failed to start: container cascata-crypto-engine is unhealthy
+
+ubuntu@ip-172-26-10-205:~$ docker ps
+CONTAINER ID   IMAGE                                         COMMAND                  CREATED         STATUS                          PORTS           NAMES
+568bd6417f84   edoburu/pgbouncer:latest                      "/entrypoint.sh /usr…"   2 minutes ago   Up About a minute               5432/tcp        cascata-pgbouncer
+7f59b601617f   cascata-db                                    "docker-entrypoint-c…"   2 minutes ago   Up 2 minutes (healthy)          5432/tcp        cascata-db
+34b30d746f37   qdrant/qdrant:latest                          "./entrypoint.sh"        2 minutes ago   Up 2 minutes (healthy)          6333-6334/tcp   cascata-qdrant
+f40e9ab03765   cascata-crypto_engine                         "/cascata-crypto-eng…"   2 minutes ago   Restarting (1) 15 seconds ago                   cascata-crypto-engine
+ace3efe610a1   cascata-frontend                              "/docker-entrypoint.…"   2 minutes ago   Up 2 minutes                    80/tcp          cascata-frontend
+a736ebac7b63   cascata-nginx_controller                      "docker-entrypoint.s…"   2 minutes ago   Up 2 minutes                    3001/tcp        cascata-nginx-controller
+90d1e1ff21cb   docker.dragonflydb.io/dragonflydb/dragonfly   "/usr/bin/tini -- en…"   2 minutes ago   Up 2 minutes (healthy)          6379/tcp        cascata-dragonfly
+ubuntu@ip-172-26-10-205:~$ 
+
+ubuntu@ip-172-26-10-205:~$ docker logs cascata-crypto-engine 
+{"time":"2026-03-28T17:01:36.786215965Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:01:36.85300013Z","level":"INFO","msg":"  ▸ CASCATA CRYPTO ENGINE v1.0 (Go)"}
+{"time":"2026-03-28T17:01:36.853010072Z","level":"INFO","msg":"  Enterprise Security Node — Production Grade"}
+{"time":"2026-03-28T17:01:36.853033133Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:01:36.853040673Z","level":"INFO","msg":"[Boot] Deriving KEK via Argon2id (Memory-hard)..."}
+{"time":"2026-03-28T17:01:45.489667699Z","level":"INFO","msg":"KEK Derived","duration":8636614249}
+[KeyStore] Database not found. Creating fresh keys...
+{"time":"2026-03-28T17:01:45.490808077Z","level":"ERROR","msg":"KeyStore initialization failed","error":"open /data/crypto/keys.enc.tmp: permission denied"}
+{"time":"2026-03-28T17:01:48.298852878Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:01:48.299353969Z","level":"INFO","msg":"  ▸ CASCATA CRYPTO ENGINE v1.0 (Go)"}
+{"time":"2026-03-28T17:01:48.29935888Z","level":"INFO","msg":"  Enterprise Security Node — Production Grade"}
+{"time":"2026-03-28T17:01:48.299362213Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:01:48.299367283Z","level":"INFO","msg":"[Boot] Deriving KEK via Argon2id (Memory-hard)..."}
+{"time":"2026-03-28T17:01:55.499776761Z","level":"INFO","msg":"KEK Derived","duration":7200397723}
+[KeyStore] Database not found. Creating fresh keys...
+{"time":"2026-03-28T17:01:55.500237407Z","level":"ERROR","msg":"KeyStore initialization failed","error":"open /data/crypto/keys.enc.tmp: permission denied"}
+{"time":"2026-03-28T17:01:57.73541661Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:01:57.735865981Z","level":"INFO","msg":"  ▸ CASCATA CRYPTO ENGINE v1.0 (Go)"}
+{"time":"2026-03-28T17:01:57.735872075Z","level":"INFO","msg":"  Enterprise Security Node — Production Grade"}
+{"time":"2026-03-28T17:01:57.735875453Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:01:57.735880653Z","level":"INFO","msg":"[Boot] Deriving KEK via Argon2id (Memory-hard)..."}
+{"time":"2026-03-28T17:02:04.372331334Z","level":"INFO","msg":"KEK Derived","duration":6636440190}
+[KeyStore] Database not found. Creating fresh keys...
+{"time":"2026-03-28T17:02:04.372677336Z","level":"ERROR","msg":"KeyStore initialization failed","error":"open /data/crypto/keys.enc.tmp: permission denied"}
+{"time":"2026-03-28T17:02:06.373690324Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:02:06.373836948Z","level":"INFO","msg":"  ▸ CASCATA CRYPTO ENGINE v1.0 (Go)"}
+{"time":"2026-03-28T17:02:06.373841982Z","level":"INFO","msg":"  Enterprise Security Node — Production Grade"}
+{"time":"2026-03-28T17:02:06.373845546Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:02:06.373850103Z","level":"INFO","msg":"[Boot] Deriving KEK via Argon2id (Memory-hard)..."}
+{"time":"2026-03-28T17:02:11.584335791Z","level":"INFO","msg":"KEK Derived","duration":5210476588}
+[KeyStore] Database not found. Creating fresh keys...
+{"time":"2026-03-28T17:02:11.658424724Z","level":"ERROR","msg":"KeyStore initialization failed","error":"open /data/crypto/keys.enc.tmp: permission denied"}
+{"time":"2026-03-28T17:02:13.021208857Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:02:13.021398214Z","level":"INFO","msg":"  ▸ CASCATA CRYPTO ENGINE v1.0 (Go)"}
+{"time":"2026-03-28T17:02:13.021407696Z","level":"INFO","msg":"  Enterprise Security Node — Production Grade"}
+{"time":"2026-03-28T17:02:13.021411752Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:02:13.021416766Z","level":"INFO","msg":"[Boot] Deriving KEK via Argon2id (Memory-hard)..."}
+{"time":"2026-03-28T17:02:18.465414869Z","level":"INFO","msg":"KEK Derived","duration":5443984208}
+[KeyStore] Database not found. Creating fresh keys...
+{"time":"2026-03-28T17:02:18.535205411Z","level":"ERROR","msg":"KeyStore initialization failed","error":"open /data/crypto/keys.enc.tmp: permission denied"}
+{"time":"2026-03-28T17:02:20.483654509Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:02:20.48382583Z","level":"INFO","msg":"  ▸ CASCATA CRYPTO ENGINE v1.0 (Go)"}
+{"time":"2026-03-28T17:02:20.48383126Z","level":"INFO","msg":"  Enterprise Security Node — Production Grade"}
+{"time":"2026-03-28T17:02:20.483835151Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:02:20.483840608Z","level":"INFO","msg":"[Boot] Deriving KEK via Argon2id (Memory-hard)..."}
+{"time":"2026-03-28T17:02:25.253525824Z","level":"INFO","msg":"KEK Derived","duration":4769674338}
+[KeyStore] Database not found. Creating fresh keys...
+{"time":"2026-03-28T17:02:25.253867268Z","level":"ERROR","msg":"KeyStore initialization failed","error":"open /data/crypto/keys.enc.tmp: permission denied"}
+{"time":"2026-03-28T17:02:28.8068603Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:02:28.808905862Z","level":"INFO","msg":"  ▸ CASCATA CRYPTO ENGINE v1.0 (Go)"}
+{"time":"2026-03-28T17:02:28.808911627Z","level":"INFO","msg":"  Enterprise Security Node — Production Grade"}
+{"time":"2026-03-28T17:02:28.808915417Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:02:28.808921042Z","level":"INFO","msg":"[Boot] Deriving KEK via Argon2id (Memory-hard)..."}
+{"time":"2026-03-28T17:02:31.74112759Z","level":"INFO","msg":"KEK Derived","duration":2932195221}
+[KeyStore] Database not found. Creating fresh keys...
+{"time":"2026-03-28T17:02:31.74145186Z","level":"ERROR","msg":"KeyStore initialization failed","error":"open /data/crypto/keys.enc.tmp: permission denied"}
+{"time":"2026-03-28T17:02:38.567783592Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:02:38.56801282Z","level":"INFO","msg":"  ▸ CASCATA CRYPTO ENGINE v1.0 (Go)"}
+{"time":"2026-03-28T17:02:38.568019589Z","level":"INFO","msg":"  Enterprise Security Node — Production Grade"}
+{"time":"2026-03-28T17:02:38.568023409Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:02:38.568028745Z","level":"INFO","msg":"[Boot] Deriving KEK via Argon2id (Memory-hard)..."}
+{"time":"2026-03-28T17:02:39.577804538Z","level":"INFO","msg":"KEK Derived","duration":1009765487}
+[KeyStore] Database not found. Creating fresh keys...
+{"time":"2026-03-28T17:02:39.578176849Z","level":"ERROR","msg":"KeyStore initialization failed","error":"open /data/crypto/keys.enc.tmp: permission denied"}
+{"time":"2026-03-28T17:02:52.801855999Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:02:52.802033466Z","level":"INFO","msg":"  ▸ CASCATA CRYPTO ENGINE v1.0 (Go)"}
+{"time":"2026-03-28T17:02:52.802038319Z","level":"INFO","msg":"  Enterprise Security Node — Production Grade"}
+{"time":"2026-03-28T17:02:52.802042235Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:02:52.802047325Z","level":"INFO","msg":"[Boot] Deriving KEK via Argon2id (Memory-hard)..."}
+{"time":"2026-03-28T17:02:53.693401739Z","level":"INFO","msg":"KEK Derived","duration":891344313}
+[KeyStore] Database not found. Creating fresh keys...
+{"time":"2026-03-28T17:02:53.693768846Z","level":"ERROR","msg":"KeyStore initialization failed","error":"open /data/crypto/keys.enc.tmp: permission denied"}
+{"time":"2026-03-28T17:03:19.544128408Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:03:19.544566508Z","level":"INFO","msg":"  ▸ CASCATA CRYPTO ENGINE v1.0 (Go)"}
+{"time":"2026-03-28T17:03:19.544662574Z","level":"INFO","msg":"  Enterprise Security Node — Production Grade"}
+{"time":"2026-03-28T17:03:19.544732846Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:03:19.544816541Z","level":"INFO","msg":"[Boot] Deriving KEK via Argon2id (Memory-hard)..."}
+{"time":"2026-03-28T17:03:20.401615043Z","level":"INFO","msg":"KEK Derived","duration":856726661}
+[KeyStore] Database not found. Creating fresh keys...
+{"time":"2026-03-28T17:03:20.401934301Z","level":"ERROR","msg":"KeyStore initialization failed","error":"open /data/crypto/keys.enc.tmp: permission denied"}
+{"time":"2026-03-28T17:04:11.857861463Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:04:11.858094595Z","level":"INFO","msg":"  ▸ CASCATA CRYPTO ENGINE v1.0 (Go)"}
+{"time":"2026-03-28T17:04:11.858100615Z","level":"INFO","msg":"  Enterprise Security Node — Production Grade"}
+{"time":"2026-03-28T17:04:11.858104495Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:04:11.858109038Z","level":"INFO","msg":"[Boot] Deriving KEK via Argon2id (Memory-hard)..."}
+{"time":"2026-03-28T17:04:12.696670497Z","level":"INFO","msg":"KEK Derived","duration":838552674}
+[KeyStore] Database not found. Creating fresh keys...
+{"time":"2026-03-28T17:04:12.6969461Z","level":"ERROR","msg":"KeyStore initialization failed","error":"open /data/crypto/keys.enc.tmp: permission denied"}
+{"time":"2026-03-28T17:05:12.924523836Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:05:12.925188585Z","level":"INFO","msg":"  ▸ CASCATA CRYPTO ENGINE v1.0 (Go)"}
+{"time":"2026-03-28T17:05:12.925276986Z","level":"INFO","msg":"  Enterprise Security Node — Production Grade"}
+{"time":"2026-03-28T17:05:12.925353244Z","level":"INFO","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"time":"2026-03-28T17:05:12.925410258Z","level":"INFO","msg":"[Boot] Deriving KEK via Argon2id (Memory-hard)..."}
+{"time":"2026-03-28T17:05:13.732196565Z","level":"INFO","msg":"KEK Derived","duration":806712319}
+[KeyStore] Database not found. Creating fresh keys...
+{"time":"2026-03-28T17:05:13.732596434Z","level":"ERROR","msg":"KeyStore initialization failed","error":"open /data/crypto/keys.enc.tmp: permission denied"}
+ubuntu@ip-172-26-10-205:~$ 
+
+
+

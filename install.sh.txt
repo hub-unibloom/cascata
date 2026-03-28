@@ -934,12 +934,21 @@ EOSQL
         "${DATA_DIR}/storage" \
         "${DATA_DIR}/certs" \
         "${DATA_DIR}/acme_challenge" \
-        "${DATA_DIR}/nginx_dynamic"
+        "${DATA_DIR}/nginx_dynamic" \
+        "${DATA_DIR}/crypto"
 
     sudo chown -R "$USER:$USER" "$DATA_DIR"
-    sudo chmod 700 "$DATA_DIR"
-    sudo find "$DATA_DIR" -type d -exec chmod 700 {} \;
-    ok "Diretórios criados e permissões restritas (700) configuradas"
+    # 711 permite que usuários non-root (como o do crypto-engine) atravessem o diretório pai
+    sudo chmod 711 "$DATA_DIR" 
+    
+    # Ownership específico para o Crypto Engine (Distroless nonroot UID 65532)
+    sudo chown -R 65532:65532 "${DATA_DIR}/crypto"
+    sudo chmod 700 "${DATA_DIR}/crypto"
+
+    # Restringe os outros diretórios para 700 sob o proprietário $USER
+    sudo find "$DATA_DIR" -maxdepth 1 -not -name "crypto" -not -name "$(basename "$DATA_DIR")" -type d -exec chmod 700 {} \;
+    
+    ok "Diretórios criados e permissões de segurança Enterprise aplicadas"
 
     # -----------------------------------------------------------------------
     # H: SUBIR CONTAINERS
