@@ -572,21 +572,69 @@ export class AdminController {
     static async rotateKeys(req: CascataRequest, res: any, next: any) {
         try { 
             const newKey = await generateKey();
-            const field = req.body.type === 'anon' ? 'anon_key' : 'service_key';
+            const fieldMap: Record<string, string> = {
+                anon: 'anon_key',
+                service: 'service_key',
+                jwt: 'jwt_secret'
+            };
+            const field = fieldMap[req.body.type] || 'service_key';
             const ciphertext = await CryptoService.encrypt('system', newKey);
 
-            await systemPool.query(`UPDATE system.projects SET ${field} = $1 WHERE slug = $2`, [ciphertext, req.params.slug]); 
+            const result = await systemPool.query(
+                `UPDATE system.projects SET ${field} = $1 WHERE slug = $2 RETURNING custom_domain`, 
+                [ciphertext, req.params.slug]
+            ); 
+            
+            // --- SYNERGY HOT-RELOAD (Immediate Revocation) ---
+            if (result.rows.length > 0) {
+                const project = result.rows[0];
+                await RateLimitService.invalidateProjectCache(req.params.slug, project.custom_domain);
+            }
+            
             res.json({ success: true }); 
         } catch (e: any) { next(e); }
     }
     static async updateSecrets(req: CascataRequest, res: any, next: any) {
-        try { await systemPool.query(`UPDATE system.projects SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{secrets}', $1) WHERE slug = $2`, [JSON.stringify(req.body.secrets), req.params.slug]); res.json({ success: true }); } catch (e: any) { next(e); }
+        try { 
+            const result = await systemPool.query(
+                `UPDATE system.projects SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{secrets}', $1) WHERE slug = $2 RETURNING custom_domain`, 
+                [JSON.stringify(req.body.secrets), req.params.slug]
+            ); 
+            
+            if (result.rows.length > 0) {
+                await RateLimitService.invalidateProjectCache(req.params.slug, result.rows[0].custom_domain);
+            }
+
+            res.json({ success: true }); 
+        } catch (e: any) { next(e); }
     }
     static async blockIp(req: CascataRequest, res: any, next: any) {
-        try { await systemPool.query('UPDATE system.projects SET blocklist = array_append(blocklist, $1) WHERE slug = $2', [req.body.ip, req.params.slug]); res.json({ success: true }); } catch (e: any) { next(e); }
+        try { 
+            const result = await systemPool.query(
+                'UPDATE system.projects SET blocklist = array_append(blocklist, $1) WHERE slug = $2 RETURNING custom_domain', 
+                [req.body.ip, req.params.slug]
+            ); 
+            
+            if (result.rows.length > 0) {
+                await RateLimitService.invalidateProjectCache(req.params.slug, result.rows[0].custom_domain);
+            }
+
+            res.json({ success: true }); 
+        } catch (e: any) { next(e); }
     }
     static async unblockIp(req: CascataRequest, res: any, next: any) {
-        try { await systemPool.query('UPDATE system.projects SET blocklist = array_remove(blocklist, $1) WHERE slug = $2', [req.params.ip, req.params.slug]); res.json({ success: true }); } catch (e: any) { next(e); }
+        try { 
+            const result = await systemPool.query(
+                'UPDATE system.projects SET blocklist = array_remove(blocklist, $1) WHERE slug = $2 RETURNING custom_domain', 
+                [req.params.ip, req.params.slug]
+            ); 
+
+            if (result.rows.length > 0) {
+                await RateLimitService.invalidateProjectCache(req.params.slug, result.rows[0].custom_domain);
+            }
+
+            res.json({ success: true }); 
+        } catch (e: any) { next(e); }
     }
     static async purgeLogs(req: CascataRequest, res: any, next: any) {
         const archive = req.query.archive === 'true';
