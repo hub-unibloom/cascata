@@ -33,6 +33,7 @@ func NewRouter(manager *keystore.Manager, internalSecret string, tarpit *crypto.
 	r.mux.HandleFunc("/v1/keys/rotate", r.handleRotateKey)
 	r.mux.HandleFunc("/v1/sys/status", r.handleStatus)
 	r.mux.HandleFunc("/v1/sys/unseal", r.handleUnseal)
+	r.mux.HandleFunc("/v1/sys/rekey", r.handleRekey)
 	r.mux.HandleFunc("/v1/health", r.handleHealth)
 
 	return r
@@ -287,4 +288,31 @@ func (r *Router) handleUnseal(w http.ResponseWriter, req *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+
+type RekeyRequest struct {
+	OldMasterSecret string `json:"old_master_secret"`
+	NewMasterSecret string `json:"new_master_secret"`
+}
+
+func (r *Router) handleRekey(w http.ResponseWriter, req *http.Request) {
+	var body RekeyRequest
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		http.Error(w, "Invalid body", http.StatusBadRequest)
+		return
+	}
+
+	if body.OldMasterSecret == "" || body.NewMasterSecret == "" {
+		http.Error(w, "Old and new secrets are required", http.StatusBadRequest)
+		return
+	}
+
+	err := r.Manager.Rekey(body.OldMasterSecret, body.NewMasterSecret)
+	if err != nil {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"success": "true", "message": "Master Secret rotated successfully. Store re-encrypted."})
 }

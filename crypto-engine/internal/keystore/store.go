@@ -102,6 +102,47 @@ func (m *Manager) Unlock(masterSecret string) error {
 	return nil
 }
 
+// Rekey troca a Master Secret decifrando os dados com a antiga e cifrando com a nova.
+func (m *Manager) Rekey(oldSecret, newSecret string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.Sealed {
+		return fmt.Errorf("keyStore is sealed. Unseal first to rekey")
+	}
+
+	// 1. Validar a segredo antigo (opcional se já unsealed, mas bom para dupla checagem)
+	oldKek, err := kek.DeriveKEK(oldSecret)
+	if err != nil {
+		return fmt.Errorf("failed to derive old KEK: %w", err)
+	}
+
+	// Comparar com a KEK atual em memória
+	for i := range oldKek {
+		if oldKek[i] != m.kek[i] {
+			return fmt.Errorf("old master secret is incorrect")
+		}
+	}
+
+	// 2. Derivar a nova KEK
+	newKek, err := kek.DeriveKEK(newSecret)
+	if err != nil {
+		return fmt.Errorf("failed to derive new KEK: %w", err)
+	}
+
+	// 3. Trocar e salvar
+	originalKek := m.kek
+	m.kek = newKek
+
+	err = m.save()
+	if err != nil {
+		m.kek = originalKek // Reverte em caso de erro de escrita
+		return fmt.Errorf("failed to save keystore with new key: %w", err)
+	}
+
+	return nil
+}
+
 func (m *Manager) initDefaults() error {
 	_, err := m.generateKeyNoLock("system")
 	if err != nil {

@@ -1904,6 +1904,27 @@ main() {
         echo -e "  ${CYAN}Servidor Cascata em modo Fortaleza. Tudo rodando.${NC}"
     fi
 
+    # Sovereign Elite: Automatic Unseal if in RAM-only mode
+    if [ "$IS_ELITE" = "true" ] && [ -n "${MASTER_SECRET:-}" ]; then
+        section "🔓 DESBLOQUEIO SOVEREIGN ELITE"
+        info "Detectado modo Sovereign Elite. Realizando unseal automático da Engine..."
+        
+        # Aguardar um momento para garantir que o Nginx e o Backend estejam prontos
+        sleep 2
+        
+        UNSEAL_RESPONSE=$(curl -s -X POST http://localhost/api/control/auth/sovereign/unseal \
+          -H "Content-Type: application/json" \
+          -d "{\"master_secret\": \"${MASTER_SECRET}\"}")
+        
+        if echo "$UNSEAL_RESPONSE" | grep -q '"success":true'; then
+            ok "Engine desbloqueada com sucesso! Sistema em funcionamento."
+        else
+            warn "Não foi possível realizar o unseal automático. Resposta: $UNSEAL_RESPONSE"
+            warn "Acesse o painel para realizar o desbloqueio manual."
+        fi
+        echo ""
+    fi
+
     section "🏁 TUDO CONCLUÍDO!"
     PUBLIC_IP=$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}' || echo 'SEU_IP')
     echo -e "  Painel: ${CYAN}http://${PUBLIC_IP}${NC} $([ "$OTP_ENABLED" = "true" ] && echo "+ OTP")"

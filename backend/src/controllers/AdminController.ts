@@ -100,6 +100,44 @@ export class AdminController {
         }
     }
 
+    /**
+     * Rotação da Master Secret (Re-keying)
+     * Transmigra o cofre de uma chave para outra sem perder os dados.
+     */
+    static async rekey(req: CascataRequest, res: any, next: any) {
+        try {
+            const { old_master_secret, new_master_secret } = req.body;
+            if (!old_master_secret || !new_master_secret) {
+                return res.status(400).json({ error: 'Old and New Master Secrets are required' });
+            }
+
+            // 1. Executa a rotação no Crypto Engine (Go)
+            // O motor Go re-decifra e re-cifra o arquivo keystore.db em memória
+            await CryptoService.rekey(old_master_secret, new_master_secret);
+
+            // 2. Persistência no .env (Opcional — somente se o arquivo estiver mapeado e acessível)
+            // Se não for modo Elite, a chave antiga estaria no .env. Tentamos atualizar.
+            const dotEnvPath = path.join(process.cwd(), '.env');
+            if (fs.existsSync(dotEnvPath)) {
+                let content = fs.readFileSync(dotEnvPath, 'utf8');
+                if (content.includes('CASCATA_MASTER_SECRET=')) {
+                    content = content.replace(/CASCATA_MASTER_SECRET=.*/, `CASCATA_MASTER_SECRET=${new_master_secret}`);
+                    fs.writeFileSync(dotEnvPath, content);
+                    console.log(`[SOVEREIGN] .env persisted with new Master Secret.`);
+                }
+            }
+
+            res.json({ 
+                success: true, 
+                message: 'Master Secret rotated successfully. Store re-encrypted. Update your offline records!' 
+            });
+
+            console.log(`[SOVEREIGN] Rekey operation completed successfully. Old key invalidated.`);
+        } catch (e: any) {
+            res.status(403).json({ error: e.message || 'Falha na rotação da Master Secret.' });
+        }
+    }
+
     // Fallback store em memória para quando Dragonfly não está disponível
     private static handshakeFallbackStore = new Map<string, any>();
 

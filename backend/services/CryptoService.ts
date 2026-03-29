@@ -147,4 +147,20 @@ export class CryptoService {
             throw new Error(e.response?.data?.error || 'Falha na comunicação com o Cripto Engine');
         }
     }
+
+    /**
+     * Rotação da Master Secret (Re-keying)
+     * Realiza o unseal (se necessário), decifra as chaves com a velha e recifra com a nova.
+     */
+    static async rekey(oldSecret: string, newSecret: string): Promise<boolean> {
+        try {
+            const res = await this.client.post('/v1/sys/rekey', { 
+                old_master_secret: oldSecret, 
+                new_master_secret: newSecret 
+            });
+            return !!res.data.success;
+        } catch (e: any) {
+            throw new Error(e.response?.data?.error || 'Falha na rotação da Master Secret');
+        }
+    }
 }

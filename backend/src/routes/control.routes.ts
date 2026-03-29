@@ -20,6 +20,7 @@ router.post('/auth/login', AdminController.login as any);
 router.post('/auth/verify', AdminController.verify as any);
 router.get('/auth/sovereign/status', AdminController.sovereignStatus as any);
 router.post('/auth/sovereign/unseal', AdminController.unseal as any);
+router.post('/auth/sovereign/rekey', AdminController.rekey as any);
 router.post('/system/ssl-check', AdminController.checkSsl as any);
 
 // Protected Routes
