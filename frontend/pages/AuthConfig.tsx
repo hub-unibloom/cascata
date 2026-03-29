@@ -7,7 +7,7 @@ import {
     Filter, ChevronLeft, ChevronRight, CheckSquare, Square, Link,
     Clock, Zap, Github, Facebook, Twitter, Edit2, Unlink, Layers,
     RefreshCcw, ArrowRight, LayoutTemplate, Send, ShieldAlert, Target,
-    MessageSquare, Server, Plug, BellRing, PartyPopper, Code
+    MessageSquare, Server, Plug, BellRing, PartyPopper, Code, Scale
 } from 'lucide-react';
 
 const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
@@ -1607,6 +1607,101 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                                         })}
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* SOVEREIGN ORCHESTRATION SECTION */}
+                {activeSection === 'orchestration' && (
+                    <div className="p-10">
+                        <div className="mb-8 flex justify-between items-end">
+                            <div>
+                                <h2 className="text-3xl font-black text-slate-900 tracking-tighter">Sovereign Orchestration</h2>
+                                <p className="text-xs text-slate-400 font-bold mt-1">Declare granular security laws that govern every authentication handshake.</p>
+                            </div>
+                            <div className="flex gap-4">
+                                <button
+                                    onClick={() => setShowPanicModal(true)}
+                                    className="bg-rose-50 text-rose-600 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-rose-100 transition-all border border-rose-100 shadow-xl shadow-rose-50"
+                                >
+                                    <ShieldAlert size={16} /> Broadcast Panic Signal
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setEditingPolicy(null);
+                                        setPolicyForm({
+                                            name: '',
+                                            priority: 1,
+                                            provider: '*',
+                                            origin: '*',
+                                            require_password: true,
+                                            require_otp: false,
+                                            require_user_mfa_choice: false,
+                                            auto_login: false
+                                        });
+                                        setShowPolicyModal(true);
+                                    }}
+                                    className="bg-indigo-600 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100"
+                                >
+                                    <Plus size={16} /> Declare Sovereign Law
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="space-y-6">
+                            {(policies || []).length === 0 && (
+                                <div className="py-24 text-center bg-white border border-slate-200 rounded-[3rem] shadow-sm">
+                                    <Layers size={48} className="mx-auto text-slate-200 mb-6" />
+                                    <h3 className="text-lg font-black text-slate-900">No Sovereign Laws Found</h3>
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-2 max-w-xs mx-auto leading-relaxed">Identity flows are currently following system defaults. Declare your first law to override behavior per Domain or Provider.</p>
+                                </div>
+                            )}
+
+                            {(policies || []).map(policy => (
+                                <div key={policy.id} className="bg-white border border-slate-200 rounded-[3rem] p-10 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-8 group hover:border-indigo-200 transition-all">
+                                    <div className="flex items-start gap-6">
+                                        <div className="w-16 h-16 bg-slate-900 text-white rounded-[1.5rem] flex items-center justify-center shadow-xl shrink-0">
+                                            <Scale size={28} />
+                                        </div>
+                                        <div>
+                                            <div className="flex items-center gap-3 mb-1">
+                                                <h4 className="text-xl font-black text-slate-900 tracking-tight">{policy.name}</h4>
+                                                <span className="bg-indigo-50 text-indigo-600 text-[9px] font-black px-2 py-0.5 rounded-lg uppercase tracking-widest">Priority {policy.priority}</span>
+                                            </div>
+                                            <div className="flex items-center gap-4">
+                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest flex items-center gap-1.5"><Globe size={12} /> {policy.origin === '*' ? 'Global Origins (*)' : policy.origin}</p>
+                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest flex items-center gap-1.5"><Fingerprint size={12} /> Provider: {policy.provider === '*' ? 'Agnostic (*)' : policy.provider}</p>
+                                            </div>
+
+                                            <div className="flex gap-2 mt-4">
+                                                {policy.require_password && <span className="bg-slate-100 text-slate-600 text-[8px] font-black px-2 py-1 rounded-md uppercase tracking-widest">Password-Gated</span>}
+                                                {policy.require_otp && <span className="bg-rose-100 text-rose-600 text-[8px] font-black px-2 py-1 rounded-md uppercase tracking-widest flex items-center gap-1"><ShieldAlert size={10} /> MFA Enforced</span>}
+                                                {policy.auto_login && <span className="bg-emerald-100 text-emerald-600 text-[8px] font-black px-2 py-1 rounded-md uppercase tracking-widest flex items-center gap-1"><Zap size={10} /> Auto-Login</span>}
+                                                {policy.require_user_mfa_choice && <span className="bg-blue-100 text-blue-600 text-[8px] font-black px-2 py-1 rounded-md uppercase tracking-widest">User-Selected MFA</span>}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-4">
+                                        <button
+                                            onClick={() => {
+                                                setEditingPolicy(policy);
+                                                setPolicyForm({ ...policy });
+                                                setShowPolicyModal(true);
+                                            }}
+                                            className="bg-slate-50 text-slate-600 px-6 py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-indigo-50 hover:text-indigo-600 transition-all border border-slate-100"
+                                        >
+                                            Refine Law
+                                        </button>
+                                        <button
+                                            onClick={() => handleDeletePolicy(policy.id)}
+                                            className="p-3 text-slate-300 hover:text-rose-600 transition-all opacity-0 group-hover:opacity-100"
+                                        >
+                                            <Trash2 size={20} />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     </div>
                 )}
