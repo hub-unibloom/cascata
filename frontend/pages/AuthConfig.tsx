@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 
 const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
-    const [activeSection, setActiveSection] = useState<'users' | 'strategies' | 'messaging' | 'security' | 'apps' | 'schema'>('users');
+    const [activeSection, setActiveSection] = useState<'users' | 'strategies' | 'orchestration' | 'messaging' | 'security' | 'apps' | 'schema'>('users');
 
     // DIRECTORY STATE
     const [users, setUsers] = useState<any[]>([]);
@@ -122,6 +122,21 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
     const [showCreateUser, setShowCreateUser] = useState(false);
     const [createUserForm, setCreateUserForm] = useState({ identifier: '', password: '', provider: 'email' });
 
+    // ORCHESTRATION / SOVEREIGN POLICIES
+    const [policies, setPolicies] = useState<any[]>([]);
+    const [loadingPolicies, setLoadingPolicies] = useState(false);
+    const [showPolicyModal, setShowPolicyModal] = useState(false);
+    const [editingPolicy, setEditingPolicy] = useState<any>(null);
+    const [policyForm, setPolicyForm] = useState({
+        name: '', priority: 0, provider: '*', origin: '*', 
+        require_password: true, require_otp: false, 
+        require_user_mfa_choice: false, auto_login: false, active: true
+    });
+
+    // PANIC / EMERGENCY RECOVOCATION
+    const [showPanicModal, setShowPanicModal] = useState(false);
+    const [panicForm, setPanicForm] = useState({ target_type: 'user', target_value: '', reason: 'Sovereign Manual Intervention' });
+
     // UTILS
     const safeCopy = (text: string) => {
         try {
@@ -151,10 +166,11 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
         try {
             const token = localStorage.getItem('cascata_token');
             // Fetch users with higher limit to maintain list behavior
-            const [usersRes, projRes, tablesRes] = await Promise.all([
+            const [usersRes, projRes, tablesRes, policiesRes] = await Promise.all([
                 fetch(`/api/data/${projectId}/auth/users?limit=1000`, { headers: { 'Authorization': `Bearer ${token}` } }),
                 fetch('/api/control/projects', { headers: { 'Authorization': `Bearer ${token}` } }),
-                fetch(`/api/data/${projectId}/tables`, { headers: { 'Authorization': `Bearer ${token}` } })
+                fetch(`/api/data/${projectId}/tables`, { headers: { 'Authorization': `Bearer ${token}` } }),
+                fetch(`/api/data/${projectId}/auth/orchestration/policies`, { headers: { 'Authorization': `Bearer ${token}` } })
             ]);
 
             if (!usersRes.ok || !projRes.ok || !tablesRes.ok) {
@@ -165,6 +181,10 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
             // Handle both legacy array and new paginated object structure
             const userList = Array.isArray(usersData) ? usersData : (usersData.data || []);
             setUsers(userList);
+
+            if (policiesRes.ok) {
+                setPolicies(await policiesRes.json());
+            }
 
             const projects = await projRes.json();
             const currentProj = Array.isArray(projects) ? projects.find((p: any) => p.slug === projectId) : null;
@@ -400,6 +420,58 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
 
     const handleSaveSecurity = () => {
         saveStrategies(strategies, { security: securityConfig });
+    };
+
+    const handleSavePolicy = async () => {
+        setExecuting(true);
+        try {
+            const res = await fetch(`/api/data/${projectId}/auth/orchestration/policies`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` },
+                body: JSON.stringify(editingPolicy ? { ...policyForm, id: editingPolicy.id } : policyForm)
+            });
+            if (res.ok) {
+                setSuccess("Sovereign Policy synchronized.");
+                setShowPolicyModal(false);
+                fetchData();
+            } else {
+                const err = await res.json();
+                setError(err.error || "Failed to save policy");
+            }
+        } catch (e: any) { setError(e.message); }
+        finally { setExecuting(false); }
+    };
+
+    const handleDeletePolicy = async (id: string) => {
+        if (!confirm("Are you sure? This law will be permanently removed from the orchestrator.")) return;
+        try {
+            const res = await fetch(`/api/data/${projectId}/auth/orchestration/policies/${id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` }
+            });
+            if (res.ok) {
+                setSuccess("Policy revoked.");
+                fetchData();
+            }
+        } catch (e: any) { setError(e.message); }
+    };
+
+    const handlePanic = async () => {
+        if (!confirm("EMERGENCY: This will instantly invalidate target sessions. Proceed?")) return;
+        setExecuting(true);
+        try {
+            const res = await fetch(`/api/data/${projectId}/auth/orchestration/panic`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('cascata_token')}` },
+                body: JSON.stringify({ ...panicForm })
+            });
+            if (res.ok) {
+                setSuccess("Panic signal broadcasted. Target neutralized.");
+                setShowPanicModal(false);
+                fetchData();
+            }
+        } catch (e: any) { setError(e.message); }
+        finally { setExecuting(false); }
     };
 
     const handleSaveEmailCenter = () => {
@@ -781,8 +853,9 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                     {[
                         { id: 'users' as const, icon: Users, label: 'Users', desc: 'Directory & Sessions', count: users.length },
                         { id: 'strategies' as const, icon: Key, label: 'Strategies', desc: 'Identity Providers', count: Object.keys(strategies).length },
+                        { id: 'orchestration' as const, icon: Layers, label: 'Orchestration', desc: 'Sovereign Security Laws', count: policies.length },
                         { id: 'messaging' as const, icon: Send, label: 'Messaging', desc: 'Templates & Gateway' },
-                        { id: 'security' as const, icon: ShieldAlert, label: 'Security', desc: 'Lockout & Policies' },
+                        { id: 'security' as const, icon: ShieldAlert, label: 'Security', desc: 'Lockout & Panic' },
                         { id: 'apps' as const, icon: Plug, label: 'App Clients', desc: 'Keys & Origins', count: appClients.length },
                         { id: 'schema' as const, icon: Layers, label: 'Schema', desc: 'Table Linking' },
                     ].map(item => (
@@ -1633,6 +1706,160 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                     </div>
                 )}
             </div>
+
+            {/* PANIC MODAL */}
+            {showPanicModal && (
+                <div className="fixed inset-0 bg-rose-950/90 backdrop-blur-xl z-[1000] flex items-center justify-center p-8 animate-in fade-in zoom-in-95">
+                    <div className="bg-white rounded-[4rem] max-w-lg w-full p-12 shadow-2xl border-4 border-rose-500 animate-pulse">
+                        <div className="text-center mb-8">
+                            <div className="w-24 h-24 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl animate-bounce">
+                                <ShieldAlert size={48} />
+                            </div>
+                            <h3 className="text-3xl font-black text-slate-900 tracking-tighter">Emergency Panic Revocation</h3>
+                            <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-2">Invalidate target sessions immediately</p>
+                        </div>
+
+                        <div className="space-y-6 mb-8">
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Neutralization Target</label>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <button
+                                        onClick={() => setPanicForm({ ...panicForm, target_type: 'user' })}
+                                        className={`py-4 rounded-3xl border-2 font-black text-[10px] uppercase tracking-widest transition-all ${panicForm.target_type === 'user' ? 'bg-slate-900 border-slate-900 text-white shadow-xl' : 'bg-slate-50 border-slate-100 text-slate-400 hover:border-slate-300'}`}
+                                    >
+                                        Specific User
+                                    </button>
+                                    <button
+                                        onClick={() => setPanicForm({ ...panicForm, target_type: 'global' })}
+                                        className={`py-4 rounded-3xl border-2 font-black text-[10px] uppercase tracking-widest transition-all ${panicForm.target_type === 'global' ? 'bg-rose-600 border-rose-600 text-white shadow-xl' : 'bg-rose-50 border-rose-100 text-rose-400 hover:border-rose-300'}`}
+                                    >
+                                        Global Revocation
+                                    </button>
+                                </div>
+                            </div>
+
+                            {panicForm.target_type === 'user' && (
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">User Identifier (Email/UUID)</label>
+                                    <input
+                                        value={panicForm.target_value}
+                                        onChange={(e) => setPanicForm({ ...panicForm, target_value: e.target.value })}
+                                        className="w-full bg-slate-50 border-2 border-slate-100 rounded-[2rem] py-4 px-6 text-sm font-bold text-slate-900 outline-none focus:border-rose-300 transition-all font-mono"
+                                        placeholder="user@target.com"
+                                    />
+                                </div>
+                            )}
+
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Panic Reason (Audit Log)</label>
+                                <textarea
+                                    value={panicForm.reason}
+                                    onChange={(e) => setPanicForm({ ...panicForm, reason: e.target.value })}
+                                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-[2rem] py-4 px-6 text-sm font-bold text-slate-900 outline-none focus:border-rose-300 transition-all h-24 resize-none"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex gap-4">
+                            <button onClick={() => setShowPanicModal(false)} className="flex-1 py-4 text-slate-400 font-bold text-[10px] uppercase tracking-widest hover:bg-slate-50 rounded-2xl transition-all">Abort Mission</button>
+                            <button
+                                onClick={handlePanic}
+                                disabled={executing || (panicForm.target_type === 'user' && !panicForm.target_value)}
+                                className="flex-1 py-4 bg-rose-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-rose-200 hover:bg-rose-700 transition-all active:scale-95 disabled:opacity-50"
+                            >
+                                {executing ? <Loader2 className="animate-spin mx-auto" /> : 'Execute Neutralization'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* POLICY MODAL */}
+            {showPolicyModal && (
+                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[800] flex items-center justify-center p-8 animate-in zoom-in-95">
+                    <div className="bg-white rounded-[3.5rem] max-w-3xl w-full p-12 shadow-2xl flex flex-col max-h-[90vh]">
+                        <div className="flex justify-between items-center mb-10">
+                            <div>
+                                <h3 className="text-3xl font-black text-slate-900 tracking-tighter">{editingPolicy ? 'Update Sovereign Law' : 'Declare New Policy'}</h3>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Sovereign Orchestration Protocol</p>
+                            </div>
+                            <button onClick={() => setShowPolicyModal(false)} className="p-4 bg-slate-50 rounded-full hover:bg-slate-100 transition-all"><X size={24} /></button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto space-y-10 pr-4">
+                            <div className="grid grid-cols-2 gap-8">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Policy Internal Name</label>
+                                    <input value={policyForm.name} onChange={e => setPolicyForm({ ...policyForm, name: e.target.value })} className="w-full bg-slate-50 border-none rounded-2xl py-4 px-6 text-sm font-bold outline-none ring-1 ring-slate-100" />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Execution Priority</label>
+                                    <input type="number" value={policyForm.priority} onChange={e => setPolicyForm({ ...policyForm, priority: parseInt(e.target.value) })} className="w-full bg-slate-50 border-none rounded-2xl py-4 px-6 text-sm font-bold outline-none ring-1 ring-slate-100" />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Target Identity Type (Provider)</label>
+                                    <select value={policyForm.provider} onChange={e => setPolicyForm({ ...policyForm, provider: e.target.value })} className="w-full bg-slate-50 border-none rounded-2xl py-4 px-6 text-sm font-bold outline-none ring-1 ring-slate-100">
+                                        <option value="*">All Providers (*)</option>
+                                        <option value="email">Email</option>
+                                        <option value="phone">Phone</option>
+                                        <option value="google">Google</option>
+                                        <option value="github">GitHub</option>
+                                        {Object.keys(strategies).filter(k => !['email', 'phone', 'google', 'github'].includes(k)).map(k => <option key={k} value={k}>{k}</option>)}
+                                    </select>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Origin Enforcement (Domain)</label>
+                                    <input value={policyForm.origin} onChange={e => setPolicyForm({ ...policyForm, origin: e.target.value })} placeholder="e.g. app.com or *" className="w-full bg-slate-50 border-none rounded-2xl py-4 px-6 text-sm font-bold outline-none ring-1 ring-slate-100 font-mono" />
+                                </div>
+                            </div>
+
+                            <div className="bg-indigo-50/50 rounded-[2.5rem] p-10 space-y-8 border border-indigo-100">
+                                <h4 className="text-xs font-black text-indigo-900 uppercase tracking-[0.3em]">Security Enforcement Layers</h4>
+                                <div className="grid grid-cols-2 gap-6">
+                                    <div onClick={() => setPolicyForm({ ...policyForm, require_password: !policyForm.require_password })} className={`p-6 rounded-3xl border-2 flex items-center justify-between cursor-pointer transition-all ${policyForm.require_password ? 'bg-white border-indigo-500 shadow-lg' : 'bg-slate-50/50 border-slate-100 opacity-60'}`}>
+                                        <div>
+                                            <span className="text-xs font-black text-slate-900 block">Require Password</span>
+                                            <span className="text-[9px] text-slate-400 font-bold uppercase">Layer 1 Validation</span>
+                                        </div>
+                                        {policyForm.require_password ? <CheckCircle2 className="text-indigo-600" /> : <Square className="text-slate-300" />}
+                                    </div>
+
+                                    <div onClick={() => setPolicyForm({ ...policyForm, require_otp: !policyForm.require_otp })} className={`p-6 rounded-3xl border-2 flex items-center justify-between cursor-pointer transition-all ${policyForm.require_otp ? 'bg-white border-rose-500 shadow-lg' : 'bg-slate-50/50 border-slate-100 opacity-60'}`}>
+                                        <div>
+                                            <span className="text-xs font-black text-slate-900 block">Enforce OTP/MFA</span>
+                                            <span className="text-[9px] text-slate-400 font-bold uppercase">Bank-Grade Verification</span>
+                                        </div>
+                                        {policyForm.require_otp ? <ShieldAlert className="text-rose-600" /> : <Square className="text-slate-300" />}
+                                    </div>
+
+                                    <div onClick={() => setPolicyForm({ ...policyForm, require_user_mfa_choice: !policyForm.require_user_mfa_choice })} className={`p-6 rounded-3xl border-2 flex items-center justify-between cursor-pointer transition-all ${policyForm.require_user_mfa_choice ? 'bg-white border-blue-500 shadow-lg' : 'bg-slate-50/50 border-slate-100 opacity-60'}`}>
+                                        <div>
+                                            <span className="text-xs font-black text-slate-900 block">User-Driven MFA</span>
+                                            <span className="text-[9px] text-slate-400 font-bold uppercase">Only ask if User enrolled</span>
+                                        </div>
+                                        {policyForm.require_user_mfa_choice ? <Fingerprint className="text-blue-600" /> : <Square className="text-slate-300" />}
+                                    </div>
+
+                                    <div onClick={() => setPolicyForm({ ...policyForm, auto_login: !policyForm.auto_login })} className={`p-6 rounded-3xl border-2 flex items-center justify-between cursor-pointer transition-all ${policyForm.auto_login ? 'bg-white border-emerald-500 shadow-lg' : 'bg-slate-50/50 border-slate-100 opacity-60'}`}>
+                                        <div>
+                                            <span className="text-xs font-black text-slate-900 block">Automatic/Direct Login</span>
+                                            <span className="text-[9px] text-slate-400 font-bold uppercase">Passwordless Experience</span>
+                                        </div>
+                                        {policyForm.auto_login ? <Zap className="text-emerald-600" /> : <Square className="text-slate-300" />}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="pt-10 flex justify-end gap-4 border-t border-slate-50 mt-auto">
+                            <button onClick={() => setShowPolicyModal(false)} className="px-8 py-4 text-xs font-black text-slate-400 uppercase tracking-widest hover:bg-slate-50 rounded-2xl">Discard Draft</button>
+                            <button onClick={handleSavePolicy} className="px-10 py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-600 transition-all">
+                                {executing ? <Loader2 className="animate-spin" /> : 'Synchronize Policy'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* STRATEGY CONFIG MODAL */}
             {showConfigModal && strategyConfig && (

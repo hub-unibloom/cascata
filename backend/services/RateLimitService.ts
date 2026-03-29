@@ -455,6 +455,19 @@ export class RateLimitService {
         } catch (e) { }
     }
 
+    public static async checkUserNeutralized(slug: string, userId: string): Promise<boolean> {
+        if (!this.dragonfly || !this.isDragonflyHealthy) return false;
+        try { return (await this.dragonfly.get(`panic:user:${slug}:${userId}`)) === 'true'; } catch (e) { return false; }
+    }
+
+    public static async setUserNeutralized(slug: string, userId: string, active: boolean, ttlSeconds: number = 86400): Promise<void> {
+        if (!this.dragonfly || !this.isDragonflyHealthy) return;
+        try {
+            if (active) await this.dragonfly.set(`panic:user:${slug}:${userId}`, 'true', 'EX', ttlSeconds);
+            else await this.dragonfly.del(`panic:user:${slug}:${userId}`);
+        } catch (e) { }
+    }
+
     // --- ADAPTIVE RATE LIMITING & EDGE DEFENSE ---
 
     public static async getAdaptiveMultiplier(): Promise<number> {

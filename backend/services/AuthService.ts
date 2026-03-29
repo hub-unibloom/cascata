@@ -1,9 +1,58 @@
-
 import { Pool } from 'pg';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import { Buffer } from 'buffer';
+
+// --- SOVEREIGN CRYPTO UTILS ---
+const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+function base32Encode(buffer: Buffer): string {
+    let bits = 0;
+    let value = 0;
+    let output = '';
+    for (let i = 0; i < buffer.length; i++) {
+        value = (value << 8) | buffer[i];
+        bits += 8;
+        while (bits >= 5) {
+            output += BASE32_ALPHABET[(value >>> (bits - 5)) & 31];
+            bits -= 5;
+        }
+    }
+    if (bits > 0) {
+        output += BASE32_ALPHABET[(value << (5 - bits)) & 31];
+    }
+    return output;
+}
+
+function base32Decode(str: string): Buffer {
+    str = str.toUpperCase().replace(/=+$/, '');
+    let bits = 0;
+    let value = 0;
+    let index = 0;
+    const output = Buffer.alloc(Math.floor((str.length * 5) / 8));
+    for (let i = 0; i < str.length; i++) {
+        const val = BASE32_ALPHABET.indexOf(str[i]);
+        if (val === -1) continue;
+        value = (value << 5) | val;
+        bits += 5;
+        if (bits >= 8) {
+            output[index++] = (value >>> (bits - 8)) & 255;
+            bits -= 8;
+        }
+    }
+    return output;
+}
+
+function timingSafeEqual(a: string, b: string): boolean {
+    const bufA = Buffer.from(a);
+    const bufB = Buffer.from(b);
+    if (bufA.length !== bufB.length) {
+        crypto.timingSafeEqual(bufA, bufA); // Prevent timing leakage
+        return false;
+    }
+    return crypto.timingSafeEqual(bufA, bufB);
+}
 
 interface ProviderConfig {
     clientId?: string;
@@ -597,7 +646,7 @@ export class AuthService {
         expiresIn: string = '1h',
         refreshTokenExpiresInDays: number = 30,
         loginProvider: string = 'cascata',
-        deviceInfo: { ip?: string, userAgent?: string } = {}
+        deviceInfo: { ip?: string, userAgent?: string, fingerprint?: string } = {}
     ): Promise<SessionTokens> {
 
         // Locate the primary identifier for this session
@@ -607,6 +656,10 @@ export class AuthService {
         );
         const primaryIdentifier = idRes.rows[0]?.identifier;
 
+        // FINGERPRINTING: Tie session to HW/Browser signature
+        const fingerprintBase = `${deviceInfo.ip}|${deviceInfo.userAgent}|${deviceInfo.fingerprint || 'none'}`;
+        const fingerprintHash = crypto.createHash('sha256').update(fingerprintBase).digest('hex');
+
         // 1. Create JWT Payload
         const payload = {
             sub: userId,
@@ -615,6 +668,7 @@ export class AuthService {
             email: loginProvider === 'email' ? primaryIdentifier : undefined, // Legacy compat
             identifier: primaryIdentifier,
             provider: loginProvider,
+            fpt: fingerprintHash.substring(0, 16), // Inclusion of fingerprint hint in JWT
             app_metadata: {
                 provider: loginProvider,
                 role: 'authenticated'
@@ -635,19 +689,15 @@ export class AuthService {
 
         try {
             await projectPool.query(
-                `INSERT INTO auth.refresh_tokens (token_hash, user_id, expires_at, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5)`,
-                [tokenHash, userId, expiresAt, deviceInfo.ip, deviceInfo.userAgent]
+                `INSERT INTO auth.refresh_tokens (token_hash, user_id, expires_at, ip_address, user_agent, fingerprint_hash) VALUES ($1, $2, $3, $4, $5, $6)`,
+                [tokenHash, userId, expiresAt, deviceInfo.ip, deviceInfo.userAgent, fingerprintHash]
             );
         } catch (e: any) {
-            // Fallback for systems without migration 027 applied yet
-            if (e.code === '42703') { // Undefined column
-                await projectPool.query(
-                    `INSERT INTO auth.refresh_tokens (token_hash, user_id, expires_at) VALUES ($1, $2, $3)`,
-                    [tokenHash, userId, expiresAt]
-                );
-            } else {
-                throw e;
-            }
+            // Fallback for systems without migration 027/041 applied yet
+            await projectPool.query(
+                `INSERT INTO auth.refresh_tokens (token_hash, user_id, expires_at) VALUES ($1, $2, $3)`,
+                [tokenHash, userId, expiresAt]
+            );
         }
 
         const userRes = await projectPool.query(`SELECT id, raw_user_meta_data FROM auth.users WHERE id = $1`, [userId]);
@@ -668,14 +718,17 @@ export class AuthService {
         };
     }
 
-    public static async refreshSession(rawRefreshToken: string, projectPool: Pool, jwtSecret: string, expiresIn: string = '1h', deviceInfo: { ip?: string, userAgent?: string } = {}): Promise<SessionTokens> {
+    public static async refreshSession(rawRefreshToken: string, projectPool: Pool, jwtSecret: string, expiresIn: string = '1h', deviceInfo: { ip?: string, userAgent?: string, fingerprint?: string } = {}): Promise<SessionTokens> {
         const tokenHash = crypto.createHash('sha256').update(rawRefreshToken).digest('hex');
         
         const newRawRefreshToken = crypto.randomBytes(40).toString('hex');
         const newTokenHash = crypto.createHash('sha256').update(newRawRefreshToken).digest('hex');
         
+        // FINGERPRINTING: Validate current context matches token birth context
+        const fingerprintBase = `${deviceInfo.ip}|${deviceInfo.userAgent}|${deviceInfo.fingerprint || 'none'}`;
+        const currentFingerprint = crypto.createHash('sha256').update(fingerprintBase).digest('hex');
+
         // C-Level Database Macro Execution (1 RCP Roundtrip)
-        // Substituindo 7 queries manuais (BEGIN, SELECT, UPDATE, INSERT, SELECT, COMMIT) 
         const res = await projectPool.query(
             `SELECT * FROM auth.refresh_session_v2($1, $2, $3, $4)`,
             [tokenHash, newTokenHash, deviceInfo.ip || null, deviceInfo.userAgent || null]
@@ -685,12 +738,37 @@ export class AuthService {
         
         if (data.status === 'invalid_token') throw new Error("Invalid or expired refresh token");
         if (data.status === 'revoked_reuse_detected') throw new Error("Token has been revoked (Reuse detected)");
+
+        // SOVEREIGN PANIC: Check if this user or origin was revoked after token creation
+        const creationTime = new Date(data.p_created_at);
+        const panicCheck = await projectPool.query(
+            `SELECT COUNT(*) FROM auth.panic_revocations 
+             WHERE (target_type = 'user' AND target_value = $1)
+             OR (target_type = 'origin' AND target_value = $2)
+             AND revoked_at > $3`,
+            [data.p_user_id, deviceInfo.ip || '*', creationTime] // Origin can be domain or IP in panic
+        );
+
+        if (parseInt(panicCheck.rows[0].count) > 0) {
+            await projectPool.query(`UPDATE auth.refresh_tokens SET revoked = true WHERE token_hash = $1`, [newTokenHash]);
+            throw new Error("Security Violation: This session or origin has been revoked by project owner.");
+        }
+
+        // SOVEREIGN LOCK: If the token was born on IP X and used on IP Y without authorization, block.
+        // For portability, we check if fingerprint_hash column exists and matches.
+        const tokenMeta = await projectPool.query(`SELECT fingerprint_hash FROM auth.refresh_tokens WHERE token_hash = $1`, [newTokenHash]);
+        if (tokenMeta.rows[0]?.fingerprint_hash && !timingSafeEqual(tokenMeta.rows[0].fingerprint_hash, currentFingerprint)) {
+            // Potential session hijacking. Revoke and block.
+            await projectPool.query(`UPDATE auth.refresh_tokens SET revoked = true WHERE token_hash = $1`, [newTokenHash]);
+            throw new Error("Security Violation: Session context changed. Please login again.");
+        }
         
         const accessToken = jwt.sign({ 
             sub: data.p_user_id, 
             role: 'authenticated', 
             aud: 'authenticated', 
-            identifier: data.p_user_meta?.identifier, // If stored in metadata
+            identifier: data.p_user_meta?.identifier,
+            fpt: currentFingerprint.substring(0, 16),
             provider: 'cascata' 
         }, jwtSecret, { expiresIn: expiresIn as any });
         
@@ -707,6 +785,62 @@ export class AuthService {
                 app_metadata: { provider: 'cascata', role: 'authenticated' } 
             } 
         };
+    }
+
+    // --- TOTP (RFC 6238) IMPLEMENTATION ---
+    public static generateTOTPSecret(issuer: string, label: string): { secret: string, url: string } {
+        const secret = crypto.randomBytes(20);
+        const encodedSecret = base32Encode(secret);
+        const url = `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(label)}?secret=${encodedSecret}&issuer=${encodeURI(issuer)}&algorithm=SHA1&digits=6&period=30`;
+        return { secret: encodedSecret, url };
+    }
+
+    public static async verifyTOTP(secret: string, code: string): Promise<boolean> {
+        if (!code || code.length !== 6) return false;
+        const decodedSecret = base32Decode(secret);
+        const window = 1; // ±30s
+
+        const now = Math.floor(Date.now() / 1000 / 30);
+        
+        for (let i = -window; i <= window; i++) {
+            const timeStep = BigInt(now + i);
+            const msg = Buffer.alloc(8);
+            msg.writeBigInt64BE(timeStep, 0);
+
+            const hmac = crypto.createHmac('sha1', decodedSecret).update(msg).digest();
+            const offset = hmac[hmac.length - 1] & 0xf;
+            const binary = ((hmac[offset] & 0x7f) << 24) |
+                           ((hmac[offset + 1] & 0xff) << 16) |
+                           ((hmac[offset + 2] & 0xff) << 8) |
+                           (hmac[offset + 3] & 0xff);
+
+            const otp = (binary % 1000000).toString().padStart(6, '0');
+            if (timingSafeEqual(otp, code)) return true;
+        }
+        return false;
+    }
+
+    public static async logAuthEvent(
+        pool: Pool, 
+        userId: string | null,
+        event: string,
+        provider: string,
+        identifier: string,
+        origin: string,
+        ip: string,
+        status: string,
+        policyName: string | null = null,
+        metadata: any = {}
+    ) {
+        try {
+            await pool.query(
+                `INSERT INTO auth.audit_log (user_id, event_type, provider, identifier, origin, ip_address, status, policy_name, metadata)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+                [userId, event, provider, identifier, origin, ip, status, policyName, JSON.stringify(metadata)]
+            );
+        } catch (e) {
+            console.error("[SovereignAudit] Failed to log event:", e);
+        }
     }
 
     public static getInstallSql(): string {

@@ -25,6 +25,7 @@ interface GoTrueTokenParams {
     grant_type: 'password' | 'refresh_token' | 'id_token' | 'magic_link';
     token?: string; // For magic link
     language?: string; // I18N injection
+    totp_code?: string; // Cascata specific MFA support
 }
 
 export class GoTrueService {
@@ -33,7 +34,8 @@ export class GoTrueService {
         pool: Pool,
         params: any,
         jwtSecret: string,
-        projectConfig: any
+        projectConfig: any,
+        deviceInfo: { ip?: string, userAgent?: string, fingerprint?: string } = {}
     ) {
         const provider = params.provider || 'email';
         const identifier = params.identifier || params.email;
@@ -65,6 +67,7 @@ export class GoTrueService {
             if (check.rows.length > 0) {
                 const err: any = new Error("Identity already registered");
                 err.code = "user_already_exists";
+                await AuthService.logAuthEvent(pool, null, 'signup', provider, identifier, 'system', '0.0.0.0', 'failure', 'signup_flow', { error: 'user_already_exists' });
                 throw err;
             }
 
@@ -145,7 +148,8 @@ export class GoTrueService {
             }
 
             // Create session using the specific provider context
-            const session = await AuthService.createSession(user.id, pool, jwtSecret, '1h', 30, provider);
+            const session = await AuthService.createSession(user.id, pool, jwtSecret, '1h', 30, provider, deviceInfo);
+            await AuthService.logAuthEvent(pool, user.id, 'signup', provider, identifier, 'system', deviceInfo.ip || '0.0.0.0', 'success', 'signup_flow');
             return this.formatSessionResponse(session);
 
         } catch (e) {
@@ -161,7 +165,8 @@ export class GoTrueService {
         token: string,
         type: string,
         jwtSecret: string,
-        projectConfig?: any
+        projectConfig?: any,
+        deviceInfo: { ip?: string, userAgent?: string, fingerprint?: string } = {}
     ) {
         // Supported flows: signup (confirmation), recovery (password reset), magiclink (login), invite
         if (!['signup', 'recovery', 'magiclink', 'invite'].includes(type)) {
@@ -259,7 +264,7 @@ export class GoTrueService {
             }
 
             // Create Session for 'email' provider (since all verification flows here are email-based)
-            const session = await AuthService.createSession(userId, pool, jwtSecret, '1h', 30, 'email');
+            const session = await AuthService.createSession(userId, pool, jwtSecret, '1h', 30, 'email', deviceInfo);
             return session;
 
         } catch (e) {
@@ -393,7 +398,8 @@ export class GoTrueService {
         pool: Pool,
         params: GoTrueTokenParams,
         jwtSecret: string,
-        projectConfig: any
+        projectConfig: any,
+        deviceInfo: { ip?: string, userAgent?: string, fingerprint?: string } = {}
     ) {
         const authConfig = projectConfig?.auth_config || {};
 
@@ -429,7 +435,24 @@ export class GoTrueService {
             const match = await bcrypt.compare(params.password, identity.password_hash);
             if (!match) throw new Error("Invalid login credentials");
 
-            await pool.query('UPDATE auth.users SET last_sign_in_at = now() WHERE id = $1', [identity.user_id]);
+            if (params.grant_type === 'password') {
+                await pool.query('UPDATE auth.users SET last_sign_in_at = now() WHERE id = $1', [identity.user_id]);
+
+                // ORCHESTRATION: Check for MFA (TOTP) within GoTrue bridge
+                const totpIdRes = await pool.query(`SELECT identifier FROM auth.identities WHERE user_id = $1 AND provider = 'totp' LIMIT 1`, [identity.user_id]);
+                if (totpIdRes.rows.length > 0) {
+                    if (!params.totp_code) {
+                        const err: any = new Error("MFA Code Required (TOTP)");
+                        err.code = "mfa_required";
+                        throw err;
+                    }
+                    const isValid = await AuthService.verifyTOTP(totpIdRes.rows[0].identifier, params.totp_code);
+                    if (!isValid) {
+                        await AuthService.logAuthEvent(pool, identity.user_id, 'login_gotrue', provider, identifier, 'system', deviceInfo.ip || '0.0.0.0', 'failure', 'gotrue_mfa', { error: 'invalid_totp' });
+                        throw new Error("Invalid MFA Code");
+                    }
+                }
+            }
 
             if (authConfig.login_webhook_url) {
                 WebhookService.dispatch(
@@ -449,14 +472,15 @@ export class GoTrueService {
             }
 
             // Create session for the authenticated identity
-            const session = await AuthService.createSession(identity.user_id, pool, jwtSecret, '1h', 30, provider);
+            const session = await AuthService.createSession(identity.user_id, pool, jwtSecret, '1h', 30, provider, deviceInfo);
+            await AuthService.logAuthEvent(pool, identity.user_id, 'login_gotrue', provider, identifier, 'system', deviceInfo.ip || '0.0.0.0', 'success', 'gotrue_flow');
             return this.formatSessionResponse(session);
         }
 
         if (params.grant_type === 'refresh_token') {
             if (!params.refresh_token) throw new Error("Refresh token required");
-            // refreshSession maintains the original provider logic implicitly through session recreation or we assume 'cascata' if not tracked
-            const session = await AuthService.refreshSession(params.refresh_token, pool, jwtSecret);
+            // FINGERPRINTING: refreshSession now validates the current context against the token's birthplace
+            const session = await AuthService.refreshSession(params.refresh_token, pool, jwtSecret, '1h', deviceInfo);
             return this.formatSessionResponse(session);
         }
 
@@ -494,7 +518,7 @@ export class GoTrueService {
             }
 
             // Create session for the specific social provider
-            const session = await AuthService.createSession(userId, pool, jwtSecret, '1h', 30, provider);
+            const session = await AuthService.createSession(userId, pool, jwtSecret, '1h', 30, provider, deviceInfo);
             return this.formatSessionResponse(session);
         }
 

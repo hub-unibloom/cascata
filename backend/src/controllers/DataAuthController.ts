@@ -45,7 +45,59 @@ export class DataAuthController {
         ip = ip.replace('::ffff:', '');
 
         const userAgent = req.headers['user-agent'] || 'unknown';
-        return { ip, userAgent };
+        const fingerprint = req.headers['x-cascata-fingerprint'] || 'incognito';
+        return { ip, userAgent, fingerprint };
+    }
+
+    private static validateOrigin(req: CascataRequest, origin: string): boolean {
+        const allowed = req.project.metadata?.allowed_origins || [];
+        if (allowed.length === 0 || allowed.includes('*')) return true;
+        
+        // Match exact or wildcard (e.g., https://*.myapp.com)
+        return allowed.some((pattern: string) => {
+            if (pattern === origin) return true;
+            if (pattern.includes('*')) {
+                const regex = new RegExp(`^${pattern.replace(/\*/g, '.*')}$`);
+                return regex.test(origin);
+            }
+            return false;
+        });
+    }
+
+    private static getRequestOrigin(req: any): string {
+        const origin = req.headers.origin || req.headers.referer || '*';
+        if (origin === '*') return '*';
+        try {
+            const url = new URL(origin);
+            return url.hostname;
+        } catch (e) { return origin; }
+    }
+
+    private static async evaluatePolicy(req: CascataRequest, provider: string) {
+        const origin = DataAuthController.getRequestOrigin(req);
+        const result = await req.projectPool!.query(`
+            SELECT * FROM auth.policies 
+            WHERE active = true 
+            AND (provider = $1 OR provider = '*')
+            AND (origin = $2 OR origin = '*' OR origin = 'localhost')
+            ORDER BY priority DESC LIMIT 1
+        `, [provider, origin]);
+        return result.rows[0] || null;
+    }
+
+    private static async checkNeutralized(req: CascataRequest, identifier: string): Promise<{ neutralized: boolean, reason?: string }> {
+        // Check for specific user neutralization OR global revocation
+        const result = await req.projectPool!.query(`
+            SELECT metadata->>'reason' as reason FROM auth.panic_revocations 
+            WHERE (target_type = 'user' AND target_value = $1)
+               OR (target_type = 'global' AND target_value = 'ALL')
+            ORDER BY created_at DESC LIMIT 1
+        `, [identifier]);
+
+        if (result.rows.length > 0) {
+            return { neutralized: true, reason: result.rows[0].reason };
+        }
+        return { neutralized: false };
     }
 
     private static getSecurityConfig(req: CascataRequest): AuthSecurityConfig {
@@ -91,8 +143,9 @@ export class DataAuthController {
      * The agnostic entry point for ANY auth strategy (CPF, Email, Biometrics, etc).
      */
     static async legacyToken(req: CascataRequest, res: any, next: any) {
-        const { provider, identifier, password } = req.body;
+        const { provider, identifier, password, otp_code } = req.body;
         const deviceInfo = DataAuthController.getDeviceInfo(req);
+        const origin = req.headers.origin || req.headers.referer || '*';
 
         if (!provider || !identifier) {
             return res.status(400).json({ error: 'Provider and identifier are required.' });
@@ -105,6 +158,27 @@ export class DataAuthController {
             const lockout = await RateLimitService.checkAuthLockout(req.project.slug, deviceInfo.ip!, identifier, secConfig);
             if (lockout.locked) return res.status(429).json({ error: lockout.reason });
 
+            // SOVEREIGN HARDENING: Origin Integrity Check
+            const isOriginTrusted = DataAuthController.validateOrigin(req, origin);
+            
+            // C-LEVEL: Resolve Auth Orchestration Policy
+            // If origin is untrusted, we inject 'untrusted' into context to force strict laws
+            const policyRes = await req.projectPool!.query(
+                `SELECT auth.resolve_policy('login', $1, $2, $3::jsonb) as policy`, 
+                [provider, origin, JSON.stringify({ is_origin_trusted: isOriginTrusted })]
+            );
+            const policy = policyRes.rows[0].policy;
+
+            // SOVEREIGN PANIC: Immediate check for origin/provider revocation
+            const panicRes = await req.projectPool!.query(
+                `SELECT COUNT(*) FROM auth.panic_revocations WHERE target_value = $1 OR target_value = $2`,
+                [origin, provider]
+            );
+            if (parseInt(panicRes.rows[0].count) > 0) {
+                await AuthService.logAuthEvent(req.projectPool!, null, 'login', provider, identifier, origin, deviceInfo.ip!, 'blocked', policy.name, { reason: 'panic_revocation_active' });
+                return res.status(401).json({ error: 'This access point has been temporarily suspended by project owner.' });
+            }
+
             const idRes = await req.projectPool!.query('SELECT * FROM auth.identities WHERE provider = $1 AND identifier = $2', [provider, identifier]);
 
             if (!idRes.rows[0]) {
@@ -115,26 +189,65 @@ export class DataAuthController {
             const identity = idRes.rows[0];
             const storedHash = identity.password_hash;
 
-            if (!storedHash) {
-                return res.status(400).json({ error: 'This identity does not support password login.' });
+            // ORCHESTRATION: Enforce Laws defined by the Owner
+            // 1. Password Verification
+            if (policy.require_password !== false) {
+                if (!storedHash) {
+                    await AuthService.logAuthEvent(req.projectPool!, identity.user_id, 'login', provider, identifier, origin, deviceInfo.ip!, 'failure', policy.name, { error: 'identity_no_password' });
+                    return res.status(400).json({ error: 'This identity does not support password login (but policy requires it).' });
+                }
+                if (!password) {
+                    await AuthService.logAuthEvent(req.projectPool!, identity.user_id, 'login', provider, identifier, origin, deviceInfo.ip!, 'challenge_required', policy.name, { challenge: 'password' });
+                    return res.status(401).json({ error: 'password_required', message: 'Password is required for this login flow.' });
+                }
+                const isValid = await bcrypt.compare(password, storedHash);
+                if (!isValid) {
+                    await RateLimitService.registerAuthFailure(req.project.slug, deviceInfo.ip!, identifier, secConfig);
+                    await AuthService.logAuthEvent(req.projectPool!, identity.user_id, 'login', provider, identifier, origin, deviceInfo.ip!, 'failure', policy.name, { error: 'invalid_password' });
+                    return res.status(401).json({ error: 'Invalid credentials' });
+                }
             }
 
-            // SECURITY: Only accept bcrypt hashes. Plain-text fallback removed — it is
-            // a critical security risk and incompatible with enterprise-grade auth.
-            if (!storedHash.startsWith('$2')) {
-                // Identity exists but password is not hashed — force credential reset
-                return res.status(401).json({ error: 'Invalid credentials' });
-            }
+            // 2. MFA Verification (OTP / TOTP)
+            // If the policy requires user choice, check if they have MFA enabled
+            const mfaRequired = policy.require_otp === true || 
+                                (policy.require_user_mfa_choice === true && identity.identity_data?.mfa_enabled === true);
 
-            const isValid = await bcrypt.compare(password, storedHash);
+            if (mfaRequired) {
+                // Check if they have a TOTP identity linked
+                const totpIdRes = await req.projectPool!.query(`SELECT identifier FROM auth.identities WHERE user_id = $1 AND provider = 'totp' LIMIT 1`, [identity.user_id]);
+                const hasTotp = totpIdRes.rows.length > 0;
 
-            if (!isValid) {
-                await RateLimitService.registerAuthFailure(req.project.slug, deviceInfo.ip!, identifier, secConfig);
-                return res.status(401).json({ error: 'Invalid credentials' });
+                if (hasTotp) {
+                    const reqTotp = req.body.totp_code;
+                    if (!reqTotp) return res.status(403).json({ error: 'totp_required', message: 'Authenticator Code required.' });
+                    
+                    // Anti-Replay Check
+                    const usedRes = await req.projectPool!.query(`SELECT 1 FROM auth.used_totp_codes WHERE user_id = $1 AND code = $2 AND used_at > now() - interval '5 minutes'`, [identity.user_id, reqTotp]);
+                    if (usedRes.rows.length > 0) return res.status(401).json({ error: 'code_reused', message: 'This code has already been used. Please wait for the next one.' });
+
+                    const isValidTotp = await AuthService.verifyTOTP(totpIdRes.rows[0].identifier, reqTotp);
+                    if (!isValidTotp) return res.status(401).json({ error: 'invalid_totp', message: 'Invalid Authenticator Code.' });
+
+                    // Log usage for anti-replay
+                    await req.projectPool!.query(`INSERT INTO auth.used_totp_codes (user_id, code) VALUES ($1, $2)`, [identity.user_id, reqTotp]);
+                } else {
+                    // Standard OTP Logic
+                    if (!otp_code) {
+                        return res.status(403).json({ 
+                            error: 'otp_required', 
+                            message: 'Multi-Factor Challenge required for this login origin.',
+                            provider,
+                            identifier
+                        });
+                    }
+                    await AuthService.verifyPasswordless(req.projectPool!, provider, identifier, otp_code);
+                }
             }
 
             // SUCCESS Phase
             await RateLimitService.clearAuthFailure(req.project.slug, deviceInfo.ip!, identifier);
+            await AuthService.logAuthEvent(req.projectPool!, identity.user_id, 'login', provider, identifier, origin, deviceInfo.ip!, 'success', policy.name);
 
             // Create session with the specific provider context AND Fingerprint
             const session = await AuthService.createSession(
@@ -153,20 +266,56 @@ export class DataAuthController {
     }
 
     static async linkIdentity(req: CascataRequest, res: any, next: any) {
-        if (req.userRole !== 'service_role') {
-            return res.status(403).json({ error: 'Identity linking requires administrative privileges (Service Role).' });
-        }
         const userId = req.params.id;
+        const { provider, identifier, password, otp_code } = req.body;
+        const origin = req.headers.origin || req.headers.referer || '*';
+
+        // SECURITY: If not service_role, must be linking to SELF
+        if (req.userRole !== 'service_role' && req.user?.sub !== userId) {
+            return res.status(403).json({ error: 'Access Denied: You can only link identities to your own account.' });
+        }
+
         try {
             const client = await req.projectPool!.connect();
             try {
+                // Fetch User Context for Policy (How were they born?)
+                const userCtxRes = await client.query(
+                    `SELECT provider as created_via_provider, created_via_origin FROM auth.identities WHERE user_id = $1 ORDER BY created_at ASC LIMIT 1`,
+                    [userId]
+                );
+                const userContext = userCtxRes.rows[0] || {};
+
+                // ORCHESTRATION: Check Policy for Linking
+                const policyRes = await client.query(
+                    `SELECT auth.resolve_policy('link', $1, $2, $3::jsonb) as policy`, 
+                    [provider, origin, JSON.stringify(userContext)]
+                );
+                const policy = policyRes.rows[0].policy;
+
+                if (policy.require_password === true && !password && req.userRole !== 'service_role') {
+                    // Password check logic here if needed (e.g. verify account password or new identity password)
+                    // For linking, we usually require the NEW identity password if it's an email/pass combo
+                }
+
+                if (policy.require_otp === true && !otp_code && req.userRole !== 'service_role') {
+                    return res.status(403).json({ error: 'otp_required', message: 'Identity linking requires OTP verification for this provider.', provider, identifier });
+                }
+
+                if (otp_code && req.userRole !== 'service_role') {
+                    await AuthService.verifyPasswordless(req.projectPool!, provider, identifier, otp_code);
+                }
+
                 await client.query('BEGIN');
-                const passwordHash = req.body.password ? await bcrypt.hash(req.body.password, 10) : null;
-                await client.query('INSERT INTO auth.identities (user_id, provider, identifier, password_hash, created_at) VALUES ($1, $2, $3, $4, now())', [userId, req.body.provider, req.body.identifier, passwordHash]);
+                const passwordHash = password ? await bcrypt.hash(password, 10) : null;
+                await client.query('INSERT INTO auth.identities (user_id, provider, identifier, password_hash, created_at, created_via_origin) VALUES ($1, $2, $3, $4, now(), $5)', [userId, provider, identifier, passwordHash, origin]);
                 await client.query('COMMIT');
+                
+                await AuthService.logAuthEvent(req.projectPool!, userId, 'link', provider, identifier, origin, '0.0.0.0', 'success', policy.name);
                 res.json({ success: true });
             } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
-        } catch (e: any) { next(e); }
+        } catch (e: any) { 
+            next(e); 
+        }
     }
 
     static async unlinkIdentity(req: CascataRequest, res: any, next: any) {
@@ -274,7 +423,15 @@ export class DataAuthController {
             if (identifier) {
                 const lockout = await RateLimitService.checkAuthLockout(req.project.slug, deviceInfo.ip!, identifier, secConfig);
                 if (lockout.locked) return res.status(429).json({ error: lockout.reason });
+
+                const neutralization = await DataAuthController.checkNeutralized(req, identifier);
+                if (neutralization.neutralized) return res.status(401).json({ error: 'User access neutralized by Sovereign Panic Signal.', reason: neutralization.reason });
             }
+
+            const policy = await DataAuthController.evaluatePolicy(req, provider);
+            
+            // Policy Enforcement: Block access if not active or specific conditions not met
+            if (policy && policy.active === false) return res.status(403).json({ error: 'Security Policy Block: This authentication path is currently suspended.' });
 
             const profile = await AuthService.verifyPasswordless(req.projectPool!, provider, identifier, code);
             const userId = await AuthService.upsertUser(req.projectPool!, profile);
@@ -292,21 +449,145 @@ export class DataAuthController {
                 deviceInfo
             );
 
-            // TIER-3 PADLOCK: Issue a temporary Step-Up Token for sensitive queries
-            const jwt = require('jsonwebtoken');
-            const stepUpToken = jwt.sign(
-                { type: 'otp_stepup', sub: userId, aud: req.project.id },
-                req.project.jwt_secret,
-                { expiresIn: '15m' }
-            );
-
             DataAuthController.setAuthCookies(res, session);
-            res.json({ ...session, otp_stepup_token: stepUpToken });
+            res.json(session);
         } catch (e: any) {
             // Register failure on error
             if (identifier) await RateLimitService.registerAuthFailure(req.project.slug, deviceInfo.ip!, identifier, secConfig);
             next(e);
         }
+    }
+
+    static async setupTOTP(req: CascataRequest, res: any, next: any) {
+        if (!req.user?.sub) return res.status(401).json({ error: 'Unauthorized' });
+        try {
+            const issuer = req.project.name || 'Cascata';
+            const label = req.user.email || req.user.sub;
+            const { secret, url } = AuthService.generateTOTPSecret(issuer, label);
+            
+            // Store secret temporarily in metadata until verified
+            await req.projectPool!.query(
+                `UPDATE auth.users SET raw_user_meta_data = raw_user_meta_data || jsonb_build_object('totp_pending_secret', $1) WHERE id = $2`,
+                [secret, req.user.sub]
+            );
+            
+            res.json({ secret, qr_url: url });
+        } catch (e: any) { next(e); }
+    }
+
+    static async verifyTOTPEnrollment(req: CascataRequest, res: any, next: any) {
+        if (!req.user?.sub) return res.status(401).json({ error: 'Unauthorized' });
+        const { code } = req.body;
+        try {
+            const userRes = await req.projectPool!.query(`SELECT raw_user_meta_data FROM auth.users WHERE id = $1`, [req.user.sub]);
+            const secret = userRes.rows[0]?.raw_user_meta_data?.totp_pending_secret;
+            if (!secret) return res.status(400).json({ error: 'No TOTP setup in progress.' });
+
+            const isValid = await AuthService.verifyTOTP(secret, code);
+            if (!isValid) {
+                await AuthService.logAuthEvent(req.projectPool!, req.user.sub, 'setup_totp', 'totp', 'unknown', 'system', '0.0.0.0', 'failure', 'setup_flow');
+                return res.status(401).json({ error: 'Invalid code.' });
+            }
+
+            // Finalize Enrollment: Create Identity and mark User as MFA Enabled
+            const client = await req.projectPool!.connect();
+            try {
+                await client.query('BEGIN');
+                await client.query(`INSERT INTO auth.identities (user_id, provider, identifier) VALUES ($1, 'totp', $2)`, [req.user.sub, secret]);
+                await client.query(`UPDATE auth.users SET raw_user_meta_data = (raw_user_meta_data - 'totp_pending_secret') || '{"mfa_enabled": true}'::jsonb WHERE id = $1`, [req.user.sub]);
+                await client.query('COMMIT');
+                
+                await AuthService.logAuthEvent(req.projectPool!, req.user.sub, 'setup_totp', 'totp', 'authenticator', 'system', '0.0.0.0', 'success', 'setup_flow');
+                res.json({ success: true });
+            } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
+        } catch (e: any) { next(e); }
+    }
+
+    static async getPolicies(req: CascataRequest, res: any, next: any) {
+        try {
+            const result = await req.projectPool!.query(`SELECT * FROM auth.policies ORDER BY priority DESC, created_at ASC`);
+            res.json(result.rows);
+        } catch (e: any) { next(e); }
+    }
+
+    static async savePolicy(req: CascataRequest, res: any, next: any) {
+        const { id, name, priority, provider, origin, require_password, require_otp, require_user_mfa_choice, auto_login, active } = req.body;
+        try {
+            if (id) {
+                // UPDATE
+                await req.projectPool!.query(
+                    `UPDATE auth.policies SET 
+                        name = $1, priority = $2, provider = $3, origin = $4, 
+                        require_password = $5, require_otp = $6, require_user_mfa_choice = $7, 
+                        auto_login = $8, active = $9, updated_at = now() 
+                     WHERE id = $10`,
+                    [name, priority, provider, origin, require_password, require_otp, require_user_mfa_choice, auto_login, active, id]
+                );
+            } else {
+                // INSERT
+                await req.projectPool!.query(
+                    `INSERT INTO auth.policies 
+                        (name, priority, provider, origin, require_password, require_otp, require_user_mfa_choice, auto_login, active) 
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+                    [name, priority, provider, origin, require_password, require_otp, require_user_mfa_choice, auto_login, active]
+                );
+            }
+            res.json({ success: true });
+        } catch (e: any) { next(e); }
+    }
+
+    static async deletePolicy(req: CascataRequest, res: any, next: any) {
+        const { id } = req.params;
+        try {
+            await req.projectPool!.query(`DELETE FROM auth.policies WHERE id = $1`, [id]);
+            res.json({ success: true });
+        } catch (e: any) { next(e); }
+    }
+
+    static async panicRevoke(req: CascataRequest, res: any, next: any) {
+        if (req.userRole !== 'service_role') return res.status(403).json({ error: 'Access Denied: Panic Revocation requires Service Role.' });
+        const { target_type, target_value, reason } = req.body;
+        
+        if (!['origin', 'user', 'provider'].includes(target_type) || !target_value) {
+            return res.status(400).json({ error: 'Invalid target_type or target_value.' });
+        }
+
+        try {
+            await req.projectPool!.query(
+                `INSERT INTO auth.panic_revocations (target_type, target_value, metadata) VALUES ($1, $2, $3)`,
+                [target_type, target_value, JSON.stringify({ reason: reason || 'Manual Admin Intervention' })]
+            );
+
+            // EMERGENCY ACTION: Neutralize sessions in REAL-TIME
+            if (target_type === 'user') {
+                const userRes = await req.projectPool!.query(`
+                    SELECT u.id FROM auth.users u 
+                    JOIN auth.identities i ON u.id = i.user_id 
+                    WHERE i.identifier = $1 LIMIT 1
+                `, [target_value]);
+                const userId = userRes.rows[0]?.id;
+                if (userId) {
+                    await req.projectPool!.query(`UPDATE auth.refresh_tokens SET revoked = true WHERE user_id = $1`, [userId]);
+                    await RateLimitService.setUserNeutralized(req.project.slug, userId, true);
+                }
+            } else if (target_type === 'global' || target_value === 'ALL') {
+                await req.projectPool!.query(`UPDATE auth.refresh_tokens SET revoked = true`);
+                await RateLimitService.setPanic(req.project.slug, true); // Active engine-wide lockdown
+            }
+
+            res.json({ success: true, message: `Panic Revocation issued and enforced for ${target_type}: ${target_value}` });
+        } catch (e: any) { next(e); }
+    }
+
+    static async getAuditLogs(req: CascataRequest, res: any, next: any) {
+        const { limit = 100, offset = 0 } = req.query;
+        try {
+            const result = await req.projectPool!.query(
+                `SELECT * FROM auth.audit_log ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+                [limit, offset]
+            );
+            res.json(result.rows);
+        } catch (e: any) { next(e); }
     }
 
     static async getUserSessions(req: CascataRequest, res: any, next: any) {
@@ -352,6 +633,7 @@ export class DataAuthController {
     }
 
     static async goTrueSignup(req: CascataRequest, res: any, next: any) {
+        const deviceInfo = DataAuthController.getDeviceInfo(req);
         try {
             const language = req.body.language || 'en-US';
             const payload = { 
@@ -360,7 +642,7 @@ export class DataAuthController {
                 provider: req.body.provider || 'email',
                 language 
             };
-            res.json(await GoTrueService.handleSignup(req.projectPool!, payload, req.project.jwt_secret, req.project.metadata || {}));
+            res.json(await GoTrueService.handleSignup(req.projectPool!, payload, req.project.jwt_secret, req.project.metadata || {}, deviceInfo));
         } catch (e: any) { next(e); }
     }
 
@@ -379,13 +661,19 @@ export class DataAuthController {
             if (req.body.grant_type === 'password') {
                 const lockout = await RateLimitService.checkAuthLockout(req.project.slug, deviceInfo.ip!, identifier, secConfig);
                 if (lockout.locked) return res.status(429).json({ error: lockout.reason });
+
+                const neutralization = await DataAuthController.checkNeutralized(req, identifier);
+                if (neutralization.neutralized) return res.status(401).json({ error: 'User access neutralized by Sovereign Panic Signal.', reason: neutralization.reason });
+
+                const policy = await DataAuthController.evaluatePolicy(req, provider);
+                if (policy && policy.active === false) return res.status(403).json({ error: 'Security Policy Block: Access path restricted by orchestrator.' });
             }
 
             req.body.language = req.body.language || 'en-US';
             req.body.identifier = identifier;
             req.body.provider = provider;
 
-            const response = await GoTrueService.handleToken(req.projectPool!, req.body, req.project.jwt_secret, req.project.metadata || {});
+            const response = await GoTrueService.handleToken(req.projectPool!, req.body, req.project.jwt_secret, req.project.metadata || {}, deviceInfo);
 
             if (req.body.grant_type === 'password') await RateLimitService.clearAuthFailure(req.project.slug, deviceInfo.ip!, identifier);
 
@@ -415,8 +703,9 @@ export class DataAuthController {
     }
 
     static async goTrueVerify(req: CascataRequest, res: any, next: any) {
+        const deviceInfo = DataAuthController.getDeviceInfo(req);
         try {
-            const session = await GoTrueService.handleVerify(req.projectPool!, req.query.token as string, req.query.type as string, req.project.jwt_secret, req.project.metadata);
+            const session = await GoTrueService.handleVerify(req.projectPool!, req.query.token as string, req.query.type as string, req.project.jwt_secret, req.project.metadata, deviceInfo);
 
             DataAuthController.setAuthCookies(res, session);
 

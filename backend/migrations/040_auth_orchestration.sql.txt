@@ -1,0 +1,92 @@
+
+-- Migration 040: Auth Orchestration Engine (Sovereign Flow Control)
+-- This migration implements the granular flows, policies, and laws requested by the orchestrator owner.
+-- It enables dynamic rules based on Origin, Strategy, Action, and Context.
+
+BEGIN;
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT FROM information_schema.schemata WHERE schema_name = 'auth') THEN
+
+        -- 1. AUTH POLICIES TABLE (The Law Hub)
+        -- This table stores the orchestrative logic defined by the tenant owner.
+        CREATE TABLE IF NOT EXISTS auth.policies (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name TEXT NOT NULL,
+            event_type TEXT NOT NULL,     -- 'login', 'signup', 'link', 'recovery', 'update'
+            provider TEXT DEFAULT '*',    -- 'email', 'google', 'cpf', 'whatsapp', etc or '*' for any
+            origin_pattern TEXT DEFAULT '*', -- Supports wildcard (e.g., 'https://whatsapp.com/*', 'https://mygame.example.com')
+            conditions JSONB DEFAULT '{}',   -- Complex logic (e.g., {"account_created_via": "whatsapp"})
+            requirements JSONB NOT NULL,     -- { "require_password": true, "require_otp": true, "auto_login": false, "mfa_enabled": false }
+            priority INTEGER DEFAULT 0,      -- Higher number = Higher priority
+            is_active BOOLEAN DEFAULT true,
+            created_at TIMESTAMPTZ DEFAULT now(),
+            updated_at TIMESTAMPTZ DEFAULT now()
+        );
+
+        -- 2. AUDIT/ORIGIN TRACKING ON IDENTITIES
+        -- To support "Policy based on account creation source", we must track where identities was born.
+        ALTER TABLE auth.identities 
+            ADD COLUMN IF NOT EXISTS created_via_origin TEXT,
+            ADD COLUMN IF NOT EXISTS linking_metadata JSONB DEFAULT '{}';
+
+        -- 3. POLICY RESOLVER (PL/pgSQL Engine)
+        -- Native resolver for high-performance rule execution during auth flows.
+        CREATE OR REPLACE FUNCTION auth.resolve_policy(
+            p_event TEXT, 
+            p_provider TEXT, 
+            p_origin TEXT,
+            p_user_context JSONB DEFAULT '{}'
+        ) 
+        RETURNS JSONB AS $func$
+        DECLARE
+            v_reqs JSONB;
+        BEGIN
+            -- Find the most specific active policy
+            SELECT requirements INTO v_reqs
+            FROM auth.policies
+            WHERE event_type = p_event
+              AND (provider = p_provider OR provider = '*')
+              AND (
+                  origin_pattern = '*' OR 
+                  p_origin LIKE REPLACE(origin_pattern, '*', '%')
+              )
+              AND is_active = true
+              -- Check if account conditions match (if provided in context)
+              AND (
+                  conditions = '{}'::jsonb OR 
+                  p_user_context @> conditions
+              )
+            ORDER BY priority DESC, created_at DESC
+            LIMIT 1;
+
+            -- Fallback to system defaults if no policy matches
+            IF v_reqs IS NULL THEN
+                v_reqs := '{ "require_password": true, "require_otp": false, "auto_login": false, "status": "default" }'::jsonb;
+            END IF;
+
+            -- If it's a passwordless provider and no policy is set, default to require_otp: true
+            IF v_provider NOT IN ('email', 'github', 'google', 'microsoft', 'apple') AND NOT (v_reqs ? 'require_otp') THEN
+                v_reqs := v_reqs || '{"require_otp": true}'::jsonb;
+            END IF;
+
+            RETURN v_reqs;
+        END;
+        $func$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+
+        -- 4. INITIAL SEED (Example Master Rules)
+        -- WhatsApp Cloud: Automatic, no password.
+        INSERT INTO auth.policies (name, event_type, provider, origin_pattern, requirements, priority)
+        VALUES ('WhatsApp Cloud Auto Trust', 'login', 'whatsapp', 'https://*.whatsapp.com/*', '{"require_password": false, "require_otp": false, "auto_login": true}', 100)
+        ON CONFLICT DO NOTHING;
+
+        -- Global Default for any link event: Require OTP for security.
+        INSERT INTO auth.policies (name, event_type, provider, requirements, priority)
+        VALUES ('Secure Identity Linking Default', 'link', '*', '{"require_password": true, "require_otp": true}', 0)
+        ON CONFLICT DO NOTHING;
+
+    END IF;
+END $$;
+
+COMMIT;

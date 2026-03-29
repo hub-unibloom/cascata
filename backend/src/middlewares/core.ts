@@ -413,6 +413,13 @@ export const cascataAuth: RequestHandler = async (req: any, res: any, next: any)
                     if (isBlacklisted) return res.status(401).json({ error: 'Token Revoked' });
 
                     const decoded: any = jwt.verify(bearerToken, r.project.jwt_secret, { algorithms: ['HS256'] });
+
+                    // SOVEREIGN PANIC GATE: Instant user neutralization check
+                    if (decoded.sub) {
+                        const isNeutralized = await RateLimitService.checkUserNeutralized(r.project.slug, decoded.sub);
+                        if (isNeutralized) return res.status(401).json({ error: 'User access neutralized by Sovereign Panic Signal.' });
+                    }
+
                     r.user = decoded;
                     r.userRole = decoded.role || 'authenticated';
 

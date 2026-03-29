@@ -1,0 +1,46 @@
+
+-- Migration 042: Sovereign Audit Ledger & Panic System
+-- Adds enterprise-grade monitoring and instant revocation capabilities.
+
+BEGIN;
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT FROM information_schema.schemata WHERE schema_name = 'auth') THEN
+
+        -- 1. AUTH AUDIT LEDGER
+        -- Tracks every decision made by the Orchestration Engine.
+        CREATE TABLE IF NOT EXISTS auth.audit_log (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+            event_type TEXT NOT NULL, -- 'login', 'link', 'mfa_verify', 'setup', 'revocation'
+            provider TEXT,
+            identifier TEXT,
+            origin TEXT,
+            ip_address TEXT,
+            status TEXT NOT NULL, -- 'success', 'failure', 'challenge_required', 'blocked'
+            policy_name TEXT,
+            metadata JSONB DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_auth_audit_user ON auth.audit_log(user_id);
+        CREATE INDEX IF NOT EXISTS idx_auth_audit_event ON auth.audit_log(event_type);
+        CREATE INDEX IF NOT EXISTS idx_auth_audit_origin ON auth.audit_log(origin);
+
+        -- 2. PANIC REVOCATION TABLE
+        -- Allows instant invalidation of tokens per Origin or User without DB-wide slowdowns.
+        CREATE TABLE IF NOT EXISTS auth.panic_revocations (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            target_type TEXT NOT NULL, -- 'origin', 'user', 'provider'
+            target_value TEXT NOT NULL, -- e.g. 'https://compromised.site' or user_id
+            revoked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            metadata JSONB DEFAULT '{}'::jsonb
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_panic_target ON auth.panic_revocations(target_type, target_value);
+
+    END IF;
+END $$;
+
+COMMIT;

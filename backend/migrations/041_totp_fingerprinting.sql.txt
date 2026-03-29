@@ -1,0 +1,33 @@
+
+-- Migration 041: Session Fingerprinting & TOTP Immutability
+-- Hardens the database for Sovereign Security levels (Antifragile Session Management).
+
+BEGIN;
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT FROM information_schema.schemata WHERE schema_name = 'auth') THEN
+
+        -- 1. ADD FINGERPRINT TO REFRESH TOKENS
+        -- Ties tokens to physical device signatures to prevent complex hijacking.
+        ALTER TABLE auth.refresh_tokens 
+        ADD COLUMN IF NOT EXISTS fingerprint_hash TEXT;
+
+        CREATE INDEX IF NOT EXISTS idx_refresh_tokens_fingerprint ON auth.refresh_tokens(fingerprint_hash);
+
+        -- 2. TOTP ANTI-REPLAY LOG
+        -- Prevents a valid 30s token from being used multiple times (RFC 6238 best practice).
+        CREATE TABLE IF NOT EXISTS auth.used_totp_codes (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+            code TEXT NOT NULL,
+            used_at TIMESTAMPTZ DEFAULT now()
+        );
+
+        -- Auto-clean old codes after 5 minutes
+        CREATE INDEX IF NOT EXISTS idx_used_totp_ttl ON auth.used_totp_codes(used_at);
+
+    END IF;
+END $$;
+
+COMMIT;
