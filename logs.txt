@@ -1,1 +1,73 @@
-Resolvido.
+ => => naming to docker.io/library/cascata-db:latest                       0.0s
+ => => unpacking to docker.io/library/cascata-db:latest                    0.4s
+ => CANCELED [frontend build 6/6] RUN npm run build                      103.4s
+ => ERROR [backend_data 7/7] RUN npm run build                            99.4s
+ => [crypto_engine] resolving provenance for metadata file                 0.0s
+ => [nginx_controller] resolving provenance for metadata file              0.1s
+ => [db] resolving provenance for metadata file                            0.0s
+------
+ > [backend_data 7/7] RUN npm run build:
+1.393 
+1.393 > cascata-backend@1.1.0 build
+1.393 > tsc
+1.393 
+97.53 services/McpService.ts(21,50): error TS2339: Property 'ai_governance' does not exist on type 'ProjectMetadata'.
+97.53 services/McpService.ts(100,60): error TS2339: Property 'masked_columns' does not exist on type 'ProjectMetadata'.
+97.53 services/McpService.ts(174,50): error TS2339: Property 'ai_governance' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/BranchController.ts(22,52): error TS2339: Property 'draft_sync_active' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/DataAuthController.ts(812,68): error TS2339: Property 'auth_strategies' does not exist on type '{ site_url?: string | undefined; security?: { max_attempts?: number | undefined; lockout_minutes?: number | undefined; strategy?: "ip" | "identifier" | "hybrid" | undefined; disabled?: boolean | undefined; } | undefined; providers?: Record<...> | undefined; email_templates?: any; messaging_templates?: any; }'.
+97.53 src/controllers/DataAuthController.ts(825,52): error TS2339: Property 'auth_strategies' does not exist on type '{ site_url?: string | undefined; security?: { max_attempts?: number | undefined; lockout_minutes?: number | undefined; strategy?: "ip" | "identifier" | "hybrid" | undefined; disabled?: boolean | undefined; } | undefined; providers?: Record<...> | undefined; email_templates?: any; messaging_templates?: any; }'.
+97.53 src/controllers/DataController.ts(37,27): error TS18048: 'req.user' is possibly 'undefined'.
+97.53 src/controllers/DataController.ts(128,35): error TS2339: Property 'schema_exposure' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/DataController.ts(259,53): error TS2339: Property 'masked_columns' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/DataController.ts(261,44): error TS2339: Property 'masked_columns' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/DataController.ts(409,50): error TS2339: Property 'locked_columns' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/DataController.ts(410,50): error TS2339: Property 'masked_columns' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/DataController.ts(501,50): error TS2339: Property 'locked_columns' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/DataController.ts(502,50): error TS2339: Property 'masked_columns' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/DataController.ts(686,55): error TS2339: Property 'locked_columns' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/DataController.ts(689,55): error TS2339: Property 'masked_columns' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/DataController.ts(1227,57): error TS2339: Property 'locked_columns' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/DataController.ts(1234,57): error TS2339: Property 'masked_columns' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/DataController.ts(1337,56): error TS2339: Property 'schema_exposure' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/McpController.ts(30,54): error TS2339: Property 'ai_governance' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/McpController.ts(80,54): error TS2339: Property 'ai_governance' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/PushController.ts(44,58): error TS2339: Property 'firebase_config' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/StorageController.ts(180,72): error TS2339: Property 'storage_config' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/StorageController.ts(244,49): error TS2339: Property 'storage_limit' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/StorageController.ts(252,54): error TS2339: Property 'storage_governance' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/StorageController.ts(300,49): error TS2339: Property 'storage_limit' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/StorageController.ts(309,54): error TS2339: Property 'storage_governance' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/StorageController.ts(406,68): error TS2339: Property 'storage_config' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/StorageController.ts(420,68): error TS2339: Property 'storage_config' does not exist on type 'ProjectMetadata'.
+97.53 src/controllers/StorageController.ts(461,68): error TS2339: Property 'storage_config' does not exist on type 'ProjectMetadata'.
+97.53 src/middlewares/logging.ts(161,59): error TS2339: Property 'security' does not exist on type 'ProjectMetadata'.
+------
+[+] up 0/7
+ ⠙ Image cascata-frontend         Building                                104.9s
+ ⠙ Image cascata-crypto_engine    Building                                104.9s
+ ⠙ Image cascata-db               Building                                104.9s
+ ⠙ Image cascata-backend_data     Building                                104.9s
+ ⠙ Image cascata-nginx_controller Building                                104.9s
+ ⠙ Image cascata-backend_control  Building                                104.9s
+ ⠙ Image cascata-backend_engine   Building                                104.9s
+Dockerfile:19
+
+--------------------
+
+  17 |     COPY . .
+
+  18 |     
+
+  19 | >>> RUN npm run build
+
+  20 |     EXPOSE 3000
+
+  21 |     CMD ["node", "dist/server.js"]
+
+--------------------
+
+target backend_data: failed to solve: process "/bin/sh -c npm run build" did not complete successfully: exit code: 2
+
+ubuntu@ip-172-26-13-226:~/cascata$ 
+
