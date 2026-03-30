@@ -7,7 +7,7 @@ import {
     Filter, ChevronLeft, ChevronRight, CheckSquare, Square, Link,
     Clock, Zap, Github, Facebook, Twitter, Edit2, Unlink, Layers,
     RefreshCcw, ArrowRight, LayoutTemplate, Send, ShieldAlert, Target,
-    MessageSquare, Server, Plug, BellRing, PartyPopper, Code, Scale
+    MessageSquare, Server, Plug, BellRing, PartyPopper, Code
 } from 'lucide-react';
 
 const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
@@ -128,8 +128,8 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
     const [showPolicyModal, setShowPolicyModal] = useState(false);
     const [editingPolicy, setEditingPolicy] = useState<any>(null);
     const [policyForm, setPolicyForm] = useState({
-        name: '', priority: 0, provider: '*', origin: '*', 
-        require_password: true, require_otp: false, 
+        name: '', priority: 0, provider: '*', origin: '*',
+        require_password: true, require_otp: false,
         require_user_mfa_choice: false, auto_login: false, active: true
     });
 
@@ -511,7 +511,7 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
         setShowProviderConfig(null);
     };
 
-    const addRuleToStrategy = (origin: string, requireCode: boolean) => {
+    const addRuleToStrategy = (origin: string) => {
         if (!isValidUrl(origin)) { alert("URL inválida."); return; }
         setStrategyConfig(prev => {
             if (!prev) return prev;
@@ -521,7 +521,13 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
             }
             return {
                 ...prev,
-                rules: [...currentRules, { origin, require_code: requireCode }],
+                rules: [...currentRules, {
+                    origin,
+                    require_password: true,
+                    require_otp: false,
+                    require_totp: false,
+                    auto_login: false
+                }],
                 newRule: ''
             };
         });
@@ -1611,101 +1617,6 @@ const AuthConfig: React.FC<{ projectId: string }> = ({ projectId }) => {
                     </div>
                 )}
 
-                {/* SOVEREIGN ORCHESTRATION SECTION */}
-                {activeSection === 'orchestration' && (
-                    <div className="p-10">
-                        <div className="mb-8 flex justify-between items-end">
-                            <div>
-                                <h2 className="text-3xl font-black text-slate-900 tracking-tighter">Sovereign Orchestration</h2>
-                                <p className="text-xs text-slate-400 font-bold mt-1">Declare granular security laws that govern every authentication handshake.</p>
-                            </div>
-                            <div className="flex gap-4">
-                                <button
-                                    onClick={() => setShowPanicModal(true)}
-                                    className="bg-rose-50 text-rose-600 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-rose-100 transition-all border border-rose-100 shadow-xl shadow-rose-50"
-                                >
-                                    <ShieldAlert size={16} /> Broadcast Panic Signal
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        setEditingPolicy(null);
-                                        setPolicyForm({
-                                            name: '',
-                                            priority: 1,
-                                            provider: '*',
-                                            origin: '*',
-                                            require_password: true,
-                                            require_otp: false,
-                                            require_user_mfa_choice: false,
-                                            auto_login: false
-                                        });
-                                        setShowPolicyModal(true);
-                                    }}
-                                    className="bg-indigo-600 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100"
-                                >
-                                    <Plus size={16} /> Declare Sovereign Law
-                                </button>
-                            </div>
-                        </div>
-
-                        <div className="space-y-6">
-                            {(policies || []).length === 0 && (
-                                <div className="py-24 text-center bg-white border border-slate-200 rounded-[3rem] shadow-sm">
-                                    <Layers size={48} className="mx-auto text-slate-200 mb-6" />
-                                    <h3 className="text-lg font-black text-slate-900">No Sovereign Laws Found</h3>
-                                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-2 max-w-xs mx-auto leading-relaxed">Identity flows are currently following system defaults. Declare your first law to override behavior per Domain or Provider.</p>
-                                </div>
-                            )}
-
-                            {(policies || []).map(policy => (
-                                <div key={policy.id} className="bg-white border border-slate-200 rounded-[3rem] p-10 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-8 group hover:border-indigo-200 transition-all">
-                                    <div className="flex items-start gap-6">
-                                        <div className="w-16 h-16 bg-slate-900 text-white rounded-[1.5rem] flex items-center justify-center shadow-xl shrink-0">
-                                            <Scale size={28} />
-                                        </div>
-                                        <div>
-                                            <div className="flex items-center gap-3 mb-1">
-                                                <h4 className="text-xl font-black text-slate-900 tracking-tight">{policy.name}</h4>
-                                                <span className="bg-indigo-50 text-indigo-600 text-[9px] font-black px-2 py-0.5 rounded-lg uppercase tracking-widest">Priority {policy.priority}</span>
-                                            </div>
-                                            <div className="flex items-center gap-4">
-                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest flex items-center gap-1.5"><Globe size={12} /> {policy.origin === '*' ? 'Global Origins (*)' : policy.origin}</p>
-                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest flex items-center gap-1.5"><Fingerprint size={12} /> Provider: {policy.provider === '*' ? 'Agnostic (*)' : policy.provider}</p>
-                                            </div>
-
-                                            <div className="flex gap-2 mt-4">
-                                                {policy.require_password && <span className="bg-slate-100 text-slate-600 text-[8px] font-black px-2 py-1 rounded-md uppercase tracking-widest">Password-Gated</span>}
-                                                {policy.require_otp && <span className="bg-rose-100 text-rose-600 text-[8px] font-black px-2 py-1 rounded-md uppercase tracking-widest flex items-center gap-1"><ShieldAlert size={10} /> MFA Enforced</span>}
-                                                {policy.auto_login && <span className="bg-emerald-100 text-emerald-600 text-[8px] font-black px-2 py-1 rounded-md uppercase tracking-widest flex items-center gap-1"><Zap size={10} /> Auto-Login</span>}
-                                                {policy.require_user_mfa_choice && <span className="bg-blue-100 text-blue-600 text-[8px] font-black px-2 py-1 rounded-md uppercase tracking-widest">User-Selected MFA</span>}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="flex items-center gap-4">
-                                        <button
-                                            onClick={() => {
-                                                setEditingPolicy(policy);
-                                                setPolicyForm({ ...policy });
-                                                setShowPolicyModal(true);
-                                            }}
-                                            className="bg-slate-50 text-slate-600 px-6 py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-indigo-50 hover:text-indigo-600 transition-all border border-slate-100"
-                                        >
-                                            Refine Law
-                                        </button>
-                                        <button
-                                            onClick={() => handleDeletePolicy(policy.id)}
-                                            className="p-3 text-slate-300 hover:text-rose-600 transition-all opacity-0 group-hover:opacity-100"
-                                        >
-                                            <Trash2 size={20} />
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
                 {/* SECURITY SECTION */}
                 {activeSection === 'security' && (
                     <div className="p-10">
@@ -2142,20 +2053,68 @@ const { user, session } = await cascata.auth.signIn({
                                             className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-indigo-500/20"
                                             onKeyDown={(e) => {
                                                 if (e.key === 'Enter') {
-                                                    addRuleToStrategy(strategyConfig.newRule || '', false);
+                                                    addRuleToStrategy(strategyConfig.newRule || '');
                                                 }
                                             }}
                                         />
                                         <button onClick={() => {
-                                            addRuleToStrategy(strategyConfig.newRule || '', false);
+                                            addRuleToStrategy(strategyConfig.newRule || '');
                                         }} className="px-5 py-3 bg-indigo-50 text-indigo-600 font-bold text-[10px] uppercase rounded-xl hover:bg-indigo-100 transition-colors shrink-0">Add Origin</button>
                                     </div>
                                 </div>
                                 <div className="space-y-2">
                                     {strategyConfig.rules?.map((rule: any, idx: number) => (
-                                        <div key={idx} className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                            <span className="text-xs font-mono font-bold text-slate-600">{rule.origin}</span>
-                                            <button onClick={() => removeRuleFromStrategy(rule.origin)} className="text-rose-400 hover:text-rose-600"><X size={14} /></button>
+                                        <div key={idx} className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 flex flex-col gap-4 animate-in fade-in slide-in-from-top-2">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-8 h-8 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center"><Globe size={14} /></div>
+                                                    <span className="text-xs font-mono font-black text-slate-800">{rule.origin}</span>
+                                                </div>
+                                                <button onClick={() => removeRuleFromStrategy(rule.origin)} className="p-2 text-slate-300 hover:text-rose-600 transition-colors"><X size={16} /></button>
+                                            </div>
+
+                                            <div className="grid grid-cols-4 gap-2">
+                                                <button
+                                                    onClick={() => {
+                                                        const newRules = [...strategyConfig.rules];
+                                                        newRules[idx] = { ...newRules[idx], require_password: !newRules[idx].require_password };
+                                                        setStrategyConfig({ ...strategyConfig, rules: newRules });
+                                                    }}
+                                                    className={`py-2 px-3 rounded-xl border text-[9px] font-black uppercase transition-all flex flex-col items-center gap-1.5 ${rule.require_password ? 'bg-indigo-600 text-white shadow-md border-indigo-500' : 'bg-white text-slate-400 border-slate-200'}`}
+                                                >
+                                                    <Key size={12} /> Senha
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        const newRules = [...strategyConfig.rules];
+                                                        newRules[idx] = { ...newRules[idx], require_otp: !newRules[idx].require_otp };
+                                                        setStrategyConfig({ ...strategyConfig, rules: newRules });
+                                                    }}
+                                                    className={`py-2 px-3 rounded-xl border text-[9px] font-black uppercase transition-all flex flex-col items-center gap-1.5 ${rule.require_otp ? 'bg-orange-500 text-white shadow-md border-orange-400' : 'bg-white text-slate-400 border-slate-200'}`}
+                                                >
+                                                    <Smartphone size={12} /> OTP
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        const newRules = [...strategyConfig.rules];
+                                                        newRules[idx] = { ...newRules[idx], require_totp: !newRules[idx].require_totp };
+                                                        setStrategyConfig({ ...strategyConfig, rules: newRules });
+                                                    }}
+                                                    className={`py-2 px-3 rounded-xl border text-[9px] font-black uppercase transition-all flex flex-col items-center gap-1.5 ${rule.require_totp ? 'bg-purple-600 text-white shadow-md border-purple-500' : 'bg-white text-slate-400 border-slate-200'}`}
+                                                >
+                                                    <Clock size={12} /> TOTP
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        const newRules = [...strategyConfig.rules];
+                                                        newRules[idx] = { ...newRules[idx], auto_login: !newRules[idx].auto_login };
+                                                        setStrategyConfig({ ...strategyConfig, rules: newRules });
+                                                    }}
+                                                    className={`py-2 px-3 rounded-xl border text-[9px] font-black uppercase transition-all flex flex-col items-center gap-1.5 ${rule.auto_login ? 'bg-emerald-500 text-white shadow-md border-emerald-400' : 'bg-white text-slate-400 border-slate-200'}`}
+                                                >
+                                                    <Zap size={12} /> Auto
+                                                </button>
+                                            </div>
                                         </div>
                                     ))}
                                     {(!strategyConfig.rules || strategyConfig.rules.length === 0) && <p className="text-xs text-slate-400 italic">No origin rules defined (Public).</p>}

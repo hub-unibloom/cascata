@@ -73,16 +73,40 @@ export class DataAuthController {
         } catch (e) { return origin; }
     }
 
-    private static async evaluatePolicy(req: CascataRequest, provider: string) {
-        const origin = DataAuthController.getRequestOrigin(req);
-        const result = await req.projectPool!.query(`
-            SELECT * FROM auth.policies 
-            WHERE active = true 
-            AND (provider = $1 OR provider = '*')
-            AND (origin = $2 OR origin = '*' OR origin = 'localhost')
-            ORDER BY priority DESC LIMIT 1
-        `, [provider, origin]);
-        return result.rows[0] || null;
+    private static async resolveSovereignPolicy(req: CascataRequest, provider: string, origin: string, event: string = 'login'): Promise<any> {
+        // 1. STRATEGY-SPECIFIC METADATA RULES (Priority 1: Granular Owner Override)
+        const strategy = req.project.metadata?.auth_strategies?.[provider];
+        if (strategy?.rules) {
+            // Find specific rule for this origin (supports exact match or wildcard)
+            const matchedRule = strategy.rules.find((r: any) => {
+                if (r.origin === '*' || r.origin === origin) return true;
+                if (r.origin.startsWith('*.')) {
+                    const domain = r.origin.slice(2);
+                    return origin.endsWith(domain);
+                }
+                return false;
+            });
+
+            if (matchedRule) {
+                return {
+                    name: `Metadata Rule: ${origin}`,
+                    require_password: matchedRule.require_password ?? true,
+                    require_otp: matchedRule.require_otp ?? false,
+                    require_totp: matchedRule.require_totp ?? false,
+                    auto_login: matchedRule.auto_login ?? false,
+                    active: true,
+                    priority: 1000 
+                };
+            }
+        }
+
+        // 2. DATABASE POLICIES (Priority 2: Global Orchestration)
+        const isOriginTrusted = DataAuthController.validateOrigin(req, origin);
+        const policyRes = await req.projectPool!.query(
+            `SELECT auth.resolve_policy($1, $2, $3, $4::jsonb) as policy`, 
+            [event, provider, origin, JSON.stringify({ is_origin_trusted: isOriginTrusted })]
+        );
+        return policyRes.rows[0].policy;
     }
 
     private static async checkNeutralized(req: CascataRequest, identifier: string): Promise<{ neutralized: boolean, reason?: string }> {
@@ -161,13 +185,9 @@ export class DataAuthController {
             // SOVEREIGN HARDENING: Origin Integrity Check
             const isOriginTrusted = DataAuthController.validateOrigin(req, origin);
             
-            // C-LEVEL: Resolve Auth Orchestration Policy
-            // If origin is untrusted, we inject 'untrusted' into context to force strict laws
-            const policyRes = await req.projectPool!.query(
-                `SELECT auth.resolve_policy('login', $1, $2, $3::jsonb) as policy`, 
-                [provider, origin, JSON.stringify({ is_origin_trusted: isOriginTrusted })]
-            );
-            const policy = policyRes.rows[0].policy;
+            // C-LEVEL: Resolve Auth Orchestration Policy (Hybrid: Metadata rules take priority)
+            const cleanOrigin = DataAuthController.getRequestOrigin(req);
+            const policy = await DataAuthController.resolveSovereignPolicy(req, provider, cleanOrigin, 'login');
 
             // SOVEREIGN PANIC: Immediate check for origin/provider revocation
             const panicRes = await req.projectPool!.query(
@@ -428,7 +448,8 @@ export class DataAuthController {
                 if (neutralization.neutralized) return res.status(401).json({ error: 'User access neutralized by Sovereign Panic Signal.', reason: neutralization.reason });
             }
 
-            const policy = await DataAuthController.evaluatePolicy(req, provider);
+            const cleanOrigin = DataAuthController.getRequestOrigin(req);
+            const policy = await DataAuthController.resolveSovereignPolicy(req, provider, cleanOrigin, 'login');
             
             // Policy Enforcement: Block access if not active or specific conditions not met
             if (policy && policy.active === false) return res.status(403).json({ error: 'Security Policy Block: This authentication path is currently suspended.' });
@@ -665,7 +686,8 @@ export class DataAuthController {
                 const neutralization = await DataAuthController.checkNeutralized(req, identifier);
                 if (neutralization.neutralized) return res.status(401).json({ error: 'User access neutralized by Sovereign Panic Signal.', reason: neutralization.reason });
 
-                const policy = await DataAuthController.evaluatePolicy(req, provider);
+                const cleanOrigin = DataAuthController.getRequestOrigin(req);
+                const policy = await DataAuthController.resolveSovereignPolicy(req, provider, cleanOrigin, 'login');
                 if (policy && policy.active === false) return res.status(403).json({ error: 'Security Policy Block: Access path restricted by orchestrator.' });
             }
 
